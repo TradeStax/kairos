@@ -72,6 +72,7 @@ struct Flowsurface {
     timezone: data::UserTimezone,
     theme: data::Theme,
     notifications: Vec<Toast>,
+    downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +143,8 @@ enum Message {
     },
     DataDownloadComplete {
         pane_id: uuid::Uuid,
+        ticker: data::FuturesTicker,
+        date_range: data::DateRange,
         result: Result<usize, String>, // days_downloaded
     },
     Tick(std::time::Instant),
@@ -198,8 +201,27 @@ impl Flowsurface {
         // Initialize options services (Massive API)
         let (options_service, gex_service) = Self::initialize_options_services();
 
-        // Now load saved state with the service
-        let saved_state = layout::load_saved_state(market_data_service.clone());
+        // Load saved state first to get persisted registry
+        let saved_state_temp = layout::load_saved_state_without_registry(market_data_service.clone());
+
+        // Create THE SINGLE shared Arc<Mutex<>> with loaded registry data
+        let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.downloaded_tickers.clone()));
+
+        // Re-create layout manager with the shared Arc
+        let layout_manager = modal::LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone());
+
+        // Create final SavedState with shared Arc in layout_manager
+        let saved_state = layout::SavedState {
+            theme: saved_state_temp.theme,
+            custom_theme: saved_state_temp.custom_theme,
+            layout_manager,
+            main_window: saved_state_temp.main_window,
+            timezone: saved_state_temp.timezone,
+            sidebar: saved_state_temp.sidebar,
+            scale_factor: saved_state_temp.scale_factor,
+            audio_cfg: saved_state_temp.audio_cfg,
+            downloaded_tickers: saved_state_temp.downloaded_tickers,
+        };
 
         let (main_window_id, open_main_window) = {
             let (position, size) = saved_state.window();
@@ -212,7 +234,7 @@ impl Flowsurface {
             window::open(config)
         };
 
-        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state);
+        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state, downloaded_tickers.clone());
 
         let mut state = Self {
             main_window: window::Window::new(main_window_id),
@@ -230,6 +252,7 @@ impl Flowsurface {
             ui_scale_factor: saved_state.scale_factor,
             theme: saved_state.theme,
             notifications: vec![],
+            downloaded_tickers: downloaded_tickers.clone(),
         };
 
         let active_layout_id = state.layout_manager.active_layout_id().unwrap_or(
@@ -509,25 +532,43 @@ impl Flowsurface {
             Message::DownloadData { pane_id, ticker, schema, date_range } => {
                 let service = self.market_data_service.clone();
                 let schema_discriminant = schema as u16;
+                let ticker_clone = ticker.clone();
+                let date_range_clone = date_range;
                 return Task::perform(
                     async move {
                         service.download_to_cache(&ticker, schema_discriminant, &date_range).await
                             .map_err(|e| e.to_string())
                     },
-                    move |result| Message::DataDownloadComplete { pane_id, result }
+                    move |result| Message::DataDownloadComplete {
+                        pane_id,
+                        ticker: ticker_clone,
+                        date_range: date_range_clone,
+                        result
+                    }
                 );
             }
             Message::DataDownloadProgress { pane_id, current, total } => {
                 log::debug!("Download progress for pane {}: {}/{}", pane_id, current, total);
                 // TODO: Update pane's data management modal with progress
             }
-            Message::DataDownloadComplete { pane_id, result } => {
+            Message::DataDownloadComplete { pane_id, ticker, date_range, result } => {
                 match result {
                     Ok(days_downloaded) => {
-                        log::info!("Downloaded {} days", days_downloaded);
+                        log::info!("Downloaded {} days for {} ({} to {})",
+                            days_downloaded, ticker, date_range.start, date_range.end);
                         self.notifications.push(Toast::new(toast::Notification::Info(
                             format!("Successfully downloaded {} days of data", days_downloaded)
                         )));
+
+                        // Register ticker in the registry
+                        self.downloaded_tickers.lock().unwrap().register(ticker.clone(), date_range);
+                        log::info!("Registered {} in downloaded tickers registry", ticker);
+
+                        // Update ticker list to show newly downloaded ticker
+                        let ticker_symbols: std::collections::HashSet<String> =
+                            self.downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
+                        self.sidebar.tickers_table.set_cached_filter(ticker_symbols);
+                        log::info!("Updated ticker list with {} tickers", self.downloaded_tickers.lock().unwrap().count());
 
                         // Update sidebar modal (if nil UUID) or dashboard pane
                         if pane_id == uuid::Uuid::nil() {
@@ -537,19 +578,21 @@ impl Flowsurface {
                             );
 
                             // Re-trigger estimation to refresh cache colors in calendar
-                            let ticker = data::FuturesTicker::new(
+                            let estimate_ticker = data::FuturesTicker::new(
                                 crate::modal::pane::data_management::FUTURES_PRODUCTS[self.data_management_panel.selected_ticker_idx()].0,
                                 data::FuturesVenue::CMEGlobex
                             );
                             let schema = crate::modal::pane::data_management::SCHEMAS[self.data_management_panel.selected_schema_idx()].0;
-                            let date_range = self.data_management_panel.current_date_range();
+                            let estimate_date_range = self.data_management_panel.current_date_range();
 
-                            return Task::done(Message::EstimateDataCost {
+                            let estimate_task = Task::done(Message::EstimateDataCost {
                                 pane_id: uuid::Uuid::nil(),
-                                ticker,
+                                ticker: estimate_ticker,
                                 schema,
-                                date_range,
+                                date_range: estimate_date_range,
                             });
+
+                            return estimate_task;
                         } else {
                             let layout_id = self.layout_manager.active_layout_id()
                                 .map(|id| id.unique)
@@ -755,6 +798,7 @@ impl Flowsurface {
                                 popout_windows,
                                 old_id,
                                 self.market_data_service.clone(),
+                                self.downloaded_tickers.clone(),
                             );
 
                             manager.insert_layout(new_layout.clone(), dashboard);
@@ -819,22 +863,19 @@ impl Flowsurface {
                     Some(dashboard::sidebar::Action::TickerSelected(ticker_info, content)) => {
                         let main_window_id = self.main_window.id;
 
-                        let task = {
-                            if let Some(kind) = content {
-                                // Convert exchange::TickerInfo to domain::FuturesTickerInfo
-                                let futures_info = ticker_info.to_domain();
-                                self.active_dashboard_mut().init_focused_pane(
-                                    main_window_id,
-                                    futures_info,
-                                    kind,
-                                )
-                            } else {
-                                // For switching tickers in group, convert to domain::FuturesTickerInfo
-                                let futures_info = ticker_info.to_domain();
-                                self.active_dashboard_mut()
-                                    .switch_tickers_in_group(main_window_id, futures_info)
-                            }
-                        };
+                        // Convert exchange::TickerInfo to domain::FuturesTickerInfo
+                        let futures_info = ticker_info.to_domain();
+
+                        // Default to CandlestickChart if no content kind specified
+                        let kind = content.unwrap_or(data::ContentKind::CandlestickChart);
+
+                        log::info!("MAIN: TickerSelected {:?} with ContentKind::{:?}", ticker_info.ticker, kind);
+
+                        let task = self.active_dashboard_mut().init_focused_pane(
+                            main_window_id,
+                            futures_info,
+                            kind,
+                        );
 
                         return task.map(move |msg| Message::Dashboard {
                             layout_id: None,
@@ -1451,6 +1492,7 @@ impl Flowsurface {
             self.sidebar.state.clone(),
             self.ui_scale_factor,
             audio_cfg_simplified,
+            self.downloaded_tickers.lock().unwrap().clone(),
         );
 
         // Save state using the persistence module

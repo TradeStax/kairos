@@ -26,6 +26,7 @@ pub struct SavedState {
     pub theme: data::Theme,
     pub custom_theme: Option<data::Theme>,
     pub audio_cfg: data::AudioStream,
+    pub downloaded_tickers: data::DownloadedTickersRegistry,
 }
 
 impl SavedState {
@@ -46,9 +47,12 @@ impl SavedState {
         (position, size)
     }
 
-    pub fn default_with_service(market_data_service: std::sync::Arc<data::MarketDataService>) -> Self {
+    pub fn default_with_service(
+        market_data_service: std::sync::Arc<data::MarketDataService>,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    ) -> Self {
         SavedState {
-            layout_manager: LayoutManager::new(market_data_service),
+            layout_manager: LayoutManager::new(market_data_service, downloaded_tickers.clone()),
             main_window: None,
             scale_factor: data::ScaleFactor::default(),
             timezone: UserTimezone::default(),
@@ -56,6 +60,7 @@ impl SavedState {
             theme: data::Theme::default(),
             custom_theme: None,
             audio_cfg: data::AudioStream::default(),
+            downloaded_tickers: (*downloaded_tickers.lock().unwrap()).clone(),
         }
     }
 }
@@ -158,7 +163,10 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
     }
 }
 
-pub fn load_saved_state(market_data_service: std::sync::Arc<data::MarketDataService>) -> SavedState {
+pub fn load_saved_state_without_registry(
+    market_data_service: std::sync::Arc<data::MarketDataService>,
+) -> SavedState {
+    let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
     match data::load_state("app-state.json") {
         Ok(state) => {
             // For now, use default layout manager since AppState doesn't have dashboard info yet
@@ -166,12 +174,13 @@ pub fn load_saved_state(market_data_service: std::sync::Arc<data::MarketDataServ
             SavedState {
                 theme: state.selected_theme,
                 custom_theme: state.custom_theme,
-                layout_manager: LayoutManager::new(market_data_service.clone()),
+                layout_manager: LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone()),
                 main_window: state.main_window,
                 timezone: state.timezone,
                 sidebar: state.sidebar,
                 scale_factor: state.scale_factor,
                 audio_cfg: data::AudioStream::default(), // TODO: Use proper audio config from state
+                downloaded_tickers: state.downloaded_tickers,
             }
         }
         Err(e) => {
@@ -180,7 +189,7 @@ pub fn load_saved_state(market_data_service: std::sync::Arc<data::MarketDataServ
                 e
             );
 
-            SavedState::default_with_service(market_data_service)
+            SavedState::default_with_service(market_data_service, downloaded_tickers)
         }
     }
 }

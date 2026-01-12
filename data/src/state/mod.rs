@@ -31,6 +31,7 @@
 
 pub mod app_state;
 pub mod chart_state;
+pub mod downloaded_tickers;
 pub mod layout_manager;
 pub mod layout_types;
 pub mod migrations;
@@ -41,6 +42,7 @@ pub mod replay_state;
 
 pub use app_state::{AppState, WindowSpec};
 pub use chart_state::ChartState;
+pub use downloaded_tickers::DownloadedTickersRegistry;
 pub use layout_manager::{Layout, LayoutManager, Layouts};
 pub use layout_types::{Axis, Dashboard, Pane};
 pub use pane_config::{

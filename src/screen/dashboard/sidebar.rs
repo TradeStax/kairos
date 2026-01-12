@@ -17,7 +17,6 @@ use iced::{
     widget::responsive,
     widget::{column, row, space},
 };
-use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -42,9 +41,24 @@ pub enum Action {
 }
 
 impl Sidebar {
-    pub fn new(state: &SavedState) -> (Self, Task<Message>) {
+    pub fn new(
+        state: &SavedState,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    ) -> (Self, Task<Message>) {
         // TODO: Re-enable settings persistence once tickers_table Settings type exists
-        let (tickers_table, initial_fetch) = TickersTable::new();
+        let (mut tickers_table, initial_fetch) = TickersTable::new();
+
+        // Apply filter from downloaded tickers registry (uses shared Arc)
+        let ticker_symbols: std::collections::HashSet<String> =
+            downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
+        if !ticker_symbols.is_empty() {
+            log::info!("Applying filter from registry: {} downloaded tickers", ticker_symbols.len());
+            tickers_table.set_cached_filter(ticker_symbols);
+        } else {
+            log::info!("No downloaded tickers in registry - ticker list will be empty");
+            // Apply empty filter to hide all tickers
+            tickers_table.set_cached_filter(std::collections::HashSet::new());
+        }
 
         (
             Self {

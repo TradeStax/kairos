@@ -55,9 +55,9 @@ pub use repository::{
 pub use services::{CacheManagerService, MarketDataService, ServiceError};
 
 pub use state::{
-    AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard, HeatmapConfig,
-    KlineConfig, LadderConfig, Layout, LayoutManager, Layouts, LinkGroup, Pane, Settings,
-    StateVersion, TimeAndSalesConfig, VisualConfig, WindowSpec, load_state, save_state,
+    AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard, DownloadedTickersRegistry,
+    HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager, Layouts, LinkGroup, Pane,
+    Settings, StateVersion, TimeAndSalesConfig, VisualConfig, WindowSpec, load_state, save_state,
 };
 
 // Re-export config types

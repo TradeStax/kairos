@@ -15,7 +15,7 @@ use crate::{
     window::{self, Window},
 };
 use data::{
-    ChartConfig, ChartData, ChartState, ContentKind, LoadingStatus, UserTimezone,
+    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LoadingStatus, UserTimezone,
     WindowSpec,
 };
 use exchange::FuturesTickerInfo;
@@ -87,12 +87,17 @@ pub struct Dashboard {
     pub market_data_service: std::sync::Arc<data::MarketDataService>,
     /// Crosshair positions by link group
     pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>, // (timestamp, price)
+    /// Downloaded tickers registry (tracks which tickers have data and their ranges)
+    pub downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     layout_id: uuid::Uuid,
 }
 
 impl Dashboard {
-    /// Create a new Dashboard with the given market data service
-    pub fn new(market_data_service: std::sync::Arc<data::MarketDataService>) -> Self {
+    /// Create a new Dashboard with the given market data service and registry
+    pub fn new(
+        market_data_service: std::sync::Arc<data::MarketDataService>,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    ) -> Self {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
             focus: None,
@@ -100,6 +105,7 @@ impl Dashboard {
             market_data_service,
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
+            downloaded_tickers,
             layout_id: uuid::Uuid::new_v4(),
         }
     }
@@ -157,6 +163,7 @@ impl Dashboard {
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
         layout_id: uuid::Uuid,
         market_data_service: std::sync::Arc<data::MarketDataService>,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
 
@@ -176,6 +183,7 @@ impl Dashboard {
             market_data_service,
             popout,
             crosshair_positions: HashMap::new(),
+            downloaded_tickers,
             layout_id,
         }
     }
@@ -773,6 +781,8 @@ impl Dashboard {
         ticker_info: FuturesTickerInfo,
         content_kind: ContentKind,
     ) -> Task<Message> {
+        log::info!("DASHBOARD: init_focused_pane called with {:?} ContentKind::{:?}", ticker_info.ticker, content_kind);
+
         // Get the focused pane
         let Some((window, pane)) = self.focus else {
             log::warn!("No pane focused when trying to initialize");
@@ -780,6 +790,18 @@ impl Dashboard {
                 "No pane selected".to_string(),
             )));
         };
+
+        // Get registered date range BEFORE borrowing pane_state mutably
+        let date_range = self.downloaded_tickers
+            .lock()
+            .unwrap()
+            .get_range(&ticker_info.ticker)
+            .unwrap_or_else(|| {
+                log::warn!("No registered range for {} - using last 1 day", ticker_info.ticker);
+                DateRange::last_n_days(1)
+            });
+
+        log::info!("DASHBOARD: Using date range {} to {} for {}", date_range.start, date_range.end, ticker_info.ticker);
 
         // Get mutable reference to the focused pane state
         let Some(pane_state) = self.get_mut_pane(main_window, window, pane) else {
@@ -789,8 +811,8 @@ impl Dashboard {
             )));
         };
 
-        // Set content and trigger chart loading
-        let effect = pane_state.set_content(ticker_info, content_kind);
+        // Set content and trigger chart loading with registered date range
+        let effect = pane_state.set_content_with_range(ticker_info, content_kind, date_range);
 
         // Handle the LoadChart effect
         match effect {

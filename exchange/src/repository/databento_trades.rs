@@ -352,6 +352,13 @@ impl TradeRepository for DatabentoTradeRepository {
             }
         }
     }
+
+    async fn list_cached_symbols_databento(&self) -> RepositoryResult<std::collections::HashSet<String>> {
+        let manager = self.manager.lock().await;
+        manager.cache.list_cached_symbols()
+            .await
+            .map_err(|e| RepositoryError::Cache(format!("Failed to list cached symbols: {:?}", e)))
+    }
 }
 
 // Default trait intentionally not implemented

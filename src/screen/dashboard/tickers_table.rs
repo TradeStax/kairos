@@ -130,6 +130,7 @@ pub struct TickersTable {
     pub tickers_info: FxHashMap<FuturesTicker, FuturesTickerInfo>,
     show_favorites: bool,
     row_index: FxHashMap<FuturesTicker, usize>,
+    cached_tickers_filter: Option<std::collections::HashSet<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +184,7 @@ impl TickersTable {
             tickers_info: FxHashMap::default(),
             show_favorites: false,
             row_index: FxHashMap::default(),
+            cached_tickers_filter: None,
         };
 
         // Initialize with futures products
@@ -550,6 +552,14 @@ impl TickersTable {
     fn update_display_cache(&mut self) {
         self.display_cache.clear();
         for row in &self.ticker_rows {
+            // Skip if not in cached filter
+            if let Some(filter) = &self.cached_tickers_filter {
+                if !filter.contains(&row.ticker.to_string()) {
+                    log::debug!("TABLE: Skipping {} (not in cache filter)", row.ticker);
+                    continue; // Don't add to display cache
+                }
+            }
+
             let display_data = compute_display_data(row, row.previous_stats);
             self.display_cache.insert(row.ticker, display_data);
         }
@@ -921,6 +931,23 @@ impl TickersTable {
         }
     }
 
+    pub fn set_cached_filter(&mut self, cached_symbols: std::collections::HashSet<String>) {
+        log::info!("TABLE: Applying cached ticker filter: {} tickers available", cached_symbols.len());
+        for symbol in &cached_symbols {
+            log::info!("TABLE:   - {}", symbol);
+        }
+        log::info!("TABLE: Total ticker_rows before filter: {}", self.ticker_rows.len());
+        self.cached_tickers_filter = Some(cached_symbols);
+        self.update_display_cache(); // Rebuild display with filter
+        log::info!("TABLE: After update_display_cache(), display_cache has {} entries", self.display_cache.len());
+    }
+
+    pub fn clear_cached_filter(&mut self) {
+        log::info!("Clearing cached ticker filter - showing all tickers");
+        self.cached_tickers_filter = None;
+        self.update_display_cache(); // Rebuild display
+    }
+
     fn filtered_rows<'a>(
         &'a self,
         search_upper: &str,
@@ -931,7 +958,19 @@ impl TickersTable {
             self.ticker_rows
                 .iter()
                 .filter(|row| {
-                    row.is_favorited && !excluded.is_some_and(|ex| ex.contains(&row.ticker))
+                    // Filter 1: Must be favorited and not excluded
+                    if !row.is_favorited || excluded.is_some_and(|ex| ex.contains(&row.ticker)) {
+                        return false;
+                    }
+
+                    // Filter 2: Must be in cached filter (if filter is set)
+                    if let Some(filter) = &self.cached_tickers_filter {
+                        if !filter.contains(&row.ticker.to_string()) {
+                            return false;
+                        }
+                    }
+
+                    true
                 })
                 .filter_map(|row| calc_search_rank(row, search_upper).map(|rank| (row, rank)))
                 .collect()
@@ -964,8 +1003,19 @@ impl TickersTable {
             .ticker_rows
             .iter()
             .filter(|row| {
-                (!self.show_favorites || !row.is_favorited)
-                    && !excluded.is_some_and(|ex| ex.contains(&row.ticker))
+                // Filter 1: Must not be in favorites (if showing favorites) and not excluded
+                if (self.show_favorites && row.is_favorited) || excluded.is_some_and(|ex| ex.contains(&row.ticker)) {
+                    return false;
+                }
+
+                // Filter 2: Must be in cached filter (if filter is set)
+                if let Some(filter) = &self.cached_tickers_filter {
+                    if !filter.contains(&row.ticker.to_string()) {
+                        return false;
+                    }
+                }
+
+                true
             })
             .filter_map(|row| calc_search_rank(row, search_upper).map(|rank| (row, rank)))
             .collect();

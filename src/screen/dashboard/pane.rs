@@ -206,8 +206,16 @@ impl State {
         self.ticker_info
     }
 
-    /// Set content and request chart loading
-    pub fn set_content(&mut self, ticker_info: FuturesTickerInfo, kind: ContentKind) -> Effect {
+    /// Set content and request chart loading with specified date range
+    pub fn set_content_with_range(
+        &mut self,
+        ticker_info: FuturesTickerInfo,
+        kind: ContentKind,
+        date_range: DateRange,
+    ) -> Effect {
+        log::info!("PANE: set_content_with_range called with {:?} ContentKind::{:?}, range {} to {}",
+            ticker_info.ticker, kind, date_range.start, date_range.end);
+
         // Determine basis (time or tick)
         let basis = self
             .settings
@@ -221,11 +229,11 @@ impl State {
         self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
         self.loading_status = LoadingStatus::Idle;
 
-        // Create chart config
+        // Create chart config with registered date range
         let config = ChartConfig {
             ticker: ticker_info.ticker,
             basis,
-            date_range: DateRange::last_n_days(1), // 1 day default
+            date_range, // Use registered range from downloaded_tickers
             chart_type: kind.to_chart_type(),
         };
 
@@ -234,6 +242,11 @@ impl State {
             config,
             ticker_info,
         }
+    }
+
+    /// Set content and request chart loading (legacy - uses default 1 day)
+    pub fn set_content(&mut self, ticker_info: FuturesTickerInfo, kind: ContentKind) -> Effect {
+        self.set_content_with_range(ticker_info, kind, DateRange::last_n_days(1))
     }
 
     pub fn view<'a>(

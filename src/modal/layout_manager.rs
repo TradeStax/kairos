@@ -43,10 +43,14 @@ pub struct LayoutManager {
     active_layout_id: Option<Uuid>,
     pub edit_mode: Editing,
     market_data_service: std::sync::Arc<data::MarketDataService>,
+    downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
 }
 
 impl LayoutManager {
-    pub fn new(market_data_service: std::sync::Arc<data::MarketDataService>) -> Self {
+    pub fn new(
+        market_data_service: std::sync::Arc<data::MarketDataService>,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    ) -> Self {
         let default_layout = LayoutId {
             unique: Uuid::new_v4(),
             name: "Layout 1".into(),
@@ -55,11 +59,12 @@ impl LayoutManager {
         Self {
             layouts: vec![Layout {
                 id: default_layout.clone(),
-                dashboard: Dashboard::new(market_data_service.clone()),
+                dashboard: Dashboard::new(market_data_service.clone(), downloaded_tickers.clone()),
             }],
             active_layout_id: Some(default_layout.unique),
             edit_mode: Editing::None,
             market_data_service,
+            downloaded_tickers,
         }
     }
 
@@ -67,12 +72,14 @@ impl LayoutManager {
         layouts: Vec<Layout>,
         active_layout: Option<LayoutId>,
         market_data_service: std::sync::Arc<data::MarketDataService>,
+        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         Self {
             layouts,
             active_layout_id: active_layout.map(|l| l.unique),
             edit_mode: Editing::None,
             market_data_service,
+            downloaded_tickers,
         }
     }
 
@@ -165,7 +172,7 @@ impl LayoutManager {
                     name: self.generate_unique_layout_name(),
                 };
 
-                self.insert_layout(new_layout.clone(), Dashboard::new(self.market_data_service.clone()));
+                self.insert_layout(new_layout.clone(), Dashboard::new(self.market_data_service.clone(), self.downloaded_tickers.clone()));
 
                 return Some(Action::Select(new_layout.unique));
             }

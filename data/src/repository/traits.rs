@@ -132,6 +132,14 @@ pub trait TradeRepository: Send + Sync {
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> RepositoryResult<f64>;
+
+    /// List symbols with cached data (Databento-specific)
+    ///
+    /// Returns set of symbol strings that have at least one cached file.
+    /// Default implementation returns empty set.
+    async fn list_cached_symbols_databento(&self) -> RepositoryResult<std::collections::HashSet<String>> {
+        Ok(std::collections::HashSet::new())
+    }
 }
 
 /// Depth (orderbook) repository interface

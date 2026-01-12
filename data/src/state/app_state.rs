@@ -7,6 +7,7 @@ use crate::config::ScaleFactor;
 use crate::config::sidebar::Sidebar;
 use crate::config::theme::Theme;
 use crate::config::timezone::UserTimezone;
+use super::downloaded_tickers::DownloadedTickersRegistry;
 use serde::{Deserialize, Serialize};
 
 /// Window specification (position and size)
@@ -150,6 +151,9 @@ pub struct AppState {
     /// Massive (Polygon) configuration
     /// NOTE: API key is read from environment variables only (MASSIVE_API_KEY)
     pub massive_config: MassiveConfigSettings,
+
+    /// Registry of downloaded tickers with their date ranges
+    pub downloaded_tickers: DownloadedTickersRegistry,
 }
 
 impl Default for AppState {
@@ -167,6 +171,7 @@ impl Default for AppState {
             trade_fetch_enabled: false,
             databento_config: DatabentoConfig::default(),
             massive_config: MassiveConfigSettings::default(),
+            downloaded_tickers: DownloadedTickersRegistry::default(),
         }
     }
 }
@@ -182,6 +187,7 @@ impl AppState {
         sidebar: Sidebar,
         scale_factor: ScaleFactor,
         audio_cfg: AudioStream,
+        downloaded_tickers: DownloadedTickersRegistry,
     ) -> Self {
         Self {
             version: 1,
@@ -196,6 +202,7 @@ impl AppState {
             trade_fetch_enabled: false, // Default to false
             databento_config: DatabentoConfig::default(),
             massive_config: MassiveConfigSettings::default(),
+            downloaded_tickers,
         }
     }
 

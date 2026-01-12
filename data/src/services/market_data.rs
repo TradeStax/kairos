@@ -406,6 +406,14 @@ impl MarketDataService {
 
         Ok(days_downloaded)
     }
+
+    /// Get list of tickers with cached data
+    pub async fn get_cached_tickers(&self) -> ServiceResult<std::collections::HashSet<String>> {
+        self.trade_repo
+            .list_cached_symbols_databento()
+            .await
+            .map_err(ServiceError::from)
+    }
 }
 
 #[cfg(test)]
