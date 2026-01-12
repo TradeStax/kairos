@@ -1,0 +1,74 @@
+//! Bollinger Bands Indicator
+
+use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
+use data::Candle;
+use iced::widget::column;
+use std::{collections::BTreeMap, ops::RangeInclusive};
+
+pub struct BollingerIndicator {
+    upper_band: BTreeMap<u64, f32>,
+    middle_band: BTreeMap<u64, f32>,
+    lower_band: BTreeMap<u64, f32>,
+    cache: Caches,
+}
+
+impl BollingerIndicator {
+    pub fn new() -> Self {
+        Self { upper_band: BTreeMap::new(), middle_band: BTreeMap::new(), lower_band: BTreeMap::new(), cache: Caches::default() }
+    }
+
+    fn calculate(&mut self, candles: &[Candle]) {
+        self.upper_band.clear();
+        self.middle_band.clear();
+        self.lower_band.clear();
+
+        let period = 20;
+        let std_dev_multiplier = 2.0;
+        if candles.len() < period { return; }
+
+        for i in period - 1..candles.len() {
+            let window = &candles[i - (period - 1)..=i];
+            let sum: f32 = window.iter().map(|c| c.close.to_f32()).sum();
+            let sma = sum / period as f32;
+
+            let variance: f32 = window.iter().map(|c| {
+                let diff = c.close.to_f32() - sma;
+                diff * diff
+            }).sum::<f32>() / period as f32;
+
+            let std_dev = variance.sqrt();
+            let time = candles[i].time.0;
+            self.middle_band.insert(time, sma);
+            self.upper_band.insert(time, sma + std_dev_multiplier * std_dev);
+            self.lower_band.insert(time, sma - std_dev_multiplier * std_dev);
+        }
+    }
+}
+
+impl KlineIndicatorImpl for BollingerIndicator {
+    fn clear_all_caches(&mut self) { self.cache.clear_all(); }
+    fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
+
+    fn element<'a>(&'a self, chart: &'a ViewState, visible_range: RangeInclusive<u64>) -> iced::Element<'a, Message> {
+        let tooltip = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB: {:.2}", v));
+
+        let upper_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+        let middle_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+        let lower_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+
+        column![
+            indicator_row(chart, &self.cache, upper_plot, &self.upper_band, visible_range.clone()),
+            indicator_row(chart, &self.cache, middle_plot, &self.middle_band, visible_range.clone()),
+            indicator_row(chart, &self.cache, lower_plot, &self.lower_band, visible_range)
+        ].into()
+    }
+
+    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
+        self.calculate(candles);
+        self.clear_all_caches();
+    }
+}
+
+impl Default for BollingerIndicator {
+    fn default() -> Self { Self::new() }
+}

@@ -1,0 +1,299 @@
+use crate::TooltipPosition;
+use crate::audio::{SoundCache, SoundType};
+use crate::style::{self, icon_text};
+use crate::widget::{labeled_slider, tooltip};
+use data::audio::StreamCfg;
+use data::FuturesTicker;
+use exchange::adapter::StreamKind;
+use exchange::{PushFrequency, Trade};
+use iced::widget::{button, column, container, row, text};
+use iced::widget::{checkbox, slider, space};
+use iced::{Element, padding};
+use rustc_hash::FxHashMap;
+
+const HARD_THRESHOLD: usize = 4;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Message {
+    SoundLevelChanged(f32),
+    ToggleStream(bool, FuturesTicker),
+    ToggleCard(FuturesTicker),
+    SetThreshold(FuturesTicker, data::audio::Threshold),
+}
+
+pub struct AudioStream {
+    cache: SoundCache,
+    streams: FxHashMap<FuturesTicker, StreamCfg>,
+    expanded_card: Option<FuturesTicker>,
+}
+
+impl AudioStream {
+    pub fn new(cfg: data::AudioStream) -> Self {
+        AudioStream {
+            cache: SoundCache::with_default_sounds(cfg.volume)
+                .expect("Failed to create sound cache"),
+            streams: cfg.streams,
+            expanded_card: None,
+        }
+    }
+
+    pub fn update(&mut self, message: Message) {
+        match message {
+            Message::SoundLevelChanged(value) => {
+                self.cache.set_volume(value);
+            }
+            Message::ToggleStream(is_checked, ticker) => {
+                if is_checked {
+                    if let Some(cfg) = self.streams.get_mut(&ticker) {
+                        cfg.enabled = true;
+                    } else {
+                        self.streams.insert(ticker, StreamCfg::default());
+                    }
+                } else if let Some(cfg) = self.streams.get_mut(&ticker) {
+                    cfg.enabled = false;
+                }
+            }
+            Message::ToggleCard(ticker) => {
+                self.expanded_card = match self.expanded_card {
+                    Some(tk) if tk == ticker => None,
+                    _ => Some(ticker),
+                };
+            }
+            Message::SetThreshold(ticker, threshold) => {
+                if let Some(cfg) = self.streams.get_mut(&ticker) {
+                    cfg.threshold = threshold;
+                }
+            }
+        }
+    }
+
+    pub fn view(
+        &self,
+        active_streams: Vec<(
+            exchange::FuturesTickerInfo,
+            exchange::adapter::StreamTicksize,
+            PushFrequency,
+        )>,
+    ) -> Element<'_, Message> {
+        let volume_container = {
+            let volume_slider = {
+                let volume_pct = self.cache.get_volume().unwrap_or(0.0);
+
+                labeled_slider(
+                    "Volume",
+                    0.0..=100.0,
+                    volume_pct,
+                    Message::SoundLevelChanged,
+                    |value| format!("{value}%"),
+                    Some(1.0),
+                )
+            };
+
+            column![text("Sound").size(14), volume_slider,].spacing(8)
+        };
+
+        let audio_contents = {
+            let mut available_streams = column![].spacing(4);
+
+            if active_streams.is_empty() {
+                available_streams = available_streams.push(text("No trade streams found"));
+            } else {
+                // de-dup by ticker, ignoring depth_aggr
+                let mut streams = active_streams;
+                let mut seen = Vec::with_capacity(streams.len());
+                streams.retain(|pair| {
+                    let ticker_info = pair.0;
+                    if seen.contains(&ticker_info.ticker) {
+                        false
+                    } else {
+                        seen.push(ticker_info.ticker);
+                        true
+                    }
+                });
+
+                for (ticker_info, depth_aggr, _) in streams {
+                    let ticker = ticker_info.ticker;
+
+                    let mut column = column![].padding(padding::left(4));
+
+                    let is_audio_enabled =
+                        self.is_stream_audio_enabled(&StreamKind::DepthAndTrades {
+                            ticker_info,
+                            depth_aggr,
+                            push_freq: PushFrequency::ServerDefault,
+                        });
+
+                    let stream_checkbox = checkbox(is_audio_enabled)
+                        .label(format!("{}", ticker))
+                        .on_toggle(move |is_checked| Message::ToggleStream(is_checked, ticker));
+
+                    let mut stream_row = row![stream_checkbox, space::horizontal(),]
+                        .height(36)
+                        .align_y(iced::Alignment::Center)
+                        .padding(4)
+                        .spacing(4);
+
+                    let is_expanded = self.expanded_card.is_some_and(|tk| tk == ticker);
+
+                    if is_audio_enabled {
+                        stream_row = stream_row.push(tooltip(
+                            button(icon_text(style::Icon::Cog, 12))
+                                .on_press(Message::ToggleCard(ticker))
+                                .style(move |theme, status| {
+                                    style::button::transparent(theme, status, is_expanded)
+                                }),
+                            Some("Toggle filters for triggering a sound"),
+                            TooltipPosition::Top,
+                        ));
+                    }
+
+                    column = column.push(stream_row);
+
+                    if is_expanded
+                        && is_audio_enabled
+                        && let Some(cfg) = self.streams.get(&ticker)
+                    {
+                        match cfg.threshold {
+                            data::audio::Threshold::Count(v) => {
+                                let threshold_slider =
+                                    slider(1.0..=100.0, v as f32, move |value| {
+                                        Message::SetThreshold(
+                                            ticker,
+                                            data::audio::Threshold::Count(value as usize),
+                                        )
+                                    });
+
+                                column = column.push(
+                                    column![
+                                        text(format!("Buy/sell trade count in buffer ≥ {}", v)),
+                                        threshold_slider
+                                    ]
+                                    .padding(8)
+                                    .spacing(4),
+                                );
+                            }
+                            data::audio::Threshold::Qty(v) => {
+                                column = column.push(
+                                    row![text(format!("Any trade's size in buffer ≥ {}", v))]
+                                        .padding(8)
+                                        .spacing(4),
+                                );
+                            }
+                        }
+                    }
+
+                    available_streams =
+                        available_streams.push(container(column).style(style::modal_container));
+                }
+            }
+
+            column![text("Audio streams").size(14), available_streams,].spacing(8)
+        };
+
+        container(column![volume_container, audio_contents,].spacing(20))
+            .max_width(320)
+            .padding(24)
+            .style(style::dashboard_modal)
+            .into()
+    }
+
+    pub fn volume(&self) -> Option<f32> {
+        self.cache.get_volume()
+    }
+
+    pub fn play(&mut self, sound: SoundType) -> Result<(), String> {
+        self.cache.play(sound)
+    }
+
+    pub fn is_stream_audio_enabled(&self, stream: &StreamKind) -> bool {
+        match stream {
+            StreamKind::DepthAndTrades { ticker_info, .. } => self
+                .streams
+                .get(&ticker_info.ticker)
+                .is_some_and(|cfg| cfg.enabled),
+            _ => false,
+        }
+    }
+
+    pub fn should_play_sound(&self, stream: &StreamKind) -> Option<StreamCfg> {
+        if self.cache.is_muted() {
+            return None;
+        }
+
+        let StreamKind::DepthAndTrades { ticker_info, .. } = stream else {
+            return None;
+        };
+
+        match self.streams.get(&ticker_info.ticker) {
+            Some(cfg) if cfg.enabled => Some(*cfg),
+            _ => None,
+        }
+    }
+
+    pub fn try_play_sound(
+        &mut self,
+        stream: &StreamKind,
+        trades_buffer: &[Trade],
+    ) -> Result<(), String> {
+        let Some(cfg) = self.should_play_sound(stream) else {
+            return Ok(());
+        };
+
+        match cfg.threshold {
+            data::audio::Threshold::Count(v) => {
+                let (buy_count, sell_count) =
+                    trades_buffer.iter().fold((0, 0), |(buy_c, sell_c), trade| {
+                        match trade.side {
+                            exchange::TradeSide::Sell => (buy_c, sell_c + 1),
+                            exchange::TradeSide::Buy => (buy_c + 1, sell_c),
+                        }
+                    });
+
+                if buy_count < v && sell_count < v {
+                    return Ok(());
+                }
+
+                let sound = |count: usize, is_sell: bool| {
+                    if count > (v * HARD_THRESHOLD) {
+                        if is_sell {
+                            SoundType::HardSell
+                        } else {
+                            SoundType::HardBuy
+                        }
+                    } else if is_sell {
+                        SoundType::Sell
+                    } else {
+                        SoundType::Buy
+                    }
+                };
+
+                match buy_count.cmp(&sell_count) {
+                    std::cmp::Ordering::Greater => {
+                        self.play(sound(buy_count, false))?;
+                    }
+                    std::cmp::Ordering::Less => {
+                        self.play(sound(sell_count, true))?;
+                    }
+                    std::cmp::Ordering::Equal => {
+                        self.play(sound(buy_count, false))?;
+                        self.play(sound(sell_count, true))?;
+                    }
+                }
+            }
+            data::audio::Threshold::Qty(_) => {
+                unimplemented!()
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl From<&AudioStream> for data::AudioStream {
+    fn from(audio_stream: &AudioStream) -> Self {
+        data::AudioStream {
+            volume: audio_stream.cache.get_volume(),
+            streams: audio_stream.streams.clone(),
+        }
+    }
+}

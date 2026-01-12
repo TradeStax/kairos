@@ -1,0 +1,85 @@
+[package]
+name = "flowsurface"
+version = "0.8.6"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+description = "A native desktop charting platform for futures markets"
+categories = ["finance", "visualization", "gui"]
+edition.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[workspace.package]
+edition = "2024"
+repository = "https://github.com/flowsurface-rs/flowsurface"
+homepage = "https://flowsurface.com"
+
+[workspace]
+members = [ "data", "exchange"]
+
+[workspace.dependencies]
+iced_futures = { version = "0.14.0" }
+iced_core = { version = "0.14.0", features = ["serde"] }
+chrono = { version = "0.4.40", default-features = false, features = ["serde", "now", "clock"] }
+serde = { version = "1.0.219", default-features = false, features = ["derive"] }
+serde_json = "1.0.140"
+log = "0.4.22"
+thiserror = "2.0.12"
+regex = "1.11.1"
+palette = "0.7.6"
+num-traits = "0.2.19"
+rustc-hash = "2.1.1"
+enum-map = "2.7.3"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+
+[dependencies]
+iced = { version = "0.14.0", default-features = false, features = [
+    "wgpu",
+    "tokio",
+    "canvas",
+    "sipper",
+    "advanced",
+    "unconditional-rendering",
+    "crisp",
+    "x11",
+    "wayland",
+] }
+iced_core.workspace = true
+iced_futures.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+log.workspace = true
+uuid.workspace = true
+palette.workspace = true
+num-traits.workspace = true
+rustc-hash.workspace = true
+enum-map.workspace = true
+fern = "0.7.1"
+rodio = { version = "0.20.1", default-features = false, features = [ "wav" ]}
+dotenvy = "0.15"
+tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
+dashmap = "6.1"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+rand = "0.8"
+chrono-tz = "0.8"
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+futures = "0.3"
+url = "2.5"
+http = "1.1"
+
+exchange = { version = "0.1.0", path = "exchange", package = "flowsurface-exchange" }
+data = { version = "0.1.0", path = "data", package = "flowsurface-data" }
+
+# Additional dependencies for new architecture
+env_logger = "0.11"
+num_cpus = "1.16"
+lru = "0.12"
+dirs = "5.0"
+
+[features]
+debug = ["iced/hot"]
