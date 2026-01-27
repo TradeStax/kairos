@@ -162,6 +162,11 @@ pub struct KlineChart {
     pub(crate) kind: KlineChartKind,
     study_configurator: study::Configurator<FootprintStudy>,
     last_tick: Instant,
+    /// Cached footprints per candle (index -> footprint)
+    /// Invalidated on basis change or data update
+    footprint_cache: Option<Vec<BTreeMap<Price, TradeGroup>>>,
+    /// Cache revision for invalidation tracking
+    cache_revision: u64,
 }
 
 impl KlineChart {
@@ -261,6 +266,8 @@ impl KlineChart {
             kind,
             study_configurator: study::Configurator::new(),
             last_tick: Instant::now(),
+            footprint_cache: None, // Lazy initialization on first use
+            cache_revision: 0,
         }
     }
 
@@ -331,6 +338,9 @@ impl KlineChart {
             .values_mut()
             .filter_map(Option::as_mut)
             .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles));
+
+        // Invalidate footprint cache
+        self.invalidate_footprint_cache();
 
         self.invalidate();
     }
@@ -421,6 +431,9 @@ impl KlineChart {
             .values_mut()
             .filter_map(Option::as_mut)
             .for_each(|indi| indi.on_ticksize_change(&self.chart_data.candles));
+
+        // Invalidate footprint cache since tick size changed
+        self.invalidate_footprint_cache();
 
         self.invalidate();
     }
@@ -548,6 +561,7 @@ impl KlineChart {
         max_qty
     }
 
+    /// Build footprint for a single candle from trades
     fn build_footprint(&self, trades: &[Trade], highest: Price, lowest: Price) -> BTreeMap<Price, TradeGroup> {
         let step = self.chart.tick_size;
         let mut trades_map = BTreeMap::new();
@@ -574,11 +588,101 @@ impl KlineChart {
         trades_map
     }
 
+    /// Get or build cached footprint for a candle index
+    ///
+    /// Uses lazy initialization - builds full cache on first access,
+    /// then serves from cache on subsequent calls.
+    fn get_cached_footprint(&mut self, candle_index: usize, interval_ms: u64, highest: Price, lowest: Price) -> Option<BTreeMap<Price, TradeGroup>> {
+        // Check if we need to rebuild cache
+        if self.footprint_cache.is_none() {
+            self.build_footprint_cache(interval_ms);
+        }
+
+        // Retrieve from cache
+        self.footprint_cache.as_ref().and_then(|cache| {
+            cache.get(candle_index).cloned()
+        }).or_else(|| {
+            // Fallback: build on-demand if cache miss
+            if candle_index < self.chart_data.candles.len() {
+                let candle = &self.chart_data.candles[candle_index];
+                let candle_start = candle.time.0;
+                let candle_end = candle.time.0 + interval_ms;
+
+                let start_idx = self.chart_data.trades
+                    .binary_search_by_key(&candle_start, |t| t.time.0)
+                    .unwrap_or_else(|i| i);
+
+                let end_idx = self.chart_data.trades[start_idx..]
+                    .binary_search_by_key(&candle_end, |t| t.time.0)
+                    .map(|i| start_idx + i)
+                    .unwrap_or_else(|i| start_idx + i);
+
+                let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
+                Some(self.build_footprint(trades_in_candle, highest, lowest))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Build complete footprint cache for all candles
+    ///
+    /// Pre-computes footprints for better rendering performance
+    fn build_footprint_cache(&mut self, interval_ms: u64) {
+        let candle_count = self.chart_data.candles.len();
+        let mut cache = Vec::with_capacity(candle_count);
+
+        // Use max price range to capture all trades
+        let highest = Price::from_f32(f32::MAX);
+        let lowest = Price::from_f32(0.0);
+
+        for (idx, candle) in self.chart_data.candles.iter().enumerate() {
+            let candle_start = candle.time.0;
+            let candle_end = if idx + 1 < candle_count {
+                self.chart_data.candles[idx + 1].time.0
+            } else {
+                candle.time.0 + interval_ms
+            };
+
+            // Binary search for trade range
+            let start_idx = self.chart_data.trades
+                .binary_search_by_key(&candle_start, |t| t.time.0)
+                .unwrap_or_else(|i| i);
+
+            let end_idx = self.chart_data.trades[start_idx..]
+                .binary_search_by_key(&candle_end, |t| t.time.0)
+                .map(|i| start_idx + i)
+                .unwrap_or_else(|i| start_idx + i);
+
+            let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
+            let footprint = self.build_footprint(trades_in_candle, highest, lowest);
+            cache.push(footprint);
+        }
+
+        self.footprint_cache = Some(cache);
+        self.cache_revision += 1;
+    }
+
+    /// Invalidate footprint cache (call when data or basis changes)
+    fn invalidate_footprint_cache(&mut self) {
+        self.footprint_cache = None;
+        self.cache_revision += 1;
+    }
+
     pub fn last_update(&self) -> Instant {
         self.last_tick
     }
 
     pub fn invalidate(&mut self) {
+        // Rebuild footprint cache for footprint charts if data has changed
+        if matches!(self.kind, KlineChartKind::Footprint { .. }) && self.footprint_cache.is_none() {
+            let interval_ms = match &self.basis {
+                ChartBasis::Time(tf) => tf.to_milliseconds(),
+                ChartBasis::Tick(_) => 1000, // Default estimate
+            };
+            self.build_footprint_cache(interval_ms);
+        }
+
         let chart = &mut self.chart;
 
         if let Some(autoscale) = chart.layout.autoscale {
@@ -949,7 +1053,7 @@ impl canvas::Program<Message> for KlineChart {
 // ============================================================================
 
 /// Helper struct for footprint trades
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct TradeGroup {
     buy_qty: f32,
     sell_qty: f32,

@@ -45,42 +45,64 @@ pub fn heatmap_cfg_view<'a>(
     let trade_size_slider = {
         let filter = cfg.trade_size_filter;
         labeled_slider(
-            "Trade",
-            0.0..=50000.0,
+            "Min trade size (contracts)",
+            0.0..=1000.0,
             filter,
             move |value| {
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
                         trade_size_filter: value,
-                        ..cfg
+                        order_size_filter: cfg.order_size_filter,
+                        trade_size_scale: cfg.trade_size_scale,
+                        coalescing: cfg.coalescing,
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
             },
-            |value| format!(">${}", format_with_commas(*value)),
-            Some(500.0),
+            |value| {
+                if *value == 0.0 {
+                    "Show all".to_string()
+                } else {
+                    format!("≥ {} contracts", value.round())
+                }
+            },
+            Some(10.0),
         )
     };
 
     let order_size_slider = {
         let filter = cfg.order_size_filter;
         labeled_slider(
-            "Order",
-            0.0..=500_000.0,
+            "Min order size (contracts)",
+            0.0..=10000.0,
             filter,
             move |value| {
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
+                        trade_size_filter: cfg.trade_size_filter,
                         order_size_filter: value,
-                        ..cfg
+                        trade_size_scale: cfg.trade_size_scale,
+                        coalescing: cfg.coalescing,
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
             },
-            |value| format!(">${}", format_with_commas(*value)),
-            Some(5000.0),
+            |value| {
+                if *value == 0.0 {
+                    "Show all".to_string()
+                } else {
+                    format!("≥ {} contracts", format_with_commas(*value))
+                }
+            },
+            Some(100.0),
         )
     };
 
@@ -91,8 +113,13 @@ pub fn heatmap_cfg_view<'a>(
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
+                        trade_size_filter: cfg.trade_size_filter,
+                        order_size_filter: cfg.order_size_filter,
                         trade_size_scale: Some(value),
-                        ..cfg
+                        coalescing: cfg.coalescing,
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
@@ -115,8 +142,13 @@ pub fn heatmap_cfg_view<'a>(
                     Message::VisualConfigChanged(
                         pane,
                         VisualConfig::Heatmap(HeatmapConfig {
+                            trade_size_filter: cfg.trade_size_filter,
+                            order_size_filter: cfg.order_size_filter,
+                            trade_size_scale: cfg.trade_size_scale,
                             coalescing: Some(value),
-                            ..cfg
+                            rendering_mode: cfg.rendering_mode,
+                            max_trade_markers: cfg.max_trade_markers,
+                            performance_preset: None,
                         }),
                         false,
                     )
@@ -132,8 +164,13 @@ pub fn heatmap_cfg_view<'a>(
                     Message::VisualConfigChanged(
                         pane,
                         VisualConfig::Heatmap(HeatmapConfig {
+                            trade_size_filter: cfg.trade_size_filter,
+                            order_size_filter: cfg.order_size_filter,
+                            trade_size_scale: cfg.trade_size_scale,
                             coalescing: Some(value),
-                            ..cfg
+                            rendering_mode: cfg.rendering_mode,
+                            max_trade_markers: cfg.max_trade_markers,
+                            performance_preset: None,
                         }),
                         false,
                     )
@@ -149,8 +186,13 @@ pub fn heatmap_cfg_view<'a>(
                     Message::VisualConfigChanged(
                         pane,
                         VisualConfig::Heatmap(HeatmapConfig {
+                            trade_size_filter: cfg.trade_size_filter,
+                            order_size_filter: cfg.order_size_filter,
+                            trade_size_scale: cfg.trade_size_scale,
                             coalescing: Some(value),
-                            ..cfg
+                            rendering_mode: cfg.rendering_mode,
+                            max_trade_markers: cfg.max_trade_markers,
+                            performance_preset: None,
                         }),
                         false,
                     )
@@ -171,8 +213,13 @@ pub fn heatmap_cfg_view<'a>(
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
+                        trade_size_filter: cfg.trade_size_filter,
+                        order_size_filter: cfg.order_size_filter,
+                        trade_size_scale: cfg.trade_size_scale,
                         coalescing: Some(coalescing.with_threshold(value)),
-                        ..cfg
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
@@ -205,12 +252,17 @@ pub fn heatmap_cfg_view<'a>(
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
+                        trade_size_filter: cfg.trade_size_filter,
+                        order_size_filter: cfg.order_size_filter,
+                        trade_size_scale: cfg.trade_size_scale,
                         coalescing: if value {
                             Some(CoalesceKind::Average(0.15))
                         } else {
                             None
                         },
-                        ..cfg
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
@@ -230,8 +282,13 @@ pub fn heatmap_cfg_view<'a>(
                 Message::VisualConfigChanged(
                     pane,
                     VisualConfig::Heatmap(HeatmapConfig {
+                        trade_size_filter: cfg.trade_size_filter,
+                        order_size_filter: cfg.order_size_filter,
                         trade_size_scale: if value { Some(100) } else { None },
-                        ..cfg
+                        coalescing: cfg.coalescing,
+                        rendering_mode: cfg.rendering_mode,
+                        max_trade_markers: cfg.max_trade_markers,
+                        performance_preset: None,
                     }),
                     false,
                 )
@@ -258,7 +315,7 @@ pub fn heatmap_cfg_view<'a>(
         column![text("Studies").size(14), study_cfg].spacing(8),
         row![
             space::horizontal(),
-            sync_all_button(pane, VisualConfig::Heatmap(cfg))
+            sync_all_button(pane, VisualConfig::Heatmap(cfg.clone()))
         ]
         ; spacing = 12, align_x = Alignment::Start
     ];

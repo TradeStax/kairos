@@ -506,6 +506,32 @@ pub fn dashboard_modal(theme: &Theme) -> Style {
     }
 }
 
+pub fn confirm_modal(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: Some(palette.background.base.text),
+        background: Some(
+            Color {
+                a: 0.98,
+                ..palette.background.base.color
+            }
+            .into(),
+        ),
+        border: Border {
+            width: 1.5,
+            color: palette.primary.strong.color,
+            radius: 6.0.into(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+            offset: iced::Vector { x: 0.0, y: 4.0 },
+            blur_radius: 12.0,
+        },
+        ..Default::default()
+    }
+}
+
 pub fn modal_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 

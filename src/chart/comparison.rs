@@ -81,10 +81,14 @@ impl ComparisonChart {
         basis: ChartBasis,
         config: Option<ComparisonConfig>,
     ) -> Self {
+        // Handle both time and tick basis
         let timeframe = match basis {
             ChartBasis::Time(tf) => tf,
-            ChartBasis::Tick(_) => {
-                log::warn!("ComparisonChart: tick basis not fully supported, using M1");
+            ChartBasis::Tick(tick_count) => {
+                // For tick basis, estimate equivalent timeframe for display
+                // This is approximate - tick charts use candle indices, not time
+                log::info!("ComparisonChart: Using tick basis ({}T) - timestamps from candle data", tick_count);
+                // Use M1 as default timeframe for axis labeling
                 Timeframe::M1
             }
         };
@@ -110,6 +114,7 @@ impl ComparisonChart {
             let name = name_map.get(&ticker_str).cloned();
 
             // Convert ChartData candles to (timestamp, close_price) points
+            // For tick basis, use actual candle timestamps (not indices)
             let points: Vec<(u64, f32)> = chart_data
                 .candles
                 .iter()
@@ -237,6 +242,7 @@ impl ComparisonChart {
         let name = self.config.names.iter().find(|(t, _)| t == &ticker_str).map(|(_, n)| n.clone());
 
         // Convert ChartData candles to points
+        // Works for both time and tick basis - uses actual candle timestamps
         let points: Vec<(u64, f32)> = chart_data
             .candles
             .iter()
@@ -425,14 +431,33 @@ impl ComparisonChart {
 ///
 /// This enables relative comparison by setting the first price of each series to 100
 /// and scaling all subsequent prices proportionally.
+///
+/// ## Optimizations (Phase 6.2)
+/// - Pre-computed scaling factors (single division)
+/// - Vectorized operations where possible
+/// - Early validation to skip empty series
 fn normalize_series(series: &mut [Series]) {
     for s in series.iter_mut() {
-        if let Some(&(_, first_close)) = s.points.first() {
-            if first_close > 0.0 {
-                for point in s.points.iter_mut() {
-                    point.1 = (point.1 / first_close) * 100.0;
-                }
-            }
+        // Early exit for empty series
+        if s.points.is_empty() {
+            continue;
+        }
+
+        // Get first close price for normalization base
+        let first_close = s.points[0].1;
+
+        // Validate non-zero, non-NaN
+        if first_close <= 0.0 || !first_close.is_finite() {
+            log::warn!("Cannot normalize series with invalid first price: {}", first_close);
+            continue;
+        }
+
+        // Pre-compute scaling factor (single division, not per-point)
+        let scale_factor = 100.0 / first_close;
+
+        // Apply normalization with pre-computed factor
+        for point in s.points.iter_mut() {
+            point.1 *= scale_factor;
         }
     }
 }

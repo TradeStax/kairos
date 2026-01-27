@@ -4,7 +4,7 @@ use crate::{
 };
 
 use data::ChartBasis;
-use exchange::{FuturesTickerInfo, FuturesVenue, TickMultiplier, Timeframe};
+use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
 use iced::{
     Element, Length,
     alignment::Horizontal,
@@ -18,15 +18,13 @@ const NUMERIC_INPUT_BUF_SIZE: usize = 5; // Max 5 digits for u16 (65535)
 const TICK_COUNT_MIN: u16 = 4;
 const TICK_COUNT_MAX: u16 = 1000;
 
-const TICK_MULTIPLIER_MIN: u16 = 1;
-const TICK_MULTIPLIER_MAX: u16 = 2000;
-
+// TickMultiplier removed - only needed for crypto, not futures
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub enum ModifierKind {
     Candlestick(ChartBasis),
-    Footprint(ChartBasis, TickMultiplier),
-    Heatmap(ChartBasis, TickMultiplier),
-    Orderbook(ChartBasis, TickMultiplier),
+    Footprint(ChartBasis),
+    Heatmap(ChartBasis),
+    Orderbook(ChartBasis),
     Comparison(ChartBasis),
 }
 
@@ -55,10 +53,6 @@ impl NumericInput {
         }
     }
 
-    pub fn from_tick_multiplier(tm: TickMultiplier) -> Self {
-        Self::from_str(&tm.0.to_string())
-    }
-
     pub fn from_tick_count(tc: u16) -> Self {
         Self::from_str(&tc.to_string())
     }
@@ -72,16 +66,6 @@ impl NumericInput {
 
     pub fn is_empty(self) -> bool {
         self.len == 0
-    }
-
-    pub fn parse_tick_multiplier(self) -> Option<TickMultiplier> {
-        if self.len == 0 {
-            return None;
-        }
-        std::str::from_utf8(&self.buffer[..self.len as usize])
-            .ok()
-            .and_then(|s| s.parse::<u16>().ok())
-            .map(TickMultiplier)
     }
 
     pub fn parse_tick_count(self) -> Option<u16> {
@@ -103,11 +87,7 @@ impl Default for NumericInput {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ViewMode {
     BasisSelection,
-    TicksizeSelection {
-        raw_input_buf: NumericInput,
-        parsed_input: Option<TickMultiplier>,
-        is_input_valid: bool,
-    },
+    // TicksizeSelection removed - tick multiplier only needed for crypto
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -122,7 +102,6 @@ pub enum SelectedTab {
 
 pub enum Action {
     BasisSelected(ChartBasis),
-    TicksizeSelected(TickMultiplier),
     TabSelected(SelectedTab),
 }
 
@@ -130,8 +109,6 @@ pub enum Action {
 pub enum Message {
     BasisSelected(ChartBasis),
     TabSelected(SelectedTab),
-    TicksizeInputChanged(String),
-    TicksizeSelected(TickMultiplier),
     TickCountInputChanged(String),
 }
 
@@ -162,29 +139,7 @@ impl Modifier {
         self
     }
 
-    pub fn with_ticksize_view(
-        mut self,
-        base_ticksize: f32,
-        multiplier: TickMultiplier,
-        exchange: Option<FuturesVenue>,
-    ) -> Self {
-        self.view_mode = ViewMode::TicksizeSelection {
-            raw_input_buf: if multiplier.is_custom() {
-                NumericInput::from_tick_multiplier(multiplier)
-            } else {
-                NumericInput::default()
-            },
-            parsed_input: if multiplier.is_custom() {
-                Some(multiplier)
-            } else {
-                None
-            },
-            is_input_valid: true,
-        };
-        self.base_ticksize = Some(base_ticksize);
-        self.exchange = exchange;
-        self
-    }
+    // with_ticksize_view removed - tick multiplier only for crypto
 
     pub fn update_kind_with_basis(&mut self, basis: ChartBasis) {
         match self.kind {
@@ -192,30 +147,19 @@ impl Modifier {
             ModifierKind::Comparison(_) => {
                 self.kind = ModifierKind::Comparison(basis);
             }
-            ModifierKind::Footprint(_, ticksize) => {
-                self.kind = ModifierKind::Footprint(basis, ticksize);
+            ModifierKind::Footprint(_) => {
+                self.kind = ModifierKind::Footprint(basis);
             }
-            ModifierKind::Heatmap(_, ticksize) => {
-                self.kind = ModifierKind::Heatmap(basis, ticksize);
+            ModifierKind::Heatmap(_) => {
+                self.kind = ModifierKind::Heatmap(basis);
             }
-            ModifierKind::Orderbook(_, ticksize) => {
-                self.kind = ModifierKind::Orderbook(basis, ticksize);
+            ModifierKind::Orderbook(_) => {
+                self.kind = ModifierKind::Orderbook(basis);
             }
         }
     }
 
-    pub fn update_kind_with_multiplier(&mut self, ticksize: TickMultiplier) {
-        match self.kind {
-            ModifierKind::Footprint(basis, _) => {
-                self.kind = ModifierKind::Footprint(basis, ticksize);
-            }
-            ModifierKind::Heatmap(basis, _) => self.kind = ModifierKind::Heatmap(basis, ticksize),
-            ModifierKind::Orderbook(basis, _) => {
-                self.kind = ModifierKind::Orderbook(basis, ticksize)
-            }
-            _ => {}
-        }
-    }
+    // update_kind_with_multiplier removed - tick multiplier only for crypto
 
     pub fn update(&mut self, message: Message) -> Option<Action> {
         match message {
@@ -244,52 +188,6 @@ impl Modifier {
                     }
                 }
             },
-            Message::TicksizeSelected(new_ticksize) => {
-                if let ViewMode::TicksizeSelection {
-                    ref mut raw_input_buf,
-                    ref mut parsed_input,
-                    ref mut is_input_valid,
-                } = self.view_mode
-                {
-                    if *parsed_input == Some(new_ticksize) {
-                        *is_input_valid = true;
-                    } else {
-                        *raw_input_buf = NumericInput::default();
-                        *parsed_input = None;
-                        *is_input_valid = true;
-                    };
-                }
-                Some(Action::TicksizeSelected(new_ticksize))
-            }
-            Message::TicksizeInputChanged(value_str) => {
-                if let ViewMode::TicksizeSelection {
-                    ref mut raw_input_buf,
-                    ref mut parsed_input,
-                    ref mut is_input_valid,
-                } = self.view_mode
-                {
-                    let numeric_value_str: String =
-                        value_str.chars().filter(char::is_ascii_digit).collect();
-
-                    *raw_input_buf = NumericInput::from_str(&numeric_value_str);
-                    *parsed_input = raw_input_buf.parse_tick_multiplier();
-
-                    if raw_input_buf.is_empty() {
-                        *is_input_valid = true;
-                    } else {
-                        match parsed_input {
-                            Some(tm) => {
-                                *is_input_valid =
-                                    tm.0 >= TICK_MULTIPLIER_MIN && tm.0 <= TICK_MULTIPLIER_MAX;
-                            }
-                            None => {
-                                *is_input_valid = false;
-                            }
-                        }
-                    }
-                }
-                None
-            }
             Message::TickCountInputChanged(value_str) => {
                 if let SelectedTab::TickCount {
                     ref mut raw_input_buf,
@@ -325,13 +223,12 @@ impl Modifier {
     pub fn view<'a>(&self, ticker_info: Option<FuturesTickerInfo>) -> Element<'a, Message> {
         let kind = self.kind;
 
-        let (selected_basis, selected_ticksize) = match kind {
-            ModifierKind::Candlestick(basis) | ModifierKind::Comparison(basis) => {
-                (Some(basis), None)
-            }
-            ModifierKind::Footprint(basis, ticksize)
-            | ModifierKind::Heatmap(basis, ticksize)
-            | ModifierKind::Orderbook(basis, ticksize) => (Some(basis), Some(ticksize)),
+        let selected_basis = match kind {
+            ModifierKind::Candlestick(basis)
+            | ModifierKind::Comparison(basis)
+            | ModifierKind::Footprint(basis)
+            | ModifierKind::Heatmap(basis)
+            | ModifierKind::Orderbook(basis) => Some(basis),
         };
 
         let create_button = |content: iced::widget::text::Text<'a>,
@@ -354,9 +251,9 @@ impl Modifier {
                     column![].padding(4).spacing(8).align_x(Horizontal::Center);
 
                 let allows_tick_basis = match kind {
-                    ModifierKind::Candlestick(_) | ModifierKind::Footprint(_, _) => true,
-                    ModifierKind::Heatmap(_, _)
-                    | ModifierKind::Orderbook(_, _)
+                    ModifierKind::Candlestick(_) | ModifierKind::Footprint(_) => true,
+                    ModifierKind::Heatmap(_)
+                    | ModifierKind::Orderbook(_)
                     | ModifierKind::Comparison(_) => false,
                 };
 
@@ -481,7 +378,7 @@ impl Modifier {
                                     basis_selection_column =
                                         basis_selection_column.push(kline_timeframe_grid);
                                 }
-                                ModifierKind::Heatmap(_, _) => {
+                                ModifierKind::Heatmap(_) => {
                                     // All heatmap timeframes are supported for futures
                                     let heatmap_timeframes: Vec<Timeframe> =
                                         Timeframe::HEATMAP.iter().copied().collect();
@@ -550,99 +447,7 @@ impl Modifier {
                 .style(style::chart_modal)
                 .into()
             }
-            ViewMode::TicksizeSelection {
-                raw_input_buf,
-                parsed_input,
-                is_input_valid,
-            } => {
-                let Some(_exchange) = self.exchange else {
-                    return container(text("Exchange information is not available"))
-                        .padding(16)
-                        .style(style::chart_modal)
-                        .into();
-                };
-
-                if let Some(ticksize) = selected_ticksize {
-                    let mut ticksizes_column =
-                        column![].padding(4).spacing(8).align_x(Horizontal::Center);
-
-                    ticksizes_column = ticksizes_column
-                        .push(text("Tick size multiplier").size(13))
-                        .push(rule::horizontal(1).style(style::split_ruler));
-
-                    // For futures on CME Globex, allow custom tick sizes for footprint charts
-                    let allows_custom_tsizes = matches!(kind, ModifierKind::Footprint(_, _));
-
-                    let allowed_tm = if allows_custom_tsizes {
-                        exchange::TickMultiplier::ALL.to_vec()
-                    } else {
-                        // For other chart types, use all standard multipliers
-                        exchange::TickMultiplier::ALL.to_vec()
-                    };
-
-                    let tick_multiplier_grid = modifiers_grid(
-                        &allowed_tm,
-                        Some(ticksize),
-                        Message::TicksizeSelected,
-                        &create_button,
-                        3,
-                    );
-
-                    if allows_custom_tsizes {
-                        let custom_input = {
-                            let tick_multiplier_to_submit = parsed_input.filter(|tm| {
-                                tm.0 >= TICK_MULTIPLIER_MIN && tm.0 <= TICK_MULTIPLIER_MAX
-                            });
-
-                            numeric_input_box::<_, Message>(
-                                "Custom: ",
-                                &format!("{}-{}", TICK_MULTIPLIER_MIN, TICK_MULTIPLIER_MAX),
-                                &raw_input_buf.to_display_string(),
-                                is_input_valid,
-                                Message::TicksizeInputChanged,
-                                tick_multiplier_to_submit.map(Message::TicksizeSelected),
-                            )
-                        };
-
-                        ticksizes_column = ticksizes_column.push(custom_input);
-                    }
-                    ticksizes_column = ticksizes_column.push(tick_multiplier_grid);
-
-                    if let Some(base_ticksize) = self.base_ticksize {
-                        ticksizes_column = ticksizes_column.push(
-                            row![
-                                iced::widget::space::horizontal(),
-                                text(format!("Base: {}", base_ticksize)).style(
-                                    |theme: &iced::Theme| {
-                                        iced::widget::text::Style {
-                                            color: Some(
-                                                theme.extended_palette().background.strongest.color,
-                                            ),
-                                        }
-                                    }
-                                ),
-                            ]
-                            .padding(padding::top(8).right(4)),
-                        );
-                    }
-
-                    container(scrollable::Scrollable::with_direction(
-                        ticksizes_column,
-                        scrollable::Direction::Vertical(
-                            scrollable::Scrollbar::new().width(4).scroller_width(4),
-                        ),
-                    ))
-                    .max_width(240)
-                    .padding(16)
-                    .style(style::chart_modal)
-                    .into()
-                } else {
-                    container(text("No ticksize available for this chart type"))
-                        .padding(16)
-                        .style(style::chart_modal)
-                        .into()
-                }
-            }
+            // TicksizeSelection view removed - tick multiplier only for crypto
         }
     }
 }
@@ -712,9 +517,9 @@ impl From<&ModifierKind> for SelectedTab {
     fn from(kind: &ModifierKind) -> Self {
         match kind {
             ModifierKind::Candlestick(basis)
-            | ModifierKind::Footprint(basis, _)
-            | ModifierKind::Heatmap(basis, _)
-            | ModifierKind::Orderbook(basis, _)
+            | ModifierKind::Footprint(basis)
+            | ModifierKind::Heatmap(basis)
+            | ModifierKind::Orderbook(basis)
             | ModifierKind::Comparison(basis) => match basis {
                 ChartBasis::Time(_) => SelectedTab::Timeframe,
                 ChartBasis::Tick(tc) => {

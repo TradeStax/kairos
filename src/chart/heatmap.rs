@@ -78,6 +78,10 @@ const TOOLTIP_PADDING: f32 = 12.0;
 /// Maximum trade circle radius
 const MAX_CIRCLE_RADIUS: f32 = 16.0;
 
+/// Trade density thresholds for auto mode
+const SPARSE_MODE_THRESHOLD: usize = 1_000; // Switch to dense if > 1000 trades visible
+const MAX_RENDER_BUDGET: usize = 10_000; // Hard limit on draw calls per frame
+
 // =============================================================================
 // Chart Trait Implementation
 // =============================================================================
@@ -184,17 +188,39 @@ enum IndicatorData {
 // Re-export HeatmapStudy and ProfileKind from data module
 pub use data::domain::chart_ui_types::heatmap::{HeatmapStudy, ProfileKind};
 
+/// Trade rendering mode for heatmap
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TradeRenderingMode {
+    /// Render individual trade circles (only for low trade count)
+    Sparse,
+    /// Render aggregated rectangles (for high trade density)
+    Dense,
+    /// Automatically switch based on visible trade count
+    Auto,
+}
+
+impl Default for TradeRenderingMode {
+    fn default() -> Self {
+        TradeRenderingMode::Auto
+    }
+}
+
 /// Visual configuration for heatmap display
 #[derive(Debug, Clone, Copy)]
 pub struct VisualConfig {
-    /// Minimum order size to display (filter small orders)
+    /// Minimum order size to display in contracts (filter small orders)
     pub order_size_filter: f32,
-    /// Minimum trade size to display (filter small trades)
+    /// Minimum trade size to display in contracts (NOT dollar amount)
+    /// Example: 5.0 = only show trades >= 5 contracts
     pub trade_size_filter: f32,
     /// Trade circle size scaling (None = fixed size)
     pub trade_size_scale: Option<u16>,
     /// Depth coalescing strategy (unused currently)
     pub coalescing: Option<CoalesceKind>,
+    /// Trade rendering mode (Sparse/Dense/Auto)
+    pub trade_rendering_mode: TradeRenderingMode,
+    /// Maximum number of trade circles to render (performance limit)
+    pub max_trade_markers: usize,
 }
 
 /// Type alias for backward compatibility
@@ -207,6 +233,8 @@ impl Default for VisualConfig {
             trade_size_filter: 0.0,
             trade_size_scale: Some(100),
             coalescing: None,
+            trade_rendering_mode: TradeRenderingMode::Auto,
+            max_trade_markers: 10_000, // Performance limit: max 10k circles
         }
     }
 }
@@ -285,6 +313,10 @@ struct HeatmapData {
 
     /// Latest depth snapshot timestamp
     latest_depth_time: u64,
+
+    /// Candle timestamp lookup for tick-based charts (trade_time_start -> candle_time)
+    /// Used to align trades/depth with actual candle boundaries for tick basis
+    candle_time_map: Option<BTreeMap<u64, (u64, u64)>>, // trade_time -> (candle_time, candle_end_time)
 }
 
 impl HeatmapData {
@@ -294,6 +326,35 @@ impl HeatmapData {
             depth_by_price: BTreeMap::new(),
             trades_by_time: BTreeMap::new(),
             latest_depth_time: 0,
+            candle_time_map: None,
+        }
+    }
+
+    /// Create heatmap data with candle time map for tick-based charts
+    fn new_with_candles(candles: &[data::Candle], basis: ChartBasis) -> Self {
+        let candle_time_map = match basis {
+            ChartBasis::Tick(_) => {
+                // Build map of candle timestamps for tick-based bucketing
+                let mut map = BTreeMap::new();
+                for (idx, candle) in candles.iter().enumerate() {
+                    let candle_start = candle.time.to_millis();
+                    let candle_end = if idx + 1 < candles.len() {
+                        candles[idx + 1].time.to_millis()
+                    } else {
+                        candle_start + 1000 // Default 1 second for last candle
+                    };
+                    map.insert(candle_start, (candle_start, candle_end));
+                }
+                Some(map)
+            }
+            ChartBasis::Time(_) => None, // Time-based uses simple floor division
+        };
+
+        Self {
+            depth_by_price: BTreeMap::new(),
+            trades_by_time: BTreeMap::new(),
+            latest_depth_time: 0,
+            candle_time_map,
         }
     }
 
@@ -303,8 +364,8 @@ impl HeatmapData {
     /// Each price level gets a run for the duration of the bucket.
     fn add_depth_snapshot(&mut self, snapshot: &DepthSnapshot, basis: ChartBasis, _tick_size: DataPrice) {
         let time = snapshot.time.to_millis();
-        let bucket_time = Self::bucket_time(time, basis);
-        let bucket_duration = Self::bucket_duration(basis);
+        let bucket_time = self.bucket_time(time, basis);
+        let bucket_duration = self.bucket_duration(bucket_time, basis);
 
         // Process bids (buy orders)
         for (price, qty) in &snapshot.bids {
@@ -342,7 +403,7 @@ impl HeatmapData {
     /// This aggregates trades into time buckets and groups them by price level.
     fn add_trade(&mut self, trade: &DomainTrade, basis: ChartBasis, tick_size: DataPrice) {
         let time = trade.time.to_millis();
-        let bucket_time = Self::bucket_time(time, basis);
+        let bucket_time = self.bucket_time(time, basis);
 
         let entry = self
             .trades_by_time
@@ -377,25 +438,70 @@ impl HeatmapData {
     }
 
     /// Calculate bucket time based on chart basis
-    fn bucket_time(time: u64, basis: ChartBasis) -> u64 {
+    ///
+    /// For time-based charts: Uses timeframe bucketing (floor to interval)
+    /// For tick-based charts: Uses candle timestamp from map or falls back to second rounding
+    fn bucket_time(&self, time: u64, basis: ChartBasis) -> u64 {
         match basis {
             ChartBasis::Time(timeframe) => {
                 let interval = timeframe.to_millis();
                 (time / interval) * interval
             }
-            ChartBasis::Tick(_) => time, // For tick basis, use exact time
+            ChartBasis::Tick(_) => {
+                // Try to find the candle this time belongs to
+                if let Some(ref candle_map) = self.candle_time_map {
+                    // Find the candle whose time range contains this trade/depth
+                    // Use range query to find the greatest key less than or equal to time
+                    candle_map
+                        .range(..=time)
+                        .next_back()
+                        .and_then(|(_, (candle_start, candle_end))| {
+                            // Verify time is within candle range
+                            if time >= *candle_start && time < *candle_end {
+                                Some(*candle_start)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| {
+                            // Fallback: round to nearest second
+                            (time / 1000) * 1000
+                        })
+                } else {
+                    // Fallback for when candle map not available
+                    (time / 1000) * 1000
+                }
+            }
         }
     }
 
     /// Get bucket duration in milliseconds
-    fn bucket_duration(basis: ChartBasis) -> u64 {
+    ///
+    /// For tick-based charts with candle map, returns actual duration to next candle
+    fn bucket_duration(&self, time: u64, basis: ChartBasis) -> u64 {
         match basis {
             ChartBasis::Time(timeframe) => timeframe.to_millis(),
-            ChartBasis::Tick(_) => 1000, // 1 second default for tick basis
+            ChartBasis::Tick(_) => {
+                // Try to get actual candle duration from map
+                if let Some(ref candle_map) = self.candle_time_map {
+                    candle_map
+                        .range(..=time)
+                        .next_back()
+                        .map(|(_, (candle_start, candle_end))| candle_end - candle_start)
+                        .unwrap_or(1000) // Default 1 second
+                } else {
+                    1000 // Default 1 second
+                }
+            }
         }
     }
 
     /// Iterate over depth runs in a time/price range
+    ///
+    /// Optimized with viewport culling:
+    /// 1. BTreeMap range query for price filtering (O(log n) instead of O(n))
+    /// 2. Early rejection of time-out-of-bounds runs
+    /// 3. Minimal allocations
     fn iter_depth_filtered(
         &self,
         earliest: u64,
@@ -406,9 +512,12 @@ impl HeatmapData {
         let highest_units = highest.to_units();
         let lowest_units = lowest.to_units();
 
+        // OPTIMIZATION: BTreeMap::range() gives us O(log n) price filtering
         self.depth_by_price
             .range(lowest_units..=highest_units)
             .filter(move |(_, runs)| {
+                // OPTIMIZATION: Early rejection - check if ANY run intersects time range
+                // A run intersects if: run.until_time > earliest AND run.start_time < latest
                 runs.iter()
                     .any(|run| run.until_time > earliest && run.start_time < latest)
             })
@@ -574,19 +683,37 @@ impl HeatmapChart {
         }
 
         // Build heatmap data from chart_data
-        let mut heatmap_data = HeatmapData::new();
+        // Use new_with_candles for proper tick-based bucketing
+        let mut heatmap_data = HeatmapData::new_with_candles(&chart_data.candles, basis);
 
         // Process depth snapshots if available
         if let Some(depth_snapshots) = &chart_data.depth_snapshots {
-            for snapshot in depth_snapshots {
+            log::info!("📊 Processing {} depth snapshots for heatmap...", depth_snapshots.len());
+            let total = depth_snapshots.len();
+            let start_time = std::time::Instant::now();
+
+            for (idx, snapshot) in depth_snapshots.iter().enumerate() {
                 heatmap_data.add_depth_snapshot(snapshot, basis, tick_size);
+
+                // Log progress every 1000 snapshots to show it's not frozen
+                if (idx + 1) % 1000 == 0 || idx + 1 == total {
+                    let elapsed = start_time.elapsed().as_secs_f32();
+                    let rate = (idx + 1) as f32 / elapsed;
+                    log::info!("  📊 Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
+                        idx + 1, total, ((idx + 1) as f32 / total as f32) * 100.0, rate);
+                }
             }
+
+            let total_time = start_time.elapsed();
+            log::info!("✓ Depth processing complete in {:.2}s", total_time.as_secs_f32());
         }
 
         // Process trades
+        log::info!("📊 Processing {} trades for heatmap...", chart_data.trades.len());
         for trade in &chart_data.trades {
             heatmap_data.add_trade(trade, basis, tick_size);
         }
+        log::info!("✓ Trade processing complete");
 
         // Calculate initial price from best bid/ask or trades
         let base_price = if let Some(depth_snapshots) = &chart_data.depth_snapshots {
@@ -702,7 +829,7 @@ impl HeatmapChart {
 
         // Rebuild heatmap data with new basis
         let tick_size = DataPrice::from_f32(self.ticker_info.tick_size);
-        let mut heatmap_data = HeatmapData::new();
+        let mut heatmap_data = HeatmapData::new_with_candles(&self.chart_data.candles, basis);
 
         if let Some(depth_snapshots) = &self.chart_data.depth_snapshots {
             for snapshot in depth_snapshots {
@@ -784,7 +911,7 @@ impl HeatmapChart {
 
         // Rebuild heatmap with new tick size
         let tick_size = DataPrice::from_f32(new_tick_size);
-        let mut heatmap_data = HeatmapData::new();
+        let mut heatmap_data = HeatmapData::new_with_candles(&self.chart_data.candles, self.basis);
 
         if let Some(depth_snapshots) = &self.chart_data.depth_snapshots {
             for snapshot in depth_snapshots {
@@ -1022,42 +1149,176 @@ impl canvas::Program<Message> for HeatmapChart {
             }
 
             // =========================================================
-            // Draw Trade Markers
+            // Draw Trade Markers - Intelligent Density-Based Rendering
+            // =========================================================
+
+            // Count total visible trades for density calculation
+            let visible_trade_count: usize = self.heatmap_data
+                .trades_by_time
+                .range(earliest..=latest)
+                .map(|(_, dp)| dp.grouped_trades.len())
+                .sum();
+
+            // Calculate LOD level for adaptive quality
+            let lod_calc = super::lod::LodCalculator::new(
+                chart.scaling,
+                chart.cell_width,
+                visible_trade_count,
+                region.width,
+            );
+            let lod_level = lod_calc.calculate_lod();
+
+            // Determine rendering mode (considering LOD)
+            let effective_mode = match self.visual_config.trade_rendering_mode {
+                TradeRenderingMode::Sparse => {
+                    // Even in sparse mode, switch to dense if LOD is low
+                    if matches!(lod_level, super::lod::LodLevel::Low) && visible_trade_count > SPARSE_MODE_THRESHOLD {
+                        TradeRenderingMode::Dense
+                    } else {
+                        TradeRenderingMode::Sparse
+                    }
+                }
+                TradeRenderingMode::Dense => TradeRenderingMode::Dense,
+                TradeRenderingMode::Auto => {
+                    if visible_trade_count > SPARSE_MODE_THRESHOLD || matches!(lod_level, super::lod::LodLevel::Low) {
+                        TradeRenderingMode::Dense
+                    } else {
+                        TradeRenderingMode::Sparse
+                    }
+                }
+            };
+
+            match effective_mode {
+                TradeRenderingMode::Sparse => {
+                    // SPARSE MODE: Render individual trade circles (original behavior)
+                    // Apply render budget to prevent crash
+                    let max_markers = self.visual_config.max_trade_markers.min(MAX_RENDER_BUDGET);
+
+                    // Use LOD-aware decimation (combines LOD level + dynamic budget)
+                    let decimation_factor = lod_calc.effective_decimation(max_markers);
+
+                    let mut rendered_count = 0;
+                    let mut trade_index = 0;
+
+                    // VIEWPORT CULLING: BTreeMap::range() efficiently filters to visible time range
+                    for (time, dp) in self.heatmap_data.trades_by_time.range(earliest..=latest) {
+                        // Early termination if budget exhausted
+                        if rendered_count >= max_markers {
+                            break;
+                        }
+
+                        let x_position = chart.interval_to_x(*time);
+
+                        for trade in &dp.grouped_trades {
+                            // Apply LOD decimation - only render every Nth trade
+                            if decimation_factor > 1 && trade_index % decimation_factor != 0 {
+                                trade_index += 1;
+                                continue;
+                            }
+
+                            // Early termination if budget exhausted
+                            if rendered_count >= max_markers {
+                                break;
+                            }
+
+                            // Filter by trade size
+                            if trade.qty > self.visual_config.trade_size_filter {
+                                let y_position = chart.price_to_y(
+                                    exchange::util::Price::from_units(trade.price.to_units())
+                                );
+
+                                let color = if trade.is_sell {
+                                    palette.danger.base.color
+                                } else {
+                                    palette.success.base.color
+                                };
+
+                                let radius = {
+                                    if let Some(trade_size_scale) = self.visual_config.trade_size_scale {
+                                        let scale_factor = (trade_size_scale as f32) / 100.0;
+                                        1.0 + (trade.qty / max_trade_qty)
+                                            * (MAX_CIRCLE_RADIUS - 1.0)
+                                            * scale_factor
+                                    } else {
+                                        cell_height / 2.0
+                                    }
+                                };
+
+                                frame.fill(
+                                    &Path::circle(Point::new(x_position, y_position), radius),
+                                    color,
+                                );
+
+                                rendered_count += 1;
+                            }
+
+                            trade_index += 1;
+                        }
+
+                        if rendered_count >= max_markers {
+                            break;
+                        }
+                    }
+                }
+
+                TradeRenderingMode::Dense => {
+                    // DENSE MODE: Render aggregated rectangles instead of circles
+                    // More efficient for high-density data (NQ, ES, etc.)
+
+                    // Convert price range for filtering
+                    let highest_units = highest.to_units();
+                    let lowest_units = lowest.to_units();
+
+                    // VIEWPORT CULLING: BTreeMap::range() for time filtering
+                    for (time, dp) in self.heatmap_data.trades_by_time.range(earliest..=latest) {
+                        let x_position = chart.interval_to_x(*time);
+                        let half_cell_width = (chart.cell_width / 2.0) * 0.8;
+
+                        // Render trades grouped by price level
+                        for trade in &dp.grouped_trades {
+                            // Filter by trade size
+                            if trade.qty <= self.visual_config.trade_size_filter {
+                                continue;
+                            }
+
+                            // VIEWPORT CULLING: Skip trades outside visible price range
+                            let trade_price_units = trade.price.to_units();
+                            if trade_price_units < lowest_units || trade_price_units > highest_units {
+                                continue;
+                            }
+
+                            let y_position = chart.price_to_y(
+                                exchange::util::Price::from_units(trade.price.to_units())
+                            );
+
+                            let color = if trade.is_sell {
+                                palette.danger.base.color
+                            } else {
+                                palette.success.base.color
+                            };
+
+                            // Use quantity to determine alpha (larger trades = more opaque)
+                            let alpha = (0.3 + (trade.qty / max_trade_qty) * 0.7).min(1.0);
+
+                            // Draw rectangle instead of circle (more efficient, shows density)
+                            frame.fill_rectangle(
+                                Point::new(x_position - half_cell_width, y_position - (cell_height / 2.0)),
+                                Size::new(half_cell_width * 2.0, cell_height),
+                                color.scale_alpha(alpha),
+                            );
+                        }
+                    }
+                }
+
+                TradeRenderingMode::Auto => unreachable!(), // Already resolved above
+            }
+
+            // =========================================================
+            // Draw Volume Indicator
             // =========================================================
             for (time, dp) in self.heatmap_data.trades_by_time.range(earliest..=latest) {
                 let x_position = chart.interval_to_x(*time);
 
-                for trade in &dp.grouped_trades {
-                    let y_position = chart.price_to_y(exchange::util::Price::from_units(trade.price.to_units()));
-
-                    if trade.qty > self.visual_config.trade_size_filter {
-                        let color = if trade.is_sell {
-                            palette.danger.base.color
-                        } else {
-                            palette.success.base.color
-                        };
-
-                        let radius = {
-                            if let Some(trade_size_scale) = self.visual_config.trade_size_scale {
-                                let scale_factor = (trade_size_scale as f32) / 100.0;
-                                1.0 + (trade.qty / max_trade_qty)
-                                    * (MAX_CIRCLE_RADIUS - 1.0)
-                                    * scale_factor
-                            } else {
-                                cell_height / 2.0
-                            }
-                        };
-
-                        frame.fill(
-                            &Path::circle(Point::new(x_position, y_position), radius),
-                            color,
-                        );
-                    }
-                }
-
-                // =========================================================
-                // Draw Volume Indicator
-                // =========================================================
                 if volume_indicator {
                     let bar_width = (chart.cell_width / 2.0) * 0.9;
                     let area_height = (bounds.height / chart.scaling) * 0.1;

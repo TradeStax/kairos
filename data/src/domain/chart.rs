@@ -22,7 +22,7 @@ pub struct ChartConfig {
 }
 
 /// Chart basis (time-based or tick-based)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChartBasis {
     /// Time-based (M1, M5, H1, etc.)
     Time(Timeframe),

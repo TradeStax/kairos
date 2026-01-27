@@ -18,11 +18,11 @@ use crate::{
     window::{self, Window},
 };
 use data::{
-    ChartBasis, ChartConfig, ChartData, ContentKind, DateRange, FootprintStudy, FuturesTicker,
+    ChartBasis, ChartConfig, ChartData, ChartType, ContentKind, DataSchema, DateRange, FootprintStudy, FuturesTicker,
     HeatmapIndicator, KlineIndicator, LinkGroup, LoadingStatus, Settings, Timeframe, UiIndicator,
     UserTimezone, ViewConfig, VisualConfig,
 };
-use exchange::{FuturesTickerInfo, TickMultiplier};
+use exchange::FuturesTickerInfo;
 use iced::{
     Alignment, Element, Length, Renderer, Theme,
     alignment::Vertical,
@@ -175,6 +175,12 @@ impl State {
                         }
                     })
                     .collect();
+                log::info!("🟢 Constructing HeatmapChart from chart_data: {} trades, {} candles, {} depth snapshots",
+                    chart_data.trades.len(),
+                    chart_data.candles.len(),
+                    chart_data.depth_snapshots.as_ref().map(|d| d.len()).unwrap_or(0)
+                );
+
                 *chart = Some(HeatmapChart::from_chart_data(
                     chart_data,
                     basis,
@@ -183,14 +189,46 @@ impl State {
                     indicators,
                     chart_studies,
                 ));
+
+                log::info!("🟢 HeatmapChart construction COMPLETE");
             }
             Content::Comparison(chart_opt) => {
-                // Comparison chart already loaded during construction
-                // For now, just mark as ready
-                if chart_opt.is_some() {
-                    self.loading_status = LoadingStatus::Ready;
+                // Initialize or add ticker to comparison chart
+                match chart_opt {
+                    Some(chart) => {
+                        // Add new ticker to existing comparison chart
+                        if let Err(e) = chart.add_ticker(&ticker_info, chart_data) {
+                            log::warn!("Failed to add ticker to comparison: {}", e);
+                            self.notifications.push(Toast::warn(format!(
+                                "Failed to add {}: {}",
+                                ticker_info.ticker.as_str(),
+                                e
+                            )));
+                        } else {
+                            log::info!("Added ticker {} to comparison chart", ticker_info.ticker.as_str());
+                            self.loading_status = LoadingStatus::Ready;
+                        }
+                    }
+                    None => {
+                        // Create new comparison chart with first ticker
+                        let config = self.settings.visual_config.as_ref().and_then(|vc| {
+                            if let VisualConfig::Comparison(cfg) = vc {
+                                Some(cfg.clone())
+                            } else {
+                                None
+                            }
+                        });
+
+                        let new_chart = ComparisonChart::from_multi_chart_data(
+                            vec![(ticker_info, chart_data)],
+                            basis,
+                            config,
+                        );
+                        *chart_opt = Some(new_chart);
+                        self.loading_status = LoadingStatus::Ready;
+                        log::info!("Created comparison chart with ticker {}", ticker_info.ticker.as_str());
+                    }
                 }
-                // Note: Adding/removing series requires separate implementation
             }
             Content::TimeAndSales(_panel) => {
                 // TimeAndSales panel doesn't need chart data
@@ -227,7 +265,15 @@ impl State {
 
         // Initialize content (empty for now, will be populated when data loads)
         self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
-        self.loading_status = LoadingStatus::Idle;
+
+        // Set loading status to show "Loading..." in UI
+        let days_total = date_range.num_days() as usize;
+        self.loading_status = LoadingStatus::LoadingFromCache {
+            schema: DataSchema::Trades, // Default to Trades
+            days_total,
+            days_loaded: 0,
+            items_loaded: 0,
+        };
 
         // Create chart config with registered date range
         let config = ChartConfig {
@@ -461,20 +507,15 @@ impl State {
                         .settings
                         .selected_basis
                         .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                    let tick_multiply = TickMultiplier(1); // Default for ladder
 
-                    let kind = ModifierKind::Orderbook(basis, tick_multiply);
+                    let kind = ModifierKind::Orderbook(basis);
 
-                    let base_ticksize = panel.tick_size();
-                    let exchange = self.ticker_info.map(|ti| ti.ticker.venue);
-
-                    let modifiers = ticksize_modifier(
+                    // Tick multiplier removed - only for crypto
+                    let modifiers = basis_modifier(
                         id,
-                        base_ticksize,
-                        tick_multiply,
+                        basis,
                         modifier,
                         kind,
-                        exchange,
                     );
 
                     stream_info_element = stream_info_element.push(modifiers);
@@ -519,23 +560,11 @@ impl State {
                         .settings
                         .selected_basis
                         .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                    let tick_multiply = TickMultiplier(5); // Default for heatmap
 
-                    let kind = ModifierKind::Heatmap(basis, tick_multiply);
-                    let base_ticksize = chart.tick_size();
+                    let kind = ModifierKind::Heatmap(basis);
 
-                    let modifiers = row![
-                        basis_modifier(id, basis, modifier, kind),
-                        ticksize_modifier(
-                            id,
-                            base_ticksize,
-                            tick_multiply,
-                            modifier,
-                            kind,
-                            exchange
-                        ),
-                    ]
-                    .spacing(4);
+                    // Tick multiplier removed - only for crypto
+                    let modifiers = basis_modifier(id, basis, modifier, kind);
 
                     stream_info_element = stream_info_element.push(modifiers);
 
@@ -550,6 +579,9 @@ impl State {
                             order_size_filter: visual.order_size_filter,
                             trade_size_scale: visual.trade_size_scale,
                             coalescing: None, // CoalesceKind is not exposed, use None
+                            rendering_mode: data::state::pane_config::HeatmapRenderMode::Auto,
+                            max_trade_markers: visual.max_trade_markers,
+                            performance_preset: None,
                         };
                         // Convert chart::heatmap::HeatmapStudy to data studies and leak for 'static lifetime
                         let data_studies: Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy> =
@@ -614,26 +646,10 @@ impl State {
                                 .settings
                                 .selected_basis
                                 .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                            let tick_multiply = TickMultiplier(10); // Default for footprint
+                            let kind = ModifierKind::Footprint(basis);
 
-                            let kind = ModifierKind::Footprint(basis, tick_multiply);
-                            let base_ticksize = chart.tick_size();
-
-                            let exchange =
-                                self.ticker_info.as_ref().map(|info| info.ticker.venue);
-
-                            let modifiers = row![
-                                basis_modifier(id, basis, modifier, kind),
-                                ticksize_modifier(
-                                    id,
-                                    base_ticksize,
-                                    tick_multiply,
-                                    modifier,
-                                    kind,
-                                    exchange
-                                ),
-                            ]
-                            .spacing(4);
+                            // Tick multiplier removed - only for crypto
+                            let modifiers = basis_modifier(id, basis, modifier, kind);
 
                             stream_info_element = stream_info_element.push(modifiers);
                         }
@@ -878,28 +894,7 @@ impl State {
                             modal::stream::Action::TabSelected(tab) => {
                                 modifier.tab = tab;
                             }
-                            modal::stream::Action::TicksizeSelected(tm) => {
-                                modifier.update_kind_with_multiplier(tm);
-
-                                if let Some(ticker) = self.ticker_info {
-                                    match &mut self.content {
-                                        Content::Kline { chart: Some(c), .. } => {
-                                            c.change_tick_size(
-                                                tm.multiply_with_min_tick_size(ticker),
-                                            );
-                                        }
-                                        Content::Heatmap { chart: Some(c), .. } => {
-                                            c.change_tick_size(
-                                                tm.multiply_with_min_tick_size(ticker),
-                                            );
-                                        }
-                                        Content::Ladder(Some(p)) => {
-                                            p.set_tick_size(tm.multiply_with_min_tick_size(ticker));
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            }
+                            // TicksizeSelected removed - tick multiplier only for crypto
                             modal::stream::Action::BasisSelected(new_basis) => {
                                 modifier.update_kind_with_basis(new_basis);
                                 self.settings.selected_basis = Some(new_basis);
@@ -961,13 +956,32 @@ impl State {
                     let crate::modal::pane::mini_tickers_list::Action::RowSelected(sel) = action;
                     match sel {
                         crate::modal::pane::mini_tickers_list::RowSelection::Add(ticker_info) => {
-                            // Add ticker to comparison chart
-                            // This requires loading chart data for the new ticker
-                            // For now, log the request - full implementation needs async loading
-                            log::info!("Request to add ticker {:?} to comparison chart", ticker_info.ticker);
-                            self.notifications.push(Toast::warn(
-                                "Adding tickers to comparison requires chart data loading - not yet implemented".to_string()
-                            ));
+                            // Add ticker to comparison chart by loading its chart data
+                            log::info!("Adding ticker {:?} to comparison chart", ticker_info.ticker);
+
+                            // Get current basis or use default
+                            let basis = self.settings.selected_basis.unwrap_or(ChartBasis::Time(Timeframe::M15));
+
+                            // Get date range - use a reasonable default
+                            // TODO: Make this configurable via UI
+                            let date_range = DateRange::new(
+                                chrono::Local::now().date_naive() - chrono::Duration::days(7),
+                                chrono::Local::now().date_naive(),
+                            );
+
+                            // Create chart config for this ticker
+                            let chart_config = ChartConfig {
+                                ticker: ticker_info.ticker,
+                                basis,
+                                date_range,
+                                chart_type: ChartType::Candlestick, // Comparison uses candlestick data
+                            };
+
+                            // Trigger chart data loading
+                            return Some(Effect::LoadChart {
+                                config: chart_config,
+                                ticker_info,
+                            });
                         }
                         crate::modal::pane::mini_tickers_list::RowSelection::Remove(ticker_info) => {
                             if let Content::Comparison(Some(chart)) = &mut self.content {
@@ -1529,6 +1543,8 @@ impl Content {
                     trade_size_filter: cfg.trade_size_filter,
                     trade_size_scale: cfg.trade_size_scale,
                     coalescing: None, // CoalesceKind is not exposed, use None
+                    trade_rendering_mode: crate::chart::heatmap::TradeRenderingMode::Auto,
+                    max_trade_markers: 10_000,
                 };
                 c.set_visual_config(visual);
             }
@@ -1719,30 +1735,7 @@ fn link_group_modal<'a>(
         .into()
 }
 
-fn ticksize_modifier<'a>(
-    id: pane_grid::Pane,
-    base_ticksize: f32,
-    multiplier: TickMultiplier,
-    modifier: Option<modal::stream::Modifier>,
-    kind: ModifierKind,
-    exchange: Option<data::FuturesVenue>,
-) -> Element<'a, Message> {
-    let modifier_modal = Modal::StreamModifier(
-        modal::stream::Modifier::new(kind).with_ticksize_view(base_ticksize, multiplier, exchange),
-    );
-
-    let is_active = modifier.is_some_and(|m| {
-        matches!(
-            m.view_mode,
-            modal::stream::ViewMode::TicksizeSelection { .. }
-        )
-    });
-
-    button(text(multiplier.to_string()))
-        .style(move |theme, status| style::button::modifier(theme, status, !is_active))
-        .on_press(Message::PaneEvent(id, Event::ShowModal(modifier_modal)))
-        .into()
-}
+// ticksize_modifier removed - tick multiplier only for crypto
 
 fn basis_modifier<'a>(
     id: pane_grid::Pane,

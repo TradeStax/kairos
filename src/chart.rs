@@ -1,8 +1,15 @@
 pub mod comparison;
+pub mod display_data;
 pub mod heatmap;
 pub mod indicator;
 pub mod kline;
+pub mod lod;
+pub mod perf;
+pub mod perf_overlay;
+pub mod presets;
+pub mod progressive;
 mod scale;
+pub mod viewport;
 
 use crate::style;
 use crate::widget::multi_split::{DRAG_SIZE, MultiSplit};
@@ -1087,7 +1094,11 @@ impl ViewState {
             (-tick_f32.log10()).ceil() as usize
         };
 
-        let value = format!("{:.prec$}", self.base_price_y.to_f32_lossy(), prec = decimal_places);
+        let value = format!(
+            "{:.prec$}",
+            self.base_price_y.to_f32_lossy(),
+            prec = decimal_places
+        );
         let width = (value.len() as f32 * TEXT_SIZE * 0.8).max(72.0);
 
         Length::Fixed(width.ceil())

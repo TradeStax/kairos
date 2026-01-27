@@ -42,7 +42,7 @@ pub use error_types::InternalError;
 // Re-export commonly used types for convenience
 pub use domain::{
     Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, ClusterKind, ClusterScaling,
-    DateRange, DepthSnapshot, FootprintStudy, FuturesTicker, FuturesTickerInfo, FuturesVenue,
+    DataSchema, DateRange, DepthSnapshot, FootprintStudy, FuturesTicker, FuturesTickerInfo, FuturesVenue,
     HeatmapIndicator, Indicator, KlineChartKind, KlineDataPoint, KlineIndicator, KlineTrades,
     LoadingStatus, NPoc, PointOfControl, Price, Quantity, Side, Timeframe, Timestamp, Trade,
     UiIndicator, ViewConfig, Volume, aggregate_trades_to_candles, aggregate_trades_to_ticks,

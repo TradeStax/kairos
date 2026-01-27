@@ -281,6 +281,55 @@ impl TradeRepository for DatabentoTradeRepository {
         Ok(downloaded)
     }
 
+    async fn prefetch_to_cache_databento_with_progress(
+        &self,
+        ticker: &FuturesTicker,
+        schema_discriminant: u16,
+        date_range: &DateRange,
+        progress_callback: Box<dyn Fn(usize, usize) + Send + Sync>,
+    ) -> RepositoryResult<usize> {
+        // Convert discriminant back to Schema
+        let schema = unsafe { std::mem::transmute::<u16, databento::dbn::Schema>(schema_discriminant) };
+        let mut manager = self.manager.lock().await;
+        let symbol = ticker.as_str();
+
+        let total_days = date_range.num_days() as usize;
+        let mut downloaded = 0;
+        let mut processed = 0;
+
+        log::info!("Starting prefetch with progress: {} days for {} ({:?})", total_days, symbol, schema);
+
+        // Download each day (including already cached - for accurate progress)
+        for date in date_range.dates() {
+            if !manager.cache.has_cached(symbol, schema, date).await {
+                log::info!("Downloading {} for {} (schema: {:?})", date, symbol, schema);
+
+                manager
+                    .fetch_to_cache(symbol, schema, date)
+                    .await
+                    .map_err(|e| RepositoryError::Remote(format!("Download failed for {}: {:?}", date, e)))?;
+
+                downloaded += 1;
+                log::info!("Successfully cached {}/{} for {}", date, schema, symbol);
+            } else {
+                log::debug!("Skipping {} - already cached", date);
+            }
+
+            // Update progress after each day (downloaded or skipped)
+            processed += 1;
+            progress_callback(processed, total_days);
+        }
+
+        log::info!(
+            "Prefetch complete: Downloaded {} days for {} ({:?})",
+            downloaded,
+            symbol,
+            schema
+        );
+
+        Ok(downloaded)
+    }
+
     async fn get_actual_cost_databento(
         &self,
         ticker: &FuturesTicker,

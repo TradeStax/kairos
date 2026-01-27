@@ -13,7 +13,7 @@ use data::{DateRange, FuturesTicker};
 use exchange::{DatabentoSchema, FuturesVenue};
 use iced::{
     Alignment, Color, Element, Length,
-    widget::{button, column, container, pick_list, row, space, text},
+    widget::{button, center, column, container, mouse_area, opaque, pick_list, row, space, stack, text},
 };
 
 /// Futures products for ticker dropdown
@@ -53,6 +53,7 @@ pub struct DataManagementPanel {
     cached_dates: Option<std::collections::HashSet<chrono::NaiveDate>>, // For calendar coloring
     actual_cost_usd: Option<f64>,
     download_progress: DownloadProgress,
+    show_confirm_modal: bool, // Show download confirmation modal
 }
 
 /// Calendar for visual date range selection
@@ -99,7 +100,8 @@ pub enum DataManagementMessage {
     DayClicked(chrono::NaiveDate),
 
     // Actions
-    Download,
+    ShowDownloadConfirm, // Show confirmation modal
+    ConfirmDownload, // User confirmed download
     CancelDownload,
 }
 
@@ -117,16 +119,17 @@ pub enum Action {
 }
 
 /// Custom style for calendar day buttons
-/// Text color = cache status, Outline = selection status
+/// Text color = cache status, Background = subtle indicator, Outline = selection
 fn calendar_day_style(
     base_text_color: Color,
     is_selected: bool,
+    is_cached: bool,
 ) -> impl Fn(&iced::Theme, iced::widget::button::Status) -> iced::widget::button::Style {
     move |theme, status| {
         let palette = theme.extended_palette();
 
         iced::widget::button::Style {
-            // Text color based ONLY on cache status
+            // Text color based on cache status
             text_color: match status {
                 iced::widget::button::Status::Hovered => {
                     // Subtle dim on hover (85% opacity)
@@ -140,8 +143,20 @@ fn calendar_day_style(
                 _ => base_text_color, // Cache status color always
             },
 
-            // NO background ever
-            background: None,
+            // Subtle circular background for cached dates
+            background: if is_cached {
+                Some(
+                    Color::from_rgba(
+                        palette.success.base.color.r,
+                        palette.success.base.color.g,
+                        palette.success.base.color.b,
+                        0.12, // Very subtle - 12% opacity
+                    )
+                    .into(),
+                )
+            } else {
+                None
+            },
 
             // Outline ONLY for selected dates
             border: if is_selected {
@@ -151,7 +166,12 @@ fn calendar_day_style(
                     radius: 3.0.into(),
                 }
             } else {
-                iced::Border::default() // No outline
+                // Subtle border for all to maintain button shape
+                iced::Border {
+                    width: 0.0,
+                    color: Color::TRANSPARENT,
+                    radius: 3.0.into(),
+                }
             },
 
             shadow: iced::Shadow::default(),
@@ -178,6 +198,7 @@ impl DataManagementPanel {
             cached_dates: None,
             actual_cost_usd: None,
             download_progress: DownloadProgress::Idle,
+            show_confirm_modal: false,
         }
     }
 
@@ -239,20 +260,27 @@ impl DataManagementPanel {
                 self.cache_status = None;
                 self.actual_cost_usd = None;
             }
-            DataManagementMessage::Download => {
+            DataManagementMessage::ShowDownloadConfirm => {
+                // Show confirmation modal (only if cost is available)
                 if self.actual_cost_usd.is_some() {
-                    let num_days = (self.calendar.end_date - self.calendar.start_date).num_days() + 1;
-                    self.download_progress = DownloadProgress::Downloading {
-                        current_day: 0,
-                        total_days: num_days as usize,
-                    };
-                    let ticker = FuturesTicker::new(FUTURES_PRODUCTS[self.selected_ticker_idx].0, FuturesVenue::CMEGlobex);
-                    let schema = SCHEMAS[self.selected_schema_idx].0;
-                    let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
-                    return Some(Action::DownloadRequested { ticker, schema, date_range });
+                    self.show_confirm_modal = true;
                 }
             }
+            DataManagementMessage::ConfirmDownload => {
+                // User confirmed - proceed with download
+                self.show_confirm_modal = false;
+                let num_days = (self.calendar.end_date - self.calendar.start_date).num_days() + 1;
+                self.download_progress = DownloadProgress::Downloading {
+                    current_day: 0,
+                    total_days: num_days as usize,
+                };
+                let ticker = FuturesTicker::new(FUTURES_PRODUCTS[self.selected_ticker_idx].0, FuturesVenue::CMEGlobex);
+                let schema = SCHEMAS[self.selected_schema_idx].0;
+                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
+                return Some(Action::DownloadRequested { ticker, schema, date_range });
+            }
             DataManagementMessage::CancelDownload => {
+                self.show_confirm_modal = false;
                 self.download_progress = DownloadProgress::Idle;
             }
         }
@@ -361,6 +389,44 @@ impl DataManagementPanel {
         ]
         .spacing(6);
 
+        // Cache status summary - CLEARLY shows what's already downloaded (NO COST)
+        let cache_summary = if let Some(ref status) = self.cache_status {
+            let total_days = status.total_days;
+            let cached_days = status.cached_days;
+            let uncached_days = status.uncached_days;
+
+            let summary_text = if cached_days == total_days {
+                text(format!("✓ All {} days already downloaded", total_days))
+                    .size(12)
+                    .style(|theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(theme.extended_palette().success.base.color),
+                    })
+            } else if cached_days > 0 {
+                text(format!("○ {}/{} days cached ({} to download)",
+                    cached_days, total_days, uncached_days))
+                    .size(12)
+                    .style(|theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(theme.extended_palette().primary.base.color),
+                    })
+            } else {
+                text(format!("⬇ Need to download all {} days", total_days))
+                    .size(12)
+                    .style(|theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(theme.extended_palette().secondary.base.color),
+                    })
+            };
+
+            // NO COST INFO HERE - cost only shown in confirmation modal
+            column![
+                summary_text,
+            ]
+            .spacing(2)
+        } else {
+            column![
+                text("Select date range to see cache status").size(11),
+            ]
+        };
+
         // Action button - shows progress in button text itself
         let (download_button_text, is_downloading) = match &self.download_progress {
             DownloadProgress::Downloading { current_day, total_days } => {
@@ -370,16 +436,8 @@ impl DataManagementPanel {
                 ("Checking cost...".to_string(), false)
             }
             _ => {
-                // Idle or Complete - show cost
-                if let Some(cost) = self.actual_cost_usd {
-                    if cost < 0.01 {
-                        ("Download (Free)".to_string(), false)
-                    } else {
-                        (format!("Download (${:.4})", cost), false)
-                    }
-                } else {
-                    ("Download (calculating...)".to_string(), false)
-                }
+                // Idle or Complete - show "Download" without cost (cost shown in confirmation)
+                ("Download".to_string(), false)
             }
         };
 
@@ -389,23 +447,119 @@ impl DataManagementPanel {
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
         let action_buttons = button(text(download_button_text))
-            .on_press_maybe(if can_download { Some(DataManagementMessage::Download) } else { None })
+            .on_press_maybe(if can_download { Some(DataManagementMessage::ShowDownloadConfirm) } else { None })
             .style(|t, s| style::button::confirm(t, s, false));
 
-        // Build modal with clean sections (no status text section)
-        let content = split_column![
+        // Build modal with clean sections including cache summary
+        let base_content = split_column![
             ticker_section,
             schema_section,
             calendar_section,
+            cache_summary,
             action_buttons
             ; spacing = 10, align_x = Alignment::Start
         ];
 
-        container(scrollable_content(content))
+        let base_modal = container(scrollable_content(base_content))
             .width(Length::Fixed(360.0))
             .padding(20)
-            .style(style::chart_modal)
-            .into()
+            .style(style::chart_modal);
+
+        // If confirmation modal is shown, overlay it on top
+        if self.show_confirm_modal {
+            self.confirmation_overlay(base_modal.into())
+        } else {
+            base_modal.into()
+        }
+    }
+
+    /// Build confirmation modal overlay - proper full-screen overlay
+    fn confirmation_overlay<'a>(&'a self, base_content: Element<'a, DataManagementMessage>) -> Element<'a, DataManagementMessage> {
+        let cost = self.actual_cost_usd.unwrap_or(0.0);
+        let (symbol, name) = FUTURES_PRODUCTS[self.selected_ticker_idx];
+        let (_, schema_name, _) = SCHEMAS[self.selected_schema_idx];
+        let total_days = (self.calendar.end_date - self.calendar.start_date).num_days() + 1;
+        let cached_days = self.cache_status.as_ref().map(|s| s.cached_days).unwrap_or(0);
+        let uncached_days = total_days as usize - cached_days;
+
+        let cost_text = if cached_days == total_days as usize {
+            text("Cost: Free (all data cached)")
+                .size(15)
+                .style(|theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(theme.extended_palette().success.base.color),
+                })
+        } else if cost < 0.01 {
+            text("Cost: $0.00 (may be incorrect)")
+                .size(15)
+                .style(|theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(theme.extended_palette().danger.base.color),
+                })
+        } else {
+            text(format!("Cost: ${:.4} USD", cost))
+                .size(15)
+        };
+
+        let confirmation_content = container(
+            column![
+                text("Confirm Download").size(18),
+                space::vertical().height(Length::Fixed(12.0)),
+                text(format!("{} - {}", symbol, name)).size(14),
+                text(format!("Schema: {}", schema_name)).size(13),
+                text(format!("Date Range: {} to {}",
+                    self.calendar.start_date.format("%b %d, %Y"),
+                    self.calendar.end_date.format("%b %d, %Y")
+                )).size(13),
+                space::vertical().height(Length::Fixed(8.0)),
+                text(format!("{} days total ({} cached, {} to download)",
+                    total_days, cached_days, uncached_days))
+                    .size(12),
+                space::vertical().height(Length::Fixed(12.0)),
+                cost_text,
+                space::vertical().height(Length::Fixed(16.0)),
+                row![
+                    button(text("Cancel").align_x(Alignment::Center))
+                        .on_press(DataManagementMessage::CancelDownload)
+                        .width(Length::Fill)
+                        .style(|t, s| style::button::cancel(t, s, false)),
+                    button(text("Confirm").align_x(Alignment::Center))
+                        .on_press(DataManagementMessage::ConfirmDownload)
+                        .width(Length::Fill)
+                        .style(|t, s| style::button::confirm(t, s, false)),
+                ]
+                .spacing(10)
+            ]
+            .spacing(6)
+            .padding(20)
+            .align_x(Alignment::Center)
+        )
+        .width(Length::Fixed(340.0))
+        .style(style::confirm_modal);
+
+        // Use proper stack-based overlay with semi-transparent background
+        stack![
+            base_content,
+            opaque(
+                container(
+                    mouse_area(center(opaque(confirmation_content)))
+                        .on_press(DataManagementMessage::CancelDownload) // Click outside to cancel
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme| {
+                    container::Style {
+                        background: Some(
+                            Color {
+                                a: 0.85,
+                                ..Color::BLACK
+                            }
+                            .into(),
+                        ),
+                        ..container::Style::default()
+                    }
+                })
+            )
+        ]
+        .into()
     }
 
     fn calendar_view(&self) -> Element<DataManagementMessage> {
@@ -515,7 +669,7 @@ impl DataManagementPanel {
                 let day_button = button(day_text)
                     .width(Length::FillPortion(1))
                     .height(Length::Fixed(26.0))
-                    .style(calendar_day_style(base_text_color, is_selected))
+                    .style(calendar_day_style(base_text_color, is_selected, is_cached))
                     .on_press(DataManagementMessage::DayClicked(date));
 
                 week_row = week_row.push(day_button);

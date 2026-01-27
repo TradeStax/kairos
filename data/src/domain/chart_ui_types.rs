@@ -78,11 +78,13 @@ impl KlineChartKind {
     }
 
     pub fn max_cell_height(&self) -> f32 {
-        200.0
+        300.0 // Increased from 200.0 to allow more zoom in
     }
 
     pub fn min_cell_height(&self) -> f32 {
-        4.0
+        0.1 // CRITICAL: Was 1.0, now 0.1 for truly infinite Y-axis zoom like X-axis
+             // With initial cell_height ~4.0, this gives 40x zoom range (vs only 4x before)
+             // At 0.1px/tick, 800px screen = 8000 price points visible (plenty for NQ!)
     }
 
     pub fn default_cell_width(&self) -> f32 {

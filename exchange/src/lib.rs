@@ -76,37 +76,8 @@ pub fn is_symbol_supported(symbol: &str, _venue: FuturesVenue, log_warn: bool) -
     }
 }
 
-/// Tick multiplier for custom tick sizes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize, Hash)]
-pub struct TickMultiplier(pub u16);
-
-impl std::fmt::Display for TickMultiplier {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}x", self.0)
-    }
-}
-
-impl TickMultiplier {
-    pub const ALL: [TickMultiplier; 9] = [
-        TickMultiplier(1),
-        TickMultiplier(2),
-        TickMultiplier(5),
-        TickMultiplier(10),
-        TickMultiplier(25),
-        TickMultiplier(50),
-        TickMultiplier(100),
-        TickMultiplier(200),
-        TickMultiplier(500),
-    ];
-
-    pub fn is_custom(&self) -> bool {
-        !Self::ALL.contains(self)
-    }
-
-    pub fn multiply_with_min_tick_size(&self, ticker_info: FuturesTickerInfo) -> f32 {
-        ticker_info.tick_size * (self.0 as f32)
-    }
-}
+// TickMultiplier removed - was only needed for crypto which this project doesn't support
+// Use ticker_info.tick_size directly for futures tick sizes
 
 /// Push frequency for orderbook updates
 #[derive(

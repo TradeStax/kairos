@@ -122,6 +122,22 @@ pub trait TradeRepository: Send + Sync {
         ))
     }
 
+    /// Prefetch data to cache WITH progress callbacks (Databento-specific)
+    ///
+    /// Calls progress_callback(current_day, total_days) after each day is downloaded.
+    /// This allows UI to show real-time download progress.
+    async fn prefetch_to_cache_databento_with_progress(
+        &self,
+        ticker: &FuturesTicker,
+        schema_discriminant: u16,
+        date_range: &DateRange,
+        progress_callback: Box<dyn Fn(usize, usize) + Send + Sync>,
+    ) -> RepositoryResult<usize> {
+        // Default: call non-progress version and ignore callback
+        let _ = progress_callback; // Silence unused warning
+        self.prefetch_to_cache_databento(ticker, schema_discriminant, date_range).await
+    }
+
     /// Get actual cost from Databento API (Databento-specific)
     ///
     /// Calls Databento's metadata.get_cost() API to get real USD cost.

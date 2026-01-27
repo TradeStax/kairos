@@ -1,7 +1,7 @@
 use super::{TickerStats, Timeframe};
 use crate::types::{Depth, Kline, OpenInterest, Trade};
 use crate::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
-use crate::{PushFrequency, TickMultiplier};
+use crate::PushFrequency;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -329,7 +329,7 @@ impl PersistStreamKind {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum StreamTicksize {
-    ServerSide(TickMultiplier),
+    // ServerSide removed - tick multiplier only for crypto
     #[default]
     Client,
 }
@@ -383,7 +383,7 @@ pub enum Event {
 pub struct StreamConfig<I> {
     pub id: I,
     pub venue: FuturesVenue,
-    pub tick_mltp: Option<TickMultiplier>,
+    // tick_mltp removed - only for crypto
     pub push_freq: PushFrequency,
 }
 
@@ -391,13 +391,11 @@ impl<I> StreamConfig<I> {
     pub fn new(
         id: I,
         venue: FuturesVenue,
-        tick_mltp: Option<TickMultiplier>,
         push_freq: PushFrequency,
     ) -> Self {
         Self {
             id,
             venue,
-            tick_mltp,
             push_freq,
         }
     }

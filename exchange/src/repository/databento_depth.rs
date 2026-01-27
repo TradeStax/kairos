@@ -102,8 +102,46 @@ impl DepthRepository for DatabentoDepthRepository {
             .await
             .map_err(|e| RepositoryError::Remote(format!("Databento fetch failed: {:?}", e)))?;
 
+        let original_count = depth_tuples.len();
+
+        // PERFORMANCE FIX: Decimate depth snapshots to prevent 30+ minute freeze
+        // MBP-10 can have 100K+ snapshots/day which causes O(millions) BTreeMap operations
+        // For heatmap visualization, we only need ~1 snapshot per second
+        //
+        // Decimation strategy: Keep every Nth snapshot based on data density
+        // More aggressive for multi-day loads to ensure <5 minute load times
+        let decimation_factor = if original_count > 200_000 {
+            50  // 5+ days NQ: keep every 50th snapshot (ultra-aggressive for multi-day)
+        } else if original_count > 100_000 {
+            30  // 3-4 days NQ: keep every 30th snapshot
+        } else if original_count > 50_000 {
+            15  // 1-2 days NQ: keep every 15th snapshot
+        } else if original_count > 10_000 {
+            5   // Moderate density: keep every 5th snapshot
+        } else {
+            1   // Low density (<10K): keep all snapshots
+        };
+
+        let decimated: Vec<_> = if decimation_factor > 1 {
+            depth_tuples
+                .into_iter()
+                .enumerate()
+                .filter(|(idx, _)| idx % decimation_factor == 0)
+                .map(|(_, snapshot)| snapshot)
+                .collect()
+        } else {
+            depth_tuples
+        };
+
+        log::info!(
+            "DatabentoDepthRepository: Decimated MBP-10 snapshots {} → {} ({}x reduction)",
+            original_count,
+            decimated.len(),
+            decimation_factor
+        );
+
         // Convert to domain depth snapshots
-        let domain_snapshots: Vec<DepthSnapshot> = depth_tuples
+        let domain_snapshots: Vec<DepthSnapshot> = decimated
             .iter()
             .map(|(time, depth)| Self::convert_depth_snapshot(*time, depth))
             .collect();

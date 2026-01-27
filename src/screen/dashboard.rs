@@ -15,7 +15,7 @@ use crate::{
     window::{self, Window},
 };
 use data::{
-    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LoadingStatus, UserTimezone,
+    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus, UserTimezone,
     WindowSpec,
 };
 use exchange::FuturesTickerInfo;
@@ -409,6 +409,7 @@ impl Dashboard {
 
                         // Handle pane effects
                         let pane_id = state.unique_id();
+                        let triggering_pane_link_group = state.link_group; // Capture link group BEFORE matching on effect
                         let (task, event) = match effect {
                             pane::Effect::LoadChart { config, ticker_info } => {
                                 // Trigger chart loading for this pane
@@ -417,7 +418,8 @@ impl Dashboard {
                             }
                             pane::Effect::SwitchTickersInGroup(ticker_info) => {
                                 // Switch tickers for all panes in the same link group
-                                let task = self.switch_tickers_in_group(main_window.id, ticker_info);
+                                // If no link group, pass pane_id to switch just this single pane
+                                let task = self.switch_tickers_in_group(main_window.id, ticker_info, triggering_pane_link_group, Some(pane_id));
                                 (task, None)
                             }
                             pane::Effect::FocusWidget(_id) => {
@@ -845,51 +847,74 @@ impl Dashboard {
         &mut self,
         main_window: window::Id,
         ticker_info: FuturesTickerInfo,
+        triggering_pane_link_group: Option<LinkGroup>,
+        fallback_pane_id: Option<uuid::Uuid>, // NEW: If no link group, use this single pane
     ) -> Task<Message> {
-        // Find all panes in the same link group as the triggering pane
         let mut panes_to_update = Vec::new();
 
-        // First, find the link group from any pane with this ticker
-        let link_group = self
-            .iter_all_panes(main_window)
-            .find_map(|(_, _, state)| {
-                if state.ticker_info.as_ref().map(|ti| ti.ticker) == Some(ticker_info.ticker) {
-                    state.link_group
-                } else {
-                    None
+        // If pane has a link group, update ALL panes in that group
+        if let Some(link_group) = triggering_pane_link_group {
+            log::info!("Switching tickers in link group {:?} to {:?}", link_group, ticker_info.ticker);
+
+            // Collect all panes in this link group
+            for (window, pane, state) in self.iter_all_panes(main_window) {
+                if state.link_group == Some(link_group) {
+                    panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
                 }
-            });
-
-        let Some(link_group) = link_group else {
-            log::debug!("No link group found for ticker switch");
-            return Task::none();
-        };
-
-        // Collect all panes in this link group
-        for (window, pane, state) in self.iter_all_panes(main_window) {
-            if state.link_group == Some(link_group) {
-                panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
             }
+        } else if let Some(pane_id) = fallback_pane_id {
+            // No link group - just update the single triggering pane
+            log::info!("No link group - switching single pane {} to {:?}", pane_id, ticker_info.ticker);
+
+            // Find the pane by UUID
+            if let Some((window, pane, state)) = self.iter_all_panes(main_window)
+                .find(|(_, _, s)| s.unique_id() == pane_id)
+            {
+                panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
+            } else {
+                log::error!("Could not find triggering pane by UUID: {}", pane_id);
+                return Task::none();
+            }
+        } else {
+            log::debug!("No link group and no fallback pane ID - cannot switch tickers");
+            return Task::none();
         }
 
-        log::info!(
-            "Switching {} panes in link group {:?} to ticker {:?}",
-            panes_to_update.len(),
-            link_group,
-            ticker_info.ticker
-        );
+        log::info!("Switching {} pane(s) to ticker {:?}", panes_to_update.len(), ticker_info.ticker);
+
+        // Get registered date range BEFORE looping
+        let date_range = self.downloaded_tickers
+            .lock()
+            .unwrap()
+            .get_range(&ticker_info.ticker)
+            .unwrap_or_else(|| {
+                log::warn!("No registered range for {} in switch_tickers_in_group - using last 1 day", ticker_info.ticker);
+                DateRange::last_n_days(1)
+            });
+
+        log::info!("Using date range {} to {} for ticker switch", date_range.start, date_range.end);
 
         // Update each pane's ticker and trigger reload
         let mut tasks = Vec::new();
         for (_, _, pane_id, content_kind) in panes_to_update {
             // Get the pane state and update it
             if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
-                let effect = pane_state.set_content(ticker_info, content_kind);
+                // Use set_content_with_range to use registered date range (not default 1 day)
+                let effect = pane_state.set_content_with_range(ticker_info, content_kind, date_range);
+
+                log::info!("  Pane {} effect received: {:?}", pane_id,
+                    match &effect {
+                        pane::Effect::LoadChart { config, .. } => format!("LoadChart({:?})", config.chart_type),
+                        pane::Effect::SwitchTickersInGroup(_) => "SwitchTickersInGroup".to_string(),
+                        _ => "Other".to_string()
+                    });
 
                 // Handle the LoadChart effect
                 if let pane::Effect::LoadChart { config, ticker_info } = effect {
+                    log::info!("  Creating LoadChart event for pane {}", pane_id);
                     let event = self.load_chart(pane_id, config, ticker_info);
                     if let Event::LoadChart { pane_id, config, ticker_info } = event {
+                        log::info!("  Pushing LoadChart message to task queue");
                         tasks.push(Message::LoadChart { pane_id, config, ticker_info });
                     }
                 }

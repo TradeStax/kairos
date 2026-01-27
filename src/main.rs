@@ -29,7 +29,15 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{borrow::Cow, collections::HashMap, vec};
+use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
+use futures::stream::StreamExt;
+
+// Global download progress state (shared between async tasks and subscriptions)
+static DOWNLOAD_PROGRESS: OnceLock<std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>>> = OnceLock::new();
+
+fn get_download_progress() -> &'static std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>> {
+    DOWNLOAD_PROGRESS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())))
+}
 
 fn main() {
     logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
@@ -73,6 +81,7 @@ struct Flowsurface {
     theme: data::Theme,
     notifications: Vec<Toast>,
     downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    // Download progress tracking moved to DOWNLOAD_PROGRESS global static
 }
 
 #[derive(Debug, Clone)]
@@ -278,11 +287,14 @@ impl Flowsurface {
         match message {
             // Async chart data loading
             Message::LoadChartData { layout_id, pane_id, config, ticker_info } => {
+                log::info!("🔵 LoadChartData message received for pane {}: {:?} chart", pane_id, config.chart_type);
                 let service = self.market_data_service.clone();
                 return Task::perform(
                     async move {
-                        service.get_chart_data(&config, &ticker_info).await
-                            .map_err(|e| e.to_string())
+                        log::info!("🔵 Starting async get_chart_data for {:?}...", config.chart_type);
+                        let result = service.get_chart_data(&config, &ticker_info).await;
+                        log::info!("🔵 get_chart_data completed: {}", if result.is_ok() { "SUCCESS" } else { "ERROR" });
+                        result.map_err(|e| e.to_string())
                     },
                     move |result| Message::ChartDataLoaded { layout_id, pane_id, result }
                 );
@@ -472,14 +484,24 @@ impl Flowsurface {
             }
             // Data management - cost estimation
             Message::EstimateDataCost { pane_id, ticker, schema, date_range } => {
+                log::info!("📞 MAIN: EstimateDataCost message received");
+                log::info!("📞 MAIN: Ticker={:?}, Schema={:?}, Range={:?}", ticker, schema, date_range);
                 let service = self.market_data_service.clone();
                 let schema_discriminant = schema as u16;
                 return Task::perform(
                     async move {
-                        service.estimate_data_request(&ticker, schema_discriminant, &date_range).await
-                            .map_err(|e| e.to_string())
+                        log::info!("⏳ TASK: Async block entered, about to call service");
+                        let result = service.estimate_data_request(&ticker, schema_discriminant, &date_range).await;
+                        log::info!("✅ TASK: Service call completed, result success: {}", result.is_ok());
+                        if let Err(ref e) = result {
+                            log::error!("❌ TASK: Service error: {}", e);
+                        }
+                        result.map_err(|e| e.to_string())
                     },
-                    move |result| Message::DataCostEstimated { pane_id, result }
+                    move |result| {
+                        log::info!("📨 CALLBACK: Task finished, sending DataCostEstimated");
+                        Message::DataCostEstimated { pane_id, result }
+                    }
                 );
             }
             Message::DataCostEstimated { pane_id, result } => {
@@ -533,10 +555,29 @@ impl Flowsurface {
                 let service = self.market_data_service.clone();
                 let schema_discriminant = schema as u16;
                 let ticker_clone = ticker.clone();
-                let date_range_clone = date_range;
+                let date_range_clone = date_range.clone();
+
+                // Initialize progress in global state for this pane
+                {
+                    let mut progress = get_download_progress().lock().unwrap();
+                    progress.insert(pane_id, (0, date_range.num_days() as usize));
+                }
+
+                // Perform download with progress callback
                 return Task::perform(
                     async move {
-                        service.download_to_cache(&ticker, schema_discriminant, &date_range).await
+                        service.download_to_cache_with_progress(
+                            &ticker,
+                            schema_discriminant,
+                            &date_range,
+                            Box::new(move |current, total| {
+                                // Update global progress state
+                                if let Ok(mut progress) = get_download_progress().lock() {
+                                    progress.insert(pane_id, (current, total));
+                                }
+                                log::info!("Download progress: {}/{} days", current, total);
+                            })
+                        ).await
                             .map_err(|e| e.to_string())
                     },
                     move |result| Message::DataDownloadComplete {
@@ -548,10 +589,32 @@ impl Flowsurface {
                 );
             }
             Message::DataDownloadProgress { pane_id, current, total } => {
-                log::debug!("Download progress for pane {}: {}/{}", pane_id, current, total);
-                // TODO: Update pane's data management modal with progress
+                log::info!("Download progress for pane {}: {}/{}", pane_id, current, total);
+
+                // Update progress in UI
+                if pane_id == uuid::Uuid::nil() {
+                    // Sidebar download progress
+                    self.data_management_panel.set_download_progress(
+                        crate::modal::pane::data_management::DownloadProgress::Downloading {
+                            current_day: current,
+                            total_days: total,
+                        }
+                    );
+                } else {
+                    // Dashboard pane download progress
+                    return Task::done(Message::Dashboard {
+                        layout_id: self.layout_manager.active_layout_id().map(|l| l.unique),
+                        event: dashboard::Message::DataDownloadProgress { pane_id, current, total },
+                    });
+                }
             }
             Message::DataDownloadComplete { pane_id, ticker, date_range, result } => {
+                // Clean up progress tracking in global state
+                {
+                    let mut progress = get_download_progress().lock().unwrap();
+                    progress.remove(&pane_id);
+                }
+
                 match result {
                     Ok(days_downloaded) => {
                         log::info!("Downloaded {} days for {} ({} to {})",
@@ -1001,6 +1064,9 @@ impl Flowsurface {
         let status_poll = iced::time::every(std::time::Duration::from_millis(500))
             .map(|_| Message::UpdateLoadingStatus);
 
+        // Download progress monitoring subscription
+        let download_poll = Subscription::run(download_progress_monitor);
+
         let hotkeys = keyboard::listen().filter_map(|event| {
             let keyboard::Event::KeyPressed { key, .. } = event else {
                 return None;
@@ -1016,6 +1082,7 @@ impl Flowsurface {
             window_events,
             tick,
             status_poll,
+            download_poll,
             hotkeys,
         ])
     }
@@ -1520,4 +1587,38 @@ impl Flowsurface {
 
         close_windows.chain(init_task)
     }
+}
+
+/// Subscription that monitors download progress and emits UI updates
+/// Uses global download progress state to avoid Subscription capture issues
+fn download_progress_monitor() -> impl futures::stream::Stream<Item = Message> {
+    futures::stream::unfold((), |_| async {
+        // Sleep for 200ms between polls
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Check global progress state
+        if let Ok(progress) = get_download_progress().lock() {
+            if !progress.is_empty() {
+                // Get first active download (could iterate all if needed)
+                if let Some((&pane_id, &(current, total))) = progress.iter().next() {
+                    // Emit progress message
+                    return Some((Message::DataDownloadProgress { pane_id, current, total }, ()));
+                }
+            }
+        }
+
+        // No active downloads, emit dummy message that will be filtered
+        Some((Message::DataDownloadProgress {
+            pane_id: uuid::Uuid::nil(),
+            current: 0,
+            total: 0
+        }, ()))
+    })
+    .filter(|msg| {
+        // Filter out dummy messages (nil UUID = no active downloads)
+        futures::future::ready(match msg {
+            Message::DataDownloadProgress { pane_id, .. } => *pane_id != uuid::Uuid::nil(),
+            _ => false,
+        })
+    })
 }
