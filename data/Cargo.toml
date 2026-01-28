@@ -23,3 +23,5 @@ log = { version = "0.4.22", default-features = true, features = ["std"] }
 thiserror = { version = "2.0.12", default-features = true, features = ["std"] }
 async-trait = "0.1"
 tokio = { version = "1.43", features = ["sync", "macros", "rt-multi-thread", "time"] }
+keyring = "3"
+base64 = "0.22"

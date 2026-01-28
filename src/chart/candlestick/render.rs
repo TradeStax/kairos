@@ -36,7 +36,7 @@ impl canvas::Program<Message> for KlineChart {
     ) -> Vec<Geometry> {
         let chart = self.state();
 
-        if chart.bounds.width == 0.0 {
+        if bounds.width == 0.0 {
             return vec![];
         }
 

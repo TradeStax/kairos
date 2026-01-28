@@ -12,7 +12,7 @@ use crate::chart::{
     },
 };
 
-use data::Candle;
+use data::{Candle, ChartBasis};
 use data::util::format_with_commas;
 
 use std::collections::BTreeMap;
@@ -62,10 +62,20 @@ impl KlineIndicatorImpl for DeltaIndicator {
         indicator_row(chart, &self.cache, plot, &self.data, visible_range)
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.data.clear();
-        for candle in candles {
-            self.data.insert(candle.time.0, candle.volume_delta() as f32);
+        match basis {
+            ChartBasis::Time(_) => {
+                for candle in candles {
+                    self.data.insert(candle.time.0, candle.volume_delta() as f32);
+                }
+            }
+            ChartBasis::Tick(_) => {
+                // For tick-based, store by reverse index (0 = most recent)
+                for (index, candle) in candles.iter().rev().enumerate() {
+                    self.data.insert(index as u64, candle.volume_delta() as f32);
+                }
+            }
         }
         self.clear_all_caches();
     }

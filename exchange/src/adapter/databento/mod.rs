@@ -94,6 +94,21 @@ impl DatabentoConfig {
         }
     }
 
+    /// Create configuration from SecretsManager (keyring with env fallback)
+    pub fn from_secrets() -> Result<Self, AdapterError> {
+        use flowsurface_data::{ApiKeyStatus, ApiProvider, SecretsManager};
+
+        let secrets = SecretsManager::new();
+        match secrets.get_api_key(ApiProvider::Databento) {
+            ApiKeyStatus::FromKeyring(key) | ApiKeyStatus::FromEnv(key) => {
+                Ok(Self::with_api_key(key))
+            }
+            ApiKeyStatus::NotConfigured => Err(AdapterError::InvalidRequest(
+                "Databento API key not configured. Set via UI or DATABENTO_API_KEY environment variable.".to_string(),
+            )),
+        }
+    }
+
     /// Check if a schema is expensive
     pub fn is_expensive_schema(schema: databento::dbn::Schema) -> bool {
         matches!(

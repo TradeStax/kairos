@@ -114,7 +114,7 @@ impl KlineIndicatorImpl for OpenInterestIndicator {
         self.indicator_elem(chart, visible_range)
     }
 
-    fn rebuild_from_candles(&mut self, _candles: &[Candle]) {
+    fn rebuild_from_candles(&mut self, _candles: &[Candle], _basis: ChartBasis) {
         // OI is separate data, not derived from candles
         // Data is set via set_data() method when loaded from repository
         self.clear_all_caches();

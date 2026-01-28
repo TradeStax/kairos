@@ -155,7 +155,11 @@ impl ViewState {
             }
             ChartBasis::Tick(_) => {
                 let tick = -(x / self.cell_width);
-                tick.round() as u64
+                if tick < 0.0 {
+                    0
+                } else {
+                    tick.round() as u64
+                }
             }
         }
     }

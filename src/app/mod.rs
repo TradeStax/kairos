@@ -3,9 +3,8 @@ mod state;
 mod subscriptions;
 mod update;
 
-use data::config::theme::default_theme;
-use data::{layout::WindowSpec, sidebar, LoadingStatus};
 use crate::layout::{LayoutId, configuration};
+use crate::modal::api_key_config::{ApiKeyConfigModal, TriggeredBy as ApiKeyTriggeredBy};
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{self, Dashboard};
@@ -15,6 +14,8 @@ use crate::widget::{
     tooltip,
 };
 use crate::{split_column, style, window};
+use data::config::theme::default_theme;
+use data::{LoadingStatus, layout::WindowSpec, sidebar};
 
 use iced::{
     Alignment, Element, Subscription, Task, keyboard, padding,
@@ -26,9 +27,12 @@ use iced::{
 use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
 
 // Global download progress state (shared between async tasks and subscriptions)
-static DOWNLOAD_PROGRESS: OnceLock<std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>>> = OnceLock::new();
+static DOWNLOAD_PROGRESS: OnceLock<
+    std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>>,
+> = OnceLock::new();
 
-pub fn get_download_progress() -> &'static std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>> {
+pub fn get_download_progress()
+-> &'static std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>> {
     DOWNLOAD_PROGRESS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())))
 }
 
@@ -39,18 +43,21 @@ pub struct Flowsurface {
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
     pub(crate) data_management_panel: crate::modal::pane::data_management::DataManagementPanel,
+    pub(crate) api_key_config_modal: Option<ApiKeyConfigModal>,
     pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
-    // Service layer
-    pub(crate) market_data_service: std::sync::Arc<data::MarketDataService>,
+    // Service layer (optional - None when API key not configured)
+    pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
     pub(crate) gex_service: std::sync::Arc<data::services::GexCalculationService>,
-    pub(crate) replay_engine: Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
+    pub(crate) replay_engine:
+        Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
     // User preferences
     pub(crate) ui_scale_factor: data::ScaleFactor,
     pub(crate) timezone: data::UserTimezone,
     pub(crate) theme: data::Theme,
     pub(crate) notifications: Vec<Toast>,
-    pub(crate) downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    pub(crate) downloaded_tickers:
+        std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,23 +146,37 @@ pub enum Message {
     ThemeEditor(crate::modal::theme_editor::Message),
     Layouts(crate::modal::layout_manager::Message),
     AudioStream(crate::modal::audio::Message),
+    // API key configuration
+    ApiKeyConfig(crate::modal::api_key_config::Message),
+    ShowApiKeyConfig {
+        provider: data::ApiProvider,
+        triggered_by: Option<ApiKeyTriggeredBy>,
+    },
+    ReinitializeService(data::ApiProvider),
 }
 
 impl Flowsurface {
     pub fn new() -> (Self, Task<Message>) {
         // Initialize services
-        let (market_data_service, trade_repo, depth_repo) = services::initialize_market_data_service();
-        let replay_engine = services::create_replay_engine(trade_repo, Some(depth_repo));
+        let market_data_result = services::initialize_market_data_service();
+        let market_data_service = market_data_result.as_ref().map(|r| r.service.clone());
+        let replay_engine = services::create_replay_engine(market_data_result.as_ref());
         let (options_service, gex_service) = services::initialize_options_services();
 
         // Load saved state first to get persisted registry
-        let saved_state_temp = crate::layout::load_saved_state_without_registry(market_data_service.clone());
+        let saved_state_temp =
+            crate::layout::load_saved_state_without_registry(market_data_service.clone());
 
         // Create THE SINGLE shared Arc<Mutex<>> with loaded registry data
-        let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.downloaded_tickers.clone()));
+        let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(
+            saved_state_temp.downloaded_tickers.clone(),
+        ));
 
         // Re-create layout manager with the shared Arc
-        let layout_manager = crate::modal::LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone());
+        let layout_manager = crate::modal::LayoutManager::new(
+            market_data_service.clone(),
+            downloaded_tickers.clone(),
+        );
 
         // Create final SavedState with shared Arc in layout_manager
         let saved_state = crate::layout::SavedState {
@@ -181,7 +202,8 @@ impl Flowsurface {
             window::open(config)
         };
 
-        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state, downloaded_tickers.clone());
+        let (sidebar, launch_sidebar) =
+            dashboard::Sidebar::new(&saved_state, downloaded_tickers.clone());
 
         let mut state = Self {
             main_window: window::Window::new(main_window_id),
@@ -189,6 +211,7 @@ impl Flowsurface {
             theme_editor: ThemeEditor::new(saved_state.custom_theme),
             audio_stream: AudioStream::new(saved_state.audio_cfg),
             data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
+            api_key_config_modal: None,
             sidebar,
             confirm_dialog: None,
             market_data_service,
@@ -223,9 +246,9 @@ impl Flowsurface {
 
     pub fn title(&self, _window: window::Id) -> String {
         if let Some(id) = self.layout_manager.active_layout_id() {
-            format!("Flowsurface [{}]", id.name)
+            format!("XX & Company [{}]", id.name)
         } else {
-            "Flowsurface".to_string()
+            "XX & Company".to_string()
         }
     }
 
@@ -264,7 +287,7 @@ impl Flowsurface {
                 #[cfg(target_os = "macos")]
                 {
                     iced::widget::center(
-                        text("FLOWSURFACE")
+                        text("XXNCO")
                             .font(iced::Font {
                                 weight: iced::font::Weight::Bold,
                                 ..Default::default()
@@ -409,8 +432,14 @@ impl Flowsurface {
                         )
                     };
 
+                    let api_keys_button = button(text("API Keys")).on_press(Message::Sidebar(
+                        dashboard::sidebar::Message::ToggleSidebarMenu(Some(
+                            sidebar::Menu::ApiKeys,
+                        )),
+                    ));
+
                     let column_content = split_column![
-                        column![open_data_folder,].spacing(8),
+                        column![open_data_folder, api_keys_button,].spacing(8),
                         column![text("Sidebar position").size(14), sidebar_pos_picker,].spacing(12),
                         column![text("Time zone").size(14), timezone_picklist,].spacing(12),
                         column![text("Theme").size(14), theme_picklist,].spacing(12),
@@ -583,7 +612,8 @@ impl Flowsurface {
 
                 dashboard_modal(
                     base,
-                    self.data_management_panel.view()
+                    self.data_management_panel
+                        .view()
                         .map(Message::DataManagement),
                     Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
@@ -627,6 +657,36 @@ impl Flowsurface {
                     Alignment::End,
                     align_x,
                 )
+            }
+            sidebar::Menu::ApiKeys => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
+                };
+
+                // If we have an api key config modal, show it
+                if let Some(modal) = &self.api_key_config_modal {
+                    dashboard_modal(
+                        base,
+                        modal.view().map(Message::ApiKeyConfig),
+                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                        padding,
+                        Alignment::End,
+                        align_x,
+                    )
+                } else {
+                    // No modal yet - this shouldn't normally happen, but fallback to showing text
+                    dashboard_modal(
+                        base,
+                        container(text("Loading API configuration..."))
+                            .padding(24)
+                            .style(style::dashboard_modal),
+                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                        padding,
+                        Alignment::End,
+                        align_x,
+                    )
+                }
             }
         }
     }

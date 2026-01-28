@@ -267,7 +267,7 @@ impl KlineChart {
         let mut indicators = EnumMap::default();
         for &i in enabled_indicators {
             let mut indi = indicator::kline::make_empty(i);
-            indi.rebuild_from_candles(&chart_data.candles);
+            indi.rebuild_from_candles(&chart_data.candles, basis);
             indicators[i] = Some(indi);
         }
 
@@ -351,7 +351,7 @@ impl KlineChart {
         self.indicators
             .values_mut()
             .filter_map(Option::as_mut)
-            .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles));
+            .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles, new_basis));
 
         // Invalidate footprint cache
         self.invalidate_footprint_cache();
@@ -444,7 +444,7 @@ impl KlineChart {
         self.indicators
             .values_mut()
             .filter_map(Option::as_mut)
-            .for_each(|indi| indi.on_ticksize_change(&self.chart_data.candles));
+            .for_each(|indi| indi.on_ticksize_change(&self.chart_data.candles, self.basis));
 
         // Invalidate footprint cache since tick size changed
         self.invalidate_footprint_cache();
@@ -807,7 +807,7 @@ impl KlineChart {
             self.indicators[indicator] = None;
         } else {
             let mut box_indi = indicator::kline::make_empty(indicator);
-            box_indi.rebuild_from_candles(&self.chart_data.candles);
+            box_indi.rebuild_from_candles(&self.chart_data.candles, self.basis);
             self.indicators[indicator] = Some(box_indi);
         }
 

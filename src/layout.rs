@@ -48,7 +48,7 @@ impl SavedState {
     }
 
     pub fn default_with_service(
-        market_data_service: std::sync::Arc<data::MarketDataService>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         SavedState {
@@ -164,7 +164,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
 }
 
 pub fn load_saved_state_without_registry(
-    market_data_service: std::sync::Arc<data::MarketDataService>,
+    market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
 ) -> SavedState {
     let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
     match data::load_state("app-state.json") {

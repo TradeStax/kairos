@@ -1313,6 +1313,7 @@ dependencies = [
  "lru 0.12.5",
  "num-traits",
  "num_cpus",
+ "open",
  "palette",
  "rand 0.8.5",
  "rodio",
@@ -1333,10 +1334,12 @@ name = "flowsurface-data"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "dirs-next",
  "enum-map",
  "iced_core",
+ "keyring",
  "log",
  "open",
  "palette",
@@ -2438,6 +2441,16 @@ checksum = "279046e6427c19c86f93df06fe9dc90c32b43f4a2a85bb3083d579e4a1e7ef03"
 dependencies = [
  "itoa",
  "ryu",
+]
+
+[[package]]
+name = "keyring"
+version = "3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eebcc3aff044e5944a8fbaf69eb277d11986064cba30c468730e8b9909fb551c"
+dependencies = [
+ "log",
+ "zeroize",
 ]
 
 [[package]]

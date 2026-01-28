@@ -173,6 +173,21 @@ pub fn modal_container(theme: &Theme) -> Style {
     }
 }
 
+// Progress bar styles
+pub fn progress_bar(theme: &Theme) -> widget::progress_bar::Style {
+    let palette = theme.extended_palette();
+
+    widget::progress_bar::Style {
+        background: palette.background.weak.color.into(),
+        bar: palette.primary.base.color.into(),
+        border: Border {
+            width: 0.0,
+            color: Color::TRANSPARENT,
+            radius: 3.0.into(),
+        },
+    }
+}
+
 pub fn colored_circle_container(theme: &Theme, color: iced::Color) -> Style {
     let palette = theme.extended_palette();
 

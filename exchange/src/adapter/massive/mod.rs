@@ -132,6 +132,19 @@ impl MassiveConfig {
         Ok(Self::new(api_key))
     }
 
+    /// Create configuration from SecretsManager (keyring with env fallback)
+    pub fn from_secrets() -> Result<Self, MassiveError> {
+        use flowsurface_data::{ApiKeyStatus, ApiProvider, SecretsManager};
+
+        let secrets = SecretsManager::new();
+        match secrets.get_api_key(ApiProvider::Massive) {
+            ApiKeyStatus::FromKeyring(key) | ApiKeyStatus::FromEnv(key) => Ok(Self::new(key)),
+            ApiKeyStatus::NotConfigured => Err(MassiveError::Config(
+                "Massive API key not configured. Set via UI or MASSIVE_API_KEY environment variable.".to_string(),
+            )),
+        }
+    }
+
     /// Validate configuration
     pub fn validate(&self) -> Result<(), MassiveError> {
         if self.api_key.is_empty() {

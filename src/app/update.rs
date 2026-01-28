@@ -6,7 +6,7 @@ use crate::screen::dashboard;
 use crate::widget::toast::{Toast, Notification};
 use crate::window;
 
-use super::{Flowsurface, Message, get_download_progress};
+use super::{Flowsurface, Message, get_download_progress, services};
 
 impl Flowsurface {
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -14,7 +14,16 @@ impl Flowsurface {
             // Async chart data loading
             Message::LoadChartData { layout_id, pane_id, config, ticker_info } => {
                 log::info!("LoadChartData message received for pane {}: {:?} chart", pane_id, config.chart_type);
-                let service = self.market_data_service.clone();
+
+                let Some(service) = self.market_data_service.clone() else {
+                    log::warn!("Market data service not available (API key not configured)");
+                    self.notifications.push(Toast::error("Databento API key required for chart data".to_string()));
+                    return Task::done(Message::ShowApiKeyConfig {
+                        provider: data::ApiProvider::Databento,
+                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
+                    });
+                };
+
                 return Task::perform(
                     async move {
                         log::info!("Starting async get_chart_data for {:?}...", config.chart_type);
@@ -52,6 +61,19 @@ impl Flowsurface {
             }
             // Options data loading
             Message::LoadOptionChain { pane_id, underlying_ticker, date } => {
+                // Check if Massive API key is configured
+                let secrets = data::SecretsManager::new();
+                if !secrets.has_api_key(data::ApiProvider::Massive) {
+                    log::warn!("Massive API key not configured, showing config modal");
+                    self.notifications.push(Toast::error(
+                        "Massive API key required for options data".to_string()
+                    ));
+                    return Task::done(Message::ShowApiKeyConfig {
+                        provider: data::ApiProvider::Massive,
+                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::OptionsData),
+                    });
+                }
+
                 if let Some(service) = self.options_service.clone() {
                     return Task::perform(
                         async move {
@@ -61,8 +83,8 @@ impl Flowsurface {
                         move |result| Message::OptionChainLoaded { pane_id, result }
                     );
                 } else {
-                    log::warn!("Options service not available - set MASSIVE_API_KEY to enable");
-                    self.notifications.push(Toast::error("Options data unavailable - configure MASSIVE_API_KEY".to_string()));
+                    log::warn!("Options service not available - reinitializing may be required");
+                    self.notifications.push(Toast::error("Options service not initialized - try reconfiguring API key".to_string()));
                 }
             }
             Message::OptionChainLoaded { pane_id, result } => {
@@ -82,6 +104,19 @@ impl Flowsurface {
                 }
             }
             Message::LoadGexProfile { pane_id, underlying_ticker, date } => {
+                // Check if Massive API key is configured
+                let secrets = data::SecretsManager::new();
+                if !secrets.has_api_key(data::ApiProvider::Massive) {
+                    log::warn!("Massive API key not configured, showing config modal");
+                    self.notifications.push(Toast::error(
+                        "Massive API key required for GEX data".to_string()
+                    ));
+                    return Task::done(Message::ShowApiKeyConfig {
+                        provider: data::ApiProvider::Massive,
+                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::OptionsData),
+                    });
+                }
+
                 if let Some(service) = self.options_service.clone() {
                     return Task::perform(
                         async move {
@@ -91,8 +126,8 @@ impl Flowsurface {
                         move |result| Message::GexProfileLoaded { pane_id, result }
                     );
                 } else {
-                    log::warn!("Options service not available - set MASSIVE_API_KEY to enable");
-                    self.notifications.push(Toast::error("GEX data unavailable - configure MASSIVE_API_KEY".to_string()));
+                    log::warn!("Options service not available - reinitializing may be required");
+                    self.notifications.push(Toast::error("Options service not initialized - try reconfiguring API key".to_string()));
                 }
             }
             Message::GexProfileLoaded { pane_id, result } => {
@@ -121,7 +156,12 @@ impl Flowsurface {
             }
             Message::UpdateLoadingStatus => {
                 // Poll loading statuses from MarketDataService and update panes
-                let all_statuses = self.market_data_service.get_all_loading_statuses();
+                let Some(service) = &self.market_data_service else {
+                    // No service available, nothing to update
+                    return Task::none();
+                };
+
+                let all_statuses = service.get_all_loading_statuses();
 
                 for (chart_key, status) in all_statuses {
                     for layout in &self.layout_manager.layouts {
@@ -142,7 +182,16 @@ impl Flowsurface {
             Message::EstimateDataCost { pane_id, ticker, schema, date_range } => {
                 log::info!("EstimateDataCost message received");
                 log::info!("Ticker={:?}, Schema={:?}, Range={:?}", ticker, schema, date_range);
-                let service = self.market_data_service.clone();
+
+                let Some(service) = self.market_data_service.clone() else {
+                    log::warn!("Market data service not available (API key not configured)");
+                    self.notifications.push(Toast::error("Databento API key required for cost estimation".to_string()));
+                    return Task::done(Message::ShowApiKeyConfig {
+                        provider: data::ApiProvider::Databento,
+                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
+                    });
+                };
+
                 let schema_discriminant = schema as u16;
                 return Task::perform(
                     async move {
@@ -203,7 +252,18 @@ impl Flowsurface {
             }
             // Data management - download
             Message::DownloadData { pane_id, ticker, schema, date_range } => {
-                let service = self.market_data_service.clone();
+                // Check if market data service is available
+                let Some(service) = self.market_data_service.clone() else {
+                    log::warn!("Market data service not available (API key not configured)");
+                    self.notifications.push(Toast::error(
+                        "Databento API key required for data download".to_string()
+                    ));
+                    return Task::done(Message::ShowApiKeyConfig {
+                        provider: data::ApiProvider::Databento,
+                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
+                    });
+                };
+
                 let schema_discriminant = schema as u16;
                 let ticker_clone = ticker.clone();
                 let date_range_clone = date_range.clone();
@@ -468,6 +528,83 @@ impl Flowsurface {
                 }
             }
             Message::AudioStream(message) => self.audio_stream.update(message),
+            // API Key configuration
+            Message::ApiKeyConfig(msg) => {
+                if let Some(modal) = &mut self.api_key_config_modal {
+                    if let Some(action) = modal.update(msg) {
+                        match action {
+                            crate::modal::api_key_config::Action::Close => {
+                                self.api_key_config_modal = None;
+                                self.sidebar.set_menu(None);
+                            }
+                            crate::modal::api_key_config::Action::ReinitializeService(provider) => {
+                                // Immediately reinitialize service after save (don't close modal)
+                                return Task::done(Message::ReinitializeService(provider));
+                            }
+                            crate::modal::api_key_config::Action::ShowError(err) => {
+                                self.notifications.push(Toast::error(err));
+                            }
+                        }
+                    }
+                } else {
+                    // Modal was shown inline without being stored, handle the message
+                    let mut temp_modal = crate::modal::api_key_config::ApiKeyConfigModal::new(
+                        data::ApiProvider::Databento,
+                        None,
+                    );
+                    if let Some(action) = temp_modal.update(msg) {
+                        match action {
+                            crate::modal::api_key_config::Action::Close => {
+                                self.sidebar.set_menu(None);
+                            }
+                            crate::modal::api_key_config::Action::ReinitializeService(provider) => {
+                                return Task::done(Message::ReinitializeService(provider));
+                            }
+                            crate::modal::api_key_config::Action::ShowError(err) => {
+                                self.notifications.push(Toast::error(err));
+                            }
+                        }
+                    }
+                    // Store the modal for future updates
+                    self.api_key_config_modal = Some(temp_modal);
+                }
+            }
+            Message::ShowApiKeyConfig { provider, triggered_by } => {
+                self.api_key_config_modal = Some(
+                    crate::modal::api_key_config::ApiKeyConfigModal::new(provider, triggered_by)
+                );
+                self.sidebar.set_menu(Some(data::sidebar::Menu::ApiKeys));
+            }
+            Message::ReinitializeService(provider) => {
+                match provider {
+                    data::ApiProvider::Databento => {
+                        log::info!("Reinitializing Databento service with new API key...");
+                        // Reinitialize market data service
+                        if let Some(result) = services::initialize_market_data_service() {
+                            self.market_data_service = Some(result.service.clone());
+                            self.replay_engine = services::create_replay_engine(Some(&result));
+                            self.notifications.push(Toast::new(Notification::Info(
+                                "Databento service initialized".to_string()
+                            )));
+                        } else {
+                            self.notifications.push(Toast::error(
+                                "Failed to initialize Databento service".to_string()
+                            ));
+                        }
+                    }
+                    data::ApiProvider::Massive => {
+                        log::info!("Reinitializing Massive service with new API key...");
+                        // Reinitialize options services
+                        let (options_service, _) = services::initialize_options_services();
+                        self.options_service = options_service;
+                        if self.options_service.is_some() {
+                            self.notifications.push(Toast::new(Notification::Info(
+                                "Options service initialized".to_string()
+                            )));
+                        }
+                    }
+                }
+            }
             Message::DataFolderRequested => {
                 if let Err(err) = data::open_data_folder() {
                     self.notifications
@@ -493,6 +630,64 @@ impl Flowsurface {
                 }
             }
             Message::Sidebar(message) => {
+                // Check if we're opening the ApiKeys menu - need to initialize the modal
+                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::ApiKeys)) = &message {
+                    if self.api_key_config_modal.is_none() {
+                        self.api_key_config_modal = Some(
+                            crate::modal::api_key_config::ApiKeyConfigModal::new(
+                                data::ApiProvider::Databento,
+                                None,
+                            )
+                        );
+                    }
+                }
+
+                // Trigger initial estimation when opening DataManagement menu
+                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::DataManagement)) = &message {
+                    if let Some(action) = self.data_management_panel.request_initial_estimation() {
+                        match action {
+                            crate::modal::pane::data_management::Action::EstimateRequested {
+                                ticker,
+                                schema,
+                                date_range,
+                            } => {
+                                // Process the sidebar message first, then trigger estimation
+                                let (task, sidebar_action) = self.sidebar.update(message);
+
+                                // Handle any sidebar action
+                                if let Some(dashboard::sidebar::Action::TickerSelected(ticker_info, content)) = sidebar_action {
+                                    let main_window_id = self.main_window.id;
+                                    let futures_info = ticker_info.to_domain();
+                                    let kind = content.unwrap_or(data::ContentKind::CandlestickChart);
+
+                                    let task = self.active_dashboard_mut().init_focused_pane(
+                                        main_window_id,
+                                        futures_info,
+                                        kind,
+                                    );
+
+                                    return task.map(move |msg| Message::Dashboard {
+                                        layout_id: None,
+                                        event: msg,
+                                    });
+                                }
+
+                                return task.map(Message::Sidebar).chain(Task::done(
+                                    Message::EstimateDataCost {
+                                        pane_id: uuid::Uuid::nil(),
+                                        ticker,
+                                        schema,
+                                        date_range,
+                                    },
+                                ));
+                            }
+                            crate::modal::pane::data_management::Action::DownloadRequested { .. } => {
+                                // Shouldn't happen on initial open, but handle it anyway
+                            }
+                        }
+                    }
+                }
+
                 let (task, action) = self.sidebar.update(message);
 
                 match action {

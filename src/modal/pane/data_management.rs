@@ -7,13 +7,13 @@
 //! - Clean layout with proper sections
 //! - NO emojis
 
-use crate::{split_column, style, widget::scrollable_content};
+use crate::{style, widget::scrollable_content};
 use chrono::Datelike; // For year(), month(), day(), weekday()
 use data::{DateRange, FuturesTicker};
 use exchange::{DatabentoSchema, FuturesVenue};
 use iced::{
     Alignment, Color, Element, Length,
-    widget::{button, center, column, container, mouse_area, opaque, pick_list, row, space, stack, text},
+    widget::{button, center, column, container, mouse_area, opaque, pick_list, progress_bar, row, space, stack, text},
 };
 
 /// Futures products for ticker dropdown
@@ -54,6 +54,7 @@ pub struct DataManagementPanel {
     actual_cost_usd: Option<f64>,
     download_progress: DownloadProgress,
     show_confirm_modal: bool, // Show download confirmation modal
+    has_valid_selection: bool, // True after user has selected a date range
 }
 
 /// Calendar for visual date range selection
@@ -199,6 +200,7 @@ impl DataManagementPanel {
             actual_cost_usd: None,
             download_progress: DownloadProgress::Idle,
             show_confirm_modal: false,
+            has_valid_selection: false, // Not valid until user interacts or cost is fetched
         }
     }
 
@@ -243,22 +245,27 @@ impl DataManagementPanel {
                         self.calendar.start_date = date;
                         self.calendar.end_date = date; // Reset end to start
                         self.calendar.selection_mode = SelectionMode::SelectingEnd;
+                        self.cache_status = None;
+                        self.actual_cost_usd = None;
+                        // Don't trigger estimation yet - wait for end date
                     }
                     SelectionMode::SelectingEnd => {
                         if date >= self.calendar.start_date {
+                            // Valid end date
                             self.calendar.end_date = date;
-                            self.calendar.selection_mode = SelectionMode::SelectingStart; // Ready for next selection
-                            self.cache_status = None;
-                            self.actual_cost_usd = None;
-                            return self.trigger_estimation();
                         } else {
-                            // If clicked before start, make it the new start
+                            // Clicked before start - swap: this becomes start, old start becomes end
+                            self.calendar.end_date = self.calendar.start_date;
                             self.calendar.start_date = date;
                         }
+                        // Selection complete - return to start mode and trigger estimation
+                        self.calendar.selection_mode = SelectionMode::SelectingStart;
+                        self.cache_status = None;
+                        self.actual_cost_usd = None;
+                        return self.trigger_estimation();
                     }
                 }
-                self.cache_status = None;
-                self.actual_cost_usd = None;
+                return None; // Return None for SelectingStart (don't trigger estimation until selection complete)
             }
             DataManagementMessage::ShowDownloadConfirm => {
                 // Show confirmation modal (only if cost is available)
@@ -269,7 +276,7 @@ impl DataManagementPanel {
             DataManagementMessage::ConfirmDownload => {
                 // User confirmed - proceed with download
                 self.show_confirm_modal = false;
-                let num_days = (self.calendar.end_date - self.calendar.start_date).num_days() + 1;
+                let num_days = (self.calendar.end_date - self.calendar.start_date).num_days().max(0) + 1;
                 self.download_progress = DownloadProgress::Downloading {
                     current_day: 0,
                     total_days: num_days as usize,
@@ -296,6 +303,16 @@ impl DataManagementPanel {
     }
 
     pub fn set_cache_status(&mut self, status: CacheStatus, cached_dates: Vec<chrono::NaiveDate>) {
+        // Validate the status matches our current date range
+        let current_total = (self.calendar.end_date - self.calendar.start_date).num_days().max(0) + 1;
+        if status.total_days != current_total as usize {
+            log::warn!(
+                "Stale cache status received (expected {} days, got {})",
+                current_total,
+                status.total_days
+            );
+            return; // Ignore stale responses
+        }
         self.cache_status = Some(status);
         self.cached_dates = Some(cached_dates.into_iter().collect());
     }
@@ -303,6 +320,7 @@ impl DataManagementPanel {
     pub fn set_actual_cost(&mut self, cost_usd: f64) {
         self.actual_cost_usd = Some(cost_usd);
         self.download_progress = DownloadProgress::Idle;
+        self.has_valid_selection = true;
     }
 
     pub fn set_download_progress(&mut self, progress: DownloadProgress) {
@@ -318,7 +336,24 @@ impl DataManagementPanel {
     }
 
     pub fn current_date_range(&self) -> DateRange {
-        DateRange::new(self.calendar.start_date, self.calendar.end_date)
+        // Ensure dates are always valid (start <= end)
+        let (start, end) = if self.calendar.end_date >= self.calendar.start_date {
+            (self.calendar.start_date, self.calendar.end_date)
+        } else {
+            (self.calendar.end_date, self.calendar.start_date) // Swap if backwards
+        };
+        DateRange::new(start, end)
+    }
+
+    /// Request initial cache status estimation (called when modal opens)
+    pub fn request_initial_estimation(&mut self) -> Option<Action> {
+        if self.cache_status.is_none()
+            && !matches!(self.download_progress, DownloadProgress::CheckingCost)
+        {
+            self.trigger_estimation()
+        } else {
+            None
+        }
     }
 
     pub fn view<'a>(&'a self) -> Element<'a, DataManagementMessage> {
@@ -427,38 +462,104 @@ impl DataManagementPanel {
             ]
         };
 
-        // Action button - shows progress in button text itself
-        let (download_button_text, is_downloading) = match &self.download_progress {
+        // Visual progress section
+        let progress_section: Option<Element<'_, DataManagementMessage>> = match &self.download_progress {
             DownloadProgress::Downloading { current_day, total_days } => {
-                (format!("Downloading {}/{}", current_day, total_days), true)
+                let progress_pct = if *total_days > 0 {
+                    (*current_day as f32 / *total_days as f32) * 100.0
+                } else {
+                    0.0
+                };
+
+                Some(
+                    container(
+                        column![
+                            row![
+                                text("Downloading...").size(12),
+                                space::horizontal(),
+                                text(format!("{}/{} days ({}%)", current_day, total_days, progress_pct as u32)).size(11),
+                            ].align_y(Alignment::Center),
+                            progress_bar(0.0..=100.0, progress_pct)
+                                .girth(6.0)
+                                .style(style::progress_bar),
+                        ]
+                        .spacing(6)
+                    )
+                    .padding(12)
+                    .style(style::modal_container)
+                    .into()
+                )
             }
-            DownloadProgress::CheckingCost => {
-                ("Checking cost...".to_string(), false)
+            DownloadProgress::Complete { days_downloaded } => {
+                Some(
+                    container(
+                        text(format!("Download complete - {} days", days_downloaded))
+                            .size(12)
+                            .style(|theme: &iced::Theme| iced::widget::text::Style {
+                                color: Some(theme.extended_palette().success.base.color),
+                            })
+                    )
+                    .padding(10)
+                    .style(style::modal_container)
+                    .into()
+                )
             }
-            _ => {
-                // Idle or Complete - show "Download" without cost (cost shown in confirmation)
-                ("Download".to_string(), false)
+            DownloadProgress::Error(err) => {
+                Some(
+                    container(
+                        text(format!("Error: {}", err))
+                            .size(12)
+                            .style(|theme: &iced::Theme| iced::widget::text::Style {
+                                color: Some(theme.extended_palette().danger.base.color),
+                            })
+                    )
+                    .padding(10)
+                    .style(style::modal_container)
+                    .into()
+                )
             }
+            _ => None,
         };
 
-        // Can download if: have cost, not currently downloading
-        let can_download = self.actual_cost_usd.is_some()
+        // Action button - simplified text (no progress in button)
+        let (download_button_text, is_downloading) = match &self.download_progress {
+            DownloadProgress::Downloading { .. } => ("Downloading...", true),
+            DownloadProgress::CheckingCost => ("Checking...", false),
+            _ => ("Download", false),
+        };
+
+        // Can download if: have valid selection with cost, not currently downloading
+        let can_download = self.has_valid_selection
+            && self.actual_cost_usd.is_some()
             && !is_downloading
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
-        let action_buttons = button(text(download_button_text))
-            .on_press_maybe(if can_download { Some(DataManagementMessage::ShowDownloadConfirm) } else { None })
-            .style(|t, s| style::button::confirm(t, s, false));
+        let action_buttons = button(
+            text(download_button_text).size(13).align_x(Alignment::Center)
+        )
+        .width(Length::Fill)
+        .padding([10, 16])
+        .on_press_maybe(if can_download { Some(DataManagementMessage::ShowDownloadConfirm) } else { None })
+        .style(style::button::primary);
 
-        // Build modal with clean sections including cache summary
-        let base_content = split_column![
-            ticker_section,
-            schema_section,
-            calendar_section,
-            cache_summary,
-            action_buttons
-            ; spacing = 10, align_x = Alignment::Start
+        // Build content with optional progress section
+        let mut content_items: Vec<Element<'_, DataManagementMessage>> = vec![
+            ticker_section.into(),
+            schema_section.into(),
+            calendar_section.into(),
+            cache_summary.into(),
         ];
+
+        if let Some(progress) = progress_section {
+            content_items.push(progress);
+        }
+
+        content_items.push(action_buttons.into());
+
+        let base_content = content_items.into_iter().fold(
+            column![].spacing(10).align_x(Alignment::Start),
+            |col, item| col.push(item)
+        );
 
         let base_modal = container(scrollable_content(base_content))
             .width(Length::Fixed(360.0))
@@ -478,9 +579,14 @@ impl DataManagementPanel {
         let cost = self.actual_cost_usd.unwrap_or(0.0);
         let (symbol, name) = FUTURES_PRODUCTS[self.selected_ticker_idx];
         let (_, schema_name, _) = SCHEMAS[self.selected_schema_idx];
-        let total_days = (self.calendar.end_date - self.calendar.start_date).num_days() + 1;
-        let cached_days = self.cache_status.as_ref().map(|s| s.cached_days).unwrap_or(0);
-        let uncached_days = total_days as usize - cached_days;
+        // Ensure end >= start and use saturating subtraction to prevent overflow
+        let total_days = (self.calendar.end_date - self.calendar.start_date).num_days().max(0) + 1;
+        let cached_days = self
+            .cache_status
+            .as_ref()
+            .map(|s| s.cached_days.min(total_days as usize)) // Cap at total_days
+            .unwrap_or(0);
+        let uncached_days = (total_days as usize).saturating_sub(cached_days);
 
         let cost_text = if cached_days == total_days as usize {
             text("Cost: Free (all data cached)")
@@ -517,14 +623,16 @@ impl DataManagementPanel {
                 cost_text,
                 space::vertical().height(Length::Fixed(16.0)),
                 row![
-                    button(text("Cancel").align_x(Alignment::Center))
+                    button(text("Cancel").size(13).align_x(Alignment::Center))
                         .on_press(DataManagementMessage::CancelDownload)
                         .width(Length::Fill)
-                        .style(|t, s| style::button::cancel(t, s, false)),
-                    button(text("Confirm").align_x(Alignment::Center))
+                        .padding([10, 16])
+                        .style(style::button::secondary),
+                    button(text("Confirm").size(13).align_x(Alignment::Center))
                         .on_press(DataManagementMessage::ConfirmDownload)
                         .width(Length::Fill)
-                        .style(|t, s| style::button::confirm(t, s, false)),
+                        .padding([10, 16])
+                        .style(style::button::primary),
                 ]
                 .spacing(10)
             ]
@@ -595,12 +703,12 @@ impl DataManagementPanel {
         // Calendar grid
         let grid = self.build_calendar_grid(month);
 
-        column![
-            header,
-            dow_headers,
-            grid,
-        ]
-        .spacing(4)
+        // Wrap in modal_container for visual boundary
+        container(
+            column![header, dow_headers, grid].spacing(4)
+        )
+        .padding(12)
+        .style(style::modal_container)
         .into()
     }
 

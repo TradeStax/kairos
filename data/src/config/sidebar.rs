@@ -72,4 +72,5 @@ pub enum Menu {
     Settings,
     Audio,
     ThemeEditor,
+    ApiKeys,
 }

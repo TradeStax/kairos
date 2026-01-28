@@ -1,7 +1,7 @@
 //! MACD Indicator
 
 use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
-use data::Candle;
+use data::{Candle, ChartBasis};
 use iced::widget::column;
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
@@ -17,7 +17,7 @@ impl MacdIndicator {
         Self { macd_line: BTreeMap::new(), signal_line: BTreeMap::new(), histogram: BTreeMap::new(), cache: Caches::default() }
     }
 
-    fn calculate(&mut self, candles: &[Candle]) {
+    fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.macd_line.clear();
         self.signal_line.clear();
         self.histogram.clear();
@@ -29,23 +29,28 @@ impl MacdIndicator {
         let mut ema26 = candles[0].close.to_f32();
         let mut macd_values = Vec::new();
 
-        for candle in candles {
+        for (i, candle) in candles.iter().enumerate() {
             let close = candle.close.to_f32();
             ema12 = close * multiplier_12 + ema12 * (1.0 - multiplier_12);
             ema26 = close * multiplier_26 + ema26 * (1.0 - multiplier_26);
             let macd = ema12 - ema26;
-            macd_values.push((candle.time.0, macd));
-            self.macd_line.insert(candle.time.0, macd);
+
+            let key = match basis {
+                ChartBasis::Time(_) => candle.time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - i) as u64,
+            };
+            macd_values.push((key, macd));
+            self.macd_line.insert(key, macd);
         }
 
         if macd_values.len() < 9 { return; }
         let multiplier_9 = 2.0 / 10.0;
         let mut signal = macd_values[0].1;
 
-        for (time, macd) in &macd_values {
+        for (key, macd) in &macd_values {
             signal = macd * multiplier_9 + signal * (1.0 - multiplier_9);
-            self.signal_line.insert(*time, signal);
-            self.histogram.insert(*time, macd - signal);
+            self.signal_line.insert(*key, signal);
+            self.histogram.insert(*key, macd - signal);
         }
     }
 }
@@ -67,8 +72,8 @@ impl KlineIndicatorImpl for MacdIndicator {
         ].into()
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
-        self.calculate(candles);
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.calculate(candles, basis);
         self.clear_all_caches();
     }
 }

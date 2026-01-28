@@ -21,6 +21,7 @@ pub mod error_types; // Error types
 pub mod log_config; // Logging configuration
 pub mod panel_config; // Panel configuration types
 pub mod repository; // Data access abstraction
+pub mod secrets; // Secure API key management
 pub mod services; // Business logic orchestration
 pub mod state; // State management with persistence
 pub mod tickers_table_config; // Tickers table configuration
@@ -66,6 +67,9 @@ pub use config::sidebar;
 pub use config::sidebar::Sidebar;
 pub use config::theme::Theme;
 pub use config::timezone::UserTimezone;
+
+// Re-export secrets types
+pub use secrets::{ApiKeyStatus, ApiProvider, SecretsError, SecretsManager};
 
 // Error types
 use thiserror::Error;

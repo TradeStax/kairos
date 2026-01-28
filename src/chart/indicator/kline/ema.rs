@@ -1,7 +1,7 @@
 //! Exponential Moving Average (EMA) Indicator
 
 use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
-use data::Candle;
+use data::{Candle, ChartBasis};
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
 pub struct EmaIndicator {
@@ -15,17 +15,22 @@ impl EmaIndicator {
         Self { period, data: BTreeMap::new(), cache: Caches::default() }
     }
 
-    fn calculate(&mut self, candles: &[Candle]) {
+    fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.data.clear();
         if candles.is_empty() { return; }
 
         let multiplier = 2.0 / (self.period as f32 + 1.0);
         let mut ema = candles[0].close.to_f32();
 
-        for candle in candles {
+        for (i, candle) in candles.iter().enumerate() {
             let close = candle.close.to_f32();
             ema = close * multiplier + ema * (1.0 - multiplier);
-            self.data.insert(candle.time.0, ema);
+
+            let key = match basis {
+                ChartBasis::Time(_) => candle.time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - i) as u64,
+            };
+            self.data.insert(key, ema);
         }
     }
 
@@ -49,8 +54,8 @@ impl KlineIndicatorImpl for EmaIndicator {
         indicator_row(chart, &self.cache, plot, &self.data, visible_range)
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
-        self.calculate(candles);
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.calculate(candles, basis);
         self.clear_all_caches();
     }
 }

@@ -1,3 +1,4 @@
+pub mod api_key_config;
 pub mod audio;
 pub mod layout_manager;
 pub mod pane;

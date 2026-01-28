@@ -254,3 +254,96 @@ pub fn ticker_card(theme: &Theme, status: Status) -> Style {
         },
     }
 }
+
+pub fn tab_active(theme: &Theme, _status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.primary.base.text,
+        background: Some(palette.primary.base.color.into()),
+        border: Border {
+            radius: 4.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn tab_inactive(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.background.strong.color.into()),
+            _ => None,
+        },
+        border: Border {
+            radius: 4.0.into(),
+            width: 1.0,
+            color: palette.background.strong.color,
+        },
+        ..Default::default()
+    }
+}
+
+pub fn primary(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.primary.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.primary.strong.color.into()),
+            Status::Pressed => Some(palette.primary.weak.color.into()),
+            Status::Disabled => Some(palette.background.weak.color.into()),
+            Status::Active => Some(palette.primary.base.color.into()),
+        },
+        border: Border {
+            radius: 4.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn secondary(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.background.strong.color.into()),
+            Status::Pressed => Some(palette.background.strongest.color.into()),
+            Status::Disabled => Some(palette.background.weakest.color.into()),
+            Status::Active => Some(palette.background.weak.color.into()),
+        },
+        border: Border {
+            radius: 4.0.into(),
+            width: 1.0,
+            color: palette.background.strong.color,
+        },
+        ..Default::default()
+    }
+}
+
+pub fn danger(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: match status {
+            Status::Disabled => palette.background.weak.text,
+            _ => palette.danger.base.text,
+        },
+        background: match status {
+            Status::Hovered => Some(palette.danger.strong.color.into()),
+            Status::Pressed => Some(palette.danger.weak.color.into()),
+            Status::Disabled => Some(palette.background.weak.color.into()),
+            Status::Active => Some(palette.danger.base.color.into()),
+        },
+        border: Border {
+            radius: 4.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}

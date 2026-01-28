@@ -83,8 +83,8 @@ pub struct Dashboard {
     pub popout: HashMap<window::Id, (pane_grid::State<pane::State>, WindowSpec)>,
     /// Chart states by pane ID
     pub charts: HashMap<uuid::Uuid, ChartState>,
-    /// Market data service for async loading
-    pub market_data_service: std::sync::Arc<data::MarketDataService>,
+    /// Market data service for async loading (None when API key not configured)
+    pub market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     /// Crosshair positions by link group
     pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>, // (timestamp, price)
     /// Downloaded tickers registry (tracks which tickers have data and their ranges)
@@ -95,7 +95,7 @@ pub struct Dashboard {
 impl Dashboard {
     /// Create a new Dashboard with the given market data service and registry
     pub fn new(
-        market_data_service: std::sync::Arc<data::MarketDataService>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         Self {
@@ -162,7 +162,7 @@ impl Dashboard {
         panes: Configuration<pane::State>,
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
         layout_id: uuid::Uuid,
-        market_data_service: std::sync::Arc<data::MarketDataService>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);

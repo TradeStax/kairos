@@ -229,7 +229,7 @@ where
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let ctx = &self.ctx;
-        if ctx.bounds.width == 0.0 {
+        if bounds.width == 0.0 {
             return vec![];
         }
 

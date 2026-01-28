@@ -5,7 +5,7 @@
 
 use crate::chart::{Message, ViewState};
 
-use data::{Candle, KlineIndicator};
+use data::{Candle, ChartBasis, KlineIndicator};
 
 pub mod bollinger;
 pub mod delta;
@@ -30,17 +30,20 @@ pub trait KlineIndicatorImpl {
         visible_range: std::ops::RangeInclusive<u64>,
     ) -> iced::Element<'a, Message>;
 
-    /// Rebuild indicator from candle data
-    fn rebuild_from_candles(&mut self, candles: &[Candle]);
+    /// Rebuild indicator from candle data with chart basis
+    ///
+    /// For time-based charts, data is stored keyed by timestamp.
+    /// For tick-based charts, data is stored keyed by reverse index (0 = most recent).
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis);
 
     /// Handle tick size changes (recalculate if needed)
-    fn on_ticksize_change(&mut self, candles: &[Candle]) {
-        self.rebuild_from_candles(candles);
+    fn on_ticksize_change(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.rebuild_from_candles(candles, basis);
     }
 
     /// Handle basis changes (recalculate if needed)
-    fn on_basis_change(&mut self, candles: &[Candle]) {
-        self.rebuild_from_candles(candles);
+    fn on_basis_change(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.rebuild_from_candles(candles, basis);
     }
 }
 

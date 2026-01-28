@@ -9,7 +9,7 @@ use crate::chart::{
     },
 };
 
-use data::Candle;
+use data::{Candle, ChartBasis};
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
 /// SMA Indicator with configurable period
@@ -29,7 +29,7 @@ impl SmaIndicator {
     }
 
     /// Calculate SMA from candles
-    fn calculate(&mut self, candles: &[Candle]) {
+    fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.data.clear();
 
         if candles.len() < self.period {
@@ -41,7 +41,12 @@ impl SmaIndicator {
             let window = &candles[i - (self.period - 1)..=i];
             let sum: f32 = window.iter().map(|c| c.close.to_f32()).sum();
             let sma = sum / self.period as f32;
-            self.data.insert(candles[i].time.0, sma);
+
+            let key = match basis {
+                ChartBasis::Time(_) => candles[i].time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - i) as u64,
+            };
+            self.data.insert(key, sma);
         }
     }
 
@@ -93,8 +98,8 @@ impl KlineIndicatorImpl for SmaIndicator {
         self.indicator_elem(chart, visible_range)
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
-        self.calculate(candles);
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.calculate(candles, basis);
         self.clear_all_caches();
     }
 }

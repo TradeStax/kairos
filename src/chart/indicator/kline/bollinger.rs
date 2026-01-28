@@ -1,7 +1,7 @@
 //! Bollinger Bands Indicator
 
 use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
-use data::Candle;
+use data::{Candle, ChartBasis};
 use iced::widget::column;
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
@@ -17,7 +17,7 @@ impl BollingerIndicator {
         Self { upper_band: BTreeMap::new(), middle_band: BTreeMap::new(), lower_band: BTreeMap::new(), cache: Caches::default() }
     }
 
-    fn calculate(&mut self, candles: &[Candle]) {
+    fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.upper_band.clear();
         self.middle_band.clear();
         self.lower_band.clear();
@@ -37,10 +37,13 @@ impl BollingerIndicator {
             }).sum::<f32>() / period as f32;
 
             let std_dev = variance.sqrt();
-            let time = candles[i].time.0;
-            self.middle_band.insert(time, sma);
-            self.upper_band.insert(time, sma + std_dev_multiplier * std_dev);
-            self.lower_band.insert(time, sma - std_dev_multiplier * std_dev);
+            let key = match basis {
+                ChartBasis::Time(_) => candles[i].time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - i) as u64,
+            };
+            self.middle_band.insert(key, sma);
+            self.upper_band.insert(key, sma + std_dev_multiplier * std_dev);
+            self.lower_band.insert(key, sma - std_dev_multiplier * std_dev);
         }
     }
 }
@@ -63,8 +66,8 @@ impl KlineIndicatorImpl for BollingerIndicator {
         ].into()
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
-        self.calculate(candles);
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.calculate(candles, basis);
         self.clear_all_caches();
     }
 }

@@ -1,7 +1,7 @@
 //! Relative Strength Index (RSI) Indicator
 
 use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
-use data::Candle;
+use data::{Candle, ChartBasis};
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
 pub struct RsiIndicator {
@@ -15,7 +15,7 @@ impl RsiIndicator {
         Self { period, data: BTreeMap::new(), cache: Caches::default() }
     }
 
-    fn calculate(&mut self, candles: &[Candle]) {
+    fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.data.clear();
         if candles.len() < self.period + 1 { return; }
 
@@ -42,7 +42,13 @@ impl RsiIndicator {
 
             let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
             let rsi = 100.0 - (100.0 / (1.0 + rs));
-            self.data.insert(candles[i + 1].time.0, rsi);
+
+            let candle_idx = i + 1;
+            let key = match basis {
+                ChartBasis::Time(_) => candles[candle_idx].time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - candle_idx) as u64,
+            };
+            self.data.insert(key, rsi);
         }
     }
 }
@@ -58,8 +64,8 @@ impl KlineIndicatorImpl for RsiIndicator {
         indicator_row(chart, &self.cache, plot, &self.data, visible_range)
     }
 
-    fn rebuild_from_candles(&mut self, candles: &[Candle]) {
-        self.calculate(candles);
+    fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
+        self.calculate(candles, basis);
         self.clear_all_caches();
     }
 }

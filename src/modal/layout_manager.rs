@@ -43,13 +43,13 @@ pub struct LayoutManager {
     pub layouts: Vec<Layout>,
     active_layout_id: Option<Uuid>,
     pub edit_mode: Editing,
-    market_data_service: std::sync::Arc<data::MarketDataService>,
+    market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
 }
 
 impl LayoutManager {
     pub fn new(
-        market_data_service: std::sync::Arc<data::MarketDataService>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         let default_layout = LayoutId {
@@ -72,7 +72,7 @@ impl LayoutManager {
     pub fn from_config(
         layouts: Vec<Layout>,
         active_layout: Option<LayoutId>,
-        market_data_service: std::sync::Arc<data::MarketDataService>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         Self {
