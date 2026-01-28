@@ -210,7 +210,7 @@ impl Sidebar {
             let is_active = self.is_menu_active(sidebar::Menu::DataManagement);
 
             button_with_tooltip(
-                icon_text(Icon::Database, 14)
+                icon_text(Icon::Folder, 14)
                     .width(24)
                     .align_x(Alignment::Center),
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::DataManagement)),

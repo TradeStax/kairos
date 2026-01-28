@@ -52,7 +52,6 @@ pub enum Icon {
     DragHandle,
     Folder,
     ExternalLink,
-    Database,
 }
 
 impl From<Icon> for char {
@@ -86,7 +85,6 @@ impl From<Icon> for char {
             Icon::DragHandle => '\u{E817}',
             Icon::Folder => '\u{F114}',
             Icon::ExternalLink => '\u{F14C}',
-            Icon::Database => '\u{F1C0}',
         }
     }
 }
