@@ -275,6 +275,7 @@ pub trait Indicator: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, enum_map::Enum)]
 pub enum KlineIndicator {
     Volume,
+    Delta,
     OpenInterest,
     Sma20,
     Sma50,
@@ -290,6 +291,7 @@ impl std::fmt::Display for KlineIndicator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             KlineIndicator::Volume => write!(f, "Volume"),
+            KlineIndicator::Delta => write!(f, "Delta"),
             KlineIndicator::OpenInterest => write!(f, "Open Interest"),
             KlineIndicator::Sma20 => write!(f, "SMA 20"),
             KlineIndicator::Sma50 => write!(f, "SMA 50"),
@@ -307,6 +309,7 @@ impl Indicator for KlineIndicator {
     fn name(&self) -> &str {
         match self {
             KlineIndicator::Volume => "Volume",
+            KlineIndicator::Delta => "Delta",
             KlineIndicator::OpenInterest => "Open Interest",
             KlineIndicator::Sma20 => "SMA 20",
             KlineIndicator::Sma50 => "SMA 50",
@@ -335,6 +338,7 @@ impl KlineIndicator {
     pub fn for_market(_market_type: &str) -> Vec<KlineIndicator> {
         vec![
             KlineIndicator::Volume,
+            KlineIndicator::Delta,
             KlineIndicator::OpenInterest,
             KlineIndicator::Sma20,
             KlineIndicator::Sma50,
@@ -351,6 +355,7 @@ impl KlineIndicator {
     pub fn all_indicators() -> Vec<KlineIndicator> {
         vec![
             KlineIndicator::Volume,
+            KlineIndicator::Delta,
             KlineIndicator::OpenInterest,
             KlineIndicator::Sma20,
             KlineIndicator::Sma50,

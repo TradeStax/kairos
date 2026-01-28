@@ -1,4 +1,4 @@
-use crate::TooltipPosition;
+use iced::widget::tooltip::Position as TooltipPosition;
 use crate::audio::{SoundCache, SoundType};
 use crate::style::{self, icon_text};
 use crate::widget::{labeled_slider, tooltip};
@@ -29,12 +29,20 @@ pub struct AudioStream {
 
 impl AudioStream {
     pub fn new(cfg: data::AudioStream) -> Self {
+        let cache = SoundCache::with_default_sounds(cfg.volume);
+        if !cache.is_available() {
+            log::info!("Audio system initialized in disabled mode (no audio device available)");
+        }
         AudioStream {
-            cache: SoundCache::with_default_sounds(cfg.volume)
-                .expect("Failed to create sound cache"),
+            cache,
             streams: cfg.streams,
             expanded_card: None,
         }
+    }
+
+    /// Returns true if audio playback is available.
+    pub fn is_available(&self) -> bool {
+        self.cache.is_available()
     }
 
     pub fn update(&mut self, message: Message) {

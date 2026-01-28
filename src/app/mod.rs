@@ -1,0 +1,633 @@
+mod services;
+mod state;
+mod subscriptions;
+mod update;
+
+use data::config::theme::default_theme;
+use data::{layout::WindowSpec, sidebar, LoadingStatus};
+use crate::layout::{LayoutId, configuration};
+use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
+use crate::modal::{dashboard_modal, main_dialog_modal};
+use crate::screen::dashboard::{self, Dashboard};
+use crate::widget::{
+    confirm_dialog_container,
+    toast::{self, Toast},
+    tooltip,
+};
+use crate::{split_column, style, window};
+
+use iced::{
+    Alignment, Element, Subscription, Task, keyboard, padding,
+    widget::{
+        button, column, container, pane_grid, pick_list, row, rule, scrollable, text,
+        tooltip::Position as TooltipPosition,
+    },
+};
+use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
+
+// Global download progress state (shared between async tasks and subscriptions)
+static DOWNLOAD_PROGRESS: OnceLock<std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>>> = OnceLock::new();
+
+pub fn get_download_progress() -> &'static std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>> {
+    DOWNLOAD_PROGRESS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())))
+}
+
+pub struct Flowsurface {
+    pub(crate) main_window: window::Window,
+    pub(crate) sidebar: dashboard::Sidebar,
+    pub(crate) layout_manager: LayoutManager,
+    pub(crate) theme_editor: ThemeEditor,
+    pub(crate) audio_stream: AudioStream,
+    pub(crate) data_management_panel: crate::modal::pane::data_management::DataManagementPanel,
+    pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
+    // Service layer
+    pub(crate) market_data_service: std::sync::Arc<data::MarketDataService>,
+    pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
+    pub(crate) gex_service: std::sync::Arc<data::services::GexCalculationService>,
+    pub(crate) replay_engine: Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
+    // User preferences
+    pub(crate) ui_scale_factor: data::ScaleFactor,
+    pub(crate) timezone: data::UserTimezone,
+    pub(crate) theme: data::Theme,
+    pub(crate) notifications: Vec<Toast>,
+    pub(crate) downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Sidebar(dashboard::sidebar::Message),
+    Dashboard {
+        /// If `None`, the active layout is used for the event.
+        layout_id: Option<uuid::Uuid>,
+        event: dashboard::Message,
+    },
+    DataManagement(crate::modal::pane::data_management::DataManagementMessage),
+    // Async chart data loading
+    LoadChartData {
+        layout_id: uuid::Uuid,
+        pane_id: uuid::Uuid,
+        config: data::ChartConfig,
+        ticker_info: exchange::FuturesTickerInfo,
+    },
+    ChartDataLoaded {
+        layout_id: uuid::Uuid,
+        pane_id: uuid::Uuid,
+        result: Result<data::ChartData, String>,
+    },
+    // Options data loading
+    LoadOptionChain {
+        pane_id: uuid::Uuid,
+        underlying_ticker: String,
+        date: chrono::NaiveDate,
+    },
+    OptionChainLoaded {
+        pane_id: uuid::Uuid,
+        result: Result<data::domain::OptionChain, String>,
+    },
+    LoadGexProfile {
+        pane_id: uuid::Uuid,
+        underlying_ticker: String,
+        date: chrono::NaiveDate,
+    },
+    GexProfileLoaded {
+        pane_id: uuid::Uuid,
+        result: Result<data::domain::GexProfile, String>,
+    },
+    // Replay engine events
+    ReplayEvent(data::services::ReplayEvent),
+    UpdateLoadingStatus,
+    // Data management - cost estimation
+    EstimateDataCost {
+        pane_id: uuid::Uuid,
+        ticker: data::FuturesTicker,
+        schema: exchange::DatabentoSchema,
+        date_range: data::DateRange,
+    },
+    DataCostEstimated {
+        pane_id: uuid::Uuid,
+        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+    },
+    // Data management - download
+    DownloadData {
+        pane_id: uuid::Uuid,
+        ticker: data::FuturesTicker,
+        schema: exchange::DatabentoSchema,
+        date_range: data::DateRange,
+    },
+    DataDownloadProgress {
+        pane_id: uuid::Uuid,
+        current: usize,
+        total: usize,
+    },
+    DataDownloadComplete {
+        pane_id: uuid::Uuid,
+        ticker: data::FuturesTicker,
+        date_range: data::DateRange,
+        result: Result<usize, String>,
+    },
+    Tick(std::time::Instant),
+    WindowEvent(window::Event),
+    ExitRequested(HashMap<window::Id, WindowSpec>),
+    RestartRequested(HashMap<window::Id, WindowSpec>),
+    GoBack,
+    DataFolderRequested,
+    ThemeSelected(data::Theme),
+    ScaleFactorChanged(data::ScaleFactor),
+    SetTimezone(data::UserTimezone),
+    RemoveNotification(usize),
+    ToggleDialogModal(Option<crate::screen::ConfirmDialog<Message>>),
+    ThemeEditor(crate::modal::theme_editor::Message),
+    Layouts(crate::modal::layout_manager::Message),
+    AudioStream(crate::modal::audio::Message),
+}
+
+impl Flowsurface {
+    pub fn new() -> (Self, Task<Message>) {
+        // Initialize services
+        let (market_data_service, trade_repo, depth_repo) = services::initialize_market_data_service();
+        let replay_engine = services::create_replay_engine(trade_repo, Some(depth_repo));
+        let (options_service, gex_service) = services::initialize_options_services();
+
+        // Load saved state first to get persisted registry
+        let saved_state_temp = crate::layout::load_saved_state_without_registry(market_data_service.clone());
+
+        // Create THE SINGLE shared Arc<Mutex<>> with loaded registry data
+        let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.downloaded_tickers.clone()));
+
+        // Re-create layout manager with the shared Arc
+        let layout_manager = crate::modal::LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone());
+
+        // Create final SavedState with shared Arc in layout_manager
+        let saved_state = crate::layout::SavedState {
+            theme: saved_state_temp.theme,
+            custom_theme: saved_state_temp.custom_theme,
+            layout_manager,
+            main_window: saved_state_temp.main_window,
+            timezone: saved_state_temp.timezone,
+            sidebar: saved_state_temp.sidebar,
+            scale_factor: saved_state_temp.scale_factor,
+            audio_cfg: saved_state_temp.audio_cfg,
+            downloaded_tickers: saved_state_temp.downloaded_tickers,
+        };
+
+        let (main_window_id, open_main_window) = {
+            let (position, size) = saved_state.window();
+            let config = window::Settings {
+                size,
+                position,
+                exit_on_close_request: false,
+                ..window::settings()
+            };
+            window::open(config)
+        };
+
+        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state, downloaded_tickers.clone());
+
+        let mut state = Self {
+            main_window: window::Window::new(main_window_id),
+            layout_manager: saved_state.layout_manager,
+            theme_editor: ThemeEditor::new(saved_state.custom_theme),
+            audio_stream: AudioStream::new(saved_state.audio_cfg),
+            data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
+            sidebar,
+            confirm_dialog: None,
+            market_data_service,
+            options_service,
+            gex_service,
+            replay_engine,
+            timezone: saved_state.timezone,
+            ui_scale_factor: saved_state.scale_factor,
+            theme: saved_state.theme,
+            notifications: vec![],
+            downloaded_tickers: downloaded_tickers.clone(),
+        };
+
+        let active_layout_id = state.layout_manager.active_layout_id().unwrap_or(
+            &state
+                .layout_manager
+                .layouts
+                .first()
+                .expect("No layouts available")
+                .id,
+        );
+        let load_layout = state.load_layout(active_layout_id.unique, main_window_id);
+
+        (
+            state,
+            open_main_window
+                .discard()
+                .chain(load_layout)
+                .chain(launch_sidebar.map(Message::Sidebar)),
+        )
+    }
+
+    pub fn title(&self, _window: window::Id) -> String {
+        if let Some(id) = self.layout_manager.active_layout_id() {
+            format!("Flowsurface [{}]", id.name)
+        } else {
+            "Flowsurface".to_string()
+        }
+    }
+
+    pub fn theme(&self, _window: window::Id) -> iced_core::Theme {
+        self.theme.clone().into()
+    }
+
+    pub fn scale_factor(&self, _window: window::Id) -> f32 {
+        self.ui_scale_factor.into()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        subscriptions::build_subscription(&self.sidebar)
+    }
+
+    pub fn view(&self, id: window::Id) -> Element<'_, Message> {
+        let dashboard = self.active_dashboard();
+        let sidebar_pos = self.sidebar.position();
+
+        let tickers_table = &self.sidebar.tickers_table;
+
+        let content = if id == self.main_window.id {
+            let sidebar_view = self
+                .sidebar
+                .view(self.audio_stream.volume())
+                .map(Message::Sidebar);
+
+            let dashboard_view = dashboard
+                .view(&self.main_window, tickers_table, self.timezone)
+                .map(move |msg| Message::Dashboard {
+                    layout_id: None,
+                    event: msg,
+                });
+
+            let header_title = {
+                #[cfg(target_os = "macos")]
+                {
+                    iced::widget::center(
+                        text("FLOWSURFACE")
+                            .font(iced::Font {
+                                weight: iced::font::Weight::Bold,
+                                ..Default::default()
+                            })
+                            .size(16)
+                            .style(style::title_text),
+                    )
+                    .height(20)
+                    .align_y(Alignment::Center)
+                    .padding(padding::top(4))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    column![]
+                }
+            };
+
+            let base = column![
+                header_title,
+                match sidebar_pos {
+                    sidebar::Position::Left => row![sidebar_view, dashboard_view,],
+                    sidebar::Position::Right => row![dashboard_view, sidebar_view],
+                }
+                .spacing(4)
+                .padding(8),
+            ];
+
+            if let Some(menu) = self.sidebar.active_menu() {
+                self.view_with_modal(base.into(), dashboard, menu)
+            } else {
+                base.into()
+            }
+        } else {
+            container(
+                dashboard
+                    .view_window(id, &self.main_window, tickers_table, self.timezone)
+                    .map(move |msg| Message::Dashboard {
+                        layout_id: None,
+                        event: msg,
+                    }),
+            )
+            .padding(padding::top(style::TITLE_PADDING_TOP))
+            .into()
+        };
+
+        toast::Manager::new(
+            content,
+            &self.notifications,
+            match sidebar_pos {
+                sidebar::Position::Left => Alignment::Start,
+                sidebar::Position::Right => Alignment::End,
+            },
+            Message::RemoveNotification,
+        )
+        .into()
+    }
+
+    fn view_with_modal<'a>(
+        &'a self,
+        base: Element<'a, Message>,
+        dashboard: &'a Dashboard,
+        menu: sidebar::Menu,
+    ) -> Element<'a, Message> {
+        let sidebar_pos = self.sidebar.position();
+
+        match menu {
+            sidebar::Menu::Settings => {
+                let settings_modal = {
+                    let theme_picklist = {
+                        let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
+
+                        let default_theme = iced_core::Theme::Custom(default_theme().into());
+                        themes.push(default_theme);
+
+                        if let Some(custom_theme) = &self.theme_editor.custom_theme {
+                            themes.push(custom_theme.clone());
+                        }
+
+                        pick_list(themes, Some(self.theme.0.clone()), |theme| {
+                            Message::ThemeSelected(data::Theme(theme))
+                        })
+                    };
+
+                    let toggle_theme_editor = button(text("Theme editor")).on_press(
+                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(Some(
+                            sidebar::Menu::ThemeEditor,
+                        ))),
+                    );
+
+                    let timezone_picklist = pick_list(
+                        [data::UserTimezone::Utc, data::UserTimezone::Local],
+                        Some(self.timezone),
+                        Message::SetTimezone,
+                    );
+
+                    let sidebar_pos_picker = pick_list(
+                        [sidebar::Position::Left, sidebar::Position::Right],
+                        Some(sidebar_pos),
+                        |pos| {
+                            Message::Sidebar(dashboard::sidebar::Message::SetSidebarPosition(pos))
+                        },
+                    );
+
+                    let scale_factor = {
+                        let current_value: f32 = self.ui_scale_factor.into();
+
+                        let decrease_btn = if current_value > data::config::MIN_SCALE {
+                            button(text("-"))
+                                .on_press(Message::ScaleFactorChanged((current_value - 0.1).into()))
+                        } else {
+                            button(text("-"))
+                        };
+
+                        let increase_btn = if current_value < data::config::MAX_SCALE {
+                            button(text("+"))
+                                .on_press(Message::ScaleFactorChanged((current_value + 0.1).into()))
+                        } else {
+                            button(text("+"))
+                        };
+
+                        container(
+                            row![
+                                decrease_btn,
+                                text(format!("{:.0}%", current_value * 100.0)).size(14),
+                                increase_btn,
+                            ]
+                            .align_y(Alignment::Center)
+                            .spacing(8)
+                            .padding(4),
+                        )
+                        .style(style::modal_container)
+                    };
+
+                    let open_data_folder = {
+                        let button =
+                            button(text("Open data folder")).on_press(Message::DataFolderRequested);
+
+                        tooltip(
+                            button,
+                            Some("Open the folder where the data & config is stored"),
+                            TooltipPosition::Top,
+                        )
+                    };
+
+                    let column_content = split_column![
+                        column![open_data_folder,].spacing(8),
+                        column![text("Sidebar position").size(14), sidebar_pos_picker,].spacing(12),
+                        column![text("Time zone").size(14), timezone_picklist,].spacing(12),
+                        column![text("Theme").size(14), theme_picklist,].spacing(12),
+                        column![text("Interface scale").size(14), scale_factor,].spacing(12),
+                        column![
+                            text("Experimental").size(14),
+                            toggle_theme_editor,
+                        ]
+                        .spacing(12),
+                        ; spacing = 16, align_x = Alignment::Start
+                    ];
+
+                    let content = scrollable::Scrollable::with_direction(
+                        column_content,
+                        scrollable::Direction::Vertical(
+                            scrollable::Scrollbar::new().width(8).scroller_width(6),
+                        ),
+                    );
+
+                    container(content)
+                        .align_x(Alignment::Start)
+                        .max_width(240)
+                        .padding(24)
+                        .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
+                };
+
+                let base_content = dashboard_modal(
+                    base,
+                    settings_modal,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                );
+
+                if let Some(dialog) = &self.confirm_dialog {
+                    let dialog_content =
+                        confirm_dialog_container(dialog.clone(), Message::ToggleDialogModal(None));
+
+                    main_dialog_modal(
+                        base_content,
+                        dialog_content,
+                        Message::ToggleDialogModal(None),
+                    )
+                } else {
+                    base_content
+                }
+            }
+            sidebar::Menu::Layout => {
+                let main_window = self.main_window.id;
+
+                let manage_pane = if let Some((window_id, pane_id)) = dashboard.focus {
+                    let selected_pane_str =
+                        if let Some(state) = dashboard.get_pane(main_window, window_id, pane_id) {
+                            let link_group_name: String =
+                                state.link_group.as_ref().map_or_else(String::new, |g| {
+                                    " - Group ".to_string() + &g.to_string()
+                                });
+
+                            state.content.to_string() + &link_group_name
+                        } else {
+                            "".to_string()
+                        };
+
+                    let is_main_window = window_id == main_window;
+
+                    let reset_pane_button = {
+                        let btn = button(text("Reset").align_x(Alignment::Center))
+                            .width(iced::Length::Fill);
+                        if is_main_window {
+                            let dashboard_msg = Message::Dashboard {
+                                layout_id: None,
+                                event: dashboard::Message::Pane(
+                                    main_window,
+                                    dashboard::pane::Message::ReplacePane(pane_id),
+                                ),
+                            };
+
+                            btn.on_press(dashboard_msg)
+                        } else {
+                            btn
+                        }
+                    };
+                    let split_pane_button = {
+                        let btn = button(text("Split").align_x(Alignment::Center))
+                            .width(iced::Length::Fill);
+                        if is_main_window {
+                            let dashboard_msg = Message::Dashboard {
+                                layout_id: None,
+                                event: dashboard::Message::Pane(
+                                    main_window,
+                                    dashboard::pane::Message::SplitPane(
+                                        pane_grid::Axis::Horizontal,
+                                        pane_id,
+                                    ),
+                                ),
+                            };
+                            btn.on_press(dashboard_msg)
+                        } else {
+                            btn
+                        }
+                    };
+
+                    column![
+                        text(selected_pane_str),
+                        row![
+                            tooltip(
+                                reset_pane_button,
+                                if is_main_window {
+                                    Some("Reset selected pane")
+                                } else {
+                                    None
+                                },
+                                TooltipPosition::Top,
+                            ),
+                            tooltip(
+                                split_pane_button,
+                                if is_main_window {
+                                    Some("Split selected pane horizontally")
+                                } else {
+                                    None
+                                },
+                                TooltipPosition::Top,
+                            ),
+                        ]
+                        .spacing(8)
+                    ]
+                    .spacing(8)
+                } else {
+                    column![text("No pane selected"),].spacing(8)
+                };
+
+                let manage_layout_modal = {
+                    let col = column![
+                        manage_pane,
+                        rule::horizontal(1.0).style(style::split_ruler),
+                        self.layout_manager.view().map(Message::Layouts)
+                    ];
+
+                    container(col.align_x(Alignment::Center).spacing(20))
+                        .width(260)
+                        .padding(24)
+                        .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(40)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(40)),
+                };
+
+                dashboard_modal(
+                    base,
+                    manage_layout_modal,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::DataManagement => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(40)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(40)),
+                };
+
+                dashboard_modal(
+                    base,
+                    self.data_management_panel.view()
+                        .map(Message::DataManagement),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                )
+            }
+            sidebar::Menu::Audio => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(76)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(76)),
+                };
+
+                // TODO: Fetch depth streams from panes
+                let depth_streams_list = vec![];
+
+                dashboard_modal(
+                    base,
+                    self.audio_stream
+                        .view(depth_streams_list)
+                        .map(Message::AudioStream),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::ThemeEditor => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
+                };
+
+                dashboard_modal(
+                    base,
+                    self.theme_editor
+                        .view(&self.theme.0)
+                        .map(Message::ThemeEditor),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                )
+            }
+        }
+    }
+}

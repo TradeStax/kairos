@@ -3,7 +3,8 @@ use crate::screen::dashboard::Dashboard;
 use crate::style::{Icon, icon_text};
 use crate::widget::column_drag::{self, DragEvent};
 use crate::widget::dragger_row;
-use crate::{style, tooltip};
+use crate::style;
+use crate::widget::tooltip;
 
 use iced::widget::{
     button, center, column, container, row, scrollable, space, text, text_input,

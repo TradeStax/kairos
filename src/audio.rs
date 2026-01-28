@@ -42,56 +42,80 @@ impl From<SoundType> for usize {
     }
 }
 
-pub struct SoundCache {
+/// Audio backend that holds the output stream and handle.
+/// This is separated to allow `SoundCache` to work without audio.
+struct AudioBackend {
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
+}
+
+impl AudioBackend {
+    fn try_new() -> Option<Self> {
+        match OutputStream::try_default() {
+            Ok((stream, handle)) => Some(AudioBackend {
+                _stream: stream,
+                stream_handle: handle,
+            }),
+            Err(err) => {
+                log::warn!("Audio output unavailable: {}. Sound features disabled.", err);
+                None
+            }
+        }
+    }
+}
+
+pub struct SoundCache {
+    backend: Option<AudioBackend>,
     volume: Option<f32>,
     sample_buffers: [Option<rodio::buffer::SamplesBuffer<i16>>; 4],
     last_played: [(Option<Instant>, usize); 4],
 }
 
 impl SoundCache {
-    pub fn new(volume: Option<f32>) -> Result<Self, String> {
-        let (stream, stream_handle) = match OutputStream::try_default() {
-            Ok(result) => result,
-            Err(err) => {
-                return Err(format!("Failed to open audio output: {}", err));
-            }
-        };
-
-        Ok(SoundCache {
-            _stream: stream,
-            stream_handle,
+    /// Create a new SoundCache. Returns a cache even if audio is unavailable.
+    pub fn new(volume: Option<f32>) -> Self {
+        SoundCache {
+            backend: AudioBackend::try_new(),
             volume,
             sample_buffers: [None, None, None, None],
             last_played: [(None, 0), (None, 0), (None, 0), (None, 0)],
-        })
+        }
     }
 
-    pub fn with_default_sounds(volume: Option<f32>) -> Result<Self, String> {
-        let mut cache = Self::new(volume)?;
+    /// Create a SoundCache with default sounds loaded.
+    /// Audio playback will be disabled if no audio device is available.
+    pub fn with_default_sounds(volume: Option<f32>) -> Self {
+        let mut cache = Self::new(volume);
 
-        let sound_types = [
-            SoundType::Buy,
-            SoundType::HardBuy,
-            SoundType::Sell,
-            SoundType::HardSell,
-        ];
+        // Only load sounds if we have audio backend
+        if cache.backend.is_some() {
+            let sound_types = [
+                SoundType::Buy,
+                SoundType::HardBuy,
+                SoundType::Sell,
+                SoundType::HardSell,
+            ];
 
-        for sound_type in &sound_types {
-            let (path, data) = match sound_type {
-                SoundType::Buy => (BUY_SOUND, BUY_SOUND_DATA),
-                SoundType::HardBuy => (HARD_BUY_SOUND, HARD_BUY_SOUND_DATA),
-                SoundType::Sell => (SELL_SOUND, SELL_SOUND_DATA),
-                SoundType::HardSell => (HARD_SELL_SOUND, HARD_SELL_SOUND_DATA),
-            };
+            for sound_type in &sound_types {
+                let (path, data) = match sound_type {
+                    SoundType::Buy => (BUY_SOUND, BUY_SOUND_DATA),
+                    SoundType::HardBuy => (HARD_BUY_SOUND, HARD_BUY_SOUND_DATA),
+                    SoundType::Sell => (SELL_SOUND, SELL_SOUND_DATA),
+                    SoundType::HardSell => (HARD_SELL_SOUND, HARD_SELL_SOUND_DATA),
+                };
 
-            if let Err(e) = cache.load_sound_from_memory(*sound_type, data) {
-                return Err(format!("Failed to load default sound '{}': {}", path, e));
+                if let Err(e) = cache.load_sound_from_memory(*sound_type, data) {
+                    log::warn!("Failed to load sound '{}': {}", path, e);
+                }
             }
         }
 
-        Ok(cache)
+        cache
+    }
+
+    /// Returns true if audio is available and can be played.
+    pub fn is_available(&self) -> bool {
+        self.backend.is_some()
     }
 
     pub fn load_sound_from_memory(
@@ -99,6 +123,11 @@ impl SoundCache {
         sound_type: SoundType,
         data: &[u8],
     ) -> Result<(), String> {
+        // Skip loading if no audio backend
+        if self.backend.is_none() {
+            return Ok(());
+        }
+
         let index = sound_type as usize;
 
         if self.sample_buffers[index].is_some() {
@@ -124,6 +153,11 @@ impl SoundCache {
     }
 
     pub fn play(&mut self, sound_type: SoundType) -> Result<(), String> {
+        // No-op if audio unavailable
+        let Some(backend) = &self.backend else {
+            return Ok(());
+        };
+
         let Some(base_volume) = self.volume else {
             return Ok(());
         };
@@ -155,7 +189,7 @@ impl SoundCache {
 
         let adjusted_volume = base_volume / (overlap_count as f32);
 
-        let sink = match rodio::Sink::try_new(&self.stream_handle) {
+        let sink = match rodio::Sink::try_new(&backend.stream_handle) {
             Ok(sink) => sink,
             Err(err) => {
                 return Err(format!("Failed to create audio sink: {}", err));

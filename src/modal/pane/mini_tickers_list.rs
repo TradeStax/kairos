@@ -1,7 +1,7 @@
 use exchange::FuturesTickerInfo;
 use iced::Element;
 
-use crate::dashboard::tickers_table::TickersTable;
+use crate::screen::dashboard::tickers_table::TickersTable;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RowSelection {

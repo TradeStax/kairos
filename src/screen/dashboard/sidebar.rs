@@ -5,11 +5,11 @@
 
 use super::tickers_table::{self, TickersTable};
 use crate::{
-    TooltipPosition,
     layout::SavedState,
     style::{Icon, icon_text},
     widget::button_with_tooltip,
 };
+use iced::widget::tooltip::Position as TooltipPosition;
 use data::sidebar;
 
 use iced::{
