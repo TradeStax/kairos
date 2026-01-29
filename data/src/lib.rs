@@ -17,6 +17,7 @@ pub mod audio_config; // Audio configuration
 pub mod chart; // Chart types re-exports
 pub mod config; // Configuration
 pub mod domain; // Pure domain logic - THE source of truth
+pub mod drawing; // Drawing types for chart annotations
 pub mod error_types; // Error types
 pub mod log_config; // Logging configuration
 pub mod panel_config; // Panel configuration types
@@ -70,6 +71,12 @@ pub use config::timezone::UserTimezone;
 
 // Re-export secrets types
 pub use secrets::{ApiKeyStatus, ApiProvider, SecretsError, SecretsManager};
+
+// Re-export drawing types
+pub use drawing::{
+    DrawingId, DrawingStyle, DrawingTool, LineStyle, SerializableColor, SerializableDrawing,
+    SerializablePoint,
+};
 
 // Error types
 use thiserror::Error;
