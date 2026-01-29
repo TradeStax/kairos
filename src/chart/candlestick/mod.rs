@@ -5,6 +5,7 @@ mod render;
 
 use crate::chart::{
     Chart, Interaction, Message, PlotConstants, ViewState,
+    drawing::{DrawingManager, DrawingPoint},
     indicator,
 };
 use crate::chart::indicator::kline::KlineIndicatorImpl;
@@ -135,6 +136,10 @@ impl Chart for KlineChart {
     fn is_empty(&self) -> bool {
         self.chart_data.candles.is_empty()
     }
+
+    fn active_drawing_tool(&self) -> data::DrawingTool {
+        self.drawings.active_tool()
+    }
 }
 
 impl PlotConstants for KlineChart {
@@ -181,6 +186,8 @@ pub struct KlineChart {
     footprint_cache: Option<Vec<BTreeMap<Price, TradeGroup>>>,
     /// Cache revision for invalidation tracking
     cache_revision: u64,
+    /// Drawing manager for chart annotations
+    pub drawings: DrawingManager,
 }
 
 impl KlineChart {
@@ -282,6 +289,7 @@ impl KlineChart {
             last_tick: Instant::now(),
             footprint_cache: None, // Lazy initialization on first use
             cache_revision: 0,
+            drawings: DrawingManager::new(),
         }
     }
 

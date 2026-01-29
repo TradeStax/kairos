@@ -1,11 +1,13 @@
 pub mod api_key_config;
 pub mod audio;
+pub mod drawing_tools;
 pub mod layout_manager;
 pub mod pane;
 pub mod theme_editor;
 
 use iced::widget::{center, container, mouse_area, opaque, stack};
 use iced::{Alignment, Color, Element, Length, padding};
+pub use drawing_tools::DrawingToolsPanel;
 pub use layout_manager::LayoutManager;
 pub use pane::stream::{self, ModifierKind};
 pub use theme_editor::ThemeEditor;

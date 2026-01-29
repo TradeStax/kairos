@@ -7,6 +7,7 @@ pub mod candlestick;
 pub mod comparison;
 pub mod core;
 pub mod display;
+pub mod drawing;
 pub mod heatmap;
 pub mod indicator;
 pub mod overlay;
@@ -60,6 +61,11 @@ pub enum Message {
     BoundsChanged(Rectangle),
     SplitDragged(usize, f32),
     DoubleClick(AxisScaleClicked),
+    // Drawing operations
+    DrawingClick(Point),
+    DrawingMove(Point),
+    DrawingCancel,
+    DrawingDelete,
 }
 
 /// Chart action for side effects
@@ -277,6 +283,11 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
             }
         }
         Message::CrosshairMoved => return chart.invalidate_crosshair(),
+        // Drawing messages are handled at the pane level where we have mutable access
+        Message::DrawingClick(_) | Message::DrawingMove(_) | Message::DrawingCancel | Message::DrawingDelete => {
+            // These are handled by the pane/dashboard, not the chart itself
+            return;
+        }
     }
     chart.invalidate_all();
 }

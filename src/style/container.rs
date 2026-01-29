@@ -127,6 +127,52 @@ pub fn dashboard_modal(theme: &Theme) -> Style {
     }
 }
 
+/// Compact dropdown container for tool selection
+pub fn dropdown_container(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        background: Some(palette.background.base.color.into()),
+        border: Border {
+            width: 1.0,
+            color: palette.background.strong.color,
+            radius: 4.0.into(),
+        },
+        shadow: Shadow {
+            offset: iced::Vector { x: 2.0, y: 2.0 },
+            blur_radius: 8.0,
+            color: Color::BLACK.scale_alpha(if palette.is_dark { 0.6 } else { 0.3 }),
+        },
+        ..Default::default()
+    }
+}
+
+/// Container for drawing tools section in sidebar
+pub fn drawing_tools_container(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        background: Some(
+            if palette.is_dark {
+                palette.background.weak.color.scale_alpha(0.3)
+            } else {
+                palette.background.strong.color.scale_alpha(0.3)
+            }
+            .into(),
+        ),
+        border: Border {
+            width: 1.0,
+            color: if palette.is_dark {
+                palette.background.weak.color.scale_alpha(0.5)
+            } else {
+                palette.background.strong.color.scale_alpha(0.5)
+            },
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
 pub fn confirm_modal(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 

@@ -106,9 +106,13 @@ impl From<&Dashboard> for data::Dashboard {
 
 impl From<&pane::State> for data::Pane {
     fn from(pane: &pane::State) -> Self {
+        // Clone settings and sync drawings from chart
+        let mut settings = pane.settings.clone();
+        settings.drawings = pane.content.serialize_drawings();
+
         data::Pane::Content {
             kind: pane.content.kind(),
-            settings: pane.settings.clone(),
+            settings,
             link_group: pane.link_group,
         }
     }

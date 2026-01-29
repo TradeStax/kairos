@@ -656,7 +656,7 @@ impl Flowsurface {
                                 date_range,
                             } => {
                                 // Process the sidebar message first, then trigger estimation
-                                let task = self.sidebar.update(message);
+                                let (task, _) = self.sidebar.update(message);
 
                                 return task.map(Message::Sidebar).chain(Task::done(
                                     Message::EstimateDataCost {
@@ -674,7 +674,27 @@ impl Flowsurface {
                     }
                 }
 
-                return self.sidebar.update(message).map(Message::Sidebar);
+                let (task, drawing_action) = self.sidebar.update(message);
+
+                // Handle drawing tool actions from the sidebar
+                if let Some(action) = drawing_action {
+                    match action {
+                        crate::modal::drawing_tools::Action::SelectTool(tool) => {
+                            return task.map(Message::Sidebar).chain(Task::done(Message::Dashboard {
+                                layout_id: None,
+                                event: dashboard::Message::DrawingToolSelected(tool),
+                            }));
+                        }
+                        crate::modal::drawing_tools::Action::ToggleSnap => {
+                            return task.map(Message::Sidebar).chain(Task::done(Message::Dashboard {
+                                layout_id: None,
+                                event: dashboard::Message::DrawingSnapToggled,
+                            }));
+                        }
+                    }
+                }
+
+                return task.map(Message::Sidebar);
             }
             Message::TickersTable(msg) => {
                 let action = self.tickers_table.update(msg);

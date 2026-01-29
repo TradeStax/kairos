@@ -5,6 +5,7 @@
 use super::traits::{Chart, PlotConstants};
 use crate::chart::Message;
 use crate::widget::multi_split::DRAG_SIZE;
+use data::DrawingTool;
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
 const ZOOM_SENSITIVITY: f32 = 30.0;
@@ -33,6 +34,77 @@ pub enum Interaction {
         /// Start point of ruler (None if not placed yet)
         start: Option<Point>,
     },
+    /// Drawing mode - placing or previewing a drawing
+    Drawing {
+        /// The tool being used
+        tool: DrawingTool,
+        /// Current state of the drawing operation
+        state: DrawingState,
+    },
+    /// Editing an existing drawing
+    EditingDrawing {
+        /// The edit operation in progress
+        edit_mode: DrawingEditMode,
+    },
+}
+
+/// State of an in-progress drawing operation
+#[derive(Debug, Clone, Copy)]
+pub enum DrawingState {
+    /// Waiting for first click to place initial point
+    Placing,
+    /// First point placed, showing preview line to cursor
+    Previewing {
+        /// Screen position of first click
+        start: Point,
+    },
+}
+
+/// Mode for editing an existing drawing
+#[derive(Debug, Clone, Copy)]
+pub enum DrawingEditMode {
+    /// Moving the entire drawing
+    Moving {
+        /// Offset from cursor to drawing anchor
+        offset: Vector,
+    },
+    /// Dragging a specific handle/point
+    DraggingHandle {
+        /// Index of the handle being dragged
+        handle_index: usize,
+    },
+}
+
+impl Interaction {
+    /// Check if we're in drawing mode
+    pub fn is_drawing(&self) -> bool {
+        matches!(self, Interaction::Drawing { .. })
+    }
+
+    /// Check if we're editing a drawing
+    pub fn is_editing_drawing(&self) -> bool {
+        matches!(self, Interaction::EditingDrawing { .. })
+    }
+
+    /// Get the active drawing tool if in drawing mode
+    pub fn drawing_tool(&self) -> Option<DrawingTool> {
+        match self {
+            Interaction::Drawing { tool, .. } => Some(*tool),
+            _ => None,
+        }
+    }
+
+    /// Enter drawing mode with the given tool
+    pub fn enter_drawing_mode(tool: DrawingTool) -> Self {
+        if tool == DrawingTool::None {
+            Interaction::None
+        } else {
+            Interaction::Drawing {
+                tool,
+                state: DrawingState::Placing,
+            }
+        }
+    }
 }
 
 /// Process canvas interaction events and produce chart messages
@@ -60,6 +132,9 @@ pub fn canvas_interaction<T: Chart>(
             Interaction::Panning { .. } | Interaction::Zoomin { .. } => {
                 *interaction = Interaction::None;
             }
+            Interaction::EditingDrawing { .. } => {
+                *interaction = Interaction::None;
+            }
             _ => {}
         }
     }
@@ -81,9 +156,52 @@ pub fn canvas_interaction<T: Chart>(
 
                     if let mouse::Button::Left = button {
                         match interaction {
+                            // Drawing mode interactions handled by chart (via DrawingManager)
+                            Interaction::Drawing { tool, state: draw_state } => {
+                                match draw_state {
+                                    DrawingState::Placing => {
+                                        // First click - start the drawing
+                                        *interaction = Interaction::Drawing {
+                                            tool: *tool,
+                                            state: DrawingState::Previewing { start: cursor_in_bounds },
+                                        };
+                                        // Emit message to create the drawing
+                                        return Some(canvas::Action::publish(Message::DrawingClick(cursor_in_bounds)).and_capture());
+                                    }
+                                    DrawingState::Previewing { .. } => {
+                                        // Second click - complete the drawing
+                                        // Return to placing state for next drawing
+                                        *interaction = Interaction::Drawing {
+                                            tool: *tool,
+                                            state: DrawingState::Placing,
+                                        };
+                                        // Emit message to complete the drawing
+                                        return Some(canvas::Action::publish(Message::DrawingClick(cursor_in_bounds)).and_capture());
+                                    }
+                                }
+                            }
                             Interaction::None
                             | Interaction::Panning { .. }
                             | Interaction::Zoomin { .. } => {
+                                // Check if a drawing tool is active
+                                let active_tool = chart.active_drawing_tool();
+                                if active_tool != DrawingTool::None {
+                                    // Enter drawing mode and emit click to start drawing
+                                    *interaction = Interaction::Drawing {
+                                        tool: active_tool,
+                                        state: DrawingState::Previewing {
+                                            start: cursor_in_bounds,
+                                        },
+                                    };
+                                    return Some(
+                                        canvas::Action::publish(Message::DrawingClick(
+                                            cursor_in_bounds,
+                                        ))
+                                        .and_capture(),
+                                    );
+                                }
+
+                                // Otherwise, pan as before
                                 *interaction = Interaction::Panning {
                                     translation: state.translation,
                                     start: cursor_in_bounds,
@@ -97,6 +215,9 @@ pub fn canvas_interaction<T: Chart>(
                             Interaction::Ruler { .. } => {
                                 *interaction = Interaction::None;
                             }
+                            Interaction::EditingDrawing { .. } => {
+                                // Already editing, let the chart handle it
+                            }
                         }
                     }
                     Some(canvas::Action::request_redraw().and_capture())
@@ -108,6 +229,18 @@ pub fn canvas_interaction<T: Chart>(
                             translation + (cursor_in_bounds - start) * (1.0 / state.scaling),
                         );
                         Some(canvas::Action::publish(msg).and_capture())
+                    }
+                    Interaction::Drawing { .. } => {
+                        // Cursor move during drawing mode - emit move event for preview
+                        if let Some(cursor_pos) = cursor_position {
+                            Some(canvas::Action::publish(Message::DrawingMove(cursor_pos)))
+                        } else {
+                            Some(canvas::Action::publish(Message::CrosshairMoved))
+                        }
+                    }
+                    Interaction::EditingDrawing { .. } => {
+                        // Cursor move during editing - redraw
+                        Some(canvas::Action::publish(Message::CrosshairMoved))
                     }
                     Interaction::None | Interaction::Ruler { .. } => {
                         Some(canvas::Action::publish(Message::CrosshairMoved))
@@ -218,12 +351,24 @@ pub fn canvas_interaction<T: Chart>(
             match keyboard_event {
                 iced::keyboard::Event::KeyPressed { key, .. } => match key.as_ref() {
                     keyboard::Key::Named(keyboard::key::Named::Shift) => {
-                        *interaction = Interaction::Ruler { start: None };
+                        // Don't enter ruler mode if we're drawing
+                        if !interaction.is_drawing() {
+                            *interaction = Interaction::Ruler { start: None };
+                        }
                         Some(canvas::Action::request_redraw().and_capture())
                     }
                     keyboard::Key::Named(keyboard::key::Named::Escape) => {
+                        if interaction.is_drawing() {
+                            // Cancel pending drawing
+                            return Some(canvas::Action::publish(Message::DrawingCancel).and_capture());
+                        }
                         *interaction = Interaction::None;
                         Some(canvas::Action::request_redraw().and_capture())
+                    }
+                    keyboard::Key::Named(keyboard::key::Named::Delete)
+                    | keyboard::Key::Named(keyboard::key::Named::Backspace) => {
+                        // Delete key pressed - emit delete message
+                        Some(canvas::Action::publish(Message::DrawingDelete).and_capture())
                     }
                     _ => None,
                 },

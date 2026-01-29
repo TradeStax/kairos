@@ -44,6 +44,14 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
 
     /// Check if the chart has no data to display
     fn is_empty(&self) -> bool;
+
+    /// Get the active drawing tool from the chart's DrawingManager
+    ///
+    /// Returns `DrawingTool::None` by default. Chart implementations with
+    /// a `DrawingManager` should override this to return the active tool.
+    fn active_drawing_tool(&self) -> data::DrawingTool {
+        data::DrawingTool::None
+    }
 }
 
 /// Constants for chart scaling and sizing

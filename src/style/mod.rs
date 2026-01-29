@@ -23,6 +23,7 @@ pub const AZERET_MONO: Font = Font {
 
 pub const TITLE_PADDING_TOP: f32 = if cfg!(target_os = "macos") { 20.0 } else { 0.0 };
 
+#[derive(Debug, Clone, Copy)]
 pub enum Icon {
     Locked,
     Unlocked,
@@ -52,6 +53,18 @@ pub enum Icon {
     DragHandle,
     Folder,
     ExternalLink,
+    // Drawing tool icons
+    DrawCursor,
+    DrawLine,
+    DrawRay,
+    DrawHLine,
+    DrawVLine,
+    DrawRectangle,
+    DrawTrendLine,
+    // UI icons for drawing tools
+    ExpandRight,
+    SnapOn,
+    SnapOff,
 }
 
 impl From<Icon> for char {
@@ -85,6 +98,19 @@ impl From<Icon> for char {
             Icon::DragHandle => '\u{E817}',
             Icon::Folder => '\u{F114}',
             Icon::ExternalLink => '\u{F14C}',
+            // Drawing tool icons - using Edit icon as placeholder
+            // These should be replaced with proper icons when available in the font
+            Icon::DrawCursor => '\u{E802}',    // Search icon as cursor placeholder
+            Icon::DrawLine => '\u{E811}',       // Edit icon as line placeholder
+            Icon::DrawRay => '\u{E811}',        // Edit icon as ray placeholder
+            Icon::DrawHLine => '\u{E817}',      // DragHandle as h-line placeholder
+            Icon::DrawVLine => '\u{E817}',      // DragHandle as v-line placeholder
+            Icon::DrawRectangle => '\u{E803}',  // ResizeFull as rectangle placeholder
+            Icon::DrawTrendLine => '\u{E811}',  // Edit icon as trendline placeholder
+            // UI icons
+            Icon::ExpandRight => '\u{E808}',    // Right arrow/caret
+            Icon::SnapOn => '\u{E807}',         // Link icon for snap on
+            Icon::SnapOff => '\u{E801}',        // Unlocked for snap off
         }
     }
 }

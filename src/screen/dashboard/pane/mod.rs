@@ -128,14 +128,19 @@ impl State {
                 kind,
                 layout,
             } => {
-                *chart = Some(KlineChart::from_chart_data(
+                let mut new_chart = KlineChart::from_chart_data(
                     chart_data,
                     basis,
                     ticker_info,
                     layout.clone(),
                     indicators,
                     kind.clone(),
-                ));
+                );
+                // Load saved drawings
+                if !self.settings.drawings.is_empty() {
+                    new_chart.drawings.load_drawings(self.settings.drawings.clone());
+                }
+                *chart = Some(new_chart);
             }
             Content::Heatmap {
                 chart,
@@ -158,14 +163,19 @@ impl State {
                     chart_data.depth_snapshots.as_ref().map(|d| d.len()).unwrap_or(0)
                 );
 
-                *chart = Some(HeatmapChart::from_chart_data(
+                let mut new_chart = HeatmapChart::from_chart_data(
                     chart_data,
                     basis,
                     ticker_info,
                     layout.clone(),
                     indicators,
                     chart_studies,
-                ));
+                );
+                // Load saved drawings
+                if !self.settings.drawings.is_empty() {
+                    new_chart.drawings.load_drawings(self.settings.drawings.clone());
+                }
+                *chart = Some(new_chart);
 
                 log::info!("🟢 HeatmapChart construction COMPLETE");
             }
@@ -291,15 +301,60 @@ impl State {
                     }
                 }
             }
-            Event::ChartInteraction(msg) => match &mut self.content {
-                Content::Heatmap { chart: Some(c), .. } => {
-                    super::chart::update(c, &msg);
+            Event::ChartInteraction(msg) => {
+                // Handle drawing messages specifically
+                match msg {
+                    super::chart::Message::DrawingClick(point) => {
+                        self.handle_drawing_click(point);
+                    }
+                    super::chart::Message::DrawingMove(point) => {
+                        self.handle_drawing_move(point);
+                    }
+                    super::chart::Message::DrawingCancel => {
+                        self.handle_drawing_cancel();
+                    }
+                    super::chart::Message::DrawingDelete => {
+                        self.handle_drawing_delete();
+                    }
+                    super::chart::Message::CrosshairMoved => {
+                        // Optimize crosshair updates when a drawing tool is active:
+                        // Only clear the main crosshair cache, skip indicator caches
+                        // This prevents lag when moving the mouse with a tool selected
+                        use crate::chart::Chart;
+                        match &mut self.content {
+                            Content::Kline { chart: Some(c), .. } => {
+                                if c.drawings.active_tool() != data::DrawingTool::None {
+                                    // Just clear main crosshair cache, skip indicators
+                                    c.mut_state().cache.clear_crosshair();
+                                } else {
+                                    // Normal crosshair update with indicator tooltips
+                                    super::chart::update(c, &msg);
+                                }
+                            }
+                            Content::Heatmap { chart: Some(c), .. } => {
+                                if c.drawings.active_tool() != data::DrawingTool::None {
+                                    c.mut_state().cache.clear_crosshair();
+                                } else {
+                                    super::chart::update(c, &msg);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {
+                        // Handle other chart messages
+                        match &mut self.content {
+                            Content::Heatmap { chart: Some(c), .. } => {
+                                super::chart::update(c, &msg);
+                            }
+                            Content::Kline { chart: Some(c), .. } => {
+                                super::chart::update(c, &msg);
+                            }
+                            _ => {}
+                        }
+                    }
                 }
-                Content::Kline { chart: Some(c), .. } => {
-                    super::chart::update(c, &msg);
-                }
-                _ => {}
-            },
+            }
             Event::PanelInteraction(msg) => match &mut self.content {
                 Content::Ladder(Some(p)) => super::panel::update(p, msg),
                 Content::TimeAndSales(Some(p)) => super::panel::update(p, msg),
@@ -590,6 +645,102 @@ impl State {
 
     pub fn unique_id(&self) -> uuid::Uuid {
         self.id
+    }
+
+    /// Handle drawing click at a screen position
+    fn handle_drawing_click(&mut self, screen_point: iced::Point) {
+        use crate::chart::{Chart, drawing::DrawingPoint};
+
+        match &mut self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                let state = c.state();
+                let bounds = state.bounds.size();
+                let point = DrawingPoint::from_screen(screen_point, state, bounds, c.drawings.snap_enabled());
+
+                if c.drawings.has_pending() {
+                    // Complete the pending drawing
+                    c.drawings.complete_drawing(point);
+                } else {
+                    // Start a new drawing
+                    c.drawings.start_drawing(point);
+                }
+                c.mut_state().cache.clear_crosshair();
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                let state = c.state();
+                let bounds = state.bounds.size();
+                let point = DrawingPoint::from_screen(screen_point, state, bounds, c.drawings.snap_enabled());
+
+                if c.drawings.has_pending() {
+                    c.drawings.complete_drawing(point);
+                } else {
+                    c.drawings.start_drawing(point);
+                }
+                c.mut_state().cache.clear_crosshair();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle drawing move (update preview)
+    fn handle_drawing_move(&mut self, screen_point: iced::Point) {
+        use crate::chart::{Chart, drawing::DrawingPoint};
+
+        match &mut self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                if c.drawings.has_pending() {
+                    let state = c.state();
+                    let bounds = state.bounds.size();
+                    let point = DrawingPoint::from_screen(screen_point, state, bounds, c.drawings.snap_enabled());
+                    c.drawings.update_preview(point);
+                    c.mut_state().cache.clear_crosshair();
+                }
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                if c.drawings.has_pending() {
+                    let state = c.state();
+                    let bounds = state.bounds.size();
+                    let point = DrawingPoint::from_screen(screen_point, state, bounds, c.drawings.snap_enabled());
+                    c.drawings.update_preview(point);
+                    c.mut_state().cache.clear_crosshair();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle drawing cancel (Escape key)
+    fn handle_drawing_cancel(&mut self) {
+        use crate::chart::Chart;
+
+        match &mut self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                c.drawings.cancel_pending();
+                c.mut_state().cache.clear_crosshair();
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.drawings.cancel_pending();
+                c.mut_state().cache.clear_crosshair();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle drawing delete (Delete/Backspace key)
+    fn handle_drawing_delete(&mut self) {
+        use crate::chart::Chart;
+
+        match &mut self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                c.drawings.delete_selected();
+                c.mut_state().cache.clear_crosshair();
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.drawings.delete_selected();
+                c.mut_state().cache.clear_crosshair();
+            }
+            _ => {}
+        }
     }
 }
 

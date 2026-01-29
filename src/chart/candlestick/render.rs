@@ -1,4 +1,5 @@
-use crate::chart::{Chart, Interaction, Message, TEXT_SIZE, ViewState};
+use crate::chart::{Chart, Interaction, Message, TEXT_SIZE};
+use crate::chart::drawing;
 use crate::style;
 use data::util::count_decimals;
 use data::{Candle, ChartBasis, ClusterKind, FootprintStudy, KlineChartKind, Trade};
@@ -216,6 +217,9 @@ impl canvas::Program<Message> for KlineChart {
         });
 
         let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
+            // Draw all completed drawings and pending preview
+            drawing::render::draw_drawings(frame, chart, &self.drawings, bounds_size, palette);
+
             if let Some(cursor_position) = cursor.position_in(bounds) {
                 // Draw ruler if active
                 if let Interaction::Ruler { start: Some(start) } = interaction {
@@ -248,6 +252,20 @@ impl canvas::Program<Message> for KlineChart {
         match interaction {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
+            Interaction::Drawing { .. } => {
+                if cursor.is_over(bounds) {
+                    mouse::Interaction::Crosshair
+                } else {
+                    mouse::Interaction::default()
+                }
+            }
+            Interaction::EditingDrawing { .. } => {
+                if cursor.is_over(bounds) {
+                    mouse::Interaction::Grabbing
+                } else {
+                    mouse::Interaction::default()
+                }
+            }
             Interaction::None | Interaction::Ruler { .. } => {
                 if cursor.is_over(bounds) {
                     mouse::Interaction::Crosshair

@@ -1,9 +1,10 @@
 use crate::chart::{comparison::ComparisonChart, heatmap::HeatmapChart, candlestick::KlineChart};
+use crate::chart::core::Interaction;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
 use crate::widget::column_drag;
 
 use data::{
-    ContentKind, FootprintStudy, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
+    ContentKind, DrawingTool, FootprintStudy, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
     ViewConfig, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
@@ -344,6 +345,53 @@ impl Content {
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
             Content::Starter => true,
+        }
+    }
+
+    /// Set the active drawing tool on the chart
+    pub fn set_drawing_tool(&mut self, tool: DrawingTool) {
+        use crate::chart::Chart;
+        match self {
+            Content::Kline { chart: Some(c), .. } => {
+                c.drawings.set_tool(tool);
+                c.mut_state().cache.clear_crosshair();
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.drawings.set_tool(tool);
+                c.mut_state().cache.clear_crosshair();
+            }
+            _ => {}
+        }
+    }
+
+    /// Toggle snap mode for drawing tools
+    pub fn toggle_drawing_snap(&mut self) {
+        match self {
+            Content::Kline { chart: Some(c), .. } => {
+                c.drawings.toggle_snap();
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.drawings.toggle_snap();
+            }
+            _ => {}
+        }
+    }
+
+    /// Get the current drawing tool (if chart is active)
+    pub fn drawing_tool(&self) -> Option<DrawingTool> {
+        match self {
+            Content::Kline { chart: Some(c), .. } => Some(c.drawings.active_tool()),
+            Content::Heatmap { chart: Some(c), .. } => Some(c.drawings.active_tool()),
+            _ => None,
+        }
+    }
+
+    /// Serialize drawings for persistence
+    pub fn serialize_drawings(&self) -> Vec<data::SerializableDrawing> {
+        match self {
+            Content::Kline { chart: Some(c), .. } => c.drawings.to_serializable(),
+            Content::Heatmap { chart: Some(c), .. } => c.drawings.to_serializable(),
+            _ => vec![],
         }
     }
 }

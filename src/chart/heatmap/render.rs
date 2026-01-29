@@ -4,6 +4,7 @@
 //! and all rendering-related functions.
 
 use crate::chart::{Chart, Interaction, Message, ViewState};
+use crate::chart::drawing;
 use crate::style;
 use super::{HeatmapChart, VisualConfig};
 use super::data::HeatmapData;
@@ -156,9 +157,12 @@ impl canvas::Program<Message> for HeatmapChart {
             }
         });
 
-        // Crosshair layer
+        // Crosshair layer (includes drawings)
         if !self.is_empty() {
             let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
+                // Draw all completed drawings and pending preview
+                drawing::render::draw_drawings(frame, chart, &self.drawings, bounds_size, palette);
+
                 if let Some(cursor_position) = cursor.position_in(bounds) {
                     // Draw ruler if active
                     if let Interaction::Ruler { start: Some(start) } = interaction {
@@ -199,6 +203,20 @@ impl canvas::Program<Message> for HeatmapChart {
         match interaction {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
+            Interaction::Drawing { .. } => {
+                if cursor.is_over(bounds) {
+                    mouse::Interaction::Crosshair
+                } else {
+                    mouse::Interaction::default()
+                }
+            }
+            Interaction::EditingDrawing { .. } => {
+                if cursor.is_over(bounds) {
+                    mouse::Interaction::Grabbing
+                } else {
+                    mouse::Interaction::default()
+                }
+            }
             Interaction::None | Interaction::Ruler { .. } => {
                 if cursor.is_over(bounds) {
                     return mouse::Interaction::Crosshair;

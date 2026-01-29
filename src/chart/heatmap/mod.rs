@@ -29,6 +29,7 @@ pub mod trades;
 
 use crate::chart::{
     Chart, Interaction, Message, PlotConstants, ViewState,
+    drawing::DrawingManager,
     scale::linear::PriceInfoLabel,
 };
 use crate::modal::pane::settings::study;
@@ -132,6 +133,10 @@ impl Chart for HeatmapChart {
 
     fn is_empty(&self) -> bool {
         !self.chart_data.has_depth() && !self.chart_data.has_trades()
+    }
+
+    fn active_drawing_tool(&self) -> ::data::DrawingTool {
+        self.drawings.active_tool()
     }
 }
 
@@ -255,6 +260,9 @@ pub struct HeatmapChart {
 
     /// Last update timestamp (for cache invalidation)
     last_tick: Instant,
+
+    /// Drawing manager for chart annotations
+    pub drawings: DrawingManager,
 }
 
 impl HeatmapChart {
@@ -361,6 +369,7 @@ impl HeatmapChart {
             study_configurator: study::Configurator::new(),
             studies,
             last_tick: Instant::now(),
+            drawings: DrawingManager::new(),
         };
 
         // Set initial price and position

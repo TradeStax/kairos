@@ -75,6 +75,9 @@ pub enum Message {
         pane_id: uuid::Uuid,
         days_downloaded: usize,
     },
+    // Drawing tools
+    DrawingToolSelected(data::DrawingTool),
+    DrawingSnapToggled,
 }
 
 pub struct Dashboard {
@@ -518,6 +521,22 @@ impl Dashboard {
                         panel.set_download_progress(DownloadProgress::Complete {
                             days_downloaded,
                         });
+                    }
+                }
+            }
+            Message::DrawingToolSelected(tool) => {
+                // Set the drawing tool on the focused pane's chart
+                if let Some((window_id, pane)) = self.focus {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
+                        state.content.set_drawing_tool(tool);
+                    }
+                }
+            }
+            Message::DrawingSnapToggled => {
+                // Toggle snap mode on the focused pane's chart
+                if let Some((window_id, pane)) = self.focus {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
+                        state.content.toggle_drawing_snap();
                     }
                 }
             }

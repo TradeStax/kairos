@@ -84,6 +84,9 @@ impl std::fmt::Display for LinkGroup {
 pub struct Settings {
     pub selected_basis: Option<ChartBasis>,
     pub visual_config: Option<VisualConfig>,
+    /// Saved drawings for this pane
+    #[serde(default)]
+    pub drawings: Vec<crate::drawing::SerializableDrawing>,
 }
 
 /// Visual configuration for different content types
