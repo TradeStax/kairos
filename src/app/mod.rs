@@ -7,7 +7,7 @@ use crate::layout::{LayoutId, configuration};
 use crate::modal::api_key_config::{ApiKeyConfigModal, TriggeredBy as ApiKeyTriggeredBy};
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
-use crate::screen::dashboard::{self, Dashboard};
+use crate::screen::dashboard::{self, Dashboard, tickers_table::{self, TickersTable}};
 use crate::widget::{
     confirm_dialog_container,
     toast::{self, Toast},
@@ -39,6 +39,7 @@ pub fn get_download_progress()
 pub struct Flowsurface {
     pub(crate) main_window: window::Window,
     pub(crate) sidebar: dashboard::Sidebar,
+    pub(crate) tickers_table: TickersTable,
     pub(crate) layout_manager: LayoutManager,
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
@@ -63,6 +64,7 @@ pub struct Flowsurface {
 #[derive(Debug, Clone)]
 pub enum Message {
     Sidebar(dashboard::sidebar::Message),
+    TickersTable(tickers_table::Message),
     Dashboard {
         /// If `None`, the active layout is used for the event.
         layout_id: Option<uuid::Uuid>,
@@ -176,6 +178,7 @@ impl Flowsurface {
         let layout_manager = crate::modal::LayoutManager::new(
             market_data_service.clone(),
             downloaded_tickers.clone(),
+            saved_state_temp.sidebar.date_range_preset,
         );
 
         // Create final SavedState with shared Arc in layout_manager
@@ -202,8 +205,21 @@ impl Flowsurface {
             window::open(config)
         };
 
-        let (sidebar, launch_sidebar) =
-            dashboard::Sidebar::new(&saved_state, downloaded_tickers.clone());
+        // Create tickers table at app level (shared by pane dropdowns)
+        let (mut tickers_table, _initial_fetch) = TickersTable::new();
+
+        // Apply filter from downloaded tickers registry
+        let ticker_symbols: std::collections::HashSet<String> =
+            downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
+        if !ticker_symbols.is_empty() {
+            log::info!("Applying filter from registry: {} downloaded tickers", ticker_symbols.len());
+            tickers_table.set_cached_filter(ticker_symbols);
+        } else {
+            log::info!("No downloaded tickers in registry - ticker list will be empty");
+            tickers_table.set_cached_filter(std::collections::HashSet::new());
+        }
+
+        let sidebar = dashboard::Sidebar::new(&saved_state);
 
         let mut state = Self {
             main_window: window::Window::new(main_window_id),
@@ -213,6 +229,7 @@ impl Flowsurface {
             data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
             api_key_config_modal: None,
             sidebar,
+            tickers_table,
             confirm_dialog: None,
             market_data_service,
             options_service,
@@ -239,8 +256,7 @@ impl Flowsurface {
             state,
             open_main_window
                 .discard()
-                .chain(load_layout)
-                .chain(launch_sidebar.map(Message::Sidebar)),
+                .chain(load_layout),
         )
     }
 
@@ -261,14 +277,14 @@ impl Flowsurface {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        subscriptions::build_subscription(&self.sidebar)
+        subscriptions::build_subscription(&self.tickers_table)
     }
 
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
         let dashboard = self.active_dashboard();
         let sidebar_pos = self.sidebar.position();
 
-        let tickers_table = &self.sidebar.tickers_table;
+        let tickers_table = &self.tickers_table;
 
         let content = if id == self.main_window.id {
             let sidebar_view = self
@@ -383,11 +399,11 @@ impl Flowsurface {
                         Message::SetTimezone,
                     );
 
-                    let sidebar_pos_picker = pick_list(
-                        [sidebar::Position::Left, sidebar::Position::Right],
-                        Some(sidebar_pos),
-                        |pos| {
-                            Message::Sidebar(dashboard::sidebar::Message::SetSidebarPosition(pos))
+                    let date_range_picker = pick_list(
+                        sidebar::DateRangePreset::ALL,
+                        Some(self.sidebar.date_range_preset()),
+                        |preset| {
+                            Message::Sidebar(dashboard::sidebar::Message::SetDateRangePreset(preset))
                         },
                     );
 
@@ -440,7 +456,7 @@ impl Flowsurface {
 
                     let column_content = split_column![
                         column![open_data_folder, api_keys_button,].spacing(8),
-                        column![text("Sidebar position").size(14), sidebar_pos_picker,].spacing(12),
+                        column![text("Date range").size(14), date_range_picker,].spacing(12),
                         column![text("Time zone").size(14), timezone_picklist,].spacing(12),
                         column![text("Theme").size(14), theme_picklist,].spacing(12),
                         column![text("Interface scale").size(14), scale_factor,].spacing(12),

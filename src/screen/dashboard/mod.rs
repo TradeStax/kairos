@@ -89,6 +89,8 @@ pub struct Dashboard {
     pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>, // (timestamp, price)
     /// Downloaded tickers registry (tracks which tickers have data and their ranges)
     pub downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    /// Date range preset for fallback when no registered data exists
+    pub date_range_preset: data::sidebar::DateRangePreset,
     layout_id: uuid::Uuid,
 }
 
@@ -97,6 +99,7 @@ impl Dashboard {
     pub fn new(
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+        date_range_preset: data::sidebar::DateRangePreset,
     ) -> Self {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
@@ -106,8 +109,14 @@ impl Dashboard {
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
             downloaded_tickers,
+            date_range_preset,
             layout_id: uuid::Uuid::new_v4(),
         }
+    }
+
+    /// Set the date range preset (used when no registered data exists)
+    pub fn set_date_range_preset(&mut self, preset: data::sidebar::DateRangePreset) {
+        self.date_range_preset = preset;
     }
 }
 
@@ -164,6 +173,7 @@ impl Dashboard {
         layout_id: uuid::Uuid,
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+        date_range_preset: data::sidebar::DateRangePreset,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
 
@@ -184,6 +194,7 @@ impl Dashboard {
             popout,
             crosshair_positions: HashMap::new(),
             downloaded_tickers,
+            date_range_preset,
             layout_id,
         }
     }
@@ -794,13 +805,14 @@ impl Dashboard {
         };
 
         // Get registered date range BEFORE borrowing pane_state mutably
+        let preset_days = self.date_range_preset.to_days();
         let date_range = self.downloaded_tickers
             .lock()
             .unwrap()
             .get_range(&ticker_info.ticker)
             .unwrap_or_else(|| {
-                log::warn!("No registered range for {} - using last 1 day", ticker_info.ticker);
-                DateRange::last_n_days(1)
+                log::warn!("No registered range for {} - using preset ({} days)", ticker_info.ticker, preset_days);
+                DateRange::last_n_days(preset_days)
             });
 
         log::info!("DASHBOARD: Using date range {} to {} for {}", date_range.start, date_range.end, ticker_info.ticker);
@@ -883,13 +895,14 @@ impl Dashboard {
         log::info!("Switching {} pane(s) to ticker {:?}", panes_to_update.len(), ticker_info.ticker);
 
         // Get registered date range BEFORE looping
+        let preset_days = self.date_range_preset.to_days();
         let date_range = self.downloaded_tickers
             .lock()
             .unwrap()
             .get_range(&ticker_info.ticker)
             .unwrap_or_else(|| {
-                log::warn!("No registered range for {} in switch_tickers_in_group - using last 1 day", ticker_info.ticker);
-                DateRange::last_n_days(1)
+                log::warn!("No registered range for {} in switch_tickers_in_group - using preset ({} days)", ticker_info.ticker, preset_days);
+                DateRange::last_n_days(preset_days)
             });
 
         log::info!("Using date range {} to {} for ticker switch", date_range.start, date_range.end);

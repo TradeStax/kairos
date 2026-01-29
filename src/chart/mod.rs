@@ -36,6 +36,8 @@ use iced::{
 
 /// Zoom sensitivity for scroll wheel operations
 const ZOOM_SENSITIVITY: f32 = 30.0;
+/// Exponential zoom base (ratio per unit)
+const ZOOM_BASE: f32 = 2.0;
 /// Text size for labels
 pub const TEXT_SIZE: f32 = 12.0;
 
@@ -154,7 +156,7 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
                 ZOOM_SENSITIVITY * 3.0
             };
 
-            let new_width = (state.cell_width * (1.0 + delta / zoom_factor))
+            let new_width = (state.cell_width * ZOOM_BASE.powf(delta / zoom_factor))
                 .clamp(min_cell_width, max_cell_width);
 
             if is_fit_to_visible_zoom {
@@ -235,7 +237,7 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
                     ZOOM_SENSITIVITY * 3.0
                 };
 
-                let new_height = (state.cell_height * (1.0 + delta / zoom_factor))
+                let new_height = (state.cell_height * ZOOM_BASE.powf(delta / zoom_factor))
                     .clamp(min_cell_height, max_cell_height);
 
                 let cursor_chart_y = cursor_to_center_y / old_scaling - old_translation_y;

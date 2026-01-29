@@ -397,9 +397,9 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                             *last_position = cursor_position;
 
                             let delta = if self.autoscaling == Some(Autoscale::FitAll) {
-                                difference_x * 0.05
+                                difference_x * 0.02
                             } else {
-                                difference_x * 0.2
+                                difference_x * 0.08
                             };
 
                             let message = Message::XScaling(delta, 0.0, false);
@@ -595,7 +595,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                         if difference_y.abs() > 1.0 {
                             *last_position = cursor_position;
 
-                            let message = Message::YScaling(difference_y * 0.4, 0.0, false);
+                            let message = Message::YScaling(difference_y * 0.15, 0.0, false);
 
                             return Some(canvas::Action::publish(message).and_capture());
                         }

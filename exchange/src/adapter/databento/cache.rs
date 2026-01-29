@@ -51,7 +51,8 @@ impl CacheManager {
     /// Check if data is cached for a specific date
     pub async fn has_cached(&self, symbol: &str, schema: Schema, date: chrono::NaiveDate) -> bool {
         let path = self.get_cache_path(symbol, schema, date);
-        path.exists()
+        // Use async file system check instead of synchronous path.exists()
+        tokio::fs::try_exists(&path).await.unwrap_or(false)
     }
 
     /// Get cached file path if it exists

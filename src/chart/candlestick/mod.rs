@@ -108,8 +108,8 @@ impl Chart for KlineChart {
         match &self.basis {
             ChartBasis::Time(_) => None,
             ChartBasis::Tick(_) => {
-                // Return indices for tick-based charts
-                Some((0..self.chart_data.candles.len() as u64).collect())
+                // Return actual timestamps for tick-based charts (not indices)
+                Some(self.chart_data.candles.iter().map(|c| c.time.0).collect())
             }
         }
     }

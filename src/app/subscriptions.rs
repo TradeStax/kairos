@@ -2,6 +2,7 @@ use iced::{keyboard, Subscription};
 use futures::stream::StreamExt;
 
 use super::Message;
+use crate::screen::dashboard::tickers_table::TickersTable;
 use crate::window;
 
 /// Download progress monitoring subscription
@@ -30,18 +31,18 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
         }, ()))
     })
     .filter(|msg| {
-        // Filter out dummy messages (nil UUID = no active downloads)
+        // Filter out dummy messages (total=0 indicates no active downloads)
         futures::future::ready(match msg {
-            Message::DataDownloadProgress { pane_id, .. } => *pane_id != uuid::Uuid::nil(),
+            Message::DataDownloadProgress { total, .. } => *total > 0,
             _ => false,
         })
     })
 }
 
 /// Build the main application subscription
-pub fn build_subscription(sidebar: &crate::screen::dashboard::Sidebar) -> Subscription<Message> {
+pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message> {
     let window_events = window::events().map(Message::WindowEvent);
-    let sidebar_sub = sidebar.subscription().map(Message::Sidebar);
+    let tickers_sub = tickers_table.subscription().map(Message::TickersTable);
 
     let tick = iced::time::every(std::time::Duration::from_millis(100)).map(Message::Tick);
 
@@ -63,7 +64,7 @@ pub fn build_subscription(sidebar: &crate::screen::dashboard::Sidebar) -> Subscr
     });
 
     Subscription::batch(vec![
-        sidebar_sub,
+        tickers_sub,
         window_events,
         tick,
         status_poll,

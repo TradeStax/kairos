@@ -144,15 +144,10 @@ fn calendar_day_style(
                 _ => base_text_color, // Cache status color always
             },
 
-            // Subtle circular background for cached dates
+            // Gray background for cached dates (to show they're already downloaded)
             background: if is_cached {
                 Some(
-                    Color::from_rgba(
-                        palette.success.base.color.r,
-                        palette.success.base.color.g,
-                        palette.success.base.color.b,
-                        0.12, // Very subtle - 12% opacity
-                    )
+                    Color::from_rgba(0.5, 0.5, 0.5, 0.2) // Gray with 20% opacity
                     .into(),
                 )
             } else {
@@ -183,16 +178,16 @@ fn calendar_day_style(
 
 impl DataManagementPanel {
     pub fn new() -> Self {
-        let today = chrono::Utc::now().date_naive();
-        let start = today - chrono::Duration::days(6); // Last 7 days default
+        let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
+        let start = yesterday - chrono::Duration::days(6); // Last 7 days default
 
         Self {
             selected_ticker_idx: 0, // ES.c.0 default
             selected_schema_idx: 0, // Trades default
             calendar: DateRangeCalendar {
-                viewing_month: chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap(),
+                viewing_month: chrono::NaiveDate::from_ymd_opt(yesterday.year(), yesterday.month(), 1).unwrap(),
                 start_date: start,
-                end_date: today,
+                end_date: yesterday,
                 selection_mode: SelectionMode::SelectingStart,
             },
             cache_status: None,
@@ -219,25 +214,27 @@ impl DataManagementPanel {
                 self.selected_ticker_idx = idx;
                 self.cache_status = None;
                 self.actual_cost_usd = None;
-                return self.trigger_estimation();
+                // Check cache for entire viewing month
+                return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::SchemaSelected(idx) => {
                 self.selected_schema_idx = idx;
                 self.cache_status = None;
                 self.actual_cost_usd = None;
-                return self.trigger_estimation();
+                // Check cache for entire viewing month
+                return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::PrevMonth => {
                 let prev = self.calendar.viewing_month - chrono::Months::new(1);
                 self.calendar.viewing_month = chrono::NaiveDate::from_ymd_opt(prev.year(), prev.month(), 1).unwrap();
-                // Auto-estimate to get cache status for new month
-                return self.trigger_estimation();
+                // Check cache for entire NEW viewing month
+                return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::NextMonth => {
                 let next = self.calendar.viewing_month + chrono::Months::new(1);
                 self.calendar.viewing_month = chrono::NaiveDate::from_ymd_opt(next.year(), next.month(), 1).unwrap();
-                // Auto-estimate to get cache status for new month
-                return self.trigger_estimation();
+                // Check cache for entire NEW viewing month
+                return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::DayClicked(date) => {
                 match self.calendar.selection_mode {
@@ -258,11 +255,11 @@ impl DataManagementPanel {
                             self.calendar.end_date = self.calendar.start_date;
                             self.calendar.start_date = date;
                         }
-                        // Selection complete - return to start mode and trigger estimation
+                        // Selection complete - return to start mode and trigger estimation for selected range
                         self.calendar.selection_mode = SelectionMode::SelectingStart;
                         self.cache_status = None;
                         self.actual_cost_usd = None;
-                        return self.trigger_estimation();
+                        return self.trigger_estimation(None); // Check selected range for download cost
                     }
                 }
                 return None; // Return None for SelectingStart (don't trigger estimation until selection complete)
@@ -294,25 +291,26 @@ impl DataManagementPanel {
         None
     }
 
-    fn trigger_estimation(&mut self) -> Option<Action> {
+    /// Trigger cache estimation for a specific date range
+    /// If no range provided, uses the currently selected range
+    fn trigger_estimation(&mut self, date_range: Option<DateRange>) -> Option<Action> {
         self.download_progress = DownloadProgress::CheckingCost;
         let ticker = FuturesTicker::new(FUTURES_PRODUCTS[self.selected_ticker_idx].0, FuturesVenue::CMEGlobex);
         let schema = SCHEMAS[self.selected_schema_idx].0;
-        let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
-        Some(Action::EstimateRequested { ticker, schema, date_range })
+        let range = date_range.unwrap_or_else(|| DateRange::new(self.calendar.start_date, self.calendar.end_date));
+        Some(Action::EstimateRequested { ticker, schema, date_range: range })
+    }
+
+    /// Trigger cache check for the entire viewing month (not just selected range)
+    /// This is used when navigating months or opening the modal to show accurate cache status
+    fn trigger_viewing_month_cache_check(&mut self) -> Option<Action> {
+        let viewing_range = self.viewing_month_range();
+        self.trigger_estimation(Some(viewing_range))
     }
 
     pub fn set_cache_status(&mut self, status: CacheStatus, cached_dates: Vec<chrono::NaiveDate>) {
-        // Validate the status matches our current date range
-        let current_total = (self.calendar.end_date - self.calendar.start_date).num_days().max(0) + 1;
-        if status.total_days != current_total as usize {
-            log::warn!(
-                "Stale cache status received (expected {} days, got {})",
-                current_total,
-                status.total_days
-            );
-            return; // Ignore stale responses
-        }
+        // Store cache status and cached dates (no validation needed - may be for viewing month OR selected range)
+        // The viewing month check will have all dates, selected range check will have subset
         self.cache_status = Some(status);
         self.cached_dates = Some(cached_dates.into_iter().collect());
     }
@@ -345,12 +343,29 @@ impl DataManagementPanel {
         DateRange::new(start, end)
     }
 
+    /// Get the viewing month date range (first to last day of currently displayed month)
+    /// This is used for cache checking to show accurate status for all visible dates
+    fn viewing_month_range(&self) -> DateRange {
+        let month = self.calendar.viewing_month;
+        let first_day = chrono::NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
+
+        // Last day of month: go to next month and subtract 1 day
+        let next_month = if month.month() == 12 {
+            chrono::NaiveDate::from_ymd_opt(month.year() + 1, 1, 1).unwrap()
+        } else {
+            chrono::NaiveDate::from_ymd_opt(month.year(), month.month() + 1, 1).unwrap()
+        };
+        let last_day = next_month - chrono::Duration::days(1);
+
+        DateRange::new(first_day, last_day)
+    }
+
     /// Request initial cache status estimation (called when modal opens)
+    /// Always triggers estimation to refresh cached dates for the entire viewing month
     pub fn request_initial_estimation(&mut self) -> Option<Action> {
-        if self.cache_status.is_none()
-            && !matches!(self.download_progress, DownloadProgress::CheckingCost)
-        {
-            self.trigger_estimation()
+        // Always trigger viewing month check when modal opens to show accurate cache status
+        if !matches!(self.download_progress, DownloadProgress::CheckingCost | DownloadProgress::Downloading { .. }) {
+            self.trigger_viewing_month_cache_check()
         } else {
             None
         }
@@ -425,7 +440,15 @@ impl DataManagementPanel {
         .spacing(6);
 
         // Cache status summary - CLEARLY shows what's already downloaded (NO COST)
-        let cache_summary = if let Some(ref status) = self.cache_status {
+        let cache_summary = if matches!(self.download_progress, DownloadProgress::CheckingCost) {
+            // Show "Checking cost..." when estimating
+            column![
+                text("Checking cost...").size(11)
+                    .style(|theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(theme.extended_palette().primary.base.color),
+                    }),
+            ]
+        } else if let Some(ref status) = self.cache_status {
             let total_days = status.total_days;
             let cached_days = status.cached_days;
             let uncached_days = status.uncached_days;
@@ -742,8 +765,10 @@ impl DataManagementPanel {
             for day in 0..5 {
                 let date = calendar_start + chrono::Duration::days(week * 7 + day);
 
-                // Don't show future dates - render NOTHING (not even empty button)
-                if date > today {
+                // Don't show future dates or today - render NOTHING (not even empty button)
+                // (realtime data is not supported, so only allow up to yesterday)
+                let yesterday = today - chrono::Duration::days(1);
+                if date > yesterday {
                     week_row = week_row.push(space::horizontal().width(Length::FillPortion(1)));
                     continue;
                 }
@@ -778,7 +803,11 @@ impl DataManagementPanel {
                     .width(Length::FillPortion(1))
                     .height(Length::Fixed(26.0))
                     .style(calendar_day_style(base_text_color, is_selected, is_cached))
-                    .on_press(DataManagementMessage::DayClicked(date));
+                    .on_press_maybe(if is_cached {
+                        None // Cached dates are not clickable
+                    } else {
+                        Some(DataManagementMessage::DayClicked(date))
+                    });
 
                 week_row = week_row.push(day_button);
             }

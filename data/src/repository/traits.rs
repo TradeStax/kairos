@@ -3,6 +3,7 @@
 //! Defines the interface for data repositories.
 //! Implementations can be cached, remote, in-memory, etc.
 
+use crate::domain::chart::LoadingStatus;
 use crate::domain::{DateRange, DepthSnapshot, Trade};
 use crate::domain::{FuturesTicker, OptionChain, OptionContract, OptionSnapshot};
 use chrono::NaiveDate;
@@ -63,6 +64,25 @@ pub trait TradeRepository: Send + Sync {
         date_range: &DateRange,
     ) -> RepositoryResult<Vec<Trade>>;
 
+    /// Get trades with progress reporting
+    ///
+    /// Like `get_trades`, but calls `progress_callback` to report download progress.
+    /// This enables UI to show real-time updates during long downloads.
+    ///
+    /// The callback receives `LoadingStatus` updates for:
+    /// - `Downloading { days_complete, days_total, current_day, ... }` - during API fetch
+    /// - `LoadingFromCache { days_loaded, days_total, ... }` - during cache load
+    async fn get_trades_with_progress(
+        &self,
+        ticker: &FuturesTicker,
+        date_range: &DateRange,
+        progress_callback: Box<dyn Fn(LoadingStatus) + Send + Sync>,
+    ) -> RepositoryResult<Vec<Trade>> {
+        // Default implementation: ignore callback, call regular get_trades
+        let _ = progress_callback;
+        self.get_trades(ticker, date_range).await
+    }
+
     /// Check if trades are available for a specific date
     async fn has_trades(&self, ticker: &FuturesTicker, date: NaiveDate) -> RepositoryResult<bool>;
 
@@ -97,9 +117,9 @@ pub trait TradeRepository: Send + Sync {
     /// The data layer can call this via dynamic dispatch without knowing Schema details.
     async fn check_cache_coverage_databento(
         &self,
-        ticker: &FuturesTicker,
-        schema_discriminant: u16, // Databento Schema as u16
-        date_range: &DateRange,
+        _ticker: &FuturesTicker,
+        _schema_discriminant: u16, // Databento Schema as u16
+        _date_range: &DateRange,
     ) -> RepositoryResult<CacheCoverageReport> {
         // Default implementation returns error
         Err(RepositoryError::InvalidData(
@@ -112,9 +132,9 @@ pub trait TradeRepository: Send + Sync {
     /// Note: This method accepts Databento Schema type for exchange-specific operations.
     async fn prefetch_to_cache_databento(
         &self,
-        ticker: &FuturesTicker,
-        schema_discriminant: u16, // Databento Schema as u16
-        date_range: &DateRange,
+        _ticker: &FuturesTicker,
+        _schema_discriminant: u16, // Databento Schema as u16
+        _date_range: &DateRange,
     ) -> RepositoryResult<usize> {
         // Default implementation returns error
         Err(RepositoryError::InvalidData(
@@ -144,10 +164,15 @@ pub trait TradeRepository: Send + Sync {
     /// Must be overridden by Databento repository implementations.
     async fn get_actual_cost_databento(
         &self,
-        ticker: &FuturesTicker,
-        schema_discriminant: u16,
-        date_range: &DateRange,
-    ) -> RepositoryResult<f64>;
+        _ticker: &FuturesTicker,
+        _schema_discriminant: u16,
+        _date_range: &DateRange,
+    ) -> RepositoryResult<f64> {
+        // Default implementation returns error - must be overridden
+        Err(RepositoryError::InvalidData(
+            "Cost estimation not supported by this repository".to_string(),
+        ))
+    }
 
     /// List symbols with cached data (Databento-specific)
     ///

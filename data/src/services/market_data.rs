@@ -88,14 +88,26 @@ impl MarketDataService {
         config: &ChartConfig,
         ticker_info: &FuturesTickerInfo,
     ) -> ServiceResult<ChartData> {
-        log::error!("🔴 ENTERED get_chart_data() - ticker: {}, chart_type: {:?}, basis: {:?}",
-            config.ticker.as_str(), config.chart_type, config.basis);
-
         log::info!(
             "MarketDataService::get_chart_data: {} {:?}",
             config.ticker.as_str(),
             config.basis
         );
+
+        // For heatmaps, automatically limit to most recent day to prevent memory issues
+        let effective_date_range = if config.chart_type == crate::domain::ChartType::Heatmap {
+            if config.date_range.num_days() > 1 {
+                log::info!(
+                    "Heatmap: automatically limiting to most recent day (end date: {})",
+                    config.date_range.end
+                );
+                DateRange::new(config.date_range.end, config.date_range.end)
+            } else {
+                config.date_range
+            }
+        } else {
+            config.date_range
+        };
 
         // Create unique key for this chart configuration
         let chart_key = format!(
@@ -103,26 +115,40 @@ impl MarketDataService {
             config.ticker, config.basis, config.date_range
         );
 
-        log::error!("🔴 About to acquire loading_status lock...");
+        log::debug!("About to acquire loading_status lock...");
 
         // Update loading status: start downloading
         {
             let mut status_map = self.loading_status.lock().unwrap();
-            log::error!("🔴 Loading status lock acquired successfully");
-            let date_range_days = config.date_range.num_days() as usize;
+            log::debug!("Loading status lock acquired successfully");
+            let date_range_days = effective_date_range.num_days() as usize;
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Downloading {
                     schema: DataSchema::Trades,
                     days_total: date_range_days,
                     days_complete: 0,
-                    current_day: config.date_range.start.to_string(),
+                    current_day: effective_date_range.start.to_string(),
                 },
             );
         }
 
-        // Step 1: Fetch trades from repository
-        let trades = match self.fetch_trades(&config.ticker, &config.date_range).await {
+        // Step 1: Fetch trades from repository WITH PROGRESS CALLBACK
+        // Create a progress callback that updates loading_status
+        let status_map_clone = Arc::clone(&self.loading_status);
+        let chart_key_clone = chart_key.clone();
+        let progress_callback: Box<dyn Fn(LoadingStatus) + Send + Sync> =
+            Box::new(move |status: LoadingStatus| {
+                if let Ok(mut map) = status_map_clone.lock() {
+                    map.insert(chart_key_clone.clone(), status);
+                }
+            });
+
+        let trades = match self
+            .trade_repo
+            .get_trades_with_progress(&config.ticker, &effective_date_range, progress_callback)
+            .await
+        {
             Ok(trades) => trades,
             Err(e) => {
                 // Update status to error
@@ -133,7 +159,7 @@ impl MarketDataService {
                         message: format!("Failed to fetch trades: {:?}", e),
                     },
                 );
-                return Err(e);
+                return Err(ServiceError::Repository(e));
             }
         };
 
@@ -141,20 +167,20 @@ impl MarketDataService {
             return Err(ServiceError::NoData(format!(
                 "No trades found for {} in range {:?}",
                 config.ticker.as_str(),
-                config.date_range
+                effective_date_range
             )));
         }
 
         log::info!("Loaded {} trades from repository", trades.len());
 
-        // Update status: now building chart
+        // Update status: now building chart (aggregating trades)
         {
             let mut status_map = self.loading_status.lock().unwrap();
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Building {
-                    operation: "Aggregating trades".to_string(),
-                    progress: 0.5,
+                    operation: format!("Aggregating {} trades", trades.len()),
+                    progress: 0.3,
                 },
             );
         }
@@ -181,34 +207,61 @@ impl MarketDataService {
             config.basis
         );
 
+        // Update status: building candles complete
+        {
+            let mut status_map = self.loading_status.lock().unwrap();
+            status_map.insert(
+                chart_key.clone(),
+                LoadingStatus::Building {
+                    operation: format!("Built {} candles", candles.len()),
+                    progress: 0.6,
+                },
+            );
+        }
+
         // Step 3: Load depth data for heatmap charts
         let mut chart_data = ChartData::from_trades(trades, candles);
 
         if config.chart_type == crate::domain::ChartType::Heatmap {
-            log::info!("🔶 Heatmap chart detected - loading MBP-10 depth data for {} ({} to {})",
-                config.ticker, config.date_range.start, config.date_range.end);
+            log::info!("Heatmap chart detected - loading MBP-10 depth data for {} ({} to {})",
+                config.ticker, effective_date_range.start, effective_date_range.end);
 
             // Update status: loading depth data
             {
                 let mut status_map = self.loading_status.lock().unwrap();
                 status_map.insert(
                     chart_key.clone(),
-                    LoadingStatus::Building {
-                        operation: "Loading depth data".to_string(),
-                        progress: 0.75,
+                    LoadingStatus::Downloading {
+                        schema: DataSchema::MBP10,
+                        days_total: effective_date_range.num_days() as usize,
+                        days_complete: 0,
+                        current_day: effective_date_range.start.to_string(),
                     },
                 );
             }
 
             let depth_start = std::time::Instant::now();
-            match self.depth_repo.get_depth(&config.ticker, &config.date_range).await {
+            match self.depth_repo.get_depth(&config.ticker, &effective_date_range).await {
                 Ok(depth_snapshots) => {
-                    log::info!("🔶 Loaded {} depth snapshots for heatmap in {:.2}s",
+                    log::info!("Loaded {} depth snapshots for heatmap in {:.2}s",
                         depth_snapshots.len(), depth_start.elapsed().as_secs_f32());
+
+                    // Update status: processing depth data
+                    {
+                        let mut status_map = self.loading_status.lock().unwrap();
+                        status_map.insert(
+                            chart_key.clone(),
+                            LoadingStatus::Building {
+                                operation: format!("Processing {} depth snapshots", depth_snapshots.len()),
+                                progress: 0.9,
+                            },
+                        );
+                    }
+
                     chart_data = chart_data.with_depth(depth_snapshots);
                 }
                 Err(e) => {
-                    log::warn!("🔶 Failed to load depth data for heatmap: {:?}. Chart will show trades only.", e);
+                    log::warn!("Failed to load depth data for heatmap: {:?}. Chart will show trades only.", e);
                     // Don't fail the entire load - heatmap can still show trades
                 }
             }
@@ -267,18 +320,6 @@ impl MarketDataService {
 
         // Create new chart data (trades copied, candles new)
         Ok(ChartData::from_trades(trades.to_vec(), candles))
-    }
-
-    /// Fetch trades from repository
-    async fn fetch_trades(
-        &self,
-        ticker: &FuturesTicker,
-        date_range: &DateRange,
-    ) -> ServiceResult<Vec<Trade>> {
-        self.trade_repo
-            .get_trades(ticker, date_range)
-            .await
-            .map_err(ServiceError::from)
     }
 
     /// Aggregate trades to target basis
@@ -363,63 +404,41 @@ impl MarketDataService {
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> ServiceResult<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>)> {
-        log::error!("🔴 ESTIMATE_DATA_REQUEST CALLED - ENTRY POINT");
-        log::error!("🔴 Ticker: {:?}, Schema: {}, Range: {:?}", ticker, schema_discriminant, date_range);
+        log::info!("Estimating cost for {} ({}) from {} to {}",
+            ticker, schema_discriminant, date_range.start, date_range.end);
 
         // Get cache coverage
-        log::error!("🔴 About to check cache coverage...");
         let coverage = self
             .trade_repo
             .check_cache_coverage_databento(ticker, schema_discriminant, date_range)
             .await?;
-        log::error!("🔴 Cache coverage complete: {} cached, {} uncached", coverage.cached_count, coverage.uncached_count);
+
+        log::debug!("Cache coverage: {} cached, {} uncached out of {} total days",
+            coverage.cached_count, coverage.uncached_count, date_range.num_days());
 
         let total_days = date_range.num_days() as usize;
         let cached_days = coverage.cached_count;
         let uncached_days = coverage.uncached_count;
 
         // Get cost from Databento API for FULL range
-        log::error!("🔴 ===== STARTING COST API CALL =====");
-        log::error!("🔴 Ticker: {:?}, Schema: {}, Date Range: {:?}", ticker, schema_discriminant, date_range);
-        log::error!("🔴 About to call get_actual_cost_databento for {} days", total_days);
-
-        let cost_result = self
+        let full_range_cost = self
             .trade_repo
             .get_actual_cost_databento(ticker, schema_discriminant, date_range)
-            .await;
+            .await?; // Propagate error instead of defaulting to $0
 
-        log::error!("🔴 Cost API call RETURNED (not awaiting anymore)");
-
-        let full_range_cost = match cost_result {
-            Ok(cost) => {
-                log::error!("🔴 ✓ Databento API SUCCESS: ${:.4} USD for {} days", cost, total_days);
-                cost
-            }
-            Err(e) => {
-                log::error!("🔴 ✗ Databento API FAILED: {} - defaulting to $0.00", e);
-                0.0
-            }
-        };
-
-        log::error!("🔴 Full range cost = ${:.4}", full_range_cost);
+        log::info!("Databento cost API: ${:.4} USD for full range ({} days)", full_range_cost, total_days);
 
         // Calculate ACTUAL download cost (only for uncached days)
         let actual_cost_usd = if total_days > 0 && uncached_days > 0 {
             // Cost per day = total cost / total days
             let cost_per_day = full_range_cost / total_days as f64;
             // Actual cost = cost per day × uncached days
-            cost_per_day * uncached_days as f64
+            let cost = cost_per_day * uncached_days as f64;
+            log::info!("Actual cost for {} uncached days: ${:.4} (${:.4}/day)", uncached_days, cost, cost_per_day);
+            cost
         } else {
             0.0 // All cached or no days
         };
-
-        log::debug!(
-            "Cost calculation: Full range ${:.4}, Per day ${:.4}, Uncached {} days = ${:.4}",
-            full_range_cost,
-            if total_days > 0 { full_range_cost / total_days as f64 } else { 0.0 },
-            uncached_days,
-            actual_cost_usd
-        );
 
         // Format gaps description
         let gaps_desc = if coverage.gaps.is_empty() {

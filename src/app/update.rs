@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use data::LoadingStatus;
 use crate::screen::dashboard;
+use crate::screen::dashboard::tickers_table;
 use crate::widget::toast::{Toast, Notification};
 use crate::window;
 
@@ -332,7 +333,7 @@ impl Flowsurface {
 
                         let ticker_symbols: std::collections::HashSet<String> =
                             self.downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
-                        self.sidebar.tickers_table.set_cached_filter(ticker_symbols);
+                        self.tickers_table.set_cached_filter(ticker_symbols);
                         log::info!("Updated ticker list with {} tickers", self.downloaded_tickers.lock().unwrap().count());
 
                         if pane_id == uuid::Uuid::nil() {
@@ -428,8 +429,6 @@ impl Flowsurface {
                         return Task::none();
                     } else if dashboard.focus.is_some() {
                         dashboard.focus = None;
-                    } else {
-                        self.sidebar.hide_tickers_table();
                     }
                 }
             }
@@ -630,6 +629,11 @@ impl Flowsurface {
                 }
             }
             Message::Sidebar(message) => {
+                // Handle date range preset change - update all dashboards
+                if let dashboard::sidebar::Message::SetDateRangePreset(preset) = &message {
+                    self.layout_manager.set_date_range_preset(*preset);
+                }
+
                 // Check if we're opening the ApiKeys menu - need to initialize the modal
                 if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::ApiKeys)) = &message {
                     if self.api_key_config_modal.is_none() {
@@ -652,25 +656,7 @@ impl Flowsurface {
                                 date_range,
                             } => {
                                 // Process the sidebar message first, then trigger estimation
-                                let (task, sidebar_action) = self.sidebar.update(message);
-
-                                // Handle any sidebar action
-                                if let Some(dashboard::sidebar::Action::TickerSelected(ticker_info, content)) = sidebar_action {
-                                    let main_window_id = self.main_window.id;
-                                    let futures_info = ticker_info.to_domain();
-                                    let kind = content.unwrap_or(data::ContentKind::CandlestickChart);
-
-                                    let task = self.active_dashboard_mut().init_focused_pane(
-                                        main_window_id,
-                                        futures_info,
-                                        kind,
-                                    );
-
-                                    return task.map(move |msg| Message::Dashboard {
-                                        layout_id: None,
-                                        event: msg,
-                                    });
-                                }
+                                let task = self.sidebar.update(message);
 
                                 return task.map(Message::Sidebar).chain(Task::done(
                                     Message::EstimateDataCost {
@@ -688,34 +674,25 @@ impl Flowsurface {
                     }
                 }
 
-                let (task, action) = self.sidebar.update(message);
+                return self.sidebar.update(message).map(Message::Sidebar);
+            }
+            Message::TickersTable(msg) => {
+                let action = self.tickers_table.update(msg);
 
                 match action {
-                    Some(dashboard::sidebar::Action::TickerSelected(ticker_info, content)) => {
-                        let main_window_id = self.main_window.id;
-                        let futures_info = ticker_info.to_domain();
-                        let kind = content.unwrap_or(data::ContentKind::CandlestickChart);
-
-                        log::info!("MAIN: TickerSelected {:?} with ContentKind::{:?}", ticker_info.ticker, kind);
-
-                        let task = self.active_dashboard_mut().init_focused_pane(
-                            main_window_id,
-                            futures_info,
-                            kind,
-                        );
-
-                        return task.map(move |msg| Message::Dashboard {
-                            layout_id: None,
-                            event: msg,
-                        });
+                    Some(tickers_table::Action::Fetch(task)) => {
+                        return task.map(Message::TickersTable);
                     }
-                    Some(dashboard::sidebar::Action::ErrorOccurred(err)) => {
+                    Some(tickers_table::Action::ErrorOccurred(err)) => {
                         self.notifications.push(Toast::error(err.to_string()));
                     }
+                    Some(tickers_table::Action::FocusWidget(id)) => {
+                        return iced::widget::operation::focus(id);
+                    }
+                    // TickerSelected is handled by pane modals directly, not here
+                    Some(tickers_table::Action::TickerSelected(_, _)) => {}
                     None => {}
                 }
-
-                return task.map(Message::Sidebar);
             }
         }
         Task::none()

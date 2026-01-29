@@ -261,9 +261,9 @@ impl DateRange {
         Self { start, end }
     }
 
-    /// Create a date range for the last N days (ending today)
+    /// Create a date range for the last N days (ending yesterday, since realtime data is not supported)
     pub fn last_n_days(n: i64) -> Self {
-        let end = chrono::Utc::now().date_naive();
+        let end = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
         let start = end - chrono::Duration::days(n - 1);
         Self { start, end }
     }
@@ -279,13 +279,22 @@ impl DateRange {
         (self.end - self.start).num_days() + 1
     }
 
+    /// Calculate duration in hours (from start of first day to end of last day)
+    ///
+    /// This is used for heatmap validation to prevent memory issues with
+    /// excessively large date ranges.
+    pub fn duration_hours(&self) -> i64 {
+        // Each day spans 24 hours, so N days = N * 24 hours
+        self.num_days() * 24
+    }
+
     pub fn contains(&self, date: NaiveDate) -> bool {
         date >= self.start && date <= self.end
     }
 }
 
 impl Default for DateRange {
-    /// Default date range: last 30 days ending today
+    /// Default date range: last 30 days ending yesterday
     fn default() -> Self {
         Self::last_n_days(30)
     }

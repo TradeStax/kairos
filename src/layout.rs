@@ -51,12 +51,13 @@ impl SavedState {
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
+        let sidebar = data::Sidebar::default();
         SavedState {
-            layout_manager: LayoutManager::new(market_data_service, downloaded_tickers.clone()),
+            layout_manager: LayoutManager::new(market_data_service, downloaded_tickers.clone(), sidebar.date_range_preset),
             main_window: None,
             scale_factor: data::ScaleFactor::default(),
             timezone: UserTimezone::default(),
-            sidebar: data::Sidebar::default(),
+            sidebar,
             theme: data::Theme::default(),
             custom_theme: None,
             audio_cfg: data::AudioStream::default(),
@@ -174,7 +175,7 @@ pub fn load_saved_state_without_registry(
             SavedState {
                 theme: state.selected_theme,
                 custom_theme: state.custom_theme,
-                layout_manager: LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone()),
+                layout_manager: LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone(), state.sidebar.date_range_preset),
                 main_window: state.main_window,
                 timezone: state.timezone,
                 sidebar: state.sidebar,

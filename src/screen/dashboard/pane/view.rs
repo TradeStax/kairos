@@ -105,7 +105,30 @@ impl State {
 
         let uninitialized_base = |kind: ContentKind| -> Element<'a, Message> {
             if self.loading_status.is_loading() {
-                center(text("Loading…").size(16)).into()
+                // Show detailed status instead of generic "Loading..."
+                let status_text = match &self.loading_status {
+                    data::LoadingStatus::Downloading {
+                        schema,
+                        days_complete,
+                        days_total,
+                        ..
+                    } => {
+                        format!("Downloading {} ({}/{})", schema, days_complete, days_total)
+                    }
+                    data::LoadingStatus::LoadingFromCache {
+                        schema,
+                        days_loaded,
+                        days_total,
+                        ..
+                    } => {
+                        format!("Loading {} ({}/{})", schema, days_loaded, days_total)
+                    }
+                    data::LoadingStatus::Building { operation, progress } => {
+                        format!("{} ({:.0}%)", operation, progress * 100.0)
+                    }
+                    _ => "Loading…".to_string(),
+                };
+                center(text(status_text).size(16)).into()
             } else {
                 let content = column![
                     text(kind.to_string()).size(16),

@@ -8,6 +8,7 @@ use crate::types::TradeSide;
 use chrono::NaiveDate;
 use databento::dbn::Schema;
 use databento::historical::metadata::GetCostParams;
+use flowsurface_data::domain::chart::{DataSchema, LoadingStatus};
 use flowsurface_data::domain::{DateRange, FuturesTicker, Price, Quantity, Side, Timestamp, Trade};
 use flowsurface_data::repository::{
     RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
@@ -98,6 +99,78 @@ impl TradeRepository for DatabentoTradeRepository {
 
         log::info!(
             "DatabentoTradeRepository: Converted {} trades to domain",
+            domain_trades.len()
+        );
+
+        Ok(domain_trades)
+    }
+
+    async fn get_trades_with_progress(
+        &self,
+        ticker: &FuturesTicker,
+        date_range: &DateRange,
+        progress_callback: Box<dyn Fn(LoadingStatus) + Send + Sync>,
+    ) -> RepositoryResult<Vec<Trade>> {
+        let mut manager = self.manager.lock().await;
+
+        // Convert DateRange to chrono DateTime range
+        let start = date_range
+            .start
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| RepositoryError::InvalidData("Invalid start date".to_string()))?
+            .and_utc();
+        let end = date_range
+            .end
+            .and_hms_opt(23, 59, 59)
+            .ok_or_else(|| RepositoryError::InvalidData("Invalid end date".to_string()))?
+            .and_utc();
+
+        let symbol = ticker.as_str();
+        let total_days = date_range.num_days() as usize;
+
+        log::info!(
+            "DatabentoTradeRepository: Fetching trades WITH PROGRESS for {} from {} to {}",
+            symbol,
+            date_range.start,
+            date_range.end
+        );
+
+        // Initial progress callback
+        progress_callback(LoadingStatus::Downloading {
+            schema: DataSchema::Trades,
+            days_total: total_days,
+            days_complete: 0,
+            current_day: date_range.start.to_string(),
+        });
+
+        // Fetch using manager's cached fetch method WITH progress callback
+        let exchange_trades = manager
+            .fetch_trades_cached_with_progress(symbol, (start, end), |days_complete, days_total, current_day, from_cache| {
+                let status = if from_cache {
+                    LoadingStatus::LoadingFromCache {
+                        schema: DataSchema::Trades,
+                        days_total,
+                        days_loaded: days_complete,
+                        items_loaded: 0, // We don't track individual items during loading
+                    }
+                } else {
+                    LoadingStatus::Downloading {
+                        schema: DataSchema::Trades,
+                        days_total,
+                        days_complete,
+                        current_day: current_day.to_string(),
+                    }
+                };
+                progress_callback(status);
+            })
+            .await
+            .map_err(|e| RepositoryError::Remote(format!("Databento fetch failed: {:?}", e)))?;
+
+        // Convert to domain trades
+        let domain_trades: Vec<Trade> = exchange_trades.iter().map(Self::convert_trade).collect();
+
+        log::info!(
+            "DatabentoTradeRepository: Converted {} trades to domain (with progress)",
             domain_trades.len()
         );
 
@@ -346,13 +419,15 @@ impl TradeRepository for DatabentoTradeRepository {
         log::warn!("REPOSITORY: About to call Databento API with symbol={}, schema={:?}", symbol, schema);
 
         // Convert DateRange to chrono DateTime (UTC start/end of day)
+        // NOTE: Databento API uses exclusive end times, so end = (end_date + 1 day) at 00:00:00
         let start = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
             date_range.start.and_hms_opt(0, 0, 0)
                 .ok_or_else(|| RepositoryError::InvalidData("Invalid start date".to_string()))?,
             chrono::Utc,
         );
         let end = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-            date_range.end.and_hms_opt(23, 59, 59)
+            (date_range.end + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0)
                 .ok_or_else(|| RepositoryError::InvalidData("Invalid end date".to_string()))?,
             chrono::Utc,
         );
@@ -363,11 +438,15 @@ impl TradeRepository for DatabentoTradeRepository {
         let end_time = OffsetDateTime::from_unix_timestamp(end.timestamp())
             .map_err(|e| RepositoryError::InvalidData(format!("Invalid end time: {}", e)))?;
 
+        // Determine symbol type (continuous, parent, or raw)
+        let stype = crate::adapter::databento::mapper::determine_stype(symbol);
+
         // Build cost request parameters
         let cost_params = GetCostParams::builder()
             .dataset(manager.config.dataset)
             .symbols(vec![symbol])
             .schema(schema)
+            .stype_in(stype)
             .date_time_range((start_time, end_time))
             .build();
 

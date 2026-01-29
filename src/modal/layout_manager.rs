@@ -45,12 +45,14 @@ pub struct LayoutManager {
     pub edit_mode: Editing,
     market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    date_range_preset: data::sidebar::DateRangePreset,
 }
 
 impl LayoutManager {
     pub fn new(
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+        date_range_preset: data::sidebar::DateRangePreset,
     ) -> Self {
         let default_layout = LayoutId {
             unique: Uuid::new_v4(),
@@ -60,12 +62,13 @@ impl LayoutManager {
         Self {
             layouts: vec![Layout {
                 id: default_layout.clone(),
-                dashboard: Dashboard::new(market_data_service.clone(), downloaded_tickers.clone()),
+                dashboard: Dashboard::new(market_data_service.clone(), downloaded_tickers.clone(), date_range_preset),
             }],
             active_layout_id: Some(default_layout.unique),
             edit_mode: Editing::None,
             market_data_service,
             downloaded_tickers,
+            date_range_preset,
         }
     }
 
@@ -74,6 +77,7 @@ impl LayoutManager {
         active_layout: Option<LayoutId>,
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+        date_range_preset: data::sidebar::DateRangePreset,
     ) -> Self {
         Self {
             layouts,
@@ -81,6 +85,15 @@ impl LayoutManager {
             edit_mode: Editing::None,
             market_data_service,
             downloaded_tickers,
+            date_range_preset,
+        }
+    }
+
+    /// Update the date range preset for all dashboards
+    pub fn set_date_range_preset(&mut self, preset: data::sidebar::DateRangePreset) {
+        self.date_range_preset = preset;
+        for layout in &mut self.layouts {
+            layout.dashboard.set_date_range_preset(preset);
         }
     }
 
@@ -173,7 +186,7 @@ impl LayoutManager {
                     name: self.generate_unique_layout_name(),
                 };
 
-                self.insert_layout(new_layout.clone(), Dashboard::new(self.market_data_service.clone(), self.downloaded_tickers.clone()));
+                self.insert_layout(new_layout.clone(), Dashboard::new(self.market_data_service.clone(), self.downloaded_tickers.clone(), self.date_range_preset));
 
                 return Some(Action::Select(new_layout.unique));
             }

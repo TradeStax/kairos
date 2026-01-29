@@ -72,8 +72,6 @@ impl Flowsurface {
                 }
             });
 
-        self.sidebar.sync_tickers_table_settings();
-
         let main_window_spec = windows
             .iter()
             .find(|(id, _)| **id == self.main_window.id)
@@ -176,6 +174,7 @@ impl Flowsurface {
                 old_id,
                 self.market_data_service.clone(),
                 self.downloaded_tickers.clone(),
+                self.sidebar.date_range_preset(),
             );
 
             manager.insert_layout(new_layout.clone(), dashboard);

@@ -8,6 +8,7 @@ use crate::widget::multi_split::DRAG_SIZE;
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
 const ZOOM_SENSITIVITY: f32 = 30.0;
+const ZOOM_BASE: f32 = 2.0;
 
 /// Current interaction mode for the chart
 #[derive(Default, Debug, Clone, Copy)]
@@ -185,7 +186,7 @@ pub fn canvas_interaction<T: Chart>(
                         || (*y > 0.0 && state.scaling < max_scaling)
                     {
                         let old_scaling = state.scaling;
-                        let scaling = (state.scaling * (1.0 + y / ZOOM_SENSITIVITY))
+                        let scaling = (state.scaling * ZOOM_BASE.powf(y / ZOOM_SENSITIVITY))
                             .clamp(min_scaling, max_scaling);
 
                         let denominator = old_scaling * scaling;

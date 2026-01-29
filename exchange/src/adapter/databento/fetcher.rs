@@ -580,6 +580,184 @@ impl HistoricalDataManager {
         Ok(filtered)
     }
 
+    /// Fetch trades with SMART per-day caching AND progress callback (RECOMMENDED)
+    ///
+    /// Like `fetch_trades_cached`, but calls `progress_callback` after each day
+    /// to enable UI progress updates during long downloads.
+    ///
+    /// ## Progress Callback
+    /// Called with `(days_complete, days_total, current_day)` after each day:
+    /// - `days_complete`: Number of days processed so far
+    /// - `days_total`: Total days in the requested range
+    /// - `current_day`: The date that was just processed
+    /// - `from_cache`: Whether the day was loaded from cache (true) or downloaded (false)
+    ///
+    /// ## Example
+    /// ```rust
+    /// let trades = manager.fetch_trades_cached_with_progress(
+    ///     "ES.c.0",
+    ///     (start, end),
+    ///     |complete, total, day, from_cache| {
+    ///         println!("Progress: {}/{} - {} (cached: {})", complete, total, day, from_cache);
+    ///     }
+    /// ).await?;
+    /// ```
+    pub async fn fetch_trades_cached_with_progress<F>(
+        &mut self,
+        symbol: &str,
+        range: (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>),
+        progress_callback: F,
+    ) -> Result<Vec<Trade>, DatabentoError>
+    where
+        F: Fn(usize, usize, chrono::NaiveDate, bool),
+    {
+        let (start, end) = range;
+        let start_date = start.date_naive();
+        let end_date = end.date_naive();
+
+        let total_days = (end_date - start_date).num_days() + 1;
+        log::info!(
+            "fetch_trades_cached_with_progress: {} from {} to {} - {} days total",
+            symbol,
+            start_date,
+            end_date,
+            total_days
+        );
+
+        let schema = Schema::Trades;
+
+        // Step 1: Identify which days are already cached
+        let mut cached_days = HashSet::new();
+        let mut current = start_date;
+        while current <= end_date {
+            if self.cache.has_cached(symbol, schema, current).await {
+                cached_days.insert(current);
+                log::debug!("Cache HIT: {} trades on {}", symbol, current);
+            }
+            current += chrono::Duration::days(1);
+        }
+
+        log::info!("Found {}/{} days cached", cached_days.len(), total_days);
+
+        // Step 2: Find gaps (consecutive uncached days)
+        let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
+
+        log::info!("Identified {} gap(s) to fetch from databento", gaps.len());
+        for gap in &gaps {
+            log::info!(
+                "  Gap: {} to {} ({} days)",
+                gap.start,
+                gap.end,
+                (gap.end - gap.start).num_days() + 1
+            );
+        }
+
+        // Step 3: Fetch each gap, save per-day with PROGRESS CALLBACK
+        let num_gaps = gaps.len();
+        let mut days_processed = 0usize;
+        let total_days_usize = total_days as usize;
+
+        for (gap_idx, gap) in gaps.iter().enumerate() {
+            let gap_days = (gap.end - gap.start).num_days() + 1;
+            log::info!(
+                "Fetching gap {}/{}: {} to {} ({} days)",
+                gap_idx + 1,
+                num_gaps,
+                gap.start,
+                gap.end,
+                gap_days
+            );
+
+            // Fetch each day in the gap individually with progress reporting
+            let mut gap_current = gap.start;
+            while gap_current <= gap.end {
+                match self.fetch_to_cache(symbol, Schema::Trades, gap_current).await {
+                    Ok(_) => {
+                        log::info!("  ✓ Downloaded {} trades successfully", gap_current);
+                    }
+                    Err(e) => {
+                        log::error!("  ✗ Failed to download {} trades: {:?}", gap_current, e);
+                    }
+                }
+
+                // Update progress after each download
+                days_processed += 1;
+                progress_callback(days_processed, total_days_usize, gap_current, false);
+
+                gap_current += chrono::Duration::days(1);
+            }
+        }
+
+        // Step 4: Load all days from cache and assemble with PROGRESS CALLBACK
+        let mut all_trades = Vec::new();
+        let mut current = start_date;
+        let mut load_days_count = 0;
+
+        log::info!("Loading {} days from cache...", total_days);
+
+        while current <= end_date {
+            let was_cached = cached_days.contains(&current);
+
+            match self.load_trades_day_from_cache(symbol, current).await {
+                Ok(day_trades) => {
+                    all_trades.extend(day_trades);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Could not load trades for {} on {}: {:?}",
+                        symbol,
+                        current,
+                        e
+                    );
+                }
+            }
+
+            // Report progress for cached days (downloaded days were already reported)
+            if was_cached {
+                days_processed += 1;
+                progress_callback(days_processed, total_days_usize, current, true);
+            }
+
+            load_days_count += 1;
+            if load_days_count % 5 == 0 || load_days_count == total_days as usize {
+                log::info!(
+                    "Progress: {}/{} days loaded, {} trades total",
+                    load_days_count,
+                    total_days,
+                    all_trades.len()
+                );
+            }
+
+            current += chrono::Duration::days(1);
+        }
+
+        if all_trades.is_empty() {
+            return Err(DatabentoError::SymbolNotFound(format!(
+                "No trade data found for {} in range {} to {}",
+                symbol, start_date, end_date
+            )));
+        }
+
+        // Step 5: Filter to exact datetime range
+        let filtered: Vec<_> = all_trades
+            .into_iter()
+            .filter(|t| {
+                let ttime = t.time as i64;
+                let sms = start.timestamp_millis();
+                let ems = end.timestamp_millis();
+                ttime >= sms && ttime <= ems
+            })
+            .collect();
+
+        log::info!(
+            "✓ fetch_trades_cached_with_progress COMPLETE: {} trades for {}",
+            filtered.len(),
+            symbol
+        );
+
+        Ok(filtered)
+    }
+
     /// Fetch a gap range of trades and cache each day with DETAILED PROGRESS
     async fn fetch_and_cache_trades_range(
         &mut self,
