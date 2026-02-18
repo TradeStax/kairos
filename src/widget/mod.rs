@@ -1,4 +1,4 @@
-use iced::{Element, Renderer};
+use iced::Element;
 pub type TooltipPosition = iced::widget::tooltip::Position;
 use crate::{
     screen::ConfirmDialog,
@@ -18,9 +18,6 @@ pub mod column_drag;
 pub mod decorate;
 pub mod multi_split;
 pub mod toast;
-
-#[allow(dead_code)]
-pub const DEFAULT_TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
 pub fn tooltip<'a, Message: 'a>(
     content: impl Into<Element<'a, Message>>,

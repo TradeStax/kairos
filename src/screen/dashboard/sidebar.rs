@@ -209,21 +209,18 @@ impl Sidebar {
     }
 
     fn calculate_dropdown_offset(&self) -> f32 {
-        // Base offset for the drawing tools section (approximately centered)
-        // This is an approximation - in a real app you'd track actual positions
-        let base_offset = 120.0; // Start of drawing tools section
+        const DRAWING_TOOLS_BASE_OFFSET: f32 = 120.0;
+        const TOOL_BUTTON_HEIGHT: f32 = 34.0; // 32px button + 2px spacing
 
-        // Add offset based on which category is open
         if let Some(category) = self.drawing_tools.open_category() {
             let category_index = ToolCategory::ALL
                 .iter()
                 .position(|c| *c == category)
                 .unwrap_or(0);
 
-            // Each button is approximately 32px tall with 2px spacing
-            base_offset + (category_index as f32 * 34.0)
+            DRAWING_TOOLS_BASE_OFFSET + (category_index as f32 * TOOL_BUTTON_HEIGHT)
         } else {
-            base_offset
+            DRAWING_TOOLS_BASE_OFFSET
         }
     }
 

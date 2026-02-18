@@ -63,7 +63,11 @@ impl CacheManager {
         date: chrono::NaiveDate,
     ) -> Option<PathBuf> {
         let path = self.get_cache_path(symbol, schema, date);
-        if path.exists() { Some(path) } else { None }
+        if fs::try_exists(&path).await.unwrap_or(false) {
+            Some(path)
+        } else {
+            None
+        }
     }
 
     /// Store data in cache

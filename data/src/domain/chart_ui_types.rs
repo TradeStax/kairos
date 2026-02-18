@@ -148,6 +148,8 @@ pub enum ClusterScaling {
     Hybrid { weight: f32 },
 }
 
+// SAFETY: Manual Eq is sound here because f32 `weight` in Hybrid variant
+// is always a finite value (0.0..=1.0 percentage). NaN is never constructed.
 impl Eq for ClusterScaling {}
 
 impl ClusterScaling {
@@ -267,8 +269,6 @@ pub struct NPoc {
 /// Chart indicator trait
 pub trait Indicator: Send + Sync {
     fn name(&self) -> &str;
-    fn enabled(&self) -> bool;
-    fn set_enabled(&mut self, enabled: bool);
 }
 
 /// Kline indicator types
@@ -320,15 +320,6 @@ impl Indicator for KlineIndicator {
             KlineIndicator::Macd => "MACD",
             KlineIndicator::BollingerBands => "Bollinger Bands",
         }
-    }
-
-    fn enabled(&self) -> bool {
-        false
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {
-        // This is a Copy type, so mutation doesn't persist
-        // Enabled state should be tracked separately (e.g., in an EnumMap)
     }
 }
 
@@ -395,14 +386,6 @@ impl Indicator for HeatmapIndicator {
             HeatmapIndicator::Trades => "Trades",
         }
     }
-
-    fn enabled(&self) -> bool {
-        false
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {
-        // Copy type - state tracked separately
-    }
 }
 
 impl HeatmapIndicator {
@@ -442,7 +425,8 @@ pub mod heatmap {
         Max(f32),
     }
 
-    // Manual Eq implementation - safe because we only use f32 values that are finite
+    // SAFETY: Manual Eq is sound here because f32 thresholds in Average/First/Max
+    // are always finite values set via UI sliders. NaN is never constructed.
     impl Eq for CoalesceKind {}
 
     impl CoalesceKind {

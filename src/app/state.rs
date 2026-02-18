@@ -1,12 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use iced::Task;
 
 use data::layout::WindowSpec;
-use crate::layout::{self, LayoutId, configuration};
+use crate::layout::{LayoutId, configuration};
 use crate::screen::dashboard::Dashboard;
-use crate::widget::toast::Toast;
 use crate::window;
 
 use super::{Flowsurface, Message};
@@ -32,16 +30,6 @@ impl Flowsurface {
             .get_mut(active_layout.unique)
             .map(|layout| &mut layout.dashboard)
             .expect("No active dashboard")
-    }
-
-    /// Get options service (if available)
-    pub fn options_service(&self) -> Option<&Arc<data::services::OptionsDataService>> {
-        self.options_service.as_ref()
-    }
-
-    /// Get GEX calculation service
-    pub fn gex_service(&self) -> &Arc<data::services::GexCalculationService> {
-        &self.gex_service
     }
 
     pub fn load_layout(&mut self, layout_uid: uuid::Uuid, main_window: window::Id) -> Task<Message> {
@@ -94,7 +82,9 @@ impl Flowsurface {
                 self.layout_manager.get(layout.id.unique).map(|_l| {
                     data::state::app_state::Layout {
                         name: Some(layout.id.name.clone()),
-                        panes: vec![], // Simplified - actual pane structure stored in dashboard
+                        // Intentionally empty: pane layout is managed by the
+                        // dashboard's PaneGrid state and restored separately.
+                        panes: vec![],
                     }
                 })
             })
@@ -114,7 +104,7 @@ impl Flowsurface {
             self.sidebar.state.clone(),
             self.ui_scale_factor,
             audio_cfg_simplified,
-            self.downloaded_tickers.lock().unwrap().clone(),
+            data::lock_or_recover(&self.downloaded_tickers).clone(),
         );
 
         // Save state using the persistence module
@@ -217,7 +207,4 @@ impl Flowsurface {
         .chain(self.load_layout(layout, self.main_window.id))
     }
 
-    pub fn add_notification(&mut self, toast: Toast) {
-        self.notifications.push(toast);
-    }
 }

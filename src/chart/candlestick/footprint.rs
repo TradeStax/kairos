@@ -1,6 +1,6 @@
 use crate::style;
 use data::util::abbr_large_numbers;
-use data::{Candle, ChartBasis, ClusterKind, ClusterScaling, FootprintStudy};
+use data::{Candle, ChartBasis, ClusterKind, ClusterScaling};
 use exchange::util::{Price, PriceStep};
 use iced::theme::palette::Extended;
 use iced::widget::canvas;
@@ -9,6 +9,13 @@ use std::collections::BTreeMap;
 
 use super::candle::draw_footprint_candle;
 use super::{TradeGroup, domain_to_exchange_price};
+
+/// Ratio of candle width used for the thin candle body in footprint mode
+const CANDLE_BODY_WIDTH_RATIO: f32 = 0.25;
+/// Ratio of cell width occupied by cluster bars (leaves inset on each side)
+const BAR_WIDTH_FACTOR: f32 = 0.9;
+/// Alpha for cluster bar backgrounds when text labels are visible
+const BAR_ALPHA_WITH_TEXT: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ContentGaps {
@@ -53,7 +60,7 @@ impl ProfileArea {
         } else {
             content_left
         };
-        let candle_lane_width = candle_width * 0.25;
+        let candle_lane_width = candle_width * CANDLE_BODY_WIDTH_RATIO;
 
         let bars_left = candle_lane_left + candle_lane_width + gaps.candle_to_cluster;
         let bars_width = (content_right - bars_left).max(0.0);
@@ -87,7 +94,7 @@ impl BidAskArea {
         candle_width: f32,
         spacing: ContentGaps,
     ) -> Self {
-        let candle_body_width = candle_width * 0.25;
+        let candle_body_width = candle_width * CANDLE_BODY_WIDTH_RATIO;
 
         let candle_left = x_position - (candle_body_width / 2.0);
         let candle_right = x_position + (candle_body_width / 2.0);
@@ -263,8 +270,7 @@ pub fn draw_clusters(
 ) {
     let text_color = palette.background.weakest.text;
 
-    let bar_width_factor: f32 = 0.9;
-    let inset = (cell_width * (1.0 - bar_width_factor)) / 2.0;
+    let inset = (cell_width * (1.0 - BAR_WIDTH_FACTOR)) / 2.0;
 
     let cell_left = x_position - (cell_width / 2.0);
     let content_left = cell_left + inset;
@@ -279,7 +285,7 @@ pub fn draw_clusters(
                 spacing,
                 imbalance.is_some(),
             );
-            let bar_alpha = if show_text { 0.25 } else { 1.0 };
+            let bar_alpha = if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
 
             for (price, group) in footprint {
                 let y = price_to_y(*price);
@@ -391,7 +397,7 @@ pub fn draw_clusters(
                 spacing,
             );
 
-            let bar_alpha = if show_text { 0.25 } else { 1.0 };
+            let bar_alpha = if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
 
             let imb_marker_reserve = if imbalance.is_some() {
                 ((area.imb_marker_width - 1.0) / 2.0).max(1.0)
@@ -505,7 +511,7 @@ pub fn draw_clusters(
                 spacing,
             );
 
-            let bar_alpha = if show_text { 0.25 } else { 1.0 };
+            let bar_alpha = if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
 
             let imb_marker_reserve = if imbalance.is_some() {
                 ((area.imb_marker_width - 1.0) / 2.0).max(1.0)
@@ -708,8 +714,7 @@ pub fn draw_all_npocs(
     );
 
     let line_height = cell_height.min(2.0);
-    let bar_width_factor: f32 = 0.9;
-    let inset = (cell_width * (1.0 - bar_width_factor)) / 2.0;
+    let inset = (cell_width * (1.0 - BAR_WIDTH_FACTOR)) / 2.0;
 
     let candle_lane_factor: f32 = match cluster_kind {
         ClusterKind::VolumeProfile | ClusterKind::DeltaProfile => 0.25,

@@ -158,7 +158,7 @@ impl SecretsManager {
 
     /// Get the secrets file path for a provider
     fn secrets_file_path(provider: ApiProvider) -> Option<PathBuf> {
-        let data_dir = crate::util::path::get_data_directory()?;
+        let data_dir = crate::data_path(None);
         let secrets_dir = data_dir.join("secrets");
         Some(secrets_dir.join(format!("{}.key", provider.keyring_user())))
     }

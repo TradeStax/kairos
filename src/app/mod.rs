@@ -3,8 +3,7 @@ mod state;
 mod subscriptions;
 mod update;
 
-use crate::layout::{LayoutId, configuration};
-use crate::modal::api_key_config::{ApiKeyConfigModal, TriggeredBy as ApiKeyTriggeredBy};
+use crate::modal::api_key_config::ApiKeyConfigModal;
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{self, Dashboard, tickers_table::{self, TickersTable}};
@@ -15,16 +14,16 @@ use crate::widget::{
 };
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
-use data::{LoadingStatus, layout::WindowSpec, sidebar};
+use data::{layout::WindowSpec, sidebar};
 
 use iced::{
-    Alignment, Element, Subscription, Task, keyboard, padding,
+    Alignment, Element, Subscription, Task, padding,
     widget::{
         button, column, container, pane_grid, pick_list, row, rule, scrollable, text,
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
+use std::{collections::HashMap, sync::OnceLock, vec};
 
 // Global download progress state (shared between async tasks and subscriptions)
 static DOWNLOAD_PROGRESS: OnceLock<
@@ -49,7 +48,6 @@ pub struct Flowsurface {
     // Service layer (optional - None when API key not configured)
     pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
-    pub(crate) gex_service: std::sync::Arc<data::services::GexCalculationService>,
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
     // User preferences
@@ -84,26 +82,14 @@ pub enum Message {
         result: Result<data::ChartData, String>,
     },
     // Options data loading
-    LoadOptionChain {
-        pane_id: uuid::Uuid,
-        underlying_ticker: String,
-        date: chrono::NaiveDate,
-    },
     OptionChainLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::OptionChain, String>,
-    },
-    LoadGexProfile {
-        pane_id: uuid::Uuid,
-        underlying_ticker: String,
-        date: chrono::NaiveDate,
     },
     GexProfileLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::GexProfile, String>,
     },
-    // Replay engine events
-    ReplayEvent(data::services::ReplayEvent),
     UpdateLoadingStatus,
     // Data management - cost estimation
     EstimateDataCost {
@@ -137,7 +123,6 @@ pub enum Message {
     Tick(std::time::Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
-    RestartRequested(HashMap<window::Id, WindowSpec>),
     GoBack,
     DataFolderRequested,
     ThemeSelected(data::Theme),
@@ -152,7 +137,6 @@ pub enum Message {
     ApiKeyConfig(crate::modal::api_key_config::Message),
     ShowApiKeyConfig {
         provider: data::ApiProvider,
-        triggered_by: Option<ApiKeyTriggeredBy>,
     },
     ReinitializeService(data::ApiProvider),
 }
@@ -163,7 +147,7 @@ impl Flowsurface {
         let market_data_result = services::initialize_market_data_service();
         let market_data_service = market_data_result.as_ref().map(|r| r.service.clone());
         let replay_engine = services::create_replay_engine(market_data_result.as_ref());
-        let (options_service, gex_service) = services::initialize_options_services();
+        let (options_service, _gex_service) = services::initialize_options_services();
 
         // Load saved state first to get persisted registry
         let saved_state_temp =
@@ -210,7 +194,10 @@ impl Flowsurface {
 
         // Apply filter from downloaded tickers registry
         let ticker_symbols: std::collections::HashSet<String> =
-            downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
+            data::lock_or_recover(&downloaded_tickers)
+                .list_tickers()
+                .into_iter()
+                .collect();
         if !ticker_symbols.is_empty() {
             log::info!("Applying filter from registry: {} downloaded tickers", ticker_symbols.len());
             tickers_table.set_cached_filter(ticker_symbols);
@@ -233,7 +220,6 @@ impl Flowsurface {
             confirm_dialog: None,
             market_data_service,
             options_service,
-            gex_service,
             replay_engine,
             timezone: saved_state.timezone,
             ui_scale_factor: saved_state.scale_factor,
@@ -269,7 +255,7 @@ impl Flowsurface {
     }
 
     pub fn theme(&self, _window: window::Id) -> iced_core::Theme {
-        self.theme.clone().into()
+        self.theme.0.clone()
     }
 
     pub fn scale_factor(&self, _window: window::Id) -> f32 {
@@ -643,7 +629,8 @@ impl Flowsurface {
                     sidebar::Position::Right => (Alignment::End, padding::right(44).top(76)),
                 };
 
-                // TODO: Fetch depth streams from panes
+                // TODO: Collect active depth/L2 streams from pane states
+                // so the audio modal can list subscribable instruments.
                 let depth_streams_list = vec![];
 
                 dashboard_modal(

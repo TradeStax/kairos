@@ -340,10 +340,29 @@ impl GexProfile {
             .ok_or("Cannot calculate GEX: underlying price is required but not available")
     }
 
-    /// Calculate total gamma values
+    /// Calculate total gamma values using Kahan summation for numerical stability
     fn calculate_totals(&mut self) {
-        self.total_net_gamma = self.exposures.iter().map(|e| e.net_gamma).sum();
-        self.total_abs_gamma = self.exposures.iter().map(|e| e.total_gamma).sum();
+        let mut net_sum = 0.0_f64;
+        let mut net_comp = 0.0_f64;
+        let mut abs_sum = 0.0_f64;
+        let mut abs_comp = 0.0_f64;
+
+        for exposure in &self.exposures {
+            // Kahan sum for net gamma
+            let y = exposure.net_gamma - net_comp;
+            let t = net_sum + y;
+            net_comp = (t - net_sum) - y;
+            net_sum = t;
+
+            // Kahan sum for absolute gamma
+            let y = exposure.total_gamma - abs_comp;
+            let t = abs_sum + y;
+            abs_comp = (t - abs_sum) - y;
+            abs_sum = t;
+        }
+
+        self.total_net_gamma = net_sum;
+        self.total_abs_gamma = abs_sum;
     }
 
     /// Identify key gamma exposure levels
@@ -444,13 +463,29 @@ impl GexProfile {
         }
     }
 
-    /// Calculate call/put gamma ratio
+    /// Calculate call/put gamma ratio using Kahan summation for numerical stability
     fn calculate_gamma_ratio(&mut self) {
-        let total_call_gamma: f64 = self.exposures.iter().map(|e| e.call_gamma.abs()).sum();
-        let total_put_gamma: f64 = self.exposures.iter().map(|e| e.put_gamma.abs()).sum();
+        let mut call_sum = 0.0_f64;
+        let mut call_comp = 0.0_f64;
+        let mut put_sum = 0.0_f64;
+        let mut put_comp = 0.0_f64;
 
-        if total_put_gamma > 0.0 {
-            self.gamma_ratio = Some(total_call_gamma / total_put_gamma);
+        for exposure in &self.exposures {
+            // Kahan sum for call gamma
+            let y = exposure.call_gamma.abs() - call_comp;
+            let t = call_sum + y;
+            call_comp = (t - call_sum) - y;
+            call_sum = t;
+
+            // Kahan sum for put gamma
+            let y = exposure.put_gamma.abs() - put_comp;
+            let t = put_sum + y;
+            put_comp = (t - put_sum) - y;
+            put_sum = t;
+        }
+
+        if put_sum > 0.0 {
+            self.gamma_ratio = Some(call_sum / put_sum);
         }
     }
 
@@ -505,7 +540,7 @@ impl GexProfile {
     /// - Time to expiration
     /// - Historical volatility correlation
     fn calculate_expected_move(&mut self) {
-        let spot = match self.underlying_price {
+        let _spot = match self.underlying_price {
             Some(price) => price.to_f64(),
             None => return,
         };

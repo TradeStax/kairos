@@ -46,7 +46,12 @@ pub fn draw_ruler(
             Price::from_units(tick_index * tick_units)
         };
         let rounded_price = rounded_price_p.to_f32_lossy();
-        let snap_ratio = (rounded_price - highest) / (lowest - highest);
+        let price_range = lowest - highest;
+        let snap_ratio = if price_range.abs() < f32::EPSILON {
+            0.5
+        } else {
+            (rounded_price - highest) / price_range
+        };
         snap_ratio * bounds.height
     };
 
@@ -63,10 +68,11 @@ pub fn draw_ruler(
     let price1 = state.y_to_price(snapped_p1_y);
     let price2 = state.y_to_price(snapped_p2_y);
 
-    let pct = if price1.to_f32_lossy() == 0.0 {
+    let p1 = price1.to_f32_lossy();
+    let pct = if p1.abs() < f32::EPSILON {
         0.0
     } else {
-        ((price2.to_f32_lossy() - price1.to_f32_lossy()) / price1.to_f32_lossy()) * 100.0
+        ((price2.to_f32_lossy() - p1) / p1) * 100.0
     };
     let pct_text = format!("{:.2}%", pct);
 

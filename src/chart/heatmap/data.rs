@@ -70,9 +70,9 @@ pub struct HeatmapData {
     /// Latest depth snapshot timestamp
     pub latest_depth_time: u64,
 
-    /// Candle timestamp lookup for tick-based charts (trade_time_start -> candle_time)
-    /// Used to align trades/depth with actual candle boundaries for tick basis
-    candle_time_map: Option<BTreeMap<u64, (u64, u64)>>, // trade_time -> (candle_time, candle_end_time)
+    /// Candle timestamp lookup for tick-based charts
+    /// Key: candle start time, Value: candle end time
+    candle_time_map: Option<BTreeMap<u64, u64>>,
 }
 
 impl HeatmapData {
@@ -99,7 +99,7 @@ impl HeatmapData {
                     } else {
                         candle_start + 1000 // Default 1 second for last candle
                     };
-                    map.insert(candle_start, (candle_start, candle_end));
+                    map.insert(candle_start, candle_end);
                 }
                 Some(map)
             }
@@ -207,12 +207,11 @@ impl HeatmapData {
                 // Try to find the candle this time belongs to
                 if let Some(ref candle_map) = self.candle_time_map {
                     // Find the candle whose time range contains this trade/depth
-                    // Use range query to find the greatest key less than or equal to time
+                    // Use range query to find the greatest key <= time
                     candle_map
                         .range(..=time)
                         .next_back()
-                        .and_then(|(_, (candle_start, candle_end))| {
-                            // Verify time is within candle range
+                        .and_then(|(candle_start, candle_end)| {
                             if time >= *candle_start && time < *candle_end {
                                 Some(*candle_start)
                             } else {
@@ -243,7 +242,7 @@ impl HeatmapData {
                     candle_map
                         .range(..=time)
                         .next_back()
-                        .map(|(_, (candle_start, candle_end))| candle_end - candle_start)
+                        .map(|(candle_start, candle_end)| candle_end - candle_start)
                         .unwrap_or(1000) // Default 1 second
                 } else {
                     1000 // Default 1 second

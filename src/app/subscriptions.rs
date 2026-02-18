@@ -46,7 +46,8 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
 
     let tick = iced::time::every(std::time::Duration::from_millis(100)).map(Message::Tick);
 
-    // Poll for loading status updates every 500ms
+    // Poll for loading status updates every 500ms.
+    // The handler in update.rs short-circuits when no service is available.
     let status_poll = iced::time::every(std::time::Duration::from_millis(500))
         .map(|_| Message::UpdateLoadingStatus);
 

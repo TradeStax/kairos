@@ -1,7 +1,6 @@
 use super::{MassiveError, MassiveResult};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Cache manager for Massive API data
@@ -223,7 +222,11 @@ impl CacheManager {
                     removed += self.cleanup_dir(&path, cutoff).await?;
 
                     // Remove empty directories
-                    if fs::read_dir(&path)?.count() == 0 {
+                    let mut remaining =
+                        tokio::fs::read_dir(&path).await?;
+                    let is_empty =
+                        remaining.next_entry().await?.is_none();
+                    if is_empty {
                         tokio::fs::remove_dir(&path).await?;
                     }
                 }

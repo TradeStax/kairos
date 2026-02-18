@@ -8,7 +8,6 @@ use crate::chart::{
 };
 
 #[derive(Clone, Copy)]
-#[allow(unused)]
 /// How to anchor bar heights.
 pub enum Baseline {
     /// Use zero as baseline (classic volume). Extents: [0, max].
@@ -40,7 +39,6 @@ pub struct BarPlot<V, CL, T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
-#[allow(dead_code)]
 impl<V, CL, T> BarPlot<V, CL, T> {
     pub fn new(value: V, classify: CL) -> Self {
         Self {

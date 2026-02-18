@@ -1,4 +1,5 @@
-use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError};
+use super::convert_massive_error;
+use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig};
 use chrono::NaiveDate;
 use flowsurface_data::domain::OptionContract;
 use flowsurface_data::repository::{
@@ -17,7 +18,7 @@ impl MassiveContractRepository {
     pub async fn new(config: MassiveConfig) -> RepositoryResult<Self> {
         let manager = HistoricalOptionsManager::new(config)
             .await
-            .map_err(convert_error)?;
+            .map_err(convert_massive_error)?;
 
         Ok(Self {
             manager: Arc::new(Mutex::new(manager)),
@@ -36,7 +37,7 @@ impl OptionContractRepository for MassiveContractRepository {
         manager
             .fetch_contracts_metadata(underlying_ticker)
             .await
-            .map_err(convert_error)
+            .map_err(convert_massive_error)
     }
 
     async fn get_active_contracts(
@@ -140,7 +141,7 @@ impl OptionContractRepository for MassiveContractRepository {
     async fn stats(&self) -> RepositoryResult<RepositoryStats> {
         let manager = self.manager.lock().await;
 
-        let cache_stats = manager.cache_stats().await.map_err(convert_error)?;
+        let cache_stats = manager.cache_stats().await.map_err(convert_massive_error)?;
 
         Ok(RepositoryStats {
             cached_days: 0,
@@ -180,18 +181,6 @@ fn extract_underlying(contract_ticker: &str) -> RepositoryResult<String> {
     }
 
     Ok(without_prefix[..ticker_end].to_string())
-}
-
-/// Convert Massive error to Repository error
-fn convert_error(e: MassiveError) -> RepositoryError {
-    match e {
-        MassiveError::SymbolNotFound(s) => RepositoryError::NotFound(s),
-        MassiveError::Cache(s) => RepositoryError::Cache(s),
-        MassiveError::Parse(s) => RepositoryError::Serialization(s),
-        MassiveError::InvalidData(s) => RepositoryError::InvalidData(s),
-        MassiveError::Io(e) => RepositoryError::Io(e),
-        _ => RepositoryError::Remote(e.to_string()),
-    }
 }
 
 #[cfg(test)]

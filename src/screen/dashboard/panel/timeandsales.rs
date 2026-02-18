@@ -131,11 +131,6 @@ impl TimeAndSales {
         self.prune_paused_by_time(None);
     }
 
-    /// Legacy method for compatibility (delegates to update_from_replay)
-    pub fn insert_buffer(&mut self, trades: &[Trade]) {
-        self.update_from_replay(trades);
-    }
-
     pub fn last_update(&self) -> Instant {
         self.last_tick
     }

@@ -14,8 +14,6 @@ use crate::style::{self, Icon, icon_text};
 /// What action triggered showing the API key config modal
 #[derive(Debug, Clone)]
 pub enum TriggeredBy {
-    /// User manually opened settings
-    Settings,
     /// User tried to download data
     DataDownload,
     /// User tried to load options data
@@ -58,15 +56,13 @@ pub struct ApiKeyConfigModal {
     original_key: String,
     /// Whether to show the password
     show_password: bool,
-    /// What triggered showing this modal (for retry behavior)
-    triggered_by: Option<TriggeredBy>,
     /// Secrets manager
     secrets: SecretsManager,
 }
 
 impl ApiKeyConfigModal {
     /// Create a new modal for a specific provider
-    pub fn new(provider: ApiProvider, triggered_by: Option<TriggeredBy>) -> Self {
+    pub fn new(provider: ApiProvider) -> Self {
         let secrets = SecretsManager::new();
 
         // Pre-fill with existing key if from keyring
@@ -80,14 +76,8 @@ impl ApiKeyConfigModal {
             original_key: key_input.clone(),
             key_input,
             show_password: false,
-            triggered_by,
             secrets,
         }
-    }
-
-    /// Get the provider that triggered this modal (if any specific one)
-    pub fn triggered_by(&self) -> Option<&TriggeredBy> {
-        self.triggered_by.as_ref()
     }
 
     /// Check if the current input differs from the original/saved key

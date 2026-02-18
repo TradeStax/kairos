@@ -348,11 +348,7 @@ impl DatabentoConfig {
         Ok(())
     }
 
-    /// Test API connectivity
-    pub async fn test_connection(&self) -> ExchangeResult<()> {
-        // Would implement actual API test here
-        Ok(())
-    }
+    // test_connection removed: was a no-op stub
 }
 
 /// Data fetching configuration
@@ -464,24 +460,35 @@ impl CacheConfig {
         Ok(())
     }
 
-    /// Get actual cache size on disk
+    /// Get actual cache size on disk (recursive)
     pub fn get_cache_size(&self) -> ExchangeResult<u64> {
         if !self.directory.exists() {
             return Ok(0);
         }
 
-        let mut total_size = 0u64;
-        for entry in std::fs::read_dir(&self.directory)
-            .map_err(|e| Error::Config(format!("Cannot read cache directory: {}", e)))?
-        {
-            if let Ok(entry) = entry {
-                if let Ok(metadata) = entry.metadata() {
-                    total_size += metadata.len();
+        fn dir_size(path: &std::path::Path) -> std::io::Result<u64> {
+            let mut total = 0u64;
+            for entry in std::fs::read_dir(path)? {
+                let entry = entry?;
+                let metadata = entry.metadata()?;
+                if metadata.is_dir() {
+                    total += dir_size(&entry.path())?;
+                } else {
+                    total += metadata.len();
                 }
             }
+            Ok(total)
         }
 
-        Ok(total_size / 1_048_576) // Convert to MB
+        let total_bytes = dir_size(&self.directory)
+            .map_err(|e| {
+                Error::Config(format!(
+                    "Cannot read cache directory: {}",
+                    e
+                ))
+            })?;
+
+        Ok(total_bytes / 1_048_576) // Convert to MB
     }
 }
 
@@ -582,74 +589,6 @@ pub struct ValidationConfig {
     pub check_permissions: bool,
 }
 
-/// Configuration builder for fluent API
-pub struct ConfigBuilder {
-    config: Config,
-}
-
-impl ConfigBuilder {
-    /// Create new builder with profile
-    pub fn new(profile: ConfigProfile) -> Self {
-        Self {
-            config: Config::for_profile(profile),
-        }
-    }
-
-    /// Set API key
-    pub fn with_api_key(mut self, key: impl Into<String>) -> Self {
-        self.config.databento.api_key = key.into();
-        self
-    }
-
-    /// Set cache directory
-    pub fn with_cache_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.config.cache.directory = path.into();
-        self
-    }
-
-    /// Set cache size limit
-    pub fn with_cache_size(mut self, size_mb: u64) -> Self {
-        self.config.cache.max_size_mb = size_mb;
-        self
-    }
-
-    /// Enable/disable auto-backfill
-    pub fn with_auto_backfill(mut self, enabled: bool) -> Self {
-        self.config.fetching.auto_backfill = enabled;
-        self
-    }
-
-    /// Set daily budget
-    pub fn with_daily_budget(mut self, budget: f64) -> Self {
-        self.config.cost.daily_budget = budget;
-        self
-    }
-
-    /// Enable strict validation
-    pub fn strict(mut self) -> Self {
-        self.config.validation.strict = true;
-        self.config.cost.strict_mode = true;
-        self
-    }
-
-    /// Validate configuration
-    pub fn validate(self) -> Result<Self, Error> {
-        self.config.validate()?;
-        Ok(self)
-    }
-
-    /// Build the configuration
-    pub fn build(self) -> Config {
-        self.config
-    }
-}
-
-impl Default for ConfigBuilder {
-    fn default() -> Self {
-        Self::new(ConfigProfile::Development)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,19 +602,6 @@ mod tests {
         let prod = Config::for_profile(ConfigProfile::Production);
         assert!(prod.fetching.auto_backfill);
         assert_eq!(prod.cache.max_size_mb, 50000);
-    }
-
-    #[test]
-    fn test_config_builder() {
-        let config = ConfigBuilder::new(ConfigProfile::Development)
-            .with_api_key("test_key")
-            .with_cache_size(2000)
-            .with_auto_backfill(true)
-            .build();
-
-        assert_eq!(config.databento.api_key, "test_key");
-        assert_eq!(config.cache.max_size_mb, 2000);
-        assert!(config.fetching.auto_backfill);
     }
 
     #[test]

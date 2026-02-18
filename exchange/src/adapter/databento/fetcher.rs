@@ -8,10 +8,11 @@
 //!   → Saves each day individually for future reuse
 
 use super::{DatabentoConfig, DatabentoError, cache::CacheManager, client};
-use crate::{Kline, Timeframe, Trade, util::Price};
+use super::mapper::{chrono_to_time, convert_databento_price, determine_stype};
+use crate::{Kline, Timeframe, Trade};
 use databento::{
     HistoricalClient,
-    dbn::{Mbp10Msg, OhlcvMsg, SType, Schema, TradeMsg, decode::AsyncDbnDecoder},
+    dbn::{Mbp10Msg, OhlcvMsg, Schema, TradeMsg, decode::AsyncDbnDecoder},
     historical::timeseries::{GetRangeParams, GetRangeToFileParams},
 };
 use std::collections::HashSet;
@@ -1402,9 +1403,10 @@ impl HistoricalDataManager {
         let mut open_interest_data = Vec::new();
 
         // Decode statistics records
+        let oi_stat_type: u16 =
+            databento::dbn::StatType::OpenInterest.into();
         while let Some(stat) = decoder.decode_record::<databento::dbn::StatMsg>().await? {
-            // Filter for open interest stat type (stat_type 21 is open interest)
-            if stat.stat_type == 21 {
+            if stat.stat_type == oi_stat_type {
                 // Use ts_ref as the reference timestamp for the statistic
                 let time_ms = stat.ts_ref / 1_000_000; // Convert nanoseconds to milliseconds
 
@@ -1552,40 +1554,6 @@ fn aggregate_group(bars: &[Kline], time: u64) -> Kline {
         volume,
         buy_volume,
         sell_volume,
-    }
-}
-
-/// Convert databento price (i64, 10^-9 scale) to FlowSurface price (i64, 10^-8 scale)
-fn convert_databento_price(databento_price: i64) -> Price {
-    Price {
-        units: databento_price / 10,
-    }
-}
-
-/// Convert chrono DateTime to time OffsetDateTime
-fn chrono_to_time(dt: chrono::DateTime<chrono::Utc>) -> Result<OffsetDateTime, DatabentoError> {
-    let unix_ts = dt.timestamp();
-    let nanos = dt.timestamp_subsec_nanos();
-
-    OffsetDateTime::from_unix_timestamp(unix_ts)
-        .map(|odt| {
-            if nanos > 0 {
-                odt + time::Duration::nanoseconds(nanos as i64)
-            } else {
-                odt
-            }
-        })
-        .map_err(|e| DatabentoError::Config(format!("Invalid timestamp: {}", e)))
-}
-
-/// Determine symbol type from symbol string
-fn determine_stype(symbol: &str) -> SType {
-    if symbol.contains(".c.") {
-        SType::Continuous
-    } else if symbol.ends_with(".FUT") || symbol.ends_with(".OPT") {
-        SType::Parent
-    } else {
-        SType::RawSymbol
     }
 }
 

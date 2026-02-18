@@ -2,8 +2,6 @@
 //!
 //! Configuration and state types for panels (Ladder, Time & Sales)
 
-use serde::{Deserialize, Serialize};
-
 // Re-export domain panel types
 pub use crate::domain::panel::{ChaseTracker, TradeAggregator};
 

@@ -40,11 +40,6 @@ pub trait KlineIndicatorImpl {
     fn on_ticksize_change(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.rebuild_from_candles(candles, basis);
     }
-
-    /// Handle basis changes (recalculate if needed)
-    fn on_basis_change(&mut self, candles: &[Candle], basis: ChartBasis) {
-        self.rebuild_from_candles(candles, basis);
-    }
 }
 
 pub fn make_empty(which: KlineIndicator) -> Box<dyn KlineIndicatorImpl> {

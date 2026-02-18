@@ -1,7 +1,7 @@
 //! Layout Types for Serialization
 
 use serde::{Deserialize, Serialize};
-use super::pane_config::{ContentKind, LinkGroup, Settings, VisualConfig};
+use super::pane_config::{ContentKind, LinkGroup, Settings};
 
 /// Pane split axis
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

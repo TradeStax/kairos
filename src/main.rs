@@ -11,7 +11,7 @@ mod style;
 mod widget;
 mod window;
 
-use app::{Flowsurface, Message};
+use app::Flowsurface;
 use std::borrow::Cow;
 
 fn main() {

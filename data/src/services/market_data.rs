@@ -97,8 +97,11 @@ impl MarketDataService {
         // For heatmaps, automatically limit to most recent day to prevent memory issues
         let effective_date_range = if config.chart_type == crate::domain::ChartType::Heatmap {
             if config.date_range.num_days() > 1 {
-                log::info!(
-                    "Heatmap: automatically limiting to most recent day (end date: {})",
+                log::warn!(
+                    "Heatmap: date range truncated from {} days to 1 day \
+                     (showing {}). Multi-day heatmaps are not supported \
+                     due to memory constraints.",
+                    config.date_range.num_days(),
                     config.date_range.end
                 );
                 DateRange::new(config.date_range.end, config.date_range.end)
@@ -119,7 +122,7 @@ impl MarketDataService {
 
         // Update loading status: start downloading
         {
-            let mut status_map = self.loading_status.lock().unwrap();
+            let mut status_map = crate::lock_or_recover(&self.loading_status);
             log::debug!("Loading status lock acquired successfully");
             let date_range_days = effective_date_range.num_days() as usize;
             status_map.insert(
@@ -139,9 +142,8 @@ impl MarketDataService {
         let chart_key_clone = chart_key.clone();
         let progress_callback: Box<dyn Fn(LoadingStatus) + Send + Sync> =
             Box::new(move |status: LoadingStatus| {
-                if let Ok(mut map) = status_map_clone.lock() {
-                    map.insert(chart_key_clone.clone(), status);
-                }
+                let mut map = crate::lock_or_recover(&status_map_clone);
+                map.insert(chart_key_clone.clone(), status);
             });
 
         let trades = match self
@@ -152,7 +154,7 @@ impl MarketDataService {
             Ok(trades) => trades,
             Err(e) => {
                 // Update status to error
-                let mut status_map = self.loading_status.lock().unwrap();
+                let mut status_map = crate::lock_or_recover(&self.loading_status);
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Error {
@@ -175,7 +177,7 @@ impl MarketDataService {
 
         // Update status: now building chart (aggregating trades)
         {
-            let mut status_map = self.loading_status.lock().unwrap();
+            let mut status_map = crate::lock_or_recover(&self.loading_status);
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Building {
@@ -190,7 +192,7 @@ impl MarketDataService {
             Ok(candles) => candles,
             Err(e) => {
                 // Update status to error
-                let mut status_map = self.loading_status.lock().unwrap();
+                let mut status_map = crate::lock_or_recover(&self.loading_status);
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Error {
@@ -209,7 +211,7 @@ impl MarketDataService {
 
         // Update status: building candles complete
         {
-            let mut status_map = self.loading_status.lock().unwrap();
+            let mut status_map = crate::lock_or_recover(&self.loading_status);
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Building {
@@ -228,7 +230,7 @@ impl MarketDataService {
 
             // Update status: loading depth data
             {
-                let mut status_map = self.loading_status.lock().unwrap();
+                let mut status_map = crate::lock_or_recover(&self.loading_status);
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Downloading {
@@ -248,7 +250,7 @@ impl MarketDataService {
 
                     // Update status: processing depth data
                     {
-                        let mut status_map = self.loading_status.lock().unwrap();
+                        let mut status_map = crate::lock_or_recover(&self.loading_status);
                         status_map.insert(
                             chart_key.clone(),
                             LoadingStatus::Building {
@@ -269,7 +271,7 @@ impl MarketDataService {
 
         // Update status: ready
         {
-            let mut status_map = self.loading_status.lock().unwrap();
+            let mut status_map = crate::lock_or_recover(&self.loading_status);
             status_map.insert(chart_key.clone(), LoadingStatus::Ready);
         }
 
@@ -355,7 +357,7 @@ impl MarketDataService {
             config.ticker, config.basis, config.date_range
         );
 
-        let status_map = self.loading_status.lock().unwrap();
+        let status_map = crate::lock_or_recover(&self.loading_status);
         status_map
             .get(&chart_key)
             .cloned()
@@ -366,19 +368,15 @@ impl MarketDataService {
     ///
     /// Returns all ongoing operations across all charts.
     pub fn get_all_loading_statuses(&self) -> HashMap<String, LoadingStatus> {
-        let status_map = self.loading_status.lock().unwrap();
+        let status_map = crate::lock_or_recover(&self.loading_status);
         status_map.clone()
     }
 
-    /// Clear completed loading statuses
+    /// Clear completed and errored loading statuses
     ///
-    /// Removes Ready and Error statuses that are older than the specified duration.
-    pub fn clear_old_statuses(&self, _older_than: std::time::Duration) {
-        let mut status_map = self.loading_status.lock().unwrap();
-
-        // Remove completed statuses
-        // Note: Currently removes all completed statuses regardless of age
-        // TODO: Track timestamps to implement age-based removal
+    /// Removes Ready and Error statuses, keeping only in-progress ones.
+    pub fn clear_old_statuses(&self) {
+        let mut status_map = crate::lock_or_recover(&self.loading_status);
         status_map.retain(|_, status| {
             matches!(
                 status,

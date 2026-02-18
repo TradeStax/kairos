@@ -2,28 +2,21 @@
 name = "flowsurface-exchange"
 description = "Databento adapter for futures market data in Flowsurface"
 version = "0.1.0"
-license = "MIT"
+license = "GPL-3.0-or-later"
 edition.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-iced_futures.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
-enum-map.workspace = true
 rustc-hash.workspace = true
 
 tokio = { version = "1.43", default-features = false, features = ["rt", "macros", "fs"] }
 reqwest = { version = "0.12.9", default-features = false, features = ["json", "rustls-tls"] }
-bytes = "1.8.0"
-zip = "2.3.0"
-csv = "1.3.1"
-smallvec = "1.15.1"
 
 # Databento integration
 databento = "0.22"

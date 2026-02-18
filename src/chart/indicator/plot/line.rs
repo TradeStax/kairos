@@ -21,7 +21,6 @@ pub struct LinePlot<V, T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
-#[allow(dead_code)]
 impl<V, T> LinePlot<V, T> {
     /// Create a new LinePlot with the given mapping function for Y values and tooltip function.
     pub fn new(value: V) -> Self {

@@ -289,7 +289,8 @@ impl AudioStream {
                 }
             }
             data::audio::Threshold::Qty(_) => {
-                unimplemented!()
+                log::warn!("Qty threshold not yet implemented");
+                return Ok(());
             }
         }
 

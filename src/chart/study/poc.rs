@@ -3,7 +3,7 @@
 //! The Point of Control is the price level with the highest traded volume
 //! within a given period.
 
-use super::{Footprint, TradeGroup};
+use super::Footprint;
 use exchange::util::Price;
 
 /// POC configuration

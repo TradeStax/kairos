@@ -3,7 +3,7 @@
 //! UI state types for pane configuration and settings.
 
 use serde::{Deserialize, Serialize};
-use crate::domain::{ChartBasis, ChartType, Timeframe};
+use crate::domain::{ChartBasis, ChartType};
 use crate::panel::timeandsales::StackedBarRatio;
 
 /// Content kind for a pane

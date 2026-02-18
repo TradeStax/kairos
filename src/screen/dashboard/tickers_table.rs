@@ -932,20 +932,14 @@ impl TickersTable {
     }
 
     pub fn set_cached_filter(&mut self, cached_symbols: std::collections::HashSet<String>) {
-        log::info!("TABLE: Applying cached ticker filter: {} tickers available", cached_symbols.len());
-        for symbol in &cached_symbols {
-            log::info!("TABLE:   - {}", symbol);
-        }
-        log::info!("TABLE: Total ticker_rows before filter: {}", self.ticker_rows.len());
+        log::debug!("Applying cached ticker filter: {} tickers available", cached_symbols.len());
         self.cached_tickers_filter = Some(cached_symbols);
-        self.update_display_cache(); // Rebuild display with filter
-        log::info!("TABLE: After update_display_cache(), display_cache has {} entries", self.display_cache.len());
+        self.update_display_cache();
     }
 
     pub fn clear_cached_filter(&mut self) {
-        log::info!("Clearing cached ticker filter - showing all tickers");
         self.cached_tickers_filter = None;
-        self.update_display_cache(); // Rebuild display
+        self.update_display_cache();
     }
 
     fn filtered_rows<'a>(

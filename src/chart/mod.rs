@@ -6,7 +6,6 @@
 pub mod candlestick;
 pub mod comparison;
 pub mod core;
-pub mod display;
 pub mod drawing;
 pub mod heatmap;
 pub mod indicator;
@@ -16,12 +15,9 @@ pub(crate) mod scale;
 pub mod study;
 
 // Re-export KlineChart for backwards compatibility
-pub use candlestick::KlineChart;
 
 // Re-export core types for public API
 pub use core::{Caches, Chart, Interaction, PlotConstants, ViewState, canvas_interaction};
-pub use core::{calculate_autoscale_translation, toggle_autoscale, autoscale_display};
-pub use overlay::{draw_crosshair, draw_ruler, draw_last_price_line, CrosshairResult};
 
 use crate::style;
 use crate::widget::multi_split::MultiSplit;

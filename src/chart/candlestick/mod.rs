@@ -1,11 +1,10 @@
 mod candle;
-mod config;
 mod footprint;
 mod render;
 
 use crate::chart::{
-    Chart, Interaction, Message, PlotConstants, ViewState,
-    drawing::{DrawingManager, DrawingPoint},
+    Chart, Message, PlotConstants, ViewState,
+    drawing::DrawingManager,
     indicator,
 };
 use crate::chart::indicator::kline::KlineIndicatorImpl;
@@ -19,22 +18,11 @@ use data::util::count_decimals;
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 
-use iced::{Element, Rectangle, Size, Vector};
+use iced::{Element, Vector};
 
 use enum_map::EnumMap;
 use std::collections::BTreeMap;
 use std::time::Instant;
-
-/// Trait for chart kind configuration constants
-pub trait ConfigConstants {
-    fn min_scaling(&self) -> f32;
-    fn max_scaling(&self) -> f32;
-    fn max_cell_width(&self) -> f32;
-    fn min_cell_width(&self) -> f32;
-    fn max_cell_height(&self) -> f32;
-    fn min_cell_height(&self) -> f32;
-    fn default_cell_width(&self) -> f32;
-}
 
 impl Chart for KlineChart {
     type IndicatorKind = KlineIndicator;
@@ -77,34 +65,6 @@ impl Chart for KlineChart {
         elements
     }
 
-    fn visible_timerange(&self) -> Option<(u64, u64)> {
-        let chart = self.state();
-        let region = chart.visible_region(chart.bounds.size());
-
-        if region.width == 0.0 {
-            return None;
-        }
-
-        match &self.basis {
-            ChartBasis::Time(timeframe) => {
-                let interval = timeframe.to_milliseconds();
-
-                let (earliest, latest) = (
-                    chart.x_to_interval(region.x) - (interval / 2),
-                    chart.x_to_interval(region.x + region.width) + (interval / 2),
-                );
-
-                Some((earliest, latest))
-            }
-            ChartBasis::Tick(_) => {
-                // For tick-based, return the index range
-                let earliest = chart.x_to_interval(region.x + region.width);
-                let latest = chart.x_to_interval(region.x);
-                Some((earliest, latest))
-            }
-        }
-    }
-
     fn interval_keys(&self) -> Option<Vec<u64>> {
         match &self.basis {
             ChartBasis::Time(_) => None,
@@ -144,31 +104,52 @@ impl Chart for KlineChart {
 
 impl PlotConstants for KlineChart {
     fn min_scaling(&self) -> f32 {
-        self.kind.min_scaling()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 0.05,
+            KlineChartKind::Candles => 0.1,
+        }
     }
 
     fn max_scaling(&self) -> f32 {
-        self.kind.max_scaling()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 2.0,
+            KlineChartKind::Candles => 5.0,
+        }
     }
 
     fn max_cell_width(&self) -> f32 {
-        self.kind.max_cell_width()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 500.0,
+            KlineChartKind::Candles => 100.0,
+        }
     }
 
     fn min_cell_width(&self) -> f32 {
-        self.kind.min_cell_width()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 10.0,
+            KlineChartKind::Candles => 1.0,
+        }
     }
 
     fn max_cell_height(&self) -> f32 {
-        self.kind.max_cell_height()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 100.0,
+            KlineChartKind::Candles => 200.0,
+        }
     }
 
     fn min_cell_height(&self) -> f32 {
-        self.kind.min_cell_height()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 1.0,
+            KlineChartKind::Candles => 1.0,
+        }
     }
 
     fn default_cell_width(&self) -> f32 {
-        self.kind.default_cell_width()
+        match self.kind {
+            KlineChartKind::Footprint { .. } => 80.0,
+            KlineChartKind::Candles => 4.0,
+        }
     }
 }
 
@@ -610,44 +591,6 @@ impl KlineChart {
         trades_map
     }
 
-    /// Get or build cached footprint for a candle index
-    ///
-    /// Uses lazy initialization - builds full cache on first access,
-    /// then serves from cache on subsequent calls.
-    #[allow(dead_code)]
-    fn get_cached_footprint(&mut self, candle_index: usize, interval_ms: u64, highest: Price, lowest: Price) -> Option<BTreeMap<Price, TradeGroup>> {
-        // Check if we need to rebuild cache
-        if self.footprint_cache.is_none() {
-            self.build_footprint_cache(interval_ms);
-        }
-
-        // Retrieve from cache
-        self.footprint_cache.as_ref().and_then(|cache| {
-            cache.get(candle_index).cloned()
-        }).or_else(|| {
-            // Fallback: build on-demand if cache miss
-            if candle_index < self.chart_data.candles.len() {
-                let candle = &self.chart_data.candles[candle_index];
-                let candle_start = candle.time.0;
-                let candle_end = candle.time.0 + interval_ms;
-
-                let start_idx = self.chart_data.trades
-                    .binary_search_by_key(&candle_start, |t| t.time.0)
-                    .unwrap_or_else(|i| i);
-
-                let end_idx = self.chart_data.trades[start_idx..]
-                    .binary_search_by_key(&candle_end, |t| t.time.0)
-                    .map(|i| start_idx + i)
-                    .unwrap_or_else(|i| start_idx + i);
-
-                let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
-                Some(self.build_footprint(trades_in_candle, highest, lowest))
-            } else {
-                None
-            }
-        })
-    }
-
     /// Build complete footprint cache for all candles
     ///
     /// Pre-computes footprints for better rendering performance
@@ -834,22 +777,7 @@ impl KlineChart {
 // HELPER TYPES
 // ============================================================================
 
-/// Helper struct for footprint trades
-#[derive(Default, Clone)]
-pub(crate) struct TradeGroup {
-    pub buy_qty: f32,
-    pub sell_qty: f32,
-}
-
-impl TradeGroup {
-    pub fn total_qty(&self) -> f32 {
-        self.buy_qty + self.sell_qty
-    }
-
-    pub fn delta_qty(&self) -> f32 {
-        self.buy_qty - self.sell_qty
-    }
-}
+pub(crate) use crate::chart::study::TradeGroup;
 
 /// Convert domain price to exchange price
 #[inline]

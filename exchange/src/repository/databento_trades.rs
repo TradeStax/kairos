@@ -17,6 +17,15 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
+/// Safely convert a u16 schema discriminant to a databento Schema.
+fn schema_from_discriminant(discriminant: u16) -> Result<Schema, RepositoryError> {
+    Schema::try_from(discriminant).map_err(|_| {
+        RepositoryError::InvalidData(
+            format!("Invalid schema discriminant: {}", discriminant),
+        )
+    })
+}
+
 /// Databento trade repository
 ///
 /// Wraps HistoricalDataManager to implement the repository pattern.
@@ -262,8 +271,7 @@ impl TradeRepository for DatabentoTradeRepository {
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> RepositoryResult<flowsurface_data::repository::CacheCoverageReport> {
-        // Convert discriminant back to Schema
-        let schema = unsafe { std::mem::transmute::<u16, databento::dbn::Schema>(schema_discriminant) };
+        let schema = schema_from_discriminant(schema_discriminant)?;
         let manager = self.manager.lock().await;
         let symbol = ticker.as_str();
 
@@ -322,8 +330,7 @@ impl TradeRepository for DatabentoTradeRepository {
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> RepositoryResult<usize> {
-        // Convert discriminant back to Schema
-        let schema = unsafe { std::mem::transmute::<u16, databento::dbn::Schema>(schema_discriminant) };
+        let schema = schema_from_discriminant(schema_discriminant)?;
         let mut manager = self.manager.lock().await;
         let symbol = ticker.as_str();
 
@@ -361,8 +368,7 @@ impl TradeRepository for DatabentoTradeRepository {
         date_range: &DateRange,
         progress_callback: Box<dyn Fn(usize, usize) + Send + Sync>,
     ) -> RepositoryResult<usize> {
-        // Convert discriminant back to Schema
-        let schema = unsafe { std::mem::transmute::<u16, databento::dbn::Schema>(schema_discriminant) };
+        let schema = schema_from_discriminant(schema_discriminant)?;
         let mut manager = self.manager.lock().await;
         let symbol = ticker.as_str();
 
@@ -411,8 +417,7 @@ impl TradeRepository for DatabentoTradeRepository {
     ) -> RepositoryResult<f64> {
         log::warn!("REPOSITORY: get_actual_cost_databento CALLED for {:?}", ticker);
 
-        // Convert discriminant back to Schema
-        let schema = unsafe { std::mem::transmute::<u16, Schema>(schema_discriminant) };
+        let schema = schema_from_discriminant(schema_discriminant)?;
         let mut manager = self.manager.lock().await;
         let symbol = ticker.as_str();
 

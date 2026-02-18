@@ -37,6 +37,3 @@ pub use options::{
 };
 pub use types::{DateRange, Price, Quantity, Side, TimeRange, Timestamp, Volume};
 
-// Type aliases for backward compatibility
-pub type TradeSide = Side;
-pub type Ticker = FuturesTicker;

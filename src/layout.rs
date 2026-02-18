@@ -61,7 +61,7 @@ impl SavedState {
             theme: data::Theme::default(),
             custom_theme: None,
             audio_cfg: data::AudioStream::default(),
-            downloaded_tickers: (*downloaded_tickers.lock().unwrap()).clone(),
+            downloaded_tickers: data::lock_or_recover(&downloaded_tickers).clone(),
         }
     }
 }
@@ -174,8 +174,12 @@ pub fn load_saved_state_without_registry(
     let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
     match data::load_state("app-state.json") {
         Ok(state) => {
-            // For now, use default layout manager since AppState doesn't have dashboard info yet
-            // TODO: Implement proper dashboard persistence in AppState
+            // AppState persists layout metadata (names, IDs) but not the full
+            // Dashboard tree (pane splits, chart configs). To complete this:
+            // 1. Serialize each Dashboard's PaneGrid configuration into AppState
+            // 2. Restore pane content types and settings on load
+            // 3. Re-trigger chart data loading for each restored pane
+            // Until then, a fresh default layout is created on startup.
             SavedState {
                 theme: state.selected_theme,
                 custom_theme: state.custom_theme,
@@ -184,7 +188,11 @@ pub fn load_saved_state_without_registry(
                 timezone: state.timezone,
                 sidebar: state.sidebar,
                 scale_factor: state.scale_factor,
-                audio_cfg: data::AudioStream::default(), // TODO: Use proper audio config from state
+                // TODO: Restore audio settings from state.audio_cfg.
+                // AudioStream wraps a rodio sink that can't be deserialized,
+                // so we need to construct a new AudioStream and apply the
+                // persisted volume/stream configs from state.audio_cfg.
+                audio_cfg: data::AudioStream::default(),
                 downloaded_tickers: state.downloaded_tickers,
             }
         }

@@ -101,7 +101,9 @@ pub trait TradeRepository: Send + Sync {
         trades: Vec<Trade>,
     ) -> RepositoryResult<()>;
 
-    /// Find missing dates (gaps) in the cache
+    /// Find missing dates (gaps) in the cache.
+    ///
+    /// NOTE: Currently unused but reserved for future incremental sync.
     async fn find_gaps(
         &self,
         ticker: &FuturesTicker,
@@ -213,7 +215,9 @@ pub trait DepthRepository: Send + Sync {
         depth: Vec<DepthSnapshot>,
     ) -> RepositoryResult<()>;
 
-    /// Find missing dates (gaps) in the cache
+    /// Find missing dates (gaps) in the cache.
+    ///
+    /// NOTE: Currently unused but reserved for future incremental sync.
     async fn find_gaps(
         &self,
         ticker: &FuturesTicker,

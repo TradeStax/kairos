@@ -7,7 +7,11 @@
 
 use std::collections::BTreeMap;
 
-/// Order side for grouping
+/// Order book side for depth grouping (Bid/Ask).
+///
+/// Distinct from `crate::domain::types::Side` (Buy/Sell) which represents
+/// trade aggressor side. This enum is specifically for orderbook-level
+/// operations where rounding direction matters (bids floor, asks ceil).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Bid,

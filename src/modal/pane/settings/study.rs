@@ -64,7 +64,10 @@ impl Study for FootprintStudy {
 
                 let color_scaling = {
                     let color_scale_enabled = color_scale;
-                    let color_scale_value = 100;
+                    // TODO: Add `color_scale_value: u16` field to
+                    // FootprintStudy::Imbalance to persist this setting.
+                    // For now the slider is display-only at a fixed value.
+                    let color_scale_value: u16 = 100;
 
                     let color_scale_checkbox = checkbox(color_scale_enabled)
                         .label("Dynamic color scaling")
@@ -80,6 +83,8 @@ impl Study for FootprintStudy {
                         let scaling_slider = column![
                             text(format!("Opaque color at: {color_scale_value}x")),
                             slider(50.0..=2000.0, color_scale_value as f32, move |_new_value| {
+                                // No-op: FootprintStudy::Imbalance lacks a
+                                // color_scale_value field to store slider state
                                 on_change(FootprintStudy::Imbalance {
                                     threshold,
                                     color_scale: true,

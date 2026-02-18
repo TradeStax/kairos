@@ -1,8 +1,9 @@
-use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError};
+use super::convert_massive_error;
+use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig};
 use chrono::NaiveDate;
 use flowsurface_data::domain::{DateRange, OptionSnapshot};
 use flowsurface_data::repository::{
-    OptionSnapshotRepository, RepositoryError, RepositoryResult, RepositoryStats,
+    OptionSnapshotRepository, RepositoryResult, RepositoryStats,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -17,7 +18,7 @@ impl MassiveSnapshotRepository {
     pub async fn new(config: MassiveConfig) -> RepositoryResult<Self> {
         let manager = HistoricalOptionsManager::new(config)
             .await
-            .map_err(convert_error)?;
+            .map_err(convert_massive_error)?;
 
         Ok(Self {
             manager: Arc::new(Mutex::new(manager)),
@@ -38,7 +39,7 @@ impl OptionSnapshotRepository for MassiveSnapshotRepository {
         let chains = manager
             .fetch_option_chains(underlying_ticker, date_range)
             .await
-            .map_err(convert_error)?;
+            .map_err(convert_massive_error)?;
 
         // Extract all snapshots from chains
         let mut snapshots = Vec::new();
@@ -59,7 +60,7 @@ impl OptionSnapshotRepository for MassiveSnapshotRepository {
         manager
             .fetch_contract_snapshot(contract_ticker, date)
             .await
-            .map_err(convert_error)
+            .map_err(convert_massive_error)
     }
 
     async fn get_snapshots_for_contracts(
@@ -120,7 +121,7 @@ impl OptionSnapshotRepository for MassiveSnapshotRepository {
         let gaps: Vec<DateRange> = manager
             .find_chain_gaps(underlying_ticker, date_range)
             .await
-            .map_err(convert_error)?;
+            .map_err(convert_massive_error)?;
 
         Ok(gaps)
     }
@@ -128,7 +129,7 @@ impl OptionSnapshotRepository for MassiveSnapshotRepository {
     async fn stats(&self) -> RepositoryResult<RepositoryStats> {
         let manager = self.manager.lock().await;
 
-        let cache_stats = manager.cache_stats().await.map_err(convert_error)?;
+        let cache_stats = manager.cache_stats().await.map_err(convert_massive_error)?;
 
         Ok(RepositoryStats {
             cached_days: 0, // Not tracked per-day for snapshots
@@ -137,18 +138,6 @@ impl OptionSnapshotRepository for MassiveSnapshotRepository {
             hits: 0,
             misses: 0,
         })
-    }
-}
-
-/// Convert Massive error to Repository error
-fn convert_error(e: MassiveError) -> RepositoryError {
-    match e {
-        MassiveError::SymbolNotFound(s) => RepositoryError::NotFound(s),
-        MassiveError::Cache(s) => RepositoryError::Cache(s),
-        MassiveError::Parse(s) => RepositoryError::Serialization(s),
-        MassiveError::InvalidData(s) => RepositoryError::InvalidData(s),
-        MassiveError::Io(e) => RepositoryError::Io(e),
-        _ => RepositoryError::Remote(e.to_string()),
     }
 }
 

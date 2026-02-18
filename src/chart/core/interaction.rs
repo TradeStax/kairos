@@ -2,14 +2,13 @@
 //!
 //! Handles mouse and keyboard interactions with the chart canvas.
 
-use super::traits::{Chart, PlotConstants};
+use super::traits::Chart;
 use crate::chart::Message;
 use crate::widget::multi_split::DRAG_SIZE;
 use data::DrawingTool;
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
-const ZOOM_SENSITIVITY: f32 = 30.0;
-const ZOOM_BASE: f32 = 2.0;
+use crate::chart::{ZOOM_BASE, ZOOM_SENSITIVITY};
 
 /// Current interaction mode for the chart
 #[derive(Default, Debug, Clone, Copy)]

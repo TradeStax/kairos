@@ -3,7 +3,7 @@
 //! Represents a point anchored to price and time coordinates on the chart.
 
 use crate::chart::ViewState;
-use data::{SerializablePoint, Price};
+use data::SerializablePoint;
 use exchange::util::Price as ExchangePrice;
 use iced::{Point, Size};
 

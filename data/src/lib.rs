@@ -106,44 +106,36 @@ impl From<ServiceError> for DataError {
 }
 
 // ============================================================================
-// BACKWARD COMPATIBILITY - Deprecated exports for old code
+// Utilities
 // ============================================================================
 
-// State management backward compatibility
-pub use state::AppState as State;
-
-// Persistence helpers
-pub const SAVED_STATE_PATH: &str = "saved-state.json";
-
-pub fn write_json_to_file(json_str: &str, file_name: &str) -> Result<(), DataError> {
-    use std::fs;
-    let path = data_path(None).join(file_name);
-    fs::write(&path, json_str)
-        .map_err(|e| DataError::State(format!("Failed to write file: {}", e)))?;
-    Ok(())
+/// Lock a mutex, recovering from poisoning by returning the inner data.
+///
+/// This is a helper to avoid repeating the `.lock().unwrap_or_else(|e| e.into_inner())`
+/// pattern throughout the codebase. Poisoned mutexes are recovered by logging the
+/// error and returning the inner guard.
+pub fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| {
+        ::log::error!("Mutex poisoned, recovering: {}", e);
+        e.into_inner()
+    })
 }
 
-// Layout types exported from state module (no duplicates)
-
-/// Stub for removed function - caching now handled by CacheManagerService
-pub fn cleanup_old_market_data() {
-    ::log::warn!("cleanup_old_market_data is deprecated - use CacheManagerService");
-}
-
-// Utility functions
 use std::path::PathBuf;
 
 /// Get data directory path
 pub fn data_path(path_name: Option<&str>) -> PathBuf {
-    if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
+    let base = if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
         PathBuf::from(path)
     } else {
         let data_dir = dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("."));
-        if let Some(path_name) = path_name {
-            data_dir.join("flowsurface").join(path_name)
-        } else {
-            data_dir.join("flowsurface")
-        }
+        data_dir.join("flowsurface")
+    };
+
+    if let Some(path_name) = path_name {
+        base.join(path_name)
+    } else {
+        base
     }
 }
 

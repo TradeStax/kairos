@@ -61,8 +61,8 @@ impl HistoricalOptionsManager {
         log::info!("⬇ Fetching {} chain from API...", underlying_ticker);
 
         let url = format!(
-            "https://api.polygon.io/v3/snapshot/options/{}?apiKey={}",
-            underlying_ticker, self.config.api_key
+            "https://api.polygon.io/v3/snapshot/options/{}",
+            underlying_ticker,
         );
 
         let response = self.client.get(&url).await?;
@@ -183,10 +183,9 @@ impl HistoricalOptionsManager {
         log::debug!("Fetching snapshot for {} on {}", contract_ticker, date);
 
         let url = format!(
-            "https://api.polygon.io/v3/snapshot/options/{}/{}?apiKey={}",
+            "https://api.polygon.io/v3/snapshot/options/{}/{}",
             extract_underlying(contract_ticker)?,
             contract_ticker,
-            self.config.api_key
         );
 
         let response = self.client.get(&url).await?;
@@ -233,8 +232,9 @@ impl HistoricalOptionsManager {
         log::info!("⬇ Fetching contracts from API...");
 
         let url = format!(
-            "https://api.polygon.io/v3/reference/options/contracts?underlying_ticker={}&limit=1000&apiKey={}",
-            underlying_ticker, self.config.api_key
+            "https://api.polygon.io/v3/reference/options/contracts\
+            ?underlying_ticker={}&limit=1000",
+            underlying_ticker,
         );
 
         let response = self.client.get(&url).await?;

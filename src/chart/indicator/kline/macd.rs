@@ -8,19 +8,21 @@ use std::{collections::BTreeMap, ops::RangeInclusive};
 pub struct MacdIndicator {
     macd_line: BTreeMap<u64, f32>,
     signal_line: BTreeMap<u64, f32>,
-    histogram: BTreeMap<u64, f32>,
     cache: Caches,
 }
 
 impl MacdIndicator {
     pub fn new() -> Self {
-        Self { macd_line: BTreeMap::new(), signal_line: BTreeMap::new(), histogram: BTreeMap::new(), cache: Caches::default() }
+        Self {
+            macd_line: BTreeMap::new(),
+            signal_line: BTreeMap::new(),
+            cache: Caches::default(),
+        }
     }
 
     fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.macd_line.clear();
         self.signal_line.clear();
-        self.histogram.clear();
         if candles.len() < 26 { return; }
 
         let multiplier_12 = 2.0 / 13.0;
@@ -50,7 +52,6 @@ impl MacdIndicator {
         for (key, macd) in &macd_values {
             signal = macd * multiplier_9 + signal * (1.0 - multiplier_9);
             self.signal_line.insert(*key, signal);
-            self.histogram.insert(*key, macd - signal);
         }
     }
 }

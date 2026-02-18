@@ -25,7 +25,7 @@ pub fn draw_crosshair(
     theme: &Theme,
     bounds: Size,
     cursor_position: Point,
-    interaction: &Interaction,
+    _interaction: &Interaction,
 ) -> CrosshairResult {
     let region = state.visible_region(bounds);
     let dashed_line = style::dashed_line(theme);
@@ -37,17 +37,24 @@ pub fn draw_crosshair(
 
     let tick_size = state.tick_size.to_f32_lossy();
 
-    // Check if ruler is active and draw it
-    if let Interaction::Ruler { start: Some(_) } = interaction {
-        // Ruler drawing is handled by ruler.rs
+    // Horizontal price line
+    if bounds.height < f32::EPSILON {
+        return CrosshairResult {
+            price: highest,
+            interval: 0,
+        };
     }
 
-    // Horizontal price line
     let crosshair_ratio = cursor_position.y / bounds.height;
     let crosshair_price = highest + crosshair_ratio * (lowest - highest);
 
     let rounded_price = (crosshair_price / tick_size).round() * tick_size;
-    let snap_ratio = (rounded_price - highest) / (lowest - highest);
+    let price_range = lowest - highest;
+    let snap_ratio = if price_range.abs() < f32::EPSILON {
+        0.5 // Center when no price range
+    } else {
+        (rounded_price - highest) / price_range
+    };
 
     frame.stroke(
         &Path::line(

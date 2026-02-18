@@ -1,5 +1,4 @@
 use crate::chart::{comparison::ComparisonChart, heatmap::HeatmapChart, candlestick::KlineChart};
-use crate::chart::core::Interaction;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
 use crate::widget::column_drag;
 
@@ -157,7 +156,7 @@ impl Content {
     }
 
     pub fn toggle_indicator(&mut self, indicator: UiIndicator) {
-        match (self, indicator) {
+        match (&mut *self, indicator) {
             (
                 Content::Heatmap {
                     chart, indicators, ..
@@ -192,7 +191,12 @@ impl Content {
                 }
                 chart.toggle_indicator(ind);
             }
-            _ => panic!("indicator toggle on {indicator:?} pane",),
+            (other, ind) => {
+                log::warn!(
+                    "indicator toggle on {ind:?} ignored for \
+                     {other} pane"
+                );
+            }
         }
     }
 
@@ -204,7 +208,7 @@ impl Content {
             | Content::Ladder(_)
             | Content::Starter
             | Content::Comparison(_) => {
-                panic!("indicator reorder on {} pane", self)
+                log::warn!("indicator reorder ignored for {} pane", self);
             }
         }
     }
@@ -411,6 +415,7 @@ impl PartialEq for Content {
                 | (Content::Kline { .. }, Content::Kline { .. })
                 | (Content::TimeAndSales(_), Content::TimeAndSales(_))
                 | (Content::Ladder(_), Content::Ladder(_))
+                | (Content::Comparison(_), Content::Comparison(_))
         )
     }
 }

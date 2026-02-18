@@ -5,7 +5,7 @@
 
 mod series;
 
-pub use series::{Message as SeriesEditorMessage, TickerSeriesEditor};
+pub use series::TickerSeriesEditor;
 
 use crate::widget::chart::comparison::{DEFAULT_ZOOM_POINTS, LineComparison, LineComparisonEvent};
 use crate::widget::chart::{Series, Zoom};
@@ -36,9 +36,6 @@ pub struct ComparisonChart {
 
     /// Index mapping ticker to series position
     series_index: FxHashMap<FuturesTickerInfo, usize>,
-
-    /// Chart basis (time or tick)
-    basis: ChartBasis,
 
     /// Timeframe (for time-based charts)
     timeframe: Timeframe,
@@ -153,7 +150,6 @@ impl ComparisonChart {
         Self {
             series,
             series_index,
-            basis,
             timeframe,
             normalized,
             original_data,

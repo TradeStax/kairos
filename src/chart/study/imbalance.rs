@@ -4,7 +4,7 @@
 //! buying and selling pressure at adjacent price levels.
 
 use super::Footprint;
-use exchange::util::{Price, PriceStep};
+use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::Frame;
 use iced::{Point, Size};
@@ -113,10 +113,10 @@ pub fn draw_imbalance_markers(
 
 /// Check if there's an imbalance between two price levels
 pub fn check_imbalance(
-    buy_qty: f32,
+    _buy_qty: f32,
     sell_qty: f32,
     diagonal_buy_qty: f32,
-    diagonal_sell_qty: f32,
+    _diagonal_sell_qty: f32,
     threshold: u8,
     ignore_zeros: bool,
 ) -> Option<ImbalanceType> {

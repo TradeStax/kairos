@@ -1,8 +1,9 @@
-use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError};
+use super::convert_massive_error;
+use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig};
 use chrono::NaiveDate;
 use flowsurface_data::domain::{DateRange, OptionChain};
 use flowsurface_data::repository::{
-    OptionChainRepository, RepositoryError, RepositoryResult, RepositoryStats,
+    OptionChainRepository, RepositoryResult, RepositoryStats,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -17,7 +18,7 @@ impl MassiveChainRepository {
     pub async fn new(config: MassiveConfig) -> RepositoryResult<Self> {
         let manager = HistoricalOptionsManager::new(config)
             .await
-            .map_err(convert_error)?;
+            .map_err(convert_massive_error)?;
 
         Ok(Self {
             manager: Arc::new(Mutex::new(manager)),
@@ -37,7 +38,7 @@ impl OptionChainRepository for MassiveChainRepository {
         manager
             .fetch_option_chain(underlying_ticker, date)
             .await
-            .map_err(convert_error)
+            .map_err(convert_massive_error)
     }
 
     async fn get_chains(
@@ -50,7 +51,7 @@ impl OptionChainRepository for MassiveChainRepository {
         manager
             .fetch_option_chains(underlying_ticker, date_range)
             .await
-            .map_err(convert_error)
+            .map_err(convert_massive_error)
     }
 
     async fn get_chain_by_strike_range(
@@ -124,13 +125,13 @@ impl OptionChainRepository for MassiveChainRepository {
         manager
             .find_chain_gaps(underlying_ticker, date_range)
             .await
-            .map_err(convert_error)
+            .map_err(convert_massive_error)
     }
 
     async fn stats(&self) -> RepositoryResult<RepositoryStats> {
         let manager = self.manager.lock().await;
 
-        let cache_stats = manager.cache_stats().await.map_err(convert_error)?;
+        let cache_stats = manager.cache_stats().await.map_err(convert_massive_error)?;
 
         Ok(RepositoryStats {
             cached_days: 0, // Would need to count cache files
@@ -139,18 +140,6 @@ impl OptionChainRepository for MassiveChainRepository {
             hits: 0,
             misses: 0,
         })
-    }
-}
-
-/// Convert Massive error to Repository error
-fn convert_error(e: MassiveError) -> RepositoryError {
-    match e {
-        MassiveError::SymbolNotFound(s) => RepositoryError::NotFound(s),
-        MassiveError::Cache(s) => RepositoryError::Cache(s),
-        MassiveError::Parse(s) => RepositoryError::Serialization(s),
-        MassiveError::InvalidData(s) => RepositoryError::InvalidData(s),
-        MassiveError::Io(e) => RepositoryError::Io(e),
-        _ => RepositoryError::Remote(e.to_string()),
     }
 }
 

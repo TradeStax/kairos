@@ -61,19 +61,18 @@ pub use adapter::massive::{
 pub use databento::dbn::Schema as DatabentoSchema;
 
 /// Check if symbol is supported
-pub fn is_symbol_supported(symbol: &str, _venue: FuturesVenue, log_warn: bool) -> bool {
-    let valid_symbol = symbol
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.');
-
-    if valid_symbol {
-        true
-    } else {
-        if log_warn {
-            log::warn!("Unsupported ticker symbol: '{}'", symbol);
-        }
-        false
+pub fn is_symbol_supported(
+    symbol: &str,
+    _venue: FuturesVenue,
+    log_warn: bool,
+) -> bool {
+    let valid = symbol.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
+    });
+    if !valid && log_warn {
+        log::warn!("Unsupported ticker symbol: '{}'", symbol);
     }
+    valid
 }
 
 // TickMultiplier removed - was only needed for crypto which this project doesn't support

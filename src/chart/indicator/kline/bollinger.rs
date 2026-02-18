@@ -53,11 +53,13 @@ impl KlineIndicatorImpl for BollingerIndicator {
     fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
 
     fn element<'a>(&'a self, chart: &'a ViewState, visible_range: RangeInclusive<u64>) -> iced::Element<'a, Message> {
-        let tooltip = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB: {:.2}", v));
+        let upper_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Upper: {:.2}", v));
+        let middle_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Mid: {:.2}", v));
+        let lower_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Lower: {:.2}", v));
 
-        let upper_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
-        let middle_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
-        let lower_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+        let upper_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(upper_tt);
+        let middle_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(middle_tt);
+        let lower_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(lower_tt);
 
         column![
             indicator_row(chart, &self.cache, upper_plot, &self.upper_band, visible_range.clone()),

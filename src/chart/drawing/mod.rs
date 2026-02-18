@@ -13,4 +13,4 @@ pub use manager::DrawingManager;
 pub use point::DrawingPoint;
 
 // Re-export types from data layer for convenience
-pub use data::{DrawingId, DrawingStyle, DrawingTool, LineStyle, SerializableDrawing};
+pub use data::{DrawingTool, LineStyle};

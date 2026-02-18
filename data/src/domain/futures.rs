@@ -228,10 +228,19 @@ impl FuturesTicker {
 
         let mut product_bytes = [0u8; 8];
         if let Some(prod) = product {
+            if prod.len() > 8 {
+                log::warn!("Product string '{}' truncated to 8 characters", prod);
+            }
             let prod_len = prod.len().min(8);
             product_bytes[..prod_len].copy_from_slice(&prod.as_bytes()[..prod_len]);
         } else {
             let extracted = Self::extract_product(symbol);
+            if extracted.len() > 8 {
+                log::warn!(
+                    "Product string '{}' truncated to 8 characters",
+                    extracted
+                );
+            }
             let prod_len = extracted.len().min(8);
             product_bytes[..prod_len].copy_from_slice(&extracted.as_bytes()[..prod_len]);
         }

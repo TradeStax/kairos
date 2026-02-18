@@ -13,16 +13,14 @@ use crate::{
         pane::{
             Modal,
             mini_tickers_list::MiniPanel,
-            settings::{comparison_cfg_view, heatmap_cfg_view, kline_cfg_view},
         },
     },
-    screen::dashboard::panel::{self, ladder::Ladder, timeandsales::TimeAndSales},
+    screen::dashboard::panel::{self},
     widget::toast::Toast,
 };
 use data::{
-    ChartBasis, ChartConfig, ChartData, ChartType, ContentKind, DataSchema, DateRange,
-    KlineIndicator, HeatmapIndicator, LinkGroup, LoadingStatus, Settings, Timeframe,
-    UiIndicator, ViewConfig, VisualConfig,
+    ChartBasis, ChartConfig, ChartData, ChartType, ContentKind, DataSchema, DateRange, LinkGroup, LoadingStatus, Settings, Timeframe,
+    UiIndicator, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
 use iced::widget::pane_grid;
@@ -83,6 +81,8 @@ pub struct State {
     pub ticker_info: Option<FuturesTickerInfo>,
     pub chart_data: Option<ChartData>,
     pub link_group: Option<LinkGroup>,
+    /// Cached selected tickers for comparison chart (avoids Box::leak in view)
+    pub cached_selected_tickers: Vec<FuturesTickerInfo>,
 }
 
 impl State {
@@ -225,6 +225,7 @@ impl State {
             }
             Content::Starter => {}
         }
+        self.refresh_selected_tickers_cache();
     }
 
     pub fn get_ticker(&self) -> Option<FuturesTickerInfo> {
@@ -474,6 +475,7 @@ impl State {
                         super::chart::comparison::Action::RemoveSeries(ticker_info) => {
                             if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
+                                self.refresh_selected_tickers_cache();
                                 log::info!("Removed ticker {:?} from comparison chart", ticker_info.ticker);
                             }
                         }
@@ -519,6 +521,7 @@ impl State {
                         crate::modal::pane::mini_tickers_list::RowSelection::Remove(ticker_info) => {
                             if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
+                                self.refresh_selected_tickers_cache();
                                 log::info!("Removed ticker {:?} from comparison chart", ticker_info.ticker);
                             }
                         }
@@ -647,6 +650,15 @@ impl State {
         self.id
     }
 
+    /// Refresh cached selected tickers from comparison chart
+    fn refresh_selected_tickers_cache(&mut self) {
+        if let Content::Comparison(Some(chart)) = &self.content {
+            self.cached_selected_tickers = chart.selected_tickers();
+        } else {
+            self.cached_selected_tickers.clear();
+        }
+    }
+
     /// Handle drawing click at a screen position
     fn handle_drawing_click(&mut self, screen_point: iced::Point) {
         use crate::chart::{Chart, drawing::DrawingPoint};
@@ -756,6 +768,7 @@ impl Default for State {
             ticker_info: None,
             chart_data: None,
             link_group: None,
+            cached_selected_tickers: Vec::new(),
         }
     }
 }

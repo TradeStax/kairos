@@ -8,7 +8,6 @@ use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
 use iced::{
     Element, Length,
     alignment::Horizontal,
-    padding,
     widget::{button, column, container, row, rule, scrollable, text},
 };
 use serde::{Deserialize, Serialize};

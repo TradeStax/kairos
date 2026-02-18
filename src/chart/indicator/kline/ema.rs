@@ -34,13 +34,6 @@ impl EmaIndicator {
         }
     }
 
-    fn get_color(&self) -> iced::Color {
-        match self.period {
-            9 => iced::Color::from_rgb(0.3, 1.0, 0.3),
-            21 => iced::Color::from_rgb(1.0, 0.3, 0.3),
-            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),
-        }
-    }
 }
 
 impl KlineIndicatorImpl for EmaIndicator {

@@ -178,7 +178,7 @@ fn calendar_day_style(
 
 impl DataManagementPanel {
     pub fn new() -> Self {
-        let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
+        let yesterday = chrono::Local::now().date_naive() - chrono::Duration::days(1);
         let start = yesterday - chrono::Duration::days(6); // Last 7 days default
 
         Self {
@@ -693,7 +693,7 @@ impl DataManagementPanel {
         .into()
     }
 
-    fn calendar_view(&self) -> Element<DataManagementMessage> {
+    fn calendar_view(&self) -> Element<'_, DataManagementMessage> {
         let month = self.calendar.viewing_month;
 
         // Month/year header with navigation
@@ -735,10 +735,10 @@ impl DataManagementPanel {
         .into()
     }
 
-    fn build_calendar_grid(&self, month: chrono::NaiveDate) -> Element<DataManagementMessage> {
+    fn build_calendar_grid(&self, month: chrono::NaiveDate) -> Element<'_, DataManagementMessage> {
         use chrono::Weekday;
 
-        let today = chrono::Utc::now().date_naive();
+        let today = chrono::Local::now().date_naive();
 
         // Find first Monday of viewing period (may be before month starts)
         let first_day = chrono::NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
@@ -775,8 +775,8 @@ impl DataManagementPanel {
 
                 let is_current_month = date.month() == month.month() && date.year() == month.year();
                 let is_in_range = date >= start && date <= end;
-                let is_start = date == start;
-                let is_end = date == end;
+                let _is_start = date == start;
+                let _is_end = date == end;
                 let is_cached = self.cached_dates.as_ref().map(|set| set.contains(&date)).unwrap_or(false);
 
                 // Text color based ONLY on cache status

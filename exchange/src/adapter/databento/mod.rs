@@ -9,7 +9,6 @@
 //! - Trading hours tracking
 //! - Contract expiration management
 //! - Historical data replay system
-//! - Live WebSocket streaming
 
 // Consolidated module structure per architecture plan
 pub mod cache; // Low-level cache operations
@@ -17,8 +16,6 @@ pub mod client; // HTTP client initialization
 pub mod decoder; // DBN decoding utilities
 pub mod fetcher; // Fetch orchestration and gap detection
 pub mod mapper; // Type conversions (Databento → Domain)
-// WebSocket module temporarily disabled (historical-only for now)
-// pub mod websocket; // WebSocket client for live streaming
 
 use super::AdapterError;
 use databento::dbn::Dataset;
@@ -27,8 +24,6 @@ use std::path::PathBuf;
 // Re-export main manager and utilities
 pub use fetcher::HistoricalDataManager;
 pub use mapper::{fetch_historical_prices, get_continuous_ticker_info};
-// WebSocket client temporarily disabled (historical-only for now)
-// pub use websocket::WebSocketClient;
 
 /// Databento dataset identifier for CME Globex
 pub const DATASET: Dataset = Dataset::GlbxMdp3;
@@ -165,36 +160,6 @@ impl DatabentoConfig {
 
         None
     }
-}
-
-// FuturesVenue and ContractType moved to futures.rs module
-// No duplication - using types from crate::futures
-
-// FuturesInstrument and ExpirationInfo moved to futures.rs module
-// Using types from crate::futures
-
-/// Trading session type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SessionType {
-    /// Pre-market session
-    PreMarket,
-    /// Regular trading hours
-    Regular,
-    /// Post-market session
-    PostMarket,
-    /// Market closed
-    Closed,
-}
-
-/// Trading status for an instrument
-#[derive(Debug, Clone)]
-pub struct TradingStatus {
-    /// Timestamp of status
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    /// Whether market is currently trading
-    pub is_trading: bool,
-    /// Current session type
-    pub session_type: SessionType,
 }
 
 /// Error types specific to databento operations

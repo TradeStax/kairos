@@ -1,6 +1,5 @@
 use crate::screen::dashboard::pane::{Event, Message};
 use crate::split_column;
-use crate::style;
 
 use data::{ChartBasis, ClusterKind, FootprintStudy, KlineChartKind};
 use data::state::pane_config::{VisualConfig, KlineConfig};
@@ -23,7 +22,7 @@ pub fn kline_cfg_view<'a>(
 ) -> Element<'a, Message> {
     let content = match kind {
         KlineChartKind::Candles => column![text(
-            "This chart type doesn't have any configurations, WIP..."
+            "No configuration options for candle charts."
         )],
         KlineChartKind::Footprint {
             clusters,

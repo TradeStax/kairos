@@ -50,15 +50,6 @@ impl SmaIndicator {
         }
     }
 
-    fn get_color(&self) -> iced::Color {
-        match self.period {
-            20 => iced::Color::from_rgb(0.2, 0.8, 1.0),   // Blue
-            50 => iced::Color::from_rgb(1.0, 0.6, 0.2),   // Orange
-            200 => iced::Color::from_rgb(0.8, 0.2, 0.8),  // Purple
-            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),    // Gray
-        }
-    }
-
     fn indicator_elem<'a>(
         &'a self,
         main_chart: &'a ViewState,

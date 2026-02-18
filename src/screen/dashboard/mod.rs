@@ -8,7 +8,7 @@ pub use sidebar::Sidebar;
 use super::DashboardError;
 use crate::{
     chart,
-    modal::pane::{Modal, data_management::{CacheStatus, DownloadProgress}},
+    modal::pane::{Modal, data_management::DownloadProgress},
     screen::dashboard::tickers_table::TickersTable,
     style,
     widget::toast::Toast,
@@ -142,6 +142,9 @@ pub enum Event {
         ticker: data::FuturesTicker,
         schema: exchange::DatabentoSchema,
         date_range: data::DateRange,
+    },
+    PaneClosed {
+        pane_id: uuid::Uuid,
     },
 }
 
@@ -279,28 +282,29 @@ impl Dashboard {
                     }
                 }
                 pane::Message::SplitPane(axis, pane) => {
-                    let focus_pane = if let Some((new_pane, _)) =
+                    if let Some((new_pane, _)) =
                         self.panes.split(axis, pane, pane::State::new())
                     {
-                        Some(new_pane)
-                    } else {
-                        None
-                    };
-
-                    if Some(focus_pane).is_some() {
-                        self.focus = Some((window, focus_pane.unwrap()));
+                        self.focus = Some((window, new_pane));
                     }
                 }
                 pane::Message::ClosePane(pane) => {
                     // Get pane UUID before closing to clean up chart state
-                    if let Some(pane_state) = self.panes.get(pane) {
-                        let uuid = pane_state.unique_id();
+                    let closed_pane_id = self.panes.get(pane).map(|s| s.unique_id());
+
+                    if let Some(uuid) = closed_pane_id {
                         self.charts.remove(&uuid);
                         log::debug!("Cleaned up chart state for closed pane {}", uuid);
                     }
 
                     if let Some((_, sibling)) = self.panes.close(pane) {
                         self.focus = Some((window, sibling));
+                    }
+
+                    // Emit PaneClosed event so the app layer can clean up
+                    // live subscriptions and other per-pane resources
+                    if let Some(pane_id) = closed_pane_id {
+                        return (Task::none(), Some(Event::PaneClosed { pane_id }));
                     }
                 }
                 pane::Message::MaximizePane(pane) => {
@@ -389,7 +393,7 @@ impl Dashboard {
                         return (Task::none(), None);
                     }
 
-                    let _maybe_ticker_info = self
+                    let group_ticker_info = self
                         .iter_all_panes(main_window.id)
                         .filter(|(w, p, _)| !(*w == window && *p == pane))
                         .find_map(|(_, _, other_state)| {
@@ -400,13 +404,34 @@ impl Dashboard {
                             }
                         });
 
+                    // Pre-compute date range before mutable borrow of self
+                    let date_range_for_group = group_ticker_info.map(|ti| {
+                        let preset_days = self.date_range_preset.to_days();
+                        let range = data::lock_or_recover(&self.downloaded_tickers)
+                            .get_range(&ti.ticker)
+                            .unwrap_or_else(|| DateRange::last_n_days(preset_days));
+                        (ti, range)
+                    });
+
                     if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                         state.link_group = group;
                         state.modal = None;
 
-                        // TODO: Handle ticker switching in link groups
-                        // For now, just set the link group without loading data
-                        // Will implement proper chart loading once pane.rs is refactored
+                        // If the link group already has an active ticker,
+                        // load data for this pane with that ticker
+                        if let Some((ticker_info, date_range)) = date_range_for_group {
+                            let pane_id = state.unique_id();
+                            let content_kind = state.content.kind();
+
+                            let effect = state.set_content_with_range(
+                                ticker_info, content_kind, date_range,
+                            );
+
+                            if let pane::Effect::LoadChart { config, ticker_info } = effect {
+                                let event = self.load_chart(pane_id, config, ticker_info);
+                                return (Task::none(), Some(event));
+                            }
+                        }
                     }
                 }
                 pane::Message::Popout => {
@@ -436,10 +461,8 @@ impl Dashboard {
                                 let task = self.switch_tickers_in_group(main_window.id, ticker_info, triggering_pane_link_group, Some(pane_id));
                                 (task, None)
                             }
-                            pane::Effect::FocusWidget(_id) => {
-                                // TODO: Implement widget focusing with the specific ID
-                                // For now, this effect is not critical for core functionality
-                                (Task::none(), None)
+                            pane::Effect::FocusWidget(id) => {
+                                (iced::widget::operation::focus(id), None)
                             }
                             pane::Effect::EstimateDataCost { ticker, schema, date_range } => {
                                 // Trigger cost estimation
@@ -825,9 +848,7 @@ impl Dashboard {
 
         // Get registered date range BEFORE borrowing pane_state mutably
         let preset_days = self.date_range_preset.to_days();
-        let date_range = self.downloaded_tickers
-            .lock()
-            .unwrap()
+        let date_range = data::lock_or_recover(&self.downloaded_tickers)
             .get_range(&ticker_info.ticker)
             .unwrap_or_else(|| {
                 log::warn!("No registered range for {} - using preset ({} days)", ticker_info.ticker, preset_days);
@@ -861,8 +882,10 @@ impl Dashboard {
                     Event::Notification(toast) => {
                         Task::done(Message::Notification(toast))
                     }
-                    Event::EstimateDataCost { .. } | Event::DownloadData { .. } => {
-                        // These shouldn't appear from set_content, but handle gracefully
+                    Event::EstimateDataCost { .. }
+                    | Event::DownloadData { .. }
+                    | Event::PaneClosed { .. } => {
+                        // These shouldn't appear from load_chart, but handle gracefully
                         Task::none()
                     }
                 }
@@ -915,9 +938,7 @@ impl Dashboard {
 
         // Get registered date range BEFORE looping
         let preset_days = self.date_range_preset.to_days();
-        let date_range = self.downloaded_tickers
-            .lock()
-            .unwrap()
+        let date_range = data::lock_or_recover(&self.downloaded_tickers)
             .get_range(&ticker_info.ticker)
             .unwrap_or_else(|| {
                 log::warn!("No registered range for {} in switch_tickers_in_group - using preset ({} days)", ticker_info.ticker, preset_days);
@@ -969,18 +990,17 @@ impl Dashboard {
         pane_id: uuid::Uuid,
         chart_data: ChartData,
     ) -> Task<Message> {
-        // Update chart state first (separate borrow)
-        if let Some(chart_state) = self.charts.get_mut(&pane_id) {
-            chart_state.data = chart_data.clone();
-            chart_state.loading_status = LoadingStatus::Ready;
-        }
-
-        // Update pane state (separate borrow)
+        // Update pane state first (consumes chart_data, separate borrow)
         if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
             pane_state.set_chart_data(chart_data);
             log::info!("Chart data loaded for pane {}", pane_id);
         } else {
             log::warn!("Pane {} not found for chart data", pane_id);
+        }
+
+        // Update chart state tracking
+        if let Some(chart_state) = self.charts.get_mut(&pane_id) {
+            chart_state.loading_status = LoadingStatus::Ready;
         }
 
         Task::none()
@@ -1031,8 +1051,12 @@ impl Dashboard {
                 // Just invalidate charts for rendering updates
                 let _ = state.invalidate(now);
 
-                // TODO: Handle pane actions once pane.rs is refactored
-                // For now, we skip action handling as we're moving to async loading model
+                // Pane invalidation can produce Actions (e.g., chart
+                // interaction events) that need to be dispatched as
+                // Dashboard::Message variants. This is deferred until the
+                // pane action/effect split is finalized: pane::Action for
+                // side-effects (load data, focus widget) vs internal state
+                // mutations that stay inside PaneState.
             });
 
         Task::none()

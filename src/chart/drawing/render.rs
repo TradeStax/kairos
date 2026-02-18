@@ -49,7 +49,7 @@ fn draw_single_drawing(
     state: &ViewState,
     drawing: &Drawing,
     bounds: Size,
-    palette: &Extended,
+    _palette: &Extended,
     is_selected: bool,
 ) {
     if !drawing.visible || drawing.points.is_empty() {
@@ -239,9 +239,4 @@ fn extend_to_bounds(start: Point, direction: Point, bounds: Size) -> Point {
     }
 
     Point::new(start.x + dir_x * t_max, start.y + dir_y * t_max)
-}
-
-/// Get the handle size constant
-pub fn handle_size() -> f32 {
-    HANDLE_SIZE
 }

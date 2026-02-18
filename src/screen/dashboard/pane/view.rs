@@ -191,9 +191,6 @@ impl State {
                     });
 
                     let settings_modal = || modal::pane::settings::comparison_cfg_view(id, c);
-                    let selected_tickers = c.selected_tickers();
-                    // Use Box::leak to create a static reference for the title bar
-                    let selected_tickers_static: &'static [_] = Box::leak(selected_tickers.into_boxed_slice());
 
                     self.compose_stack_view(
                         base,
@@ -201,7 +198,7 @@ impl State {
                         None,
                         compact_controls,
                         settings_modal,
-                        Some(selected_tickers_static),
+                        Some(&self.cached_selected_tickers),
                         tickers_table,
                     )
                 } else {
@@ -297,7 +294,10 @@ impl State {
                 }
             }
             Content::Heatmap {
-                chart, indicators, ..
+                chart,
+                indicators,
+                studies,
+                ..
             } => {
                 if let Some(chart) = chart {
                     let ticker_info = self.ticker_info;
@@ -318,34 +318,28 @@ impl State {
                     let base = chart::view(chart, indicators, timezone).map(move |message| {
                         Message::PaneEvent(id, Event::ChartInteraction(message))
                     });
+                    // Pre-compute settings data outside closure so it lives
+                    // long enough to be borrowed by the returned Element
+                    let visual = chart.visual_config();
+                    let heatmap_cfg = data::state::pane_config::HeatmapConfig {
+                        trade_size_filter: visual.trade_size_filter,
+                        order_size_filter: visual.order_size_filter,
+                        trade_size_scale: visual.trade_size_scale,
+                        coalescing: None,
+                        rendering_mode: data::state::pane_config::HeatmapRenderMode::Auto,
+                        max_trade_markers: visual.max_trade_markers,
+                        performance_preset: None,
+                    };
+                    // `studies` is borrowed from `self.content` with lifetime
+                    // 'a, so the closure can safely reference it.
                     let settings_modal = || {
-                        // Convert chart::heatmap::VisualConfig to data::HeatmapConfig
-                        let visual = chart.visual_config();
-                        let cfg = data::state::pane_config::HeatmapConfig {
-                            trade_size_filter: visual.trade_size_filter,
-                            order_size_filter: visual.order_size_filter,
-                            trade_size_scale: visual.trade_size_scale,
-                            coalescing: None, // CoalesceKind is not exposed, use None
-                            rendering_mode: data::state::pane_config::HeatmapRenderMode::Auto,
-                            max_trade_markers: visual.max_trade_markers,
-                            performance_preset: None,
-                        };
-                        // Convert chart::heatmap::HeatmapStudy to data studies and leak for 'static lifetime
-                        let data_studies: Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy> =
-                            chart
-                                .studies
-                                .iter()
-                                .map(|s| match s {
-                                    crate::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                                        data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(
-                                            *kind,
-                                        )
-                                    }
-                                })
-                                .collect();
-                        // Use Box::leak to create a static reference
-                        let studies_static: &'static [_] = Box::leak(data_studies.into_boxed_slice());
-                        modal::pane::settings::heatmap_cfg_view(cfg, id, chart.study_configurator(), studies_static, basis)
+                        modal::pane::settings::heatmap_cfg_view(
+                            heatmap_cfg,
+                            id,
+                            chart.study_configurator(),
+                            studies,
+                            basis,
+                        )
                     };
 
                     let indicator_modal = if self.modal == Some(Modal::Indicators) {

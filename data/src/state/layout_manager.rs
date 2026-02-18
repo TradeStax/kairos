@@ -1,7 +1,7 @@
 //! Layout Manager Types for State Serialization
 
 use serde::{Deserialize, Serialize};
-use super::layout_types::{Dashboard, Pane};
+use super::layout_types::Dashboard;
 
 /// Layout definition for state persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]

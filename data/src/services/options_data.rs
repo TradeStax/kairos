@@ -343,12 +343,9 @@ impl OptionsDataService {
         status.clone()
     }
 
-    /// Clear old loading statuses
-    pub async fn clear_old_statuses(&self, older_than: std::time::Duration) {
+    /// Clear completed and errored loading statuses
+    pub async fn clear_old_statuses(&self) {
         let mut status = self.loading_status.lock().await;
-        let now = std::time::Instant::now();
-
-        // Remove completed statuses older than threshold
         status.retain(|_, s| {
             !matches!(s, LoadingStatus::Ready | LoadingStatus::Error { .. })
         });

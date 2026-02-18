@@ -14,6 +14,8 @@ pub enum Message {
     Invalidate(Option<Instant>),
 }
 
+/// Placeholder for future panel-level actions (e.g. scroll-to-trade).
+/// Referenced by `pane::Action::Panel` and the `Panel` trait.
 pub enum Action {}
 
 pub trait Panel: canvas::Program<Message> {

@@ -6,7 +6,7 @@ use data::state::pane_config::VisualConfig;
 
 use iced::{
     Element, Length,
-    widget::{button, container, pane_grid, text, tooltip::Position as TooltipPosition},
+    widget::{button, container, pane_grid, tooltip::Position as TooltipPosition},
 };
 
 pub fn cfg_view_container<'a, T>(max_width: u32, content: T) -> Element<'a, Message>

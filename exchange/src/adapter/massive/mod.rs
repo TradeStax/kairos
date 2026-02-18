@@ -85,7 +85,10 @@ fn default_cache_max_days() -> u32 {
 }
 
 fn default_cache_dir() -> PathBuf {
-    PathBuf::from("./cache/massive")
+    dirs_next::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("flowsurface")
+        .join("massive")
 }
 
 fn default_rate_limit() -> u32 {
@@ -281,27 +284,20 @@ impl MassiveError {
     }
 
     /// Get error severity
-    pub fn severity(&self) -> ErrorSeverity {
+    pub fn severity(&self) -> crate::error::ErrorSeverity {
+        use crate::error::ErrorSeverity;
         match self {
-            MassiveError::Config(_) | MassiveError::Auth(_) => ErrorSeverity::Critical,
-            MassiveError::SymbolNotFound(_) | MassiveError::InvalidContractTicker(_) => {
+            MassiveError::Config(_) | MassiveError::Auth(_) => {
+                ErrorSeverity::Critical
+            }
+            MassiveError::SymbolNotFound(_)
+            | MassiveError::InvalidContractTicker(_) => {
                 ErrorSeverity::Warning
             }
             MassiveError::RateLimit(_) => ErrorSeverity::Recoverable,
             _ => ErrorSeverity::Recoverable,
         }
     }
-}
-
-/// Error severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorSeverity {
-    /// Critical error, application cannot continue
-    Critical,
-    /// Recoverable error, can retry
-    Recoverable,
-    /// Warning, non-fatal
-    Warning,
 }
 
 /// Result type alias for Massive operations
@@ -345,6 +341,8 @@ mod tests {
 
     #[test]
     fn test_error_severity() {
+        use crate::error::ErrorSeverity;
+
         let auth_err = MassiveError::Auth("test".to_string());
         assert_eq!(auth_err.severity(), ErrorSeverity::Critical);
 

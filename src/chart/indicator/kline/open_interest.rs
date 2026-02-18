@@ -89,12 +89,6 @@ impl OpenInterestIndicator {
         )
     }
 
-    /// Set OI data (loaded from repository)
-    pub fn set_data(&mut self, oi_data: Vec<(u64, f32)>) {
-        self.data.clear();
-        self.data.extend(oi_data);
-        self.clear_all_caches();
-    }
 }
 
 impl KlineIndicatorImpl for OpenInterestIndicator {

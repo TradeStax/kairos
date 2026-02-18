@@ -8,11 +8,17 @@ use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Geometry};
 use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
-use std::collections::BTreeMap;
 
 use super::candle::draw_candle;
 use super::footprint::{ContentGaps, draw_all_npocs, draw_clusters, effective_cluster_qty, should_show_text};
-use super::{KlineChart, TradeGroup, domain_to_exchange_price};
+use super::KlineChart;
+
+/// Maximum font size for footprint cluster text labels
+const MAX_TEXT_SIZE: f32 = 16.0;
+/// Padding subtracted from text size to prevent overflow
+const TEXT_SIZE_PADDING: f32 = 3.0;
+/// Ratio of cell width used for the footprint candle body
+const FOOTPRINT_CANDLE_WIDTH_RATIO: f32 = 0.1;
 
 impl canvas::Program<Message> for KlineChart {
     type State = Interaction;
@@ -78,14 +84,18 @@ impl canvas::Program<Message> for KlineChart {
                     let cell_width_unscaled = chart.cell_width * chart.scaling;
 
                     let text_size = {
-                        let text_size_from_height = cell_height_unscaled.round().min(16.0) - 3.0;
-                        let text_size_from_width =
-                            (cell_width_unscaled * 0.1).round().min(16.0) - 3.0;
+                        let text_size_from_height =
+                            cell_height_unscaled.round().min(MAX_TEXT_SIZE) - TEXT_SIZE_PADDING;
+                        let text_size_from_width = (cell_width_unscaled
+                            * FOOTPRINT_CANDLE_WIDTH_RATIO)
+                            .round()
+                            .min(MAX_TEXT_SIZE)
+                            - TEXT_SIZE_PADDING;
 
                         text_size_from_height.min(text_size_from_width)
                     };
 
-                    let candle_width = 0.1 * chart.cell_width;
+                    let candle_width = FOOTPRINT_CANDLE_WIDTH_RATIO * chart.cell_width;
                     let content_spacing = ContentGaps::from_view(candle_width, chart.scaling);
 
                     let imbalance = studies.iter().find_map(|study| {

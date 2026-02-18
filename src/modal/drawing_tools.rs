@@ -302,58 +302,6 @@ impl DrawingToolsPanel {
             .into()
     }
 
-    /// Legacy view for full modal (keeping for backwards compatibility)
-    pub fn view(&self) -> Element<'_, Message> {
-        let tools = [
-            (DrawingTool::None, Icon::DrawCursor, "Select"),
-            (DrawingTool::Line, Icon::DrawLine, "Line"),
-            (DrawingTool::Ray, Icon::DrawRay, "Ray"),
-            (DrawingTool::HorizontalLine, Icon::DrawHLine, "H-Line"),
-            (DrawingTool::VerticalLine, Icon::DrawVLine, "V-Line"),
-            (DrawingTool::Rectangle, Icon::DrawRectangle, "Rectangle"),
-            (DrawingTool::TrendLine, Icon::DrawTrendLine, "Trend Line"),
-        ];
-
-        let tool_buttons: Vec<Element<'_, Message>> = tools
-            .iter()
-            .map(|(tool, icon, label)| {
-                let is_active = self.active_tool == *tool;
-                tool_button(*tool, *icon, label, is_active)
-            })
-            .collect();
-
-        let tools_column = column(tool_buttons).spacing(2);
-
-        let snap_button = {
-            let label = if self.snap_enabled {
-                "Snap: On"
-            } else {
-                "Snap: Off"
-            };
-            button(
-                text(label)
-                    .size(12)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .on_press(Message::ToggleSnap)
-            .style(move |theme, status| {
-                style::button::transparent(theme, status, self.snap_enabled)
-            })
-        };
-
-        let content = column![
-            text("Drawing Tools").size(14),
-            tools_column,
-            container(snap_button).padding(padding::top(8)),
-        ]
-        .spacing(8)
-        .padding(12)
-        .width(Length::Fixed(140.0));
-
-        container(content).style(style::dashboard_modal).into()
-    }
 }
 
 /// Create a tool button for the dropdown
@@ -371,25 +319,6 @@ fn dropdown_tool_button(tool: DrawingTool, is_selected: bool) -> Element<'static
     .width(Length::Fill)
     .on_press(Message::ToolSelected(tool))
     .style(move |theme, status| style::button::transparent(theme, status, is_selected))
-    .into()
-}
-
-/// Create a tool button (legacy, for full modal)
-fn tool_button<'a>(
-    tool: DrawingTool,
-    icon: Icon,
-    label: &'a str,
-    is_active: bool,
-) -> Element<'a, Message> {
-    button(
-        row![icon_text(icon, 14).width(20), text(label).size(12),]
-            .spacing(8)
-            .align_y(Alignment::Center)
-            .width(Length::Fill),
-    )
-    .width(Length::Fill)
-    .on_press(Message::ToolSelected(tool))
-    .style(move |theme, status| style::button::transparent(theme, status, is_active))
     .into()
 }
 

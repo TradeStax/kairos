@@ -36,6 +36,19 @@ impl RsiIndicator {
         let mut avg_gain: f32 = gains[..self.period].iter().sum::<f32>() / self.period as f32;
         let mut avg_loss: f32 = losses[..self.period].iter().sum::<f32>() / self.period as f32;
 
+        // Emit initial RSI from the simple average
+        {
+            let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
+            let rsi = 100.0 - (100.0 / (1.0 + rs));
+            let candle_idx = self.period;
+            let key = match basis {
+                ChartBasis::Time(_) => candles[candle_idx].time.0,
+                ChartBasis::Tick(_) => (candles.len() - 1 - candle_idx) as u64,
+            };
+            self.data.insert(key, rsi);
+        }
+
+        // Smoothed RSI for subsequent candles
         for i in self.period..gains.len() {
             avg_gain = (avg_gain * (self.period - 1) as f32 + gains[i]) / self.period as f32;
             avg_loss = (avg_loss * (self.period - 1) as f32 + losses[i]) / self.period as f32;

@@ -1,6 +1,4 @@
 use iced::Task;
-use std::collections::HashMap;
-
 use data::LoadingStatus;
 use crate::screen::dashboard;
 use crate::screen::dashboard::tickers_table;
@@ -15,6 +13,19 @@ impl Flowsurface {
             // Async chart data loading
             Message::LoadChartData { layout_id, pane_id, config, ticker_info } => {
                 log::info!("LoadChartData message received for pane {}: {:?} chart", pane_id, config.chart_type);
+
+                // Warn user if heatmap date range will be truncated
+                if config.chart_type == data::ChartType::Heatmap
+                    && config.date_range.num_days() > 1
+                {
+                    self.notifications.push(Toast::new(
+                        Notification::Info(format!(
+                            "Heatmap limited to 1 day (showing {}). \
+                             Multi-day heatmaps are not supported.",
+                            config.date_range.end
+                        )),
+                    ));
+                }
 
                 let Some(service) = self.market_data_service.clone() else {
                     log::warn!("Market data service not available (API key not configured)");
@@ -61,33 +72,6 @@ impl Flowsurface {
                 }
             }
             // Options data loading
-            Message::LoadOptionChain { pane_id, underlying_ticker, date } => {
-                // Check if Massive API key is configured
-                let secrets = data::SecretsManager::new();
-                if !secrets.has_api_key(data::ApiProvider::Massive) {
-                    log::warn!("Massive API key not configured, showing config modal");
-                    self.notifications.push(Toast::error(
-                        "Massive API key required for options data".to_string()
-                    ));
-                    return Task::done(Message::ShowApiKeyConfig {
-                        provider: data::ApiProvider::Massive,
-                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::OptionsData),
-                    });
-                }
-
-                if let Some(service) = self.options_service.clone() {
-                    return Task::perform(
-                        async move {
-                            service.get_chain_with_greeks(&underlying_ticker, date).await
-                                .map_err(|e| e.to_string())
-                        },
-                        move |result| Message::OptionChainLoaded { pane_id, result }
-                    );
-                } else {
-                    log::warn!("Options service not available - reinitializing may be required");
-                    self.notifications.push(Toast::error("Options service not initialized - try reconfiguring API key".to_string()));
-                }
-            }
             Message::OptionChainLoaded { pane_id, result } => {
                 match result {
                     Ok(chain) => {
@@ -102,33 +86,6 @@ impl Flowsurface {
                         log::error!("Failed to load option chain for pane {}: {}", pane_id, e);
                         self.notifications.push(Toast::error(format!("Failed to load option chain: {}", e)));
                     }
-                }
-            }
-            Message::LoadGexProfile { pane_id, underlying_ticker, date } => {
-                // Check if Massive API key is configured
-                let secrets = data::SecretsManager::new();
-                if !secrets.has_api_key(data::ApiProvider::Massive) {
-                    log::warn!("Massive API key not configured, showing config modal");
-                    self.notifications.push(Toast::error(
-                        "Massive API key required for GEX data".to_string()
-                    ));
-                    return Task::done(Message::ShowApiKeyConfig {
-                        provider: data::ApiProvider::Massive,
-                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::OptionsData),
-                    });
-                }
-
-                if let Some(service) = self.options_service.clone() {
-                    return Task::perform(
-                        async move {
-                            service.get_gex_profile(&underlying_ticker, date).await
-                                .map_err(|e| e.to_string())
-                        },
-                        move |result| Message::GexProfileLoaded { pane_id, result }
-                    );
-                } else {
-                    log::warn!("Options service not available - reinitializing may be required");
-                    self.notifications.push(Toast::error("Options service not initialized - try reconfiguring API key".to_string()));
                 }
             }
             Message::GexProfileLoaded { pane_id, result } => {
@@ -152,9 +109,6 @@ impl Flowsurface {
                     }
                 }
             }
-            Message::ReplayEvent(event) => {
-                self.handle_replay_event(event);
-            }
             Message::UpdateLoadingStatus => {
                 // Poll loading statuses from MarketDataService and update panes
                 let Some(service) = &self.market_data_service else {
@@ -164,6 +118,7 @@ impl Flowsurface {
 
                 let all_statuses = service.get_all_loading_statuses();
 
+                let mut tasks = Vec::new();
                 for (chart_key, status) in all_statuses {
                     for layout in &self.layout_manager.layouts {
                         if let Some((pane_id, _)) = layout.dashboard.charts.iter().find(|(_, chart_state)| {
@@ -171,12 +126,16 @@ impl Flowsurface {
                             let key = format!("{:?}-{:?}-{:?}", config.ticker, config.basis, config.date_range);
                             key == chart_key
                         }) {
-                            return Task::done(Message::Dashboard {
+                            tasks.push(Task::done(Message::Dashboard {
                                 layout_id: Some(layout.id.unique),
                                 event: dashboard::Message::ChangePaneStatus(*pane_id, status.clone()),
-                            });
+                            }));
+                            break;
                         }
                     }
+                }
+                if !tasks.is_empty() {
+                    return Task::batch(tasks);
                 }
             }
             // Data management - cost estimation
@@ -270,7 +229,8 @@ impl Flowsurface {
                 let date_range_clone = date_range.clone();
 
                 {
-                    let mut progress = get_download_progress().lock().unwrap();
+                    let mut progress =
+                        data::lock_or_recover(get_download_progress());
                     progress.insert(pane_id, (0, date_range.num_days() as usize));
                 }
 
@@ -316,7 +276,8 @@ impl Flowsurface {
             }
             Message::DataDownloadComplete { pane_id, ticker, date_range, result } => {
                 {
-                    let mut progress = get_download_progress().lock().unwrap();
+                    let mut progress =
+                        data::lock_or_recover(get_download_progress());
                     progress.remove(&pane_id);
                 }
 
@@ -328,13 +289,20 @@ impl Flowsurface {
                             format!("Successfully downloaded {} days of data", days_downloaded)
                         )));
 
-                        self.downloaded_tickers.lock().unwrap().register(ticker.clone(), date_range);
+                        data::lock_or_recover(&self.downloaded_tickers)
+                            .register(ticker.clone(), date_range);
                         log::info!("Registered {} in downloaded tickers registry", ticker);
 
                         let ticker_symbols: std::collections::HashSet<String> =
-                            self.downloaded_tickers.lock().unwrap().list_tickers().into_iter().collect();
+                            data::lock_or_recover(&self.downloaded_tickers)
+                                .list_tickers()
+                                .into_iter()
+                                .collect();
                         self.tickers_table.set_cached_filter(ticker_symbols);
-                        log::info!("Updated ticker list with {} tickers", self.downloaded_tickers.lock().unwrap().count());
+                        log::info!(
+                            "Updated ticker list with {} tickers",
+                            data::lock_or_recover(&self.downloaded_tickers).count()
+                        );
 
                         if pane_id == uuid::Uuid::nil() {
                             self.data_management_panel.set_download_progress(
@@ -411,10 +379,6 @@ impl Flowsurface {
                 self.save_state_to_disk(&windows);
                 return iced::exit();
             }
-            Message::RestartRequested(windows) => {
-                self.save_state_to_disk(&windows);
-                return self.restart();
-            }
             Message::GoBack => {
                 let main_window = self.main_window.id;
 
@@ -463,6 +427,14 @@ impl Flowsurface {
                         }
                         Some(dashboard::Event::DownloadData { pane_id, ticker, schema, date_range }) => {
                             Task::done(Message::DownloadData { pane_id, ticker, schema, date_range })
+                        }
+                        Some(dashboard::Event::PaneClosed { pane_id }) => {
+                            // Clean up any in-progress download tracking for the closed pane
+                            if let Ok(mut progress) = super::get_download_progress().lock() {
+                                progress.remove(&pane_id);
+                            }
+                            log::debug!("Cleaned up resources for closed pane {}", pane_id);
+                            Task::none()
                         }
                         None => Task::none(),
                     };
@@ -549,7 +521,6 @@ impl Flowsurface {
                     // Modal was shown inline without being stored, handle the message
                     let mut temp_modal = crate::modal::api_key_config::ApiKeyConfigModal::new(
                         data::ApiProvider::Databento,
-                        None,
                     );
                     if let Some(action) = temp_modal.update(msg) {
                         match action {
@@ -718,64 +689,4 @@ impl Flowsurface {
         Task::none()
     }
 
-    fn handle_replay_event(&mut self, event: data::services::ReplayEvent) {
-        log::debug!("Replay event: {:?}", event);
-        use data::services::ReplayEvent;
-
-        match event {
-            ReplayEvent::DataLoaded { ticker, trade_count, depth_count, time_range } => {
-                log::info!("Replay data loaded for {:?}: {} trades, {} depth snapshots, range: {:?}",
-                    ticker, trade_count, depth_count, time_range);
-                self.notifications.push(Toast::new(Notification::Info(
-                    format!("Replay data loaded: {} trades", trade_count)
-                )));
-            }
-            ReplayEvent::LoadingProgress { progress, message } => {
-                log::debug!("Replay loading: {}% - {}", (progress * 100.0) as u32, message);
-            }
-            ReplayEvent::MarketData { timestamp, trades, depth } => {
-                log::debug!("Replay market data at {}: {} trades, depth: {}",
-                    timestamp, trades.len(), depth.is_some()
-                );
-            }
-            ReplayEvent::PositionUpdate { timestamp, progress } => {
-                log::debug!("Replay position: {} ({:.1}%)", timestamp, progress * 100.0);
-            }
-            ReplayEvent::StatusChanged(status) => {
-                log::info!("Replay status changed: {:?}", status);
-            }
-            ReplayEvent::PlaybackComplete => {
-                log::info!("Replay playback completed");
-                self.notifications.push(Toast::new(Notification::Info(
-                    "Replay completed".to_string()
-                )));
-            }
-            ReplayEvent::PlaybackStarted => {
-                log::info!("Replay playback started");
-            }
-            ReplayEvent::PlaybackPaused => {
-                log::info!("Replay playback paused");
-            }
-            ReplayEvent::PlaybackStopped => {
-                log::info!("Replay playback stopped");
-            }
-            ReplayEvent::SeekCompleted { timestamp, progress } => {
-                log::info!("Replay seek completed to {} ({:.1}%)", timestamp, progress * 100.0);
-            }
-            ReplayEvent::SpeedChanged(speed) => {
-                log::info!("Replay speed changed to {:?}", speed);
-            }
-            ReplayEvent::CacheHit { symbol, date_range } => {
-                log::debug!("Replay cache hit for {} in range {:?}", symbol, date_range);
-            }
-            ReplayEvent::MemoryUsage { bytes, trades, depth_snapshots } => {
-                log::debug!("Replay memory usage: {:.2} MB ({} trades, {} depth snapshots)",
-                    bytes as f32 / 1024.0 / 1024.0, trades, depth_snapshots);
-            }
-            ReplayEvent::Error(err) => {
-                log::error!("Replay error: {}", err);
-                self.notifications.push(Toast::error(format!("Replay error: {}", err)));
-            }
-        }
-    }
 }

@@ -30,9 +30,6 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
     /// Render indicator elements for this chart
     fn view_indicators(&'_ self, enabled: &[Self::IndicatorKind]) -> Vec<Element<'_, Message>>;
 
-    /// Get the visible time range as (start, end) timestamps
-    fn visible_timerange(&self) -> Option<(u64, u64)>;
-
     /// Get interval keys for tick-based charts
     fn interval_keys(&self) -> Option<Vec<u64>>;
 

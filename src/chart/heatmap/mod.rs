@@ -28,7 +28,7 @@ mod render;
 pub mod trades;
 
 use crate::chart::{
-    Chart, Interaction, Message, PlotConstants, ViewState,
+    Chart, Message, PlotConstants, ViewState,
     drawing::DrawingManager,
     scale::linear::PriceInfoLabel,
 };
@@ -43,13 +43,13 @@ use ::data::{
 use ::data::util::count_decimals;
 use exchange::FuturesTickerInfo;
 
-use iced::{Element, Rectangle, Size, Vector};
+use iced::{Element, Vector};
 
 use enum_map::EnumMap;
 use std::time::Instant;
 
 // Re-export types from submodules
-pub use render::{HeatmapStudy, ProfileKind};
+pub use render::HeatmapStudy;
 pub use trades::TradeRenderingMode;
 
 // =============================================================================
@@ -99,20 +99,6 @@ impl Chart for HeatmapChart {
 
     fn view_indicators(&'_ self, _indicators: &[Self::IndicatorKind]) -> Vec<Element<'_, Message>> {
         vec![]
-    }
-
-    fn visible_timerange(&self) -> Option<(u64, u64)> {
-        let chart = self.state();
-        let region = chart.visible_region(chart.bounds.size());
-
-        if region.width == 0.0 {
-            return None;
-        }
-
-        Some((
-            chart.x_to_interval(region.x),
-            chart.x_to_interval(region.x + region.width),
-        ))
     }
 
     fn interval_keys(&self) -> Option<Vec<u64>> {
@@ -176,7 +162,7 @@ impl PlotConstants for HeatmapChart {
 
 /// Indicator data (currently just volume, but extensible)
 #[derive(Default)]
-enum IndicatorData {
+pub(crate) enum IndicatorData {
     #[default]
     Volume,
 }
@@ -198,9 +184,6 @@ pub struct VisualConfig {
     /// Maximum number of trade circles to render (performance limit)
     pub max_trade_markers: usize,
 }
-
-/// Type alias for backward compatibility
-pub type Config = VisualConfig;
 
 impl Default for VisualConfig {
     fn default() -> Self {
