@@ -158,9 +158,13 @@ impl ConnectionsMenu {
                 ),
             });
 
-        let name_label = container(text(&feed.name).size(12))
-            .width(Length::Fill)
-            .clip(true);
+        let name_label = container(
+            text(&feed.name)
+                .size(12)
+                .wrapping(iced::widget::text::Wrapping::None),
+        )
+        .width(Length::Fill)
+        .clip(true);
 
         let row_content = row![
             status_dot,

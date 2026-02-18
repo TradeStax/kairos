@@ -81,8 +81,8 @@ pub struct State {
     pub ticker_info: Option<FuturesTickerInfo>,
     pub chart_data: Option<ChartData>,
     pub link_group: Option<LinkGroup>,
-    /// Cached selected tickers for comparison chart (avoids Box::leak in view)
-    pub cached_selected_tickers: Vec<FuturesTickerInfo>,
+    /// Tracks which feed provided this pane's data (set when chart data loads)
+    pub feed_id: Option<data::FeedId>,
 }
 
 impl State {
@@ -767,7 +767,7 @@ impl Default for State {
             ticker_info: None,
             chart_data: None,
             link_group: None,
-            cached_selected_tickers: Vec::new(),
+            feed_id: None,
         }
     }
 }

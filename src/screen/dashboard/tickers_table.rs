@@ -348,15 +348,12 @@ impl TickersTable {
         .into()
     }
 
-    pub fn view_compact_with<'a, M, FSelect, FSearch, FScroll>(
+    pub fn view_compact_with<'a, M, FSelect, FSearch>(
         &'a self,
-        bounds: Size,
         search_query: &'a str,
         search_box_id: &'a iced::widget::Id,
-        scroll_offset: AbsoluteOffset,
         on_select: FSelect,
         on_search: FSearch,
-        on_scroll: FScroll,
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
         base_ticker: Option<FuturesTickerInfo>,
     ) -> Element<'a, M>
@@ -364,7 +361,6 @@ impl TickersTable {
         M: 'a + Clone,
         FSelect: 'static + Copy + Fn(RowSelection) -> M,
         FSearch: 'static + Copy + Fn(String) -> M,
-        FScroll: 'static + Copy + Fn(scrollable::Viewport) -> M,
     {
         let injected_q = search_query.to_uppercase();
 
@@ -389,29 +385,12 @@ impl TickersTable {
                     .collect()
             })
             .unwrap_or_default();
-        let selected_count = selected_list.len() + if base_ticker_id.is_some() { 1 } else { 0 };
-
-        let virtual_list = VirtualListConfig {
-            row_height: COMPACT_ROW_HEIGHT,
-            header_offset: self.header_offset_compact(selected_count),
-            overscan: OVERSCAN_BUFFER as usize,
-            gap: None,
-        };
-        let total_n = fav_rows.len() + rest_rows.len();
-        let win = virtual_list.window(scroll_offset.y, bounds.height, total_n);
 
         let top_bar = self.compact_top_bar(search_query, search_box_id, on_search);
         let selected_section =
             self.compact_selected_section(base_ticker, selected_list, on_select, selection_enabled);
 
-        let list = self.compact_list(
-            &virtual_list,
-            win,
-            &fav_rows,
-            &rest_rows,
-            on_select,
-            selection_enabled,
-        );
+        let list = self.compact_all_rows(&fav_rows, &rest_rows, on_select, selection_enabled);
 
         let mut content = column![top_bar]
             .spacing(8)
@@ -424,15 +403,7 @@ impl TickersTable {
         }
         content = content.push(list);
 
-        scrollable::Scrollable::with_direction(
-            content,
-            scrollable::Direction::Vertical(
-                scrollable::Scrollbar::new().width(8).scroller_width(6),
-            ),
-        )
-        .on_scroll(on_scroll)
-        .style(style::scroll_bar)
-        .into()
+        content.into()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -585,26 +556,6 @@ impl TickersTable {
             }
     }
 
-    fn header_offset_compact(&self, selected_count: usize) -> f32 {
-        const GAP: f32 = 8.0;
-        const RULE_H: f32 = 1.0;
-
-        let selected_block_height = if selected_count > 0 {
-            let rows_h = (selected_count as f32) * COMPACT_ROW_HEIGHT;
-            let gaps_h = ((selected_count.saturating_sub(1)) as f32) * 2.0;
-            rows_h + gaps_h
-        } else {
-            0.0
-        };
-
-        TOP_BAR_HEIGHT
-            + GAP
-            + if selected_count > 0 {
-                selected_block_height + RULE_H + (2.0 * GAP)
-            } else {
-                0.0
-            }
-    }
 
     fn top_bar_row(&self) -> Element<'_, Message> {
         row![
@@ -862,10 +813,8 @@ impl TickersTable {
         Some(col.into())
     }
 
-    fn compact_list<'a, M, FSelect>(
+    fn compact_all_rows<'a, M, FSelect>(
         &'a self,
-        vcfg: &VirtualListConfig,
-        win: VirtualWindow,
         fav_rows: &[&'a TickerRowData],
         rest_rows: &[&'a TickerRowData],
         on_select: FSelect,
@@ -875,26 +824,11 @@ impl TickersTable {
         M: 'a + Clone,
         FSelect: 'static + Copy + Fn(RowSelection) -> M,
     {
-        let top_space = Space::new()
-            .width(Length::Shrink)
-            .height(Length::Fixed(win.top_space));
-        let bottom_space = Space::new()
-            .width(Length::Shrink)
-            .height(Length::Fixed(win.bottom_space));
-
-        let mut list = column![top_space].spacing(2);
-        for idx in win.first..win.last {
-            let VirtualItemIndex::Row(data_idx) = vcfg.virtual_to_item(idx) else {
-                continue;
-            };
-            let row_ref = if data_idx < fav_rows.len() {
-                fav_rows[data_idx]
-            } else {
-                rest_rows[data_idx - fav_rows.len()]
-            };
-
+        let mut list = column![].spacing(2);
+        for row_ref in fav_rows.iter().chain(rest_rows.iter()) {
             let label = self.label_for(row_ref.ticker);
-            let info_opt: Option<FuturesTickerInfo> = self.tickers_info.get(&row_ref.ticker).copied();
+            let info_opt: Option<FuturesTickerInfo> =
+                self.tickers_info.get(&row_ref.ticker).copied();
 
             let (left_action, right_action) = if selection_enabled {
                 (
@@ -905,18 +839,14 @@ impl TickersTable {
                 (info_opt.map(RowSelection::Switch), None)
             };
 
-            let row_el = mini_ticker_card(
+            list = list.push(mini_ticker_card(
                 label,
                 left_action,
                 right_action,
                 None,
                 on_select,
-            );
-
-            list = list.push(row_el);
+            ));
         }
-        list = list.push(bottom_space);
-
         list.into()
     }
 

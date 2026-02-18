@@ -18,7 +18,6 @@ pub enum Action {
 pub struct MiniPanel {
     search_query: String,
     pub search_box_id: iced::widget::Id,
-    scroll_offset: iced::widget::scrollable::AbsoluteOffset,
 }
 
 impl Default for MiniPanel {
@@ -31,7 +30,6 @@ impl Default for MiniPanel {
 pub enum Message {
     SearchChanged(String),
     RowSelected(RowSelection),
-    Scrolled(iced::widget::scrollable::Viewport),
 }
 
 impl MiniPanel {
@@ -39,7 +37,6 @@ impl MiniPanel {
         Self {
             search_query: String::new(),
             search_box_id: iced::widget::Id::unique(),
-            scroll_offset: iced::widget::scrollable::AbsoluteOffset::default(),
         }
     }
 
@@ -48,9 +45,6 @@ impl MiniPanel {
             Message::SearchChanged(q) => self.search_query = q.to_uppercase(),
             Message::RowSelected(t) => {
                 return Some(Action::RowSelected(t));
-            }
-            Message::Scrolled(vp) => {
-                self.scroll_offset = vp.absolute_offset();
             }
         }
         None
@@ -62,19 +56,13 @@ impl MiniPanel {
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
         base_ticker: Option<FuturesTickerInfo>,
     ) -> Element<'a, Message> {
-        iced::widget::responsive(move |bounds| {
-            table.view_compact_with(
-                bounds,
-                &self.search_query,
-                &self.search_box_id,
-                self.scroll_offset,
-                Message::RowSelected,
-                Message::SearchChanged,
-                Message::Scrolled,
-                selected_tickers,
-                base_ticker,
-            )
-        })
-        .into()
+        table.view_compact_with(
+            &self.search_query,
+            &self.search_box_id,
+            Message::RowSelected,
+            Message::SearchChanged,
+            selected_tickers,
+            base_ticker,
+        )
     }
 }

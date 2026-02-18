@@ -504,6 +504,18 @@ impl MarketDataService {
         Ok(days_downloaded)
     }
 
+    /// Get trades from cache for preview (no remote fetch)
+    pub async fn get_trades_for_preview(
+        &self,
+        ticker: &FuturesTicker,
+        date_range: &DateRange,
+    ) -> ServiceResult<Vec<Trade>> {
+        self.trade_repo
+            .get_trades(ticker, date_range)
+            .await
+            .map_err(ServiceError::from)
+    }
+
     /// Get list of tickers with cached data
     pub async fn get_cached_tickers(&self) -> ServiceResult<std::collections::HashSet<String>> {
         self.trade_repo

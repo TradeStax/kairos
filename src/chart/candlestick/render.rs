@@ -1,12 +1,14 @@
-use crate::chart::{Chart, Interaction, Message, TEXT_SIZE};
+use crate::chart::{Chart, Interaction, Message, TEXT_SIZE, ViewState};
 use crate::chart::drawing;
+use crate::chart::indicator::kline::OverlayLine;
+use crate::chart::indicator::plot::{AnySeries, Series};
 use crate::style;
 use data::util::count_decimals;
 use data::{Candle, ChartBasis, ClusterKind, FootprintStudy, KlineChartKind, Trade};
 use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Event, Geometry};
+use iced::widget::canvas::{self, Event, Geometry, Path, Stroke};
 use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
 
 use super::candle::draw_candle;
@@ -223,6 +225,19 @@ impl canvas::Program<Message> for KlineChart {
                 }
             }
 
+            // Draw overlay indicators (SMA, EMA, Bollinger Bands)
+            for (_kind, indi_opt) in &self.indicators {
+                if let Some(indi) = indi_opt {
+                    let lines = indi.overlay_lines();
+                    for line in &lines {
+                        draw_overlay_line(
+                            frame, chart, self.basis,
+                            line, earliest, latest,
+                        );
+                    }
+                }
+            }
+
             crate::chart::overlay::draw_last_price_line(chart, frame, palette, region);
 
             // Draw data gap markers
@@ -290,6 +305,45 @@ impl canvas::Program<Message> for KlineChart {
             }
         }
     }
+}
+
+/// Draw a single overlay indicator line on the main chart canvas.
+///
+/// Converts f32 price values → exchange `Price` → chart Y coordinates,
+/// using the same transforms as candle rendering.
+fn draw_overlay_line(
+    frame: &mut canvas::Frame,
+    chart: &ViewState,
+    basis: ChartBasis,
+    line: &OverlayLine<'_>,
+    earliest: u64,
+    latest: u64,
+) {
+    if line.data.is_empty() {
+        return;
+    }
+
+    let stroke = Stroke::with_color(
+        Stroke { width: line.stroke_width, ..Stroke::default() },
+        line.color,
+    );
+
+    let series = AnySeries::for_basis(basis, line.data);
+    let mut prev: Option<(f32, f32)> = None;
+
+    series.for_each_in(earliest..=latest, |x, value| {
+        let sx = chart.interval_to_x(x) - (chart.cell_width / 2.0);
+        let price = Price::from_f32(*value);
+        let sy = chart.price_to_y(price);
+
+        if let Some((px, py)) = prev {
+            frame.stroke(
+                &Path::line(Point::new(px, py), Point::new(sx, sy)),
+                stroke,
+            );
+        }
+        prev = Some((sx, sy));
+    });
 }
 
 fn render_candles<F>(

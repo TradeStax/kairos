@@ -8,15 +8,18 @@ pub use sidebar::Sidebar;
 use super::DashboardError;
 use crate::{
     chart,
-    modal::pane::{Modal, data_management::DownloadProgress},
+    modal::pane::{
+        Modal,
+        data_management::{CacheStatus, DownloadProgress},
+    },
     screen::dashboard::tickers_table::TickersTable,
     style,
     widget::toast::Toast,
     window::{self, Window},
 };
 use data::{
-    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus, UserTimezone,
-    WindowSpec,
+    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus,
+    UserTimezone, WindowSpec,
 };
 use exchange::FuturesTickerInfo;
 
@@ -155,23 +158,8 @@ impl Dashboard {
     fn default_pane_config() -> Configuration<pane::State> {
         Configuration::Split {
             axis: pane_grid::Axis::Vertical,
-            ratio: 0.8,
-            a: Box::new(Configuration::Split {
-                axis: pane_grid::Axis::Horizontal,
-                ratio: 0.4,
-                a: Box::new(Configuration::Split {
-                    axis: pane_grid::Axis::Vertical,
-                    ratio: 0.5,
-                    a: Box::new(Configuration::Pane(pane::State::default())),
-                    b: Box::new(Configuration::Pane(pane::State::default())),
-                }),
-                b: Box::new(Configuration::Split {
-                    axis: pane_grid::Axis::Vertical,
-                    ratio: 0.5,
-                    a: Box::new(Configuration::Pane(pane::State::default())),
-                    b: Box::new(Configuration::Pane(pane::State::default())),
-                }),
-            }),
+            ratio: 0.5,
+            a: Box::new(Configuration::Pane(pane::State::default())),
             b: Box::new(Configuration::Pane(pane::State::default())),
         }
     }
@@ -325,7 +313,9 @@ impl Dashboard {
                     if to_sync {
                         if let Some(state) = self.get_pane(main_window.id, window, pane) {
                             // Extract studies from heatmap content if present
-                            let studies_cfg: Option<Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>> = match &state.content {
+                            let studies_cfg: Option<
+                                Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>,
+                            > = match &state.content {
                                 pane::Content::Heatmap { studies, .. } => Some(studies.clone()),
                                 _ => None,
                             };
@@ -367,8 +357,12 @@ impl Dashboard {
                                         state.content.change_visual_config(cfg.clone());
 
                                         // Update studies for heatmap content
-                                        if let Some(studies) = &studies_cfg
-                                            && let pane::Content::Heatmap { studies: hm_studies, .. } = &mut state.content {
+                                        if let Some(studies) = &studies_cfg {
+                                            if let pane::Content::Heatmap {
+                                                studies: hm_studies,
+                                                ..
+                                            } = &mut state.content
+                                            {
                                                 *hm_studies = studies.clone();
                                             }
 
@@ -452,7 +446,10 @@ impl Dashboard {
                         let pane_id = state.unique_id();
                         let triggering_pane_link_group = state.link_group; // Capture link group BEFORE matching on effect
                         let (task, event) = match effect {
-                            pane::Effect::LoadChart { config, ticker_info } => {
+                            pane::Effect::LoadChart {
+                                config,
+                                ticker_info,
+                            } => {
                                 // Trigger chart loading for this pane
                                 let event = self.load_chart(pane_id, config, ticker_info);
                                 (Task::none(), Some(event))
@@ -460,13 +457,22 @@ impl Dashboard {
                             pane::Effect::SwitchTickersInGroup(ticker_info) => {
                                 // Switch tickers for all panes in the same link group
                                 // If no link group, pass pane_id to switch just this single pane
-                                let task = self.switch_tickers_in_group(main_window.id, ticker_info, triggering_pane_link_group, Some(pane_id));
+                                let task = self.switch_tickers_in_group(
+                                    main_window.id,
+                                    ticker_info,
+                                    triggering_pane_link_group,
+                                    Some(pane_id),
+                                );
                                 (task, None)
                             }
                             pane::Effect::FocusWidget(id) => {
                                 (iced::widget::operation::focus(id), None)
                             }
-                            pane::Effect::EstimateDataCost { ticker, schema, date_range } => {
+                            pane::Effect::EstimateDataCost {
+                                ticker,
+                                schema,
+                                date_range,
+                            } => {
                                 // Trigger cost estimation
                                 let task = Task::done(Message::EstimateDataCost {
                                     pane_id,
@@ -476,7 +482,11 @@ impl Dashboard {
                                 });
                                 (task, None)
                             }
-                            pane::Effect::DownloadData { ticker, schema, date_range } => {
+                            pane::Effect::DownloadData {
+                                ticker,
+                                schema,
+                                date_range,
+                            } => {
                                 // Trigger data download
                                 let task = Task::done(Message::DownloadData {
                                     pane_id,
@@ -496,39 +506,81 @@ impl Dashboard {
                     pane_state.loading_status = status;
                 }
             }
-            Message::ChartDataLoaded { pane_id, chart_data } => {
+            Message::ChartDataLoaded {
+                pane_id,
+                chart_data,
+            } => {
                 return (
                     self.handle_chart_data_loaded(main_window.id, pane_id, chart_data),
                     None,
                 );
             }
-            Message::LoadChart { pane_id, config, ticker_info } => {
+            Message::LoadChart {
+                pane_id,
+                config,
+                ticker_info,
+            } => {
                 let event = self.load_chart(pane_id, config, ticker_info);
                 return (Task::none(), Some(event));
             }
             Message::Notification(toast) => {
                 return (Task::none(), Some(Event::Notification(toast)));
             }
-            Message::EstimateDataCost { pane_id, ticker, schema, date_range } => {
+            Message::EstimateDataCost {
+                pane_id,
+                ticker,
+                schema,
+                date_range,
+            } => {
                 // This message should be forwarded to main - return as Event
                 return (
                     Task::none(),
-                    Some(Event::EstimateDataCost { pane_id, ticker, schema, date_range }),
+                    Some(Event::EstimateDataCost {
+                        pane_id,
+                        ticker,
+                        schema,
+                        date_range,
+                    }),
                 );
             }
-            Message::DataCostEstimated { pane_id, total_days: _, cached_days: _, uncached_days: _, gaps_desc: _, actual_cost_usd: _, cached_dates: _ } => {
+            Message::DataCostEstimated {
+                pane_id,
+                total_days: _,
+                cached_days: _,
+                uncached_days: _,
+                gaps_desc: _,
+                actual_cost_usd: _,
+                cached_dates: _,
+            } => {
                 // This message variant is deprecated - pane modals shouldn't use data management
                 // Data management is now sidebar-only
-                log::warn!("DataCostEstimated for pane {} - ignoring (sidebar-only feature)", pane_id);
+                log::warn!(
+                    "DataCostEstimated for pane {} - ignoring (sidebar-only feature)",
+                    pane_id
+                );
             }
-            Message::DownloadData { pane_id, ticker, schema, date_range } => {
+            Message::DownloadData {
+                pane_id,
+                ticker,
+                schema,
+                date_range,
+            } => {
                 // This message should be forwarded to main - return as Event
                 return (
                     Task::none(),
-                    Some(Event::DownloadData { pane_id, ticker, schema, date_range }),
+                    Some(Event::DownloadData {
+                        pane_id,
+                        ticker,
+                        schema,
+                        date_range,
+                    }),
                 );
             }
-            Message::DataDownloadProgress { pane_id, current, total } => {
+            Message::DataDownloadProgress {
+                pane_id,
+                current,
+                total,
+            } => {
                 // Update progress in data management modal
                 if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
                     && let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
@@ -538,13 +590,14 @@ impl Dashboard {
                         });
                     }
             }
-            Message::DataDownloadComplete { pane_id, days_downloaded } => {
+            Message::DataDownloadComplete {
+                pane_id,
+                days_downloaded,
+            } => {
                 // Mark download as complete in modal
-                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
-                    && let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
-                        panel.set_download_progress(DownloadProgress::Complete {
-                            days_downloaded,
-                        });
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
+                    if let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
+                        panel.set_download_progress(DownloadProgress::Complete { days_downloaded });
                     }
             }
             Message::DrawingToolSelected(tool) => {
@@ -571,12 +624,7 @@ impl Dashboard {
                             chart_state.append_live_trade(trade);
                         }
                     }
-                    exchange::Event::DepthReceived(
-                        _stream_kind,
-                        _ts,
-                        _depth,
-                        _trades,
-                    ) => {
+                    exchange::Event::DepthReceived(_stream_kind, _ts, _depth, _trades) => {
                         // Depth updates handled by heatmap panes
                     }
                     _ => {}
@@ -713,7 +761,7 @@ impl Dashboard {
         }
     }
 
-    fn get_mut_pane_state_by_uuid(
+    pub(crate) fn get_mut_pane_state_by_uuid(
         &mut self,
         main_window: window::Id,
         uuid: uuid::Uuid,
@@ -849,14 +897,17 @@ impl Dashboard {
         }
     }
 
-
     pub fn init_focused_pane(
         &mut self,
         main_window: window::Id,
         ticker_info: FuturesTickerInfo,
         content_kind: ContentKind,
     ) -> Task<Message> {
-        log::info!("DASHBOARD: init_focused_pane called with {:?} ContentKind::{:?}", ticker_info.ticker, content_kind);
+        log::info!(
+            "DASHBOARD: init_focused_pane called with {:?} ContentKind::{:?}",
+            ticker_info.ticker,
+            content_kind
+        );
 
         // Get the focused pane
         let Some((window, pane)) = self.focus else {
@@ -868,14 +919,26 @@ impl Dashboard {
 
         // Get registered date range BEFORE borrowing pane_state mutably
         let preset_days = self.date_range_preset.to_days();
-        let date_range = data::lock_or_recover(&self.downloaded_tickers)
+        let date_range = self
+            .downloaded_tickers
+            .lock()
+            .unwrap()
             .get_range(&ticker_info.ticker)
             .unwrap_or_else(|| {
-                log::warn!("No registered range for {} - using preset ({} days)", ticker_info.ticker, preset_days);
+                log::warn!(
+                    "No registered range for {} - using preset ({} days)",
+                    ticker_info.ticker,
+                    preset_days
+                );
                 DateRange::last_n_days(preset_days)
             });
 
-        log::info!("DASHBOARD: Using date range {} to {} for {}", date_range.start, date_range.end, ticker_info.ticker);
+        log::info!(
+            "DASHBOARD: Using date range {} to {} for {}",
+            date_range.start,
+            date_range.end,
+            ticker_info.ticker
+        );
 
         // Get mutable reference to the focused pane state
         let Some(pane_state) = self.get_mut_pane(main_window, window, pane) else {
@@ -890,22 +953,27 @@ impl Dashboard {
 
         // Handle the LoadChart effect
         match effect {
-            pane::Effect::LoadChart { config, ticker_info } => {
+            pane::Effect::LoadChart {
+                config,
+                ticker_info,
+            } => {
                 let pane_id = pane_state.unique_id();
                 let event = self.load_chart(pane_id, config, ticker_info);
 
                 // Return task that will emit the LoadChart event
                 match event {
-                    Event::LoadChart { pane_id, config, ticker_info } => {
-                        Task::done(Message::LoadChart { pane_id, config, ticker_info })
-                    }
-                    Event::Notification(toast) => {
-                        Task::done(Message::Notification(toast))
-                    }
-                    Event::EstimateDataCost { .. }
-                    | Event::DownloadData { .. }
-                    | Event::PaneClosed { .. } => {
-                        // These shouldn't appear from load_chart, but handle gracefully
+                    Event::LoadChart {
+                        pane_id,
+                        config,
+                        ticker_info,
+                    } => Task::done(Message::LoadChart {
+                        pane_id,
+                        config,
+                        ticker_info,
+                    }),
+                    Event::Notification(toast) => Task::done(Message::Notification(toast)),
+                    Event::EstimateDataCost { .. } | Event::DownloadData { .. } => {
+                        // These shouldn't appear from set_content, but handle gracefully
                         Task::none()
                     }
                 }
@@ -928,7 +996,11 @@ impl Dashboard {
 
         // If pane has a link group, update ALL panes in that group
         if let Some(link_group) = triggering_pane_link_group {
-            log::info!("Switching tickers in link group {:?} to {:?}", link_group, ticker_info.ticker);
+            log::info!(
+                "Switching tickers in link group {:?} to {:?}",
+                link_group,
+                ticker_info.ticker
+            );
 
             // Collect all panes in this link group
             for (window, pane, state) in self.iter_all_panes(main_window) {
@@ -938,10 +1010,15 @@ impl Dashboard {
             }
         } else if let Some(pane_id) = fallback_pane_id {
             // No link group - just update the single triggering pane
-            log::info!("No link group - switching single pane {} to {:?}", pane_id, ticker_info.ticker);
+            log::info!(
+                "No link group - switching single pane {} to {:?}",
+                pane_id,
+                ticker_info.ticker
+            );
 
             // Find the pane by UUID
-            if let Some((window, pane, state)) = self.iter_all_panes(main_window)
+            if let Some((window, pane, state)) = self
+                .iter_all_panes(main_window)
                 .find(|(_, _, s)| s.unique_id() == pane_id)
             {
                 panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
@@ -954,7 +1031,11 @@ impl Dashboard {
             return Task::none();
         }
 
-        log::info!("Switching {} pane(s) to ticker {:?}", panes_to_update.len(), ticker_info.ticker);
+        log::info!(
+            "Switching {} pane(s) to ticker {:?}",
+            panes_to_update.len(),
+            ticker_info.ticker
+        );
 
         // Get registered date range BEFORE looping
         let preset_days = self.date_range_preset.to_days();
@@ -965,7 +1046,11 @@ impl Dashboard {
                 DateRange::last_n_days(preset_days)
             });
 
-        log::info!("Using date range {} to {} for ticker switch", date_range.start, date_range.end);
+        log::info!(
+            "Using date range {} to {} for ticker switch",
+            date_range.start,
+            date_range.end
+        );
 
         // Update each pane's ticker and trigger reload
         let mut tasks = Vec::new();
@@ -973,22 +1058,40 @@ impl Dashboard {
             // Get the pane state and update it
             if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
                 // Use set_content_with_range to use registered date range (not default 1 day)
-                let effect = pane_state.set_content_with_range(ticker_info, content_kind, date_range);
+                let effect =
+                    pane_state.set_content_with_range(ticker_info, content_kind, date_range);
 
-                log::info!("  Pane {} effect received: {:?}", pane_id,
+                log::info!(
+                    "  Pane {} effect received: {:?}",
+                    pane_id,
                     match &effect {
-                        pane::Effect::LoadChart { config, .. } => format!("LoadChart({:?})", config.chart_type),
+                        pane::Effect::LoadChart { config, .. } =>
+                            format!("LoadChart({:?})", config.chart_type),
                         pane::Effect::SwitchTickersInGroup(_) => "SwitchTickersInGroup".to_string(),
-                        _ => "Other".to_string()
-                    });
+                        _ => "Other".to_string(),
+                    }
+                );
 
                 // Handle the LoadChart effect
-                if let pane::Effect::LoadChart { config, ticker_info } = effect {
+                if let pane::Effect::LoadChart {
+                    config,
+                    ticker_info,
+                } = effect
+                {
                     log::info!("  Creating LoadChart event for pane {}", pane_id);
                     let event = self.load_chart(pane_id, config, ticker_info);
-                    if let Event::LoadChart { pane_id, config, ticker_info } = event {
+                    if let Event::LoadChart {
+                        pane_id,
+                        config,
+                        ticker_info,
+                    } = event
+                    {
                         log::info!("  Pushing LoadChart message to task queue");
-                        tasks.push(Message::LoadChart { pane_id, config, ticker_info });
+                        tasks.push(Message::LoadChart {
+                            pane_id,
+                            config,
+                            ticker_info,
+                        });
                     }
                 }
             }
@@ -1001,7 +1104,6 @@ impl Dashboard {
             Task::batch(tasks.into_iter().map(Task::done))
         }
     }
-
 
     /// Handle loaded chart data for a specific pane
     pub fn handle_chart_data_loaded(
@@ -1035,7 +1137,10 @@ impl Dashboard {
     ) -> Event {
         // Update loading status
         if let Some(chart_state) = self.charts.get_mut(&pane_id) {
-            chart_state.loading_status = LoadingStatus::Building { operation: String::new(), progress: 0.0 };
+            chart_state.loading_status = LoadingStatus::Building {
+                operation: String::new(),
+                progress: 0.0,
+            };
         } else {
             // Create new chart state
             self.charts.insert(
@@ -1044,7 +1149,10 @@ impl Dashboard {
                     config: config.clone(),
                     data: ChartData::from_trades(vec![], vec![]),
                     ticker_info,
-                    loading_status: LoadingStatus::Building { operation: String::new(), progress: 0.0 },
+                    loading_status: LoadingStatus::Building {
+                        operation: String::new(),
+                        progress: 0.0,
+                    },
                 },
             );
         }
@@ -1056,6 +1164,88 @@ impl Dashboard {
         }
     }
 
+    /// Unaffiliate panes from a disconnected feed without destroying chart data.
+    /// Charts remain visible; panes are just marked as having no active feed.
+    /// Returns the number of panes affected.
+    pub fn unaffiliate_panes_for_feed(
+        &mut self,
+        feed_id: data::FeedId,
+        main_window: window::Id,
+    ) -> usize {
+        let mut count = 0;
+        for (_, _, state) in self.iter_all_panes_mut(main_window) {
+            if state.feed_id == Some(feed_id) {
+                state.feed_id = None;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            log::info!(
+                "Unaffiliated {} pane(s) from disconnected feed {}",
+                count,
+                feed_id
+            );
+        }
+        count
+    }
+
+    /// Re-affiliate disconnected panes (feed_id == None) to a new feed,
+    /// and collect panes that had a failed load and need reloading.
+    /// Returns a list of (pane_id, config, ticker_info) for panes to reload.
+    pub fn affiliate_and_collect_reloads(
+        &mut self,
+        new_feed_id: data::FeedId,
+        main_window: window::Id,
+    ) -> Vec<(uuid::Uuid, ChartConfig, FuturesTickerInfo)> {
+        let mut to_reload = Vec::new();
+
+        // First pass: collect info from panes that need reloading
+        let preset_days = self.date_range_preset.to_days();
+        for (_, _, state) in self.iter_all_panes(main_window) {
+            if state.feed_id.is_none() && state.ticker_info.is_some() {
+                let needs_reload = matches!(
+                    &state.loading_status,
+                    LoadingStatus::Error { .. }
+                );
+                if needs_reload {
+                    if let Some(ticker_info) = state.ticker_info {
+                        let date_range = self
+                            .downloaded_tickers
+                            .lock()
+                            .unwrap()
+                            .get_range(&ticker_info.ticker)
+                            .unwrap_or_else(|| DateRange::last_n_days(preset_days));
+
+                        let config = ChartConfig {
+                            chart_type: state.content.kind().to_chart_type(),
+                            basis: state
+                                .settings
+                                .selected_basis
+                                .unwrap_or(data::ChartBasis::Time(
+                                    data::Timeframe::M5,
+                                )),
+                            ticker: ticker_info.ticker,
+                            date_range,
+                        };
+                        to_reload.push((
+                            state.unique_id(),
+                            config,
+                            ticker_info,
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Second pass: affiliate all disconnected panes
+        for (_, _, state) in self.iter_all_panes_mut(main_window) {
+            if state.feed_id.is_none() && state.ticker_info.is_some() {
+                state.feed_id = Some(new_feed_id);
+            }
+        }
+
+        to_reload
+    }
 
     pub fn invalidate_all_panes(&mut self, main_window: window::Id) {
         self.iter_all_panes_mut(main_window)
@@ -1081,6 +1271,4 @@ impl Dashboard {
 
         Task::none()
     }
-
-
 }

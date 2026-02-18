@@ -4,7 +4,7 @@ use crate::chart::{
     Caches, Message, ViewState,
     indicator::{
         indicator_row,
-        kline::KlineIndicatorImpl,
+        kline::{KlineIndicatorImpl, OverlayLine},
         plot::{PlotTooltip, line::LinePlot},
     },
 };
@@ -50,25 +50,13 @@ impl SmaIndicator {
         }
     }
 
-    fn indicator_elem<'a>(
-        &'a self,
-        main_chart: &'a ViewState,
-        visible_range: RangeInclusive<u64>,
-    ) -> iced::Element<'a, Message> {
-        let period = self.period;
-        let tooltip = move |value: &f32, _next: Option<&f32>| {
-            PlotTooltip::new(format!("SMA({}): {:.2}", period, value))
-        };
-
-        let value_fn = |v: &f32| *v;
-
-        let plot = LinePlot::new(value_fn)
-            .stroke_width(1.5)
-            .show_points(false)
-            .padding(0.05)
-            .with_tooltip(tooltip);
-
-        indicator_row(main_chart, &self.cache, plot, &self.data, visible_range)
+    fn get_color(&self) -> iced::Color {
+        match self.period {
+            20 => iced::Color::from_rgb(0.2, 0.8, 1.0),   // Blue
+            50 => iced::Color::from_rgb(1.0, 0.6, 0.2),   // Orange
+            200 => iced::Color::from_rgb(0.8, 0.2, 0.8),  // Purple
+            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),    // Gray
+        }
     }
 }
 
@@ -86,11 +74,32 @@ impl KlineIndicatorImpl for SmaIndicator {
         chart: &'a ViewState,
         visible_range: RangeInclusive<u64>,
     ) -> iced::Element<'a, Message> {
-        self.indicator_elem(chart, visible_range)
+        // SMA is an overlay indicator; this shouldn't be called,
+        // but provide a fallback panel view just in case.
+        let period = self.period;
+        let tooltip = move |value: &f32, _next: Option<&f32>| {
+            PlotTooltip::new(format!("SMA({}): {:.2}", period, value))
+        };
+
+        let plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.5)
+            .show_points(false)
+            .padding(0.05)
+            .with_tooltip(tooltip);
+
+        indicator_row(chart, &self.cache, plot, &self.data, visible_range)
     }
 
     fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.calculate(candles, basis);
         self.clear_all_caches();
+    }
+
+    fn overlay_lines(&self) -> Vec<OverlayLine<'_>> {
+        vec![OverlayLine {
+            data: &self.data,
+            color: self.get_color(),
+            stroke_width: 1.5,
+        }]
     }
 }

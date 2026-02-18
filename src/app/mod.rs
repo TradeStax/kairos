@@ -105,6 +105,10 @@ pub enum Message {
     DataManagement(crate::modal::pane::data_management::DataManagementMessage),
     ConnectionsMenu(crate::modal::pane::connections_menu::ConnectionsMenuMessage),
     DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
+    DataFeedPreviewLoaded {
+        feed_id: data::FeedId,
+        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
+    },
     // Async chart data loading
     LoadChartData {
         layout_id: uuid::Uuid,
@@ -302,11 +306,44 @@ impl Flowsurface {
         );
         let load_layout = state.load_layout(active_layout_id.unique, main_window_id);
 
+        // Auto-connect Databento feeds on startup (FeedStatus is transient,
+        // starts Disconnected after deserialization)
+        let auto_connect_tasks: Vec<Task<Message>> = {
+            let mut feed_manager = state
+                .data_feed_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let secrets = data::SecretsManager::new();
+            let mut tasks = Vec::new();
+
+            // Collect Databento feed IDs that should auto-connect
+            let databento_ids: Vec<data::FeedId> = feed_manager
+                .feeds()
+                .iter()
+                .filter(|f| f.provider == data::FeedProvider::Databento && f.enabled)
+                .map(|f| f.id)
+                .collect();
+
+            if secrets.has_api_key(data::ApiProvider::Databento) {
+                for fid in databento_ids {
+                    feed_manager.set_status(fid, data::FeedStatus::Connected);
+                    log::info!("Auto-connected Databento feed {} on startup", fid);
+                }
+            }
+
+            // Sync UI snapshots
+            state.data_feeds_modal.sync_snapshot(&feed_manager);
+            state.connections_menu.sync_snapshot(&feed_manager);
+
+            tasks
+        };
+
         (
             state,
             open_main_window
                 .discard()
-                .chain(load_layout),
+                .chain(load_layout)
+                .chain(Task::batch(auto_connect_tasks)),
         )
     }
 

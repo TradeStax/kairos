@@ -129,6 +129,15 @@ impl State {
                     _ => "Loading…".to_string(),
                 };
                 center(text(status_text).size(16)).into()
+            } else if let data::LoadingStatus::Error { message } = &self.loading_status {
+                let content = column![
+                    text(kind.to_string()).size(16),
+                    text(message).size(14)
+                ]
+                .spacing(8)
+                .align_x(Alignment::Center);
+
+                center(content).into()
             } else {
                 let content = column![
                     text(kind.to_string()).size(16),
@@ -482,7 +491,19 @@ impl State {
                     progress * 100.0
                 )));
             }
-            data::LoadingStatus::Ready | data::LoadingStatus::Idle => {}
+            data::LoadingStatus::Ready | data::LoadingStatus::Idle => {
+                // Show disconnected indicator if chart has data but no feed
+                if self.feed_id.is_none()
+                    && self.ticker_info.is_some()
+                    && self.content.initialized()
+                {
+                    stream_info_element = stream_info_element.push(
+                        text("Disconnected")
+                            .size(12)
+                            .color(iced::Color::from_rgb(0.7, 0.5, 0.2)),
+                    );
+                }
+            }
             data::LoadingStatus::Error { message } => {
                 stream_info_element = stream_info_element.push(text(format!("Error: {}", message)));
             }
@@ -690,6 +711,8 @@ impl State {
 
                 let content: Element<_> = container(mini_list)
                     .max_width(260)
+                    .max_height(480)
+                    .clip(true)
                     .padding(16)
                     .style(style::chart_modal)
                     .into();

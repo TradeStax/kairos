@@ -135,6 +135,26 @@ impl DataFeedManager {
         self.feeds.iter().filter(|f| f.is_realtime()).collect()
     }
 
+    /// Check if any enabled feed of the given provider is currently connected
+    pub fn has_connected_provider(&self, provider: FeedProvider) -> bool {
+        self.feeds.iter().any(|f| {
+            f.provider == provider && f.enabled && f.status.is_connected()
+        })
+    }
+
+    /// Get the feed ID of a connected feed for the given provider (first match)
+    pub fn connected_feed_id_for_provider(
+        &self,
+        provider: FeedProvider,
+    ) -> Option<FeedId> {
+        self.feeds
+            .iter()
+            .find(|f| {
+                f.provider == provider && f.enabled && f.status.is_connected()
+            })
+            .map(|f| f.id)
+    }
+
     // ========================================================================
     // Migration
     // ========================================================================

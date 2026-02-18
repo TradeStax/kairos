@@ -256,6 +256,7 @@ impl EditForm {
 pub enum DataFeedsMessage {
     // Left panel
     SelectFeed(FeedId),
+    DeselectFeed,
     RemoveFeed(FeedId),
     // "+" popup
     ToggleAddPopup,
@@ -350,6 +351,14 @@ impl DataFeedsModal {
                         self.preview_loading = false;
                     }
                 }
+            }
+            DataFeedsMessage::DeselectFeed => {
+                self.selected_feed = None;
+                self.is_creating = false;
+                self.has_changes = false;
+                self.preview_data = None;
+                self.preview_loading = false;
+                self.ticker_dropdown_open = false;
             }
             DataFeedsMessage::RemoveFeed(id) => {
                 feed_manager.remove(id);
@@ -745,7 +754,10 @@ impl DataFeedsModal {
         };
 
         column![
-            scrollable(feed_list.padding([4, 0])).height(Length::Fill),
+            mouse_area(
+                scrollable(feed_list.padding([4, 0])).height(Length::Fill),
+            )
+            .on_press(DataFeedsMessage::DeselectFeed),
             add_area,
         ]
         .width(200)
@@ -993,26 +1005,11 @@ impl DataFeedsModal {
             space::vertical().height(0).into()
         };
 
-        // Delete button
-        let feed_id = feed.id;
-        let delete_section = column![
-            rule::horizontal(1).style(style::split_ruler),
-            container(
-                button(text("Delete Dataset").size(12))
-                    .on_press(DataFeedsMessage::RemoveFeed(feed_id))
-                    .padding([4, 12]),
-            )
-            .align_x(Alignment::End)
-            .width(Length::Fill),
-        ]
-        .spacing(8);
-
         let form_content = column![
             name_field,
             info_row,
             chart_section,
             trade_table,
-            delete_section,
         ]
         .spacing(10)
         .padding([12, 16]);

@@ -58,6 +58,11 @@ impl Chart for KlineChart {
         let mut elements = vec![];
 
         for selected_indicator in enabled {
+            // Overlay indicators are drawn on the main chart canvas,
+            // not as separate panel elements.
+            if selected_indicator.is_overlay() {
+                continue;
+            }
             if let Some(indi) = self.indicators[*selected_indicator].as_ref() {
                 elements.push(indi.element(chart_state, earliest..=latest));
             }
@@ -752,7 +757,13 @@ impl KlineChart {
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
-        let prev_indi_count = self.indicators.values().filter(|v| v.is_some()).count();
+        let panel_count = |indicators: &EnumMap<KlineIndicator, Option<Box<dyn KlineIndicatorImpl>>>| {
+            indicators.iter()
+                .filter(|(k, v)| v.is_some() && !k.is_overlay())
+                .count()
+        };
+
+        let prev_panel_count = panel_count(&self.indicators);
 
         if self.indicators[indicator].is_some() {
             self.indicators[indicator] = None;
@@ -762,14 +773,19 @@ impl KlineChart {
             self.indicators[indicator] = Some(box_indi);
         }
 
-        if let Some(main_split) = self.chart.layout.splits.first() {
-            let current_indi_count = self.indicators.values().filter(|v| v.is_some()).count();
-            self.chart.layout.splits = data::util::calc_panel_splits(
-                *main_split,
-                current_indi_count,
-                Some(prev_indi_count),
-            );
+        // Only adjust layout splits for panel (non-overlay) indicators.
+        if !indicator.is_overlay() {
+            if let Some(main_split) = self.chart.layout.splits.first() {
+                let current_panel_count = panel_count(&self.indicators);
+                self.chart.layout.splits = data::util::calc_panel_splits(
+                    *main_split,
+                    current_panel_count,
+                    Some(prev_panel_count),
+                );
+            }
         }
+
+        self.invalidate();
     }
 }
 

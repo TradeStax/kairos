@@ -354,6 +354,19 @@ impl Content {
         }
     }
 
+    /// Clear chart/panel objects while keeping the content kind and settings.
+    /// Used when a feed disconnects to unload data without losing the pane layout.
+    pub fn clear_chart(&mut self) {
+        match self {
+            Content::Heatmap { chart, .. } => *chart = None,
+            Content::Kline { chart, .. } => *chart = None,
+            Content::TimeAndSales(panel) => *panel = None,
+            Content::Ladder(panel) => *panel = None,
+            Content::Comparison(chart) => *chart = None,
+            Content::Starter => {}
+        }
+    }
+
     /// Set the active drawing tool on the chart
     pub fn set_drawing_tool(&mut self, tool: DrawingTool) {
         use crate::chart::Chart;

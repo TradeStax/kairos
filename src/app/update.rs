@@ -14,17 +14,37 @@ impl Flowsurface {
             Message::LoadChartData { layout_id, pane_id, config, ticker_info } => {
                 log::info!("LoadChartData message received for pane {}: {:?} chart", pane_id, config.chart_type);
 
-                // Warn user if heatmap date range will be truncated
-                if config.chart_type == data::ChartType::Heatmap
-                    && config.date_range.num_days() > 1
-                {
-                    self.notifications.push(Toast::new(
-                        Notification::Info(format!(
-                            "Heatmap limited to 1 day (showing {}). \
-                             Multi-day heatmaps are not supported.",
-                            config.date_range.end
-                        )),
-                    ));
+                // Validate that a Databento feed is connected and track which feed
+                let databento_feed_id = {
+                    let feed_manager = self.data_feed_manager.lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    match feed_manager.connected_feed_id_for_provider(data::FeedProvider::Databento) {
+                        Some(fid) => fid,
+                        None => {
+                            log::warn!("No Databento feed connected - cannot load chart data");
+                            self.notifications.push(Toast::error(
+                                "No data feed connected. Connect a feed in connection settings."
+                                    .to_string(),
+                            ));
+                            return Task::done(Message::Dashboard {
+                                layout_id: Some(layout_id),
+                                event: dashboard::Message::ChangePaneStatus(
+                                    pane_id,
+                                    LoadingStatus::Error {
+                                        message: "No data feed connected".to_string(),
+                                    },
+                                ),
+                            });
+                        }
+                    }
+                };
+
+                // Set feed_id on the pane so we know which feed owns its data
+                if let Some(dashboard) = self.layout_manager.mut_dashboard(layout_id) {
+                    let main_window = self.main_window.id;
+                    if let Some(pane_state) = dashboard.get_mut_pane_state_by_uuid(main_window, pane_id) {
+                        pane_state.feed_id = Some(databento_feed_id);
+                    }
                 }
 
                 let Some(service) = self.market_data_service.clone() else {
@@ -766,6 +786,63 @@ impl Flowsurface {
                                                 feed_id,
                                                 data::FeedStatus::Connected,
                                             );
+                                            self.connections_menu
+                                                .sync_snapshot(&feed_manager);
+                                            self.data_feeds_modal
+                                                .sync_snapshot(&feed_manager);
+                                            drop(feed_manager);
+
+                                            // Re-populate tickers table from
+                                            // downloaded tickers registry
+                                            let ticker_symbols: std::collections::HashSet<String> =
+                                                self.downloaded_tickers
+                                                    .lock()
+                                                    .unwrap()
+                                                    .list_tickers()
+                                                    .into_iter()
+                                                    .collect();
+                                            self.tickers_table
+                                                .set_cached_filter(ticker_symbols);
+                                            log::info!(
+                                                "Databento feed connected - restored ticker list"
+                                            );
+
+                                            // Re-affiliate disconnected panes and
+                                            // reload any that were in error state
+                                            let main_window = self.main_window.id;
+                                            let mut reload_tasks = Vec::new();
+                                            let active_layout_id = self
+                                                .layout_manager
+                                                .active_layout_id()
+                                                .map(|id| id.unique);
+                                            for layout in &mut self.layout_manager.layouts {
+                                                let reloads = layout
+                                                    .dashboard
+                                                    .affiliate_and_collect_reloads(
+                                                        feed_id, main_window,
+                                                    );
+                                                for (pane_id, config, ticker_info) in reloads {
+                                                    if let Some(lid) = active_layout_id {
+                                                        reload_tasks.push(Task::done(
+                                                            Message::LoadChartData {
+                                                                layout_id: lid,
+                                                                pane_id,
+                                                                config,
+                                                                ticker_info,
+                                                            },
+                                                        ));
+                                                    }
+                                                }
+                                            }
+
+                                            if !reload_tasks.is_empty() {
+                                                log::info!(
+                                                    "Reloading {} pane(s) after reconnect",
+                                                    reload_tasks.len()
+                                                );
+                                                return Task::batch(reload_tasks);
+                                            }
+                                            return Task::none();
                                         } else {
                                             self.data_feeds_modal.sync_snapshot(&feed_manager);
                                             self.notifications.push(Toast::error(
@@ -862,6 +939,8 @@ impl Flowsurface {
                         crate::modal::pane::data_feeds::Action::DisconnectFeed(feed_id) => {
                             log::info!("Disconnect feed requested: {}", feed_id);
 
+                            let provider = feed_manager.get(feed_id).map(|f| f.provider);
+
                             // Check if this is the active Rithmic feed
                             if self.rithmic_feed_id == Some(feed_id) {
                                 let client = self.rithmic_client.take();
@@ -875,6 +954,8 @@ impl Flowsurface {
                                         data::FeedStatus::Disconnected,
                                     );
                                     self.data_feeds_modal
+                                        .sync_snapshot(&feed_manager);
+                                    self.connections_menu
                                         .sync_snapshot(&feed_manager);
                                     drop(feed_manager);
 
@@ -898,6 +979,55 @@ impl Flowsurface {
                                 feed_id,
                                 data::FeedStatus::Disconnected,
                             );
+
+                            if provider == Some(data::FeedProvider::Databento) {
+                                // Check if another Databento feed is still connected
+                                let alt_feed_id = feed_manager
+                                    .connected_feed_id_for_provider(
+                                        data::FeedProvider::Databento,
+                                    );
+
+                                self.connections_menu.sync_snapshot(&feed_manager);
+                                self.data_feeds_modal.sync_snapshot(&feed_manager);
+                                drop(feed_manager);
+
+                                let main_window = self.main_window.id;
+                                if let Some(alt_fid) = alt_feed_id {
+                                    // Another Databento feed is connected - silently
+                                    // re-affiliate panes
+                                    for layout in &mut self.layout_manager.layouts {
+                                        let reloads = layout
+                                            .dashboard
+                                            .affiliate_and_collect_reloads(
+                                                alt_fid, main_window,
+                                            );
+                                        if !reloads.is_empty() {
+                                            log::info!(
+                                                "Re-affiliated panes to alt feed {}",
+                                                alt_fid
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    // No other feed connected - keep charts visible
+                                    // but mark panes as unaffiliated
+                                    for layout in &mut self.layout_manager.layouts {
+                                        layout
+                                            .dashboard
+                                            .unaffiliate_panes_for_feed(
+                                                feed_id, main_window,
+                                            );
+                                    }
+                                    self.notifications.push(Toast::warn(
+                                        "Feed disconnected. Charts preserved - will reload when reconnected."
+                                            .to_string(),
+                                    ));
+                                }
+                            } else {
+                                self.connections_menu.sync_snapshot(&feed_manager);
+                                self.data_feeds_modal.sync_snapshot(&feed_manager);
+                            }
+                            return Task::none();
                         }
                         crate::modal::pane::data_feeds::Action::FeedsUpdated => {
                             log::info!("Data feeds updated, persisting to disk");
@@ -919,12 +1049,79 @@ impl Flowsurface {
                             );
                             return Task::none();
                         }
-                        crate::modal::pane::data_feeds::Action::LoadPreview(_feed_id, _info) => {
-                            // Preview loading is deferred for now —
-                            // would require reading from cache async.
-                            // The preview_loading flag is set; we just
-                            // leave it as-is until cache reading is wired.
+                        crate::modal::pane::data_feeds::Action::LoadPreview(feed_id, info) => {
                             drop(feed_manager);
+                            if let Some(service) = self.market_data_service.clone() {
+                                let ticker_str = info.ticker.clone();
+                                let date_range = info.date_range.clone();
+                                let schema = info.schema.clone();
+                                return Task::perform(
+                                    async move {
+                                        let ticker = data::FuturesTicker::new(
+                                            &ticker_str,
+                                            data::FuturesVenue::CMEGlobex,
+                                        );
+                                        let trades = service
+                                            .get_trades_for_preview(&ticker, &date_range)
+                                            .await
+                                            .map_err(|e| e.to_string())?;
+
+                                        // Build preview data from trades
+                                        let total_trades = trades.len();
+
+                                        // Sample price line (every Nth trade)
+                                        let step = (total_trades / 200).max(1);
+                                        let price_line: Vec<(u64, f64)> = trades
+                                            .iter()
+                                            .step_by(step)
+                                            .map(|t| (t.time.0, t.price.to_f64()))
+                                            .collect();
+
+                                        // First 100 trades for the table
+                                        let trade_rows: Vec<
+                                            crate::modal::pane::data_feeds::TradePreviewRow,
+                                        > = trades
+                                            .iter()
+                                            .take(100)
+                                            .map(|t| {
+                                                let dt = chrono::DateTime::from_timestamp_millis(
+                                                    t.time.0 as i64,
+                                                );
+                                                let time_str = dt
+                                                    .map(|d| d.format("%H:%M:%S%.3f").to_string())
+                                                    .unwrap_or_default();
+                                                crate::modal::pane::data_feeds::TradePreviewRow {
+                                                    time: time_str,
+                                                    price: format!("{:.2}", t.price.to_f64()),
+                                                    size: format!("{}", t.quantity.0 as u32),
+                                                    side: match t.side {
+                                                        data::Side::Buy => "Buy".to_string(),
+                                                        data::Side::Sell => "Sell".to_string(),
+                                                        _ => "?".to_string(),
+                                                    },
+                                                }
+                                            })
+                                            .collect();
+
+                                        let date_range_str = format!(
+                                            "{} - {}",
+                                            date_range.start, date_range.end
+                                        );
+
+                                        Ok(crate::modal::pane::data_feeds::PreviewData {
+                                            feed_id,
+                                            price_line,
+                                            trades: trade_rows,
+                                            total_trades,
+                                            date_range_str,
+                                        })
+                                    },
+                                    move |result| Message::DataFeedPreviewLoaded {
+                                        feed_id,
+                                        result,
+                                    },
+                                );
+                            }
                             return Task::none();
                         }
                     }
@@ -932,6 +1129,17 @@ impl Flowsurface {
 
                 // Sync snapshot after any update
                 self.data_feeds_modal.sync_snapshot(&feed_manager);
+            }
+            Message::DataFeedPreviewLoaded { feed_id, result } => {
+                self.data_feeds_modal.update(
+                    crate::modal::pane::data_feeds::DataFeedsMessage::PreviewLoaded(
+                        feed_id, result,
+                    ),
+                    &mut *self
+                        .data_feed_manager
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
+                );
             }
             Message::AudioStream(message) => self.audio_stream.update(message),
             Message::ReinitializeService(provider) => {
@@ -1129,6 +1337,10 @@ impl Flowsurface {
             Message::RithmicStreamEvent(event) => {
                 match event {
                     exchange::Event::TradeReceived(stream_kind, ref _trade) => {
+                        // Guard: only route if Rithmic is still connected
+                        if self.rithmic_feed_id.is_none() {
+                            return Task::none();
+                        }
                         // Route trade events to active dashboard panes
                         return Task::done(Message::Dashboard {
                             layout_id: None,
@@ -1146,6 +1358,10 @@ impl Flowsurface {
                         ref depth,
                         ref trades,
                     ) => {
+                        // Guard: only route if Rithmic is still connected
+                        if self.rithmic_feed_id.is_none() {
+                            return Task::none();
+                        }
                         // Route depth events to active dashboard panes
                         return Task::done(Message::Dashboard {
                             layout_id: None,
