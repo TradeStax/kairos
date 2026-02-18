@@ -26,6 +26,9 @@ toml = "0.8"
 flowsurface-data = { path = "../data" }
 async-trait = "0.1"
 
+# Rithmic integration
+rithmic-rs = "0.7"
+
 # Massive (Polygon) integration
 zstd = "0.13"
 

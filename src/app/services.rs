@@ -138,6 +138,52 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
     })
 }
 
+/// Result of Rithmic service initialization
+pub struct RithmicServiceResult {
+    pub client: Arc<tokio::sync::Mutex<exchange::RithmicClient>>,
+    pub trade_repo: Arc<exchange::RithmicTradeRepository>,
+    pub depth_repo: Arc<exchange::RithmicDepthRepository>,
+    pub status_rx: tokio::sync::mpsc::UnboundedReceiver<data::FeedStatus>,
+}
+
+/// Initialize Rithmic services from a feed config and password
+///
+/// Creates a RithmicClient, connects to the specified environment,
+/// and creates repository instances.
+pub async fn initialize_rithmic_service(
+    feed_config: &data::feed::RithmicFeedConfig,
+    password: &str,
+) -> Result<RithmicServiceResult, String> {
+    let (status_tx, status_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let (local_config, rithmic_config) =
+        exchange::RithmicConfig::from_feed_config(feed_config, password)
+            .map_err(|e| format!("Rithmic config error: {}", e))?;
+
+    let mut client =
+        exchange::RithmicClient::new(local_config, status_tx);
+    client.connect(&rithmic_config).await.map_err(|e| {
+        format!("Rithmic connection error: {}", e)
+    })?;
+
+    let client = Arc::new(tokio::sync::Mutex::new(client));
+
+    let trade_repo = Arc::new(exchange::RithmicTradeRepository::new(
+        client.clone(),
+        "CME",
+    ));
+    let depth_repo = Arc::new(exchange::RithmicDepthRepository::new());
+
+    log::info!("Rithmic service initialized successfully");
+
+    Ok(RithmicServiceResult {
+        client,
+        trade_repo,
+        depth_repo,
+        status_rx,
+    })
+}
+
 /// Create replay engine for historical data playback
 /// Returns None if market data result is not available
 pub fn create_replay_engine(

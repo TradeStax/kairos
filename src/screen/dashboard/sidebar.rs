@@ -129,15 +129,15 @@ impl Sidebar {
             )
         };
 
-        let data_mgmt_button = {
-            let is_active = self.is_menu_active(sidebar::Menu::DataManagement);
+        let connections_button = {
+            let is_active = self.is_menu_active(sidebar::Menu::Connections);
 
             button_with_tooltip(
-                icon_text(Icon::Folder, 14)
+                icon_text(Icon::Link, 14)
                     .width(24)
                     .align_x(Alignment::Center),
-                Message::ToggleSidebarMenu(Some(sidebar::Menu::DataManagement)),
-                Some("Data Management"),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Connections)),
+                Some("Connections"),
                 tooltip_position,
                 move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
@@ -170,7 +170,7 @@ impl Sidebar {
             space::vertical().height(Length::Fill),
             // Bottom section
             audio_btn,
-            data_mgmt_button,
+            connections_button,
             settings_modal_button,
         ]
         .width(32)

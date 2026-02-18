@@ -78,6 +78,8 @@ pub enum Message {
     // Drawing tools
     DrawingToolSelected(data::DrawingTool),
     DrawingSnapToggled,
+    // Live streaming events from Rithmic
+    ExchangeEvent(exchange::Event),
 }
 
 pub struct Dashboard {
@@ -558,6 +560,27 @@ impl Dashboard {
                     && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
                         state.content.toggle_drawing_snap();
                     }
+            }
+            Message::ExchangeEvent(event) => {
+                // Forward live streaming events to chart panes
+                log::trace!("Dashboard received exchange event");
+                match &event {
+                    exchange::Event::TradeReceived(_stream_kind, trade) => {
+                        // Append trade to active chart panes
+                        for chart_state in self.charts.values_mut() {
+                            chart_state.append_live_trade(trade);
+                        }
+                    }
+                    exchange::Event::DepthReceived(
+                        _stream_kind,
+                        _ts,
+                        _depth,
+                        _trades,
+                    ) => {
+                        // Depth updates handled by heatmap panes
+                    }
+                    _ => {}
+                }
             }
         }
 

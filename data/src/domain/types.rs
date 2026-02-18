@@ -294,6 +294,24 @@ impl DateRange {
     pub fn contains(&self, date: NaiveDate) -> bool {
         date >= self.start && date <= self.end
     }
+
+    /// Start of range as milliseconds since epoch (midnight UTC)
+    pub fn start_timestamp_ms(&self) -> u64 {
+        self.start
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis() as u64
+    }
+
+    /// End of range as milliseconds since epoch (end of day UTC)
+    pub fn end_timestamp_ms(&self) -> u64 {
+        self.end
+            .and_hms_opt(23, 59, 59)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis() as u64
+    }
 }
 
 impl Default for DateRange {

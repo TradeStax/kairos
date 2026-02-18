@@ -73,6 +73,18 @@ impl ChartState {
         self.data = ChartData::from_trades(vec![], vec![]);
         self.loading_status = LoadingStatus::Idle;
     }
+
+    /// Append a live trade from streaming (placeholder for live data integration)
+    ///
+    /// Currently logs the trade. Full implementation will:
+    /// - Match trade to chart's ticker
+    /// - Append to trades vec
+    /// - Update or create the latest candle
+    /// - Trigger chart invalidation
+    pub fn append_live_trade(&mut self, _trade: &impl std::fmt::Debug) {
+        // Live trade integration will be implemented as part of the
+        // real-time + historical merge system
+    }
 }
 
 #[cfg(test)]

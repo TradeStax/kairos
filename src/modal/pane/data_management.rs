@@ -8,39 +8,14 @@
 //! - NO emojis
 
 use crate::{style, widget::scrollable_content};
-use chrono::Datelike; // For year(), month(), day(), weekday()
 use data::{DateRange, FuturesTicker};
 use exchange::{DatabentoSchema, FuturesVenue};
 use iced::{
     Alignment, Color, Element, Length,
     widget::{button, center, column, container, mouse_area, opaque, pick_list, progress_bar, row, space, stack, text},
 };
-
-/// Futures products for ticker dropdown
-pub const FUTURES_PRODUCTS: &[(&str, &str)] = &[
-    ("ES.c.0", "E-mini S&P 500"),
-    ("NQ.c.0", "E-mini Nasdaq-100"),
-    ("YM.c.0", "E-mini Dow"),
-    ("RTY.c.0", "E-mini Russell 2000"),
-    ("CL.c.0", "Crude Oil"),
-    ("GC.c.0", "Gold"),
-    ("SI.c.0", "Silver"),
-    ("ZN.c.0", "10-Year T-Note"),
-    ("ZB.c.0", "30-Year T-Bond"),
-    ("ZF.c.0", "5-Year T-Note"),
-    ("NG.c.0", "Natural Gas"),
-    ("HG.c.0", "Copper"),
-];
-
-/// Schemas with display names
-pub const SCHEMAS: &[(DatabentoSchema, &str, u8)] = &[
-    (DatabentoSchema::Trades, "Trades", 2),
-    (DatabentoSchema::Mbp10, "MBP-10 (10 Levels)", 3),
-    (DatabentoSchema::Mbp1, "MBP-1 (Top of Book)", 2),
-    (DatabentoSchema::Ohlcv1M, "OHLCV-1M", 1),
-    (DatabentoSchema::Tbbo, "TBBO (Top BBO)", 2),
-    (DatabentoSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
-];
+use super::calendar::{DateRangeCalendar, CalendarMessage};
+use super::{FUTURES_PRODUCTS, SCHEMAS};
 
 /// Data management panel state
 #[derive(Debug, Clone, PartialEq)]
@@ -50,26 +25,10 @@ pub struct DataManagementPanel {
     calendar: DateRangeCalendar,
 
     cache_status: Option<CacheStatus>,
-    cached_dates: Option<std::collections::HashSet<chrono::NaiveDate>>, // For calendar coloring
     actual_cost_usd: Option<f64>,
     download_progress: DownloadProgress,
     show_confirm_modal: bool, // Show download confirmation modal
     has_valid_selection: bool, // True after user has selected a date range
-}
-
-/// Calendar for visual date range selection
-#[derive(Debug, Clone, PartialEq)]
-struct DateRangeCalendar {
-    viewing_month: chrono::NaiveDate, // First day of month being viewed
-    start_date: chrono::NaiveDate,
-    end_date: chrono::NaiveDate,
-    selection_mode: SelectionMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum SelectionMode {
-    SelectingStart,
-    SelectingEnd,
 }
 
 /// Cache coverage status
@@ -95,10 +54,8 @@ pub enum DataManagementMessage {
     TickerSelected(usize),
     SchemaSelected(usize),
 
-    // Calendar
-    PrevMonth,
-    NextMonth,
-    DayClicked(chrono::NaiveDate),
+    // Calendar (delegated to shared component)
+    Calendar(CalendarMessage),
 
     // Actions
     ShowDownloadConfirm, // Show confirmation modal
@@ -119,83 +76,17 @@ pub enum Action {
     },
 }
 
-/// Custom style for calendar day buttons
-/// Text color = cache status, Background = subtle indicator, Outline = selection
-fn calendar_day_style(
-    base_text_color: Color,
-    is_selected: bool,
-    is_cached: bool,
-) -> impl Fn(&iced::Theme, iced::widget::button::Status) -> iced::widget::button::Style {
-    move |theme, status| {
-        let palette = theme.extended_palette();
-
-        iced::widget::button::Style {
-            // Text color based on cache status
-            text_color: match status {
-                iced::widget::button::Status::Hovered => {
-                    // Subtle dim on hover (85% opacity)
-                    Color::from_rgba(
-                        base_text_color.r,
-                        base_text_color.g,
-                        base_text_color.b,
-                        base_text_color.a * 0.85,
-                    )
-                }
-                _ => base_text_color, // Cache status color always
-            },
-
-            // Gray background for cached dates (to show they're already downloaded)
-            background: if is_cached {
-                Some(
-                    Color::from_rgba(0.5, 0.5, 0.5, 0.2) // Gray with 20% opacity
-                    .into(),
-                )
-            } else {
-                None
-            },
-
-            // Outline ONLY for selected dates
-            border: if is_selected {
-                iced::Border {
-                    width: 1.5,
-                    color: palette.primary.strong.color, // Theme primary color
-                    radius: 3.0.into(),
-                }
-            } else {
-                // Subtle border for all to maintain button shape
-                iced::Border {
-                    width: 0.0,
-                    color: Color::TRANSPARENT,
-                    radius: 3.0.into(),
-                }
-            },
-
-            shadow: iced::Shadow::default(),
-            snap: true,
-        }
-    }
-}
-
 impl DataManagementPanel {
     pub fn new() -> Self {
-        let yesterday = chrono::Local::now().date_naive() - chrono::Duration::days(1);
-        let start = yesterday - chrono::Duration::days(6); // Last 7 days default
-
         Self {
             selected_ticker_idx: 0, // ES.c.0 default
             selected_schema_idx: 0, // Trades default
-            calendar: DateRangeCalendar {
-                viewing_month: chrono::NaiveDate::from_ymd_opt(yesterday.year(), yesterday.month(), 1).unwrap(),
-                start_date: start,
-                end_date: yesterday,
-                selection_mode: SelectionMode::SelectingStart,
-            },
+            calendar: DateRangeCalendar::new(),
             cache_status: None,
-            cached_dates: None,
             actual_cost_usd: None,
             download_progress: DownloadProgress::Idle,
             show_confirm_modal: false,
-            has_valid_selection: false, // Not valid until user interacts or cost is fetched
+            has_valid_selection: false,
         }
     }
 
@@ -214,55 +105,29 @@ impl DataManagementPanel {
                 self.selected_ticker_idx = idx;
                 self.cache_status = None;
                 self.actual_cost_usd = None;
-                // Check cache for entire viewing month
                 return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::SchemaSelected(idx) => {
                 self.selected_schema_idx = idx;
                 self.cache_status = None;
                 self.actual_cost_usd = None;
-                // Check cache for entire viewing month
                 return self.trigger_viewing_month_cache_check();
             }
-            DataManagementMessage::PrevMonth => {
-                let prev = self.calendar.viewing_month - chrono::Months::new(1);
-                self.calendar.viewing_month = chrono::NaiveDate::from_ymd_opt(prev.year(), prev.month(), 1).unwrap();
-                // Check cache for entire NEW viewing month
-                return self.trigger_viewing_month_cache_check();
-            }
-            DataManagementMessage::NextMonth => {
-                let next = self.calendar.viewing_month + chrono::Months::new(1);
-                self.calendar.viewing_month = chrono::NaiveDate::from_ymd_opt(next.year(), next.month(), 1).unwrap();
-                // Check cache for entire NEW viewing month
-                return self.trigger_viewing_month_cache_check();
-            }
-            DataManagementMessage::DayClicked(date) => {
-                match self.calendar.selection_mode {
-                    SelectionMode::SelectingStart => {
-                        self.calendar.start_date = date;
-                        self.calendar.end_date = date; // Reset end to start
-                        self.calendar.selection_mode = SelectionMode::SelectingEnd;
-                        self.cache_status = None;
-                        self.actual_cost_usd = None;
-                        // Don't trigger estimation yet - wait for end date
-                    }
-                    SelectionMode::SelectingEnd => {
-                        if date >= self.calendar.start_date {
-                            // Valid end date
-                            self.calendar.end_date = date;
-                        } else {
-                            // Clicked before start - swap: this becomes start, old start becomes end
-                            self.calendar.end_date = self.calendar.start_date;
-                            self.calendar.start_date = date;
-                        }
-                        // Selection complete - return to start mode and trigger estimation for selected range
-                        self.calendar.selection_mode = SelectionMode::SelectingStart;
-                        self.cache_status = None;
-                        self.actual_cost_usd = None;
-                        return self.trigger_estimation(None); // Check selected range for download cost
-                    }
+            DataManagementMessage::Calendar(cal_msg) => {
+                let is_month_nav = matches!(
+                    cal_msg,
+                    CalendarMessage::PrevMonth | CalendarMessage::NextMonth
+                );
+                let selection_complete = self.calendar.update(cal_msg);
+
+                if is_month_nav {
+                    return self.trigger_viewing_month_cache_check();
+                } else if selection_complete {
+                    self.cache_status = None;
+                    self.actual_cost_usd = None;
+                    return self.trigger_estimation(None);
                 }
-                return None; // Return None for SelectingStart (don't trigger estimation until selection complete)
+                return None;
             }
             DataManagementMessage::ShowDownloadConfirm => {
                 // Show confirmation modal (only if cost is available)
@@ -309,10 +174,8 @@ impl DataManagementPanel {
     }
 
     pub fn set_cache_status(&mut self, status: CacheStatus, cached_dates: Vec<chrono::NaiveDate>) {
-        // Store cache status and cached dates (no validation needed - may be for viewing month OR selected range)
-        // The viewing month check will have all dates, selected range check will have subset
         self.cache_status = Some(status);
-        self.cached_dates = Some(cached_dates.into_iter().collect());
+        self.calendar.cached_dates = Some(cached_dates.into_iter().collect());
     }
 
     pub fn set_actual_cost(&mut self, cost_usd: f64) {
@@ -343,21 +206,9 @@ impl DataManagementPanel {
         DateRange::new(start, end)
     }
 
-    /// Get the viewing month date range (first to last day of currently displayed month)
-    /// This is used for cache checking to show accurate status for all visible dates
     fn viewing_month_range(&self) -> DateRange {
-        let month = self.calendar.viewing_month;
-        let first_day = chrono::NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
-
-        // Last day of month: go to next month and subtract 1 day
-        let next_month = if month.month() == 12 {
-            chrono::NaiveDate::from_ymd_opt(month.year() + 1, 1, 1).unwrap()
-        } else {
-            chrono::NaiveDate::from_ymd_opt(month.year(), month.month() + 1, 1).unwrap()
-        };
-        let last_day = next_month - chrono::Duration::days(1);
-
-        DateRange::new(first_day, last_day)
+        let (first, last) = self.calendar.viewing_month_range();
+        DateRange::new(first, last)
     }
 
     /// Request initial cache status estimation (called when modal opens)
@@ -429,13 +280,15 @@ impl DataManagementPanel {
             text("Date Range").size(13),
             row![
                 text("From:"),
-                text(self.calendar.start_date.format("%b %d, %Y").to_string()).size(11),
+                text(self.calendar.start_date.format("%b %d, %Y").to_string())
+                    .size(11),
                 space::horizontal(),
                 text("To:"),
-                text(self.calendar.end_date.format("%b %d, %Y").to_string()).size(11),
+                text(self.calendar.end_date.format("%b %d, %Y").to_string())
+                    .size(11),
             ]
             .spacing(4),
-            self.calendar_view(),
+            self.calendar.view(DataManagementMessage::Calendar),
         ]
         .spacing(6);
 
@@ -693,130 +546,6 @@ impl DataManagementPanel {
         .into()
     }
 
-    fn calendar_view(&self) -> Element<'_, DataManagementMessage> {
-        let month = self.calendar.viewing_month;
-
-        // Month/year header with navigation
-        let header = row![
-            button(text("<").size(14))
-                .on_press(DataManagementMessage::PrevMonth)
-                .style(|t, s| style::button::transparent(t, s, false))
-                .width(Length::Fixed(28.0)),
-            text(month.format("%B %Y").to_string())
-                .size(13)
-                .width(Length::Fill)
-                .align_x(Alignment::Center),
-            button(text(">").size(14))
-                .on_press(DataManagementMessage::NextMonth)
-                .style(|t, s| style::button::transparent(t, s, false))
-                .width(Length::Fixed(28.0)),
-        ]
-        .align_y(Alignment::Center);
-
-        // Day of week headers (Mon-Fri only)
-        let dow_headers = row![
-            text("Mon").size(10).width(Length::FillPortion(1)).align_x(Alignment::Center),
-            text("Tue").size(10).width(Length::FillPortion(1)).align_x(Alignment::Center),
-            text("Wed").size(10).width(Length::FillPortion(1)).align_x(Alignment::Center),
-            text("Thu").size(10).width(Length::FillPortion(1)).align_x(Alignment::Center),
-            text("Fri").size(10).width(Length::FillPortion(1)).align_x(Alignment::Center),
-        ]
-        .spacing(2);
-
-        // Calendar grid
-        let grid = self.build_calendar_grid(month);
-
-        // Wrap in modal_container for visual boundary
-        container(
-            column![header, dow_headers, grid].spacing(4)
-        )
-        .padding(12)
-        .style(style::modal_container)
-        .into()
-    }
-
-    fn build_calendar_grid(&self, month: chrono::NaiveDate) -> Element<'_, DataManagementMessage> {
-        use chrono::Weekday;
-
-        let today = chrono::Local::now().date_naive();
-
-        // Find first Monday of viewing period (may be before month starts)
-        let first_day = chrono::NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
-        let days_until_monday = match first_day.weekday() {
-            Weekday::Mon => 0,
-            Weekday::Tue => 1,
-            Weekday::Wed => 2,
-            Weekday::Thu => 3,
-            Weekday::Fri => 4,
-            Weekday::Sat => 5,
-            Weekday::Sun => 6,
-        };
-        let calendar_start = first_day - chrono::Duration::days(days_until_monday);
-
-        let start = self.calendar.start_date;
-        let end = self.calendar.end_date;
-
-        let mut grid = column![].spacing(4); // Vertical gaps between weeks
-
-        // Build 6 weeks × 5 weekdays (30 buttons total)
-        for week in 0..6 {
-            let mut week_row = row![].spacing(4); // Gaps between buttons
-
-            for day in 0..5 {
-                let date = calendar_start + chrono::Duration::days(week * 7 + day);
-
-                // Don't show future dates or today - render NOTHING (not even empty button)
-                // (realtime data is not supported, so only allow up to yesterday)
-                let yesterday = today - chrono::Duration::days(1);
-                if date > yesterday {
-                    week_row = week_row.push(space::horizontal().width(Length::FillPortion(1)));
-                    continue;
-                }
-
-                let is_current_month = date.month() == month.month() && date.year() == month.year();
-                let is_in_range = date >= start && date <= end;
-                let _is_start = date == start;
-                let _is_end = date == end;
-                let is_cached = self.cached_dates.as_ref().map(|set| set.contains(&date)).unwrap_or(false);
-
-                // Text color based ONLY on cache status
-                let base_text_color = if !is_current_month {
-                    // Other month - very dim gray
-                    Color::from_rgba(0.5, 0.5, 0.5, 0.3)
-                } else if is_cached {
-                    // Cached - full brightness
-                    Color::from_rgba(1.0, 1.0, 1.0, 1.0)
-                } else {
-                    // Uncached - dimmed (needs download)
-                    Color::from_rgba(1.0, 1.0, 1.0, 0.5)
-                };
-
-                // Outline ONLY for selected dates
-                let is_selected = is_in_range;
-
-                // Day number text (size 10 for all - consistent)
-                let day_text = text(format!("{}", date.day()))
-                    .size(10)
-                    .align_x(Alignment::Center);
-
-                let day_button = button(day_text)
-                    .width(Length::FillPortion(1))
-                    .height(Length::Fixed(26.0))
-                    .style(calendar_day_style(base_text_color, is_selected, is_cached))
-                    .on_press_maybe(if is_cached {
-                        None // Cached dates are not clickable
-                    } else {
-                        Some(DataManagementMessage::DayClicked(date))
-                    });
-
-                week_row = week_row.push(day_button);
-            }
-
-            grid = grid.push(week_row);
-        }
-
-        grid.into()
-    }
 }
 
 impl Default for DataManagementPanel {

@@ -5,37 +5,62 @@ use super::Message;
 use crate::screen::dashboard::tickers_table::TickersTable;
 use crate::window;
 
+use exchange;
+
+/// Rithmic streaming event monitor
+/// Drains ALL events from the global buffer every 50ms
+fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
+    futures::stream::unfold((), |_| async {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let events: Vec<exchange::Event> = {
+            if let Ok(mut buf) = super::get_rithmic_events().lock() {
+                if buf.is_empty() {
+                    return Some((Vec::new(), ()));
+                }
+                buf.drain(..).collect()
+            } else {
+                Vec::new()
+            }
+        };
+
+        Some((events, ()))
+    })
+    .flat_map(|events| {
+        futures::stream::iter(
+            events
+                .into_iter()
+                .map(|event| Message::RithmicStreamEvent(event)),
+        )
+    })
+}
+
 /// Download progress monitoring subscription
 /// Uses global download progress state to avoid Subscription capture issues
 pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Message> {
     futures::stream::unfold((), |_| async {
-        // Sleep for 200ms between polls
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        // Check global progress state
-        if let Ok(progress) = super::get_download_progress().lock()
-            && !progress.is_empty() {
-                // Get first active download (could iterate all if needed)
-                if let Some((&pane_id, &(current, total))) = progress.iter().next() {
-                    // Emit progress message
-                    return Some((Message::DataDownloadProgress { pane_id, current, total }, ()));
-                }
+        let messages: Vec<Message> = {
+            if let Ok(progress) = super::get_download_progress().lock() {
+                progress
+                    .iter()
+                    .map(|(&pane_id, &(current, total))| {
+                        Message::DataDownloadProgress {
+                            pane_id,
+                            current,
+                            total,
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
             }
+        };
 
-        // No active downloads, emit dummy message that will be filtered
-        Some((Message::DataDownloadProgress {
-            pane_id: uuid::Uuid::nil(),
-            current: 0,
-            total: 0
-        }, ()))
+        Some((messages, ()))
     })
-    .filter(|msg| {
-        // Filter out dummy messages (total=0 indicates no active downloads)
-        futures::future::ready(match msg {
-            Message::DataDownloadProgress { total, .. } => *total > 0,
-            _ => false,
-        })
-    })
+    .flat_map(|messages| futures::stream::iter(messages))
 }
 
 /// Build the main application subscription
@@ -53,6 +78,9 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
     // Download progress monitoring subscription
     let download_poll = Subscription::run(download_progress_monitor);
 
+    // Rithmic streaming event subscription
+    let rithmic_poll = Subscription::run(rithmic_event_monitor);
+
     let hotkeys = keyboard::listen().filter_map(|event| {
         let keyboard::Event::KeyPressed { key, .. } = event else {
             return None;
@@ -69,6 +97,7 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
         tick,
         status_poll,
         download_poll,
+        rithmic_poll,
         hotkeys,
     ])
 }

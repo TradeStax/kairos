@@ -348,3 +348,60 @@ pub fn danger(theme: &Theme, status: Status) -> Style {
         ..Default::default()
     }
 }
+
+/// Transparent button with subtle hover highlight for list items
+pub fn list_item(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.background.weak.color.into()),
+            Status::Pressed => Some(palette.background.strong.color.into()),
+            Status::Active | Status::Disabled => None,
+        },
+        border: Border {
+            radius: 4.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Button styled to look like a pick_list trigger
+pub fn pick_list_trigger(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: Some(palette.background.base.color.into()),
+        border: Border {
+            width: 1.0,
+            color: match status {
+                Status::Hovered => palette.background.strong.color,
+                _ => palette.background.weak.color,
+            },
+            radius: 4.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
+/// Item inside a dropdown menu (pick_list-like)
+pub fn pick_list_item(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.primary.weak.color.into()),
+            Status::Pressed => Some(palette.primary.base.color.into()),
+            _ => None,
+        },
+        border: Border {
+            radius: 0.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}

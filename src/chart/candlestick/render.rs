@@ -224,6 +224,11 @@ impl canvas::Program<Message> for KlineChart {
             }
 
             crate::chart::overlay::draw_last_price_line(chart, frame, palette, region);
+
+            // Draw data gap markers
+            if !self.chart_data.gaps.is_empty() {
+                crate::chart::overlay::draw_gap_markers(frame, chart, &self.chart_data.gaps, &region);
+            }
         });
 
         let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {

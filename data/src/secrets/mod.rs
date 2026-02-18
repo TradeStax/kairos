@@ -29,6 +29,8 @@ pub enum ApiProvider {
     Databento,
     /// Massive (Polygon) API for US options data
     Massive,
+    /// Rithmic for realtime + historical futures data
+    Rithmic,
 }
 
 impl ApiProvider {
@@ -42,6 +44,7 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "databento_api_key",
             ApiProvider::Massive => "massive_api_key",
+            ApiProvider::Rithmic => "rithmic_password",
         }
     }
 
@@ -50,6 +53,7 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "DATABENTO_API_KEY",
             ApiProvider::Massive => "MASSIVE_API_KEY",
+            ApiProvider::Rithmic => "RITHMIC_PASSWORD",
         }
     }
 
@@ -58,6 +62,7 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "Databento",
             ApiProvider::Massive => "Massive (Polygon)",
+            ApiProvider::Rithmic => "Rithmic",
         }
     }
 
@@ -66,6 +71,7 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "https://databento.com/portal/keys",
             ApiProvider::Massive => "https://polygon.io/dashboard/api-keys",
+            ApiProvider::Rithmic => "https://rithmic.com",
         }
     }
 
@@ -74,12 +80,15 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "Required for CME futures market data (ES, NQ, etc.)",
             ApiProvider::Massive => "Required for US options data and GEX analysis",
+            ApiProvider::Rithmic => {
+                "Required for Rithmic realtime + historical futures data"
+            }
         }
     }
 
     /// List all providers
     pub fn all() -> &'static [ApiProvider] {
-        &[ApiProvider::Databento, ApiProvider::Massive]
+        &[ApiProvider::Databento, ApiProvider::Massive, ApiProvider::Rithmic]
     }
 }
 

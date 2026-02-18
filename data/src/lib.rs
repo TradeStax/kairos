@@ -19,6 +19,7 @@ pub mod config; // Configuration
 pub mod domain; // Pure domain logic - THE source of truth
 pub mod drawing; // Drawing types for chart annotations
 pub mod error_types; // Error types
+pub mod feed; // Data feed connection model
 pub mod log_config; // Logging configuration
 pub mod panel_config; // Panel configuration types
 pub mod repository; // Data access abstraction
@@ -44,17 +45,19 @@ pub use error_types::InternalError;
 // Re-export commonly used types for convenience
 pub use domain::{
     Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, ClusterKind, ClusterScaling,
-    DataSchema, DateRange, DepthSnapshot, FootprintStudy, FuturesTicker, FuturesTickerInfo, FuturesVenue,
-    HeatmapIndicator, Indicator, KlineChartKind, KlineDataPoint, KlineIndicator, KlineTrades,
-    LoadingStatus, NPoc, PointOfControl, Price, Quantity, Side, Timeframe, Timestamp, Trade,
-    UiIndicator, ViewConfig, Volume, aggregate_trades_to_candles, aggregate_trades_to_ticks,
+    DataGap, DataGapKind, DataSchema, DataSegment, DateRange, DepthSnapshot, FootprintStudy,
+    FuturesTicker, FuturesTickerInfo, FuturesVenue, HeatmapIndicator, Indicator, KlineChartKind,
+    KlineDataPoint, KlineIndicator, KlineTrades, LoadingStatus, MergeResult, NPoc, PointOfControl,
+    Price, Quantity, Side, Timeframe, Timestamp, Trade, UiIndicator, ViewConfig, Volume,
+    aggregate_trades_to_candles, aggregate_trades_to_ticks,
 };
 
 pub use repository::{
-    DepthRepository, RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
+    CompositeTradeRepository, DepthRepository, FeedRepo, RepositoryError, RepositoryResult,
+    RepositoryStats, TradeRepository,
 };
 
-pub use services::{CacheManagerService, MarketDataService, ServiceError};
+pub use services::{CacheManagerService, MarketDataService, ServiceError, merge_segments};
 
 pub use state::{
     AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard, DownloadedTickersRegistry,
@@ -76,6 +79,12 @@ pub use secrets::{ApiKeyStatus, ApiProvider, SecretsError, SecretsManager};
 pub use drawing::{
     DrawingId, DrawingStyle, DrawingTool, LineStyle, SerializableColor, SerializableDrawing,
     SerializablePoint,
+};
+
+// Re-export feed types
+pub use feed::{
+    DataFeed, DataFeedManager, DatabentoFeedConfig, FeedCapability, FeedConfig, FeedId, FeedKind,
+    FeedProvider, FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig,
 };
 
 // Error types
@@ -105,22 +114,7 @@ impl From<ServiceError> for DataError {
     }
 }
 
-// ============================================================================
-// Utilities
-// ============================================================================
-
-/// Lock a mutex, recovering from poisoning by returning the inner data.
-///
-/// This is a helper to avoid repeating the `.lock().unwrap_or_else(|e| e.into_inner())`
-/// pattern throughout the codebase. Poisoned mutexes are recovered by logging the
-/// error and returning the inner guard.
-pub fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|e| {
-        ::log::error!("Mutex poisoned, recovering: {}", e);
-        e.into_inner()
-    })
-}
-
+// Utility functions
 use std::path::PathBuf;
 
 /// Get data directory path

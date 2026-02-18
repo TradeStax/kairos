@@ -42,6 +42,10 @@ pub enum Error {
     #[error("DBN format error: {0}")]
     Dbn(#[from] databento::dbn::Error),
 
+    /// Rithmic errors
+    #[error("Rithmic error: {0}")]
+    Rithmic(#[from] crate::adapter::rithmic::RithmicError),
+
     /// I/O errors
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -77,19 +81,27 @@ impl Error {
             }
             Error::Dbn(_) => "Data format error - corrupted or incompatible data".to_string(),
             Error::Io(_) => "File system error - check permissions and disk space".to_string(),
+            Error::Rithmic(_) => {
+                "Rithmic API error - check connectivity and credentials".to_string()
+            }
         }
     }
 
     /// Check if error is retriable
     pub fn is_retriable(&self) -> bool {
-        matches!(self, Error::Fetch(_) | Error::Databento(_) | Error::Io(_))
+        matches!(
+            self,
+            Error::Fetch(_) | Error::Databento(_) | Error::Io(_) | Error::Rithmic(_)
+        )
     }
 
     /// Get severity level for logging
     pub fn severity(&self) -> ErrorSeverity {
         match self {
             Error::Config(_) | Error::Dbn(_) => ErrorSeverity::Critical,
-            Error::Fetch(_) | Error::Databento(_) | Error::Io(_) => ErrorSeverity::Recoverable,
+            Error::Fetch(_) | Error::Databento(_) | Error::Io(_) | Error::Rithmic(_) => {
+                ErrorSeverity::Recoverable
+            }
             Error::Parse(_) | Error::Cache(_) => ErrorSeverity::Warning,
             Error::Symbol(_) | Error::Validation(_) => ErrorSeverity::Info,
         }

@@ -18,7 +18,7 @@ use thiserror::Error;
 pub struct StateVersion(pub u32);
 
 impl StateVersion {
-    pub const CURRENT: StateVersion = StateVersion(1);
+    pub const CURRENT: StateVersion = StateVersion(2);
 
     pub fn is_current(&self) -> bool {
         self.0 == Self::CURRENT.0
@@ -349,7 +349,7 @@ mod tests {
         assert!(current.is_current());
         assert!(!current.needs_migration());
 
-        let old = StateVersion(0);
+        let old = StateVersion(1);
         assert!(!old.is_current());
         assert!(old.needs_migration());
     }
@@ -358,10 +358,15 @@ mod tests {
     fn test_migration_registry() {
         let registry = MigrationRegistry::new();
 
-        // No migrations registered, so v0 to v1 should have empty path
-        let path = registry.get_migration_path(1, 1);
+        // Same version should have empty path
+        let path = registry.get_migration_path(2, 2);
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 0);
+
+        // v1 to v2 should have 1 migration
+        let path = registry.get_migration_path(1, 2);
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 1);
     }
 
     #[test]
@@ -390,9 +395,9 @@ mod tests {
     }
 
     // Example custom migration for testing
-    struct TestMigration;
+    struct TestMigrationV0ToV1;
 
-    impl StateMigration for TestMigration {
+    impl StateMigration for TestMigrationV0ToV1 {
         fn source_version(&self) -> u32 {
             0
         }
@@ -413,20 +418,22 @@ mod tests {
     #[test]
     fn test_custom_migration() {
         let mut registry = MigrationRegistry::new();
-        registry.register(Box::new(TestMigration));
+        registry.register(Box::new(TestMigrationV0ToV1));
 
-        let path = registry.get_migration_path(0, 1);
+        // Now we have v0->v1 (custom) and v1->v2 (real), so v0->v2 path = 2
+        let path = registry.get_migration_path(0, 2);
         assert!(path.is_some());
-        assert_eq!(path.unwrap().len(), 1);
+        assert_eq!(path.unwrap().len(), 2);
     }
 
     #[test]
     fn test_execute_migrations() {
-        let mut registry = MigrationRegistry::new();
-        registry.register(Box::new(TestMigration));
+        let registry = MigrationRegistry::new();
 
-        let state = AppState::default();
-        let result = registry.execute_migrations(state, 0, 1);
+        // Test the real v1->v2 migration
+        let mut state = AppState::default();
+        state.version = 1;
+        let result = registry.execute_migrations(state, 1, 2);
         assert!(result.is_ok());
     }
 }

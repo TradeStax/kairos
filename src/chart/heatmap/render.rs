@@ -155,6 +155,11 @@ impl canvas::Program<Message> for HeatmapChart {
                     self.basis,
                 );
             }
+
+            // Draw data gap markers
+            if !self.chart_data.gaps.is_empty() {
+                crate::chart::overlay::draw_gap_markers(frame, chart, &self.chart_data.gaps, &region);
+            }
         });
 
         // Crosshair layer (includes drawings)

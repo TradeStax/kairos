@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 pub mod databento;
 pub mod massive;
+pub mod rithmic;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedStream {

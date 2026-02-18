@@ -104,7 +104,11 @@ impl Flowsurface {
             self.sidebar.state.clone(),
             self.ui_scale_factor,
             audio_cfg_simplified,
-            data::lock_or_recover(&self.downloaded_tickers).clone(),
+            self.downloaded_tickers.lock().unwrap().clone(),
+            self.data_feed_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
         );
 
         // Save state using the persistence module

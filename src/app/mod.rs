@@ -3,7 +3,7 @@ mod state;
 mod subscriptions;
 mod update;
 
-use crate::modal::api_key_config::ApiKeyConfigModal;
+use crate::layout::{LayoutId, configuration};
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{self, Dashboard, tickers_table::{self, TickersTable}};
@@ -23,7 +23,8 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{collections::HashMap, sync::OnceLock, vec};
+use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
+use data::FeedId;
 
 // Global download progress state (shared between async tasks and subscriptions)
 #[allow(clippy::type_complexity)]
@@ -36,6 +37,26 @@ pub fn get_download_progress()
     DOWNLOAD_PROGRESS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())))
 }
 
+// Global staging for Rithmic streaming events
+static RITHMIC_EVENTS: OnceLock<
+    std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>>,
+> = OnceLock::new();
+
+pub fn get_rithmic_events()
+-> &'static std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>> {
+    RITHMIC_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
+}
+
+// Staging slot for Rithmic service result (non-Clone, consumed once)
+static RITHMIC_SERVICE_RESULT: OnceLock<
+    std::sync::Arc<std::sync::Mutex<Option<services::RithmicServiceResult>>>,
+> = OnceLock::new();
+
+pub fn get_rithmic_service_staging()
+-> &'static std::sync::Arc<std::sync::Mutex<Option<services::RithmicServiceResult>>> {
+    RITHMIC_SERVICE_RESULT.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+}
+
 pub struct Flowsurface {
     pub(crate) main_window: window::Window,
     pub(crate) sidebar: dashboard::Sidebar,
@@ -44,13 +65,25 @@ pub struct Flowsurface {
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
     pub(crate) data_management_panel: crate::modal::pane::data_management::DataManagementPanel,
-    pub(crate) api_key_config_modal: Option<ApiKeyConfigModal>,
+    pub(crate) connections_menu: crate::modal::pane::connections_menu::ConnectionsMenu,
+    pub(crate) data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal,
+    pub(crate) historical_download_modal: Option<crate::modal::pane::historical_download::HistoricalDownloadModal>,
+    pub(crate) historical_download_id: Option<uuid::Uuid>,
+    pub(crate) data_feed_manager: std::sync::Arc<std::sync::Mutex<data::DataFeedManager>>,
     pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
     // Service layer (optional - None when API key not configured)
     pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
+    // Rithmic connection state
+    pub(crate) rithmic_client:
+        Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
+    pub(crate) rithmic_trade_repo:
+        Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
+    pub(crate) rithmic_depth_repo:
+        Option<std::sync::Arc<exchange::RithmicDepthRepository>>,
+    pub(crate) rithmic_feed_id: Option<FeedId>,
     // User preferences
     pub(crate) ui_scale_factor: data::ScaleFactor,
     pub(crate) timezone: data::UserTimezone,
@@ -70,6 +103,8 @@ pub enum Message {
         event: dashboard::Message,
     },
     DataManagement(crate::modal::pane::data_management::DataManagementMessage),
+    ConnectionsMenu(crate::modal::pane::connections_menu::ConnectionsMenuMessage),
+    DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
     // Async chart data loading
     LoadChartData {
         layout_id: uuid::Uuid,
@@ -137,12 +172,23 @@ pub enum Message {
     ThemeEditor(crate::modal::theme_editor::Message),
     Layouts(crate::modal::layout_manager::Message),
     AudioStream(crate::modal::audio::Message),
-    // API key configuration
-    ApiKeyConfig(crate::modal::api_key_config::Message),
-    ShowApiKeyConfig {
-        provider: data::ApiProvider,
-    },
     ReinitializeService(data::ApiProvider),
+    // Historical download modal
+    HistoricalDownload(crate::modal::pane::historical_download::HistoricalDownloadMessage),
+    HistoricalDownloadCostEstimated {
+        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+    },
+    HistoricalDownloadComplete {
+        ticker: data::FuturesTicker,
+        date_range: data::DateRange,
+        result: Result<usize, String>,
+    },
+    // Rithmic connection
+    RithmicConnected {
+        feed_id: FeedId,
+        result: Result<(), String>,
+    },
+    RithmicStreamEvent(exchange::Event),
 }
 
 impl Flowsurface {
@@ -169,6 +215,11 @@ impl Flowsurface {
             saved_state_temp.sidebar.date_range_preset,
         );
 
+        // Create shared data feed manager
+        let data_feed_manager = std::sync::Arc::new(std::sync::Mutex::new(
+            saved_state_temp.data_feeds.clone(),
+        ));
+
         // Create final SavedState with shared Arc in layout_manager
         let saved_state = crate::layout::SavedState {
             theme: saved_state_temp.theme,
@@ -180,6 +231,7 @@ impl Flowsurface {
             scale_factor: saved_state_temp.scale_factor,
             audio_cfg: saved_state_temp.audio_cfg,
             downloaded_tickers: saved_state_temp.downloaded_tickers,
+            data_feeds: saved_state_temp.data_feeds,
         };
 
         let (main_window_id, open_main_window) = {
@@ -218,10 +270,18 @@ impl Flowsurface {
             theme_editor: ThemeEditor::new(saved_state.custom_theme),
             audio_stream: AudioStream::new(saved_state.audio_cfg),
             data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
-            api_key_config_modal: None,
+            connections_menu: crate::modal::pane::connections_menu::ConnectionsMenu::new(),
+            data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal::new(),
+            historical_download_modal: None,
+            historical_download_id: None,
+            data_feed_manager,
             sidebar,
             tickers_table,
             confirm_dialog: None,
+            rithmic_client: None,
+            rithmic_trade_repo: None,
+            rithmic_depth_repo: None,
+            rithmic_feed_id: None,
             market_data_service,
             options_service,
             replay_engine,
@@ -438,14 +498,8 @@ impl Flowsurface {
                         )
                     };
 
-                    let api_keys_button = button(text("API Keys")).on_press(Message::Sidebar(
-                        dashboard::sidebar::Message::ToggleSidebarMenu(Some(
-                            sidebar::Menu::ApiKeys,
-                        )),
-                    ));
-
                     let column_content = split_column![
-                        column![open_data_folder, api_keys_button,].spacing(8),
+                        column![open_data_folder,].spacing(8),
                         column![text("Date range").size(14), date_range_picker,].spacing(12),
                         column![text("Time zone").size(14), timezone_picklist,].spacing(12),
                         column![text("Theme").size(14), theme_picklist,].spacing(12),
@@ -610,22 +664,57 @@ impl Flowsurface {
                     align_x,
                 )
             }
-            sidebar::Menu::DataManagement => {
+            sidebar::Menu::Connections => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(40)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(40)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(80)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(80)),
                 };
 
                 dashboard_modal(
                     base,
-                    self.data_management_panel
+                    self.connections_menu
                         .view()
-                        .map(Message::DataManagement),
+                        .map(Message::ConnectionsMenu),
                     Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::End,
                     align_x,
                 )
+            }
+            sidebar::Menu::DataFeeds => {
+                let data_feeds_content = self.data_feeds_modal
+                    .view()
+                    .map(Message::DataFeeds);
+
+                let mut base_content = main_dialog_modal(
+                    base,
+                    data_feeds_content,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                );
+
+                // Stack historical download modal on top if open
+                if let Some(dl_modal) = &self.historical_download_modal {
+                    let dl_content = dl_modal.view().map(Message::HistoricalDownload);
+                    base_content = main_dialog_modal(
+                        base_content,
+                        dl_content,
+                        Message::HistoricalDownload(
+                            crate::modal::pane::historical_download::HistoricalDownloadMessage::Close,
+                        ),
+                    );
+                }
+
+                if let Some(dialog) = &self.confirm_dialog {
+                    let dialog_content =
+                        confirm_dialog_container(dialog.clone(), Message::ToggleDialogModal(None));
+                    main_dialog_modal(
+                        base_content,
+                        dialog_content,
+                        Message::ToggleDialogModal(None),
+                    )
+                } else {
+                    base_content
+                }
             }
             sidebar::Menu::Audio => {
                 let (align_x, padding) = match sidebar_pos {
@@ -664,36 +753,6 @@ impl Flowsurface {
                     Alignment::End,
                     align_x,
                 )
-            }
-            sidebar::Menu::ApiKeys => {
-                let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
-                };
-
-                // If we have an api key config modal, show it
-                if let Some(modal) = &self.api_key_config_modal {
-                    dashboard_modal(
-                        base,
-                        modal.view().map(Message::ApiKeyConfig),
-                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    )
-                } else {
-                    // No modal yet - this shouldn't normally happen, but fallback to showing text
-                    dashboard_modal(
-                        base,
-                        container(text("Loading API configuration..."))
-                            .padding(24)
-                            .style(style::dashboard_modal),
-                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    )
-                }
             }
         }
     }

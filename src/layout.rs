@@ -27,6 +27,7 @@ pub struct SavedState {
     pub custom_theme: Option<data::Theme>,
     pub audio_cfg: data::AudioStream,
     pub downloaded_tickers: data::DownloadedTickersRegistry,
+    pub data_feeds: data::DataFeedManager,
 }
 
 impl SavedState {
@@ -61,7 +62,8 @@ impl SavedState {
             theme: data::Theme::default(),
             custom_theme: None,
             audio_cfg: data::AudioStream::default(),
-            downloaded_tickers: data::lock_or_recover(&downloaded_tickers).clone(),
+            downloaded_tickers: (*downloaded_tickers.lock().unwrap()).clone(),
+            data_feeds: data::DataFeedManager::default(),
         }
     }
 }
@@ -194,6 +196,7 @@ pub fn load_saved_state_without_registry(
                 // persisted volume/stream configs from state.audio_cfg.
                 audio_cfg: data::AudioStream::default(),
                 downloaded_tickers: state.downloaded_tickers,
+                data_feeds: state.data_feeds,
             }
         }
         Err(e) => {
