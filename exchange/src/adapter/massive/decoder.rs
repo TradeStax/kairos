@@ -172,9 +172,9 @@ where
 
 /// Extract error message from API response
 pub fn extract_error_message(body: &str) -> String {
-    if let Ok(value) = serde_json::from_str::<Value>(body) {
-        if let Some(status) = value.get("status").and_then(|v| v.as_str()) {
-            if status == "ERROR" || status == "error" {
+    if let Ok(value) = serde_json::from_str::<Value>(body)
+        && let Some(status) = value.get("status").and_then(|v| v.as_str())
+            && (status == "ERROR" || status == "error") {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     return message.to_string();
                 }
@@ -182,8 +182,6 @@ pub fn extract_error_message(body: &str) -> String {
                     return error.to_string();
                 }
             }
-        }
-    }
 
     body.to_string()
 }

@@ -115,6 +115,7 @@ impl Flowsurface {
         }
     }
 
+    #[allow(dead_code)]
     pub fn restart(&mut self) -> Task<Message> {
         let mut windows_to_close: Vec<window::Id> =
             self.active_dashboard().popout.keys().copied().collect();

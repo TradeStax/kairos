@@ -289,7 +289,7 @@ impl OptionsDataService {
 
         let profiles: Vec<GexProfile> = chains
             .iter()
-            .filter_map(|chain| GexProfile::from_option_chain(chain))
+            .filter_map(GexProfile::from_option_chain)
             .collect();
 
         Ok(profiles)

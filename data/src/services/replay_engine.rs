@@ -203,7 +203,7 @@ impl ReplayEngine {
         if self.check_cache(&ticker_info.ticker, &date_range).await {
             self.emit_event(ReplayEvent::CacheHit {
                 symbol: ticker_info.ticker.to_string(),
-                date_range: date_range.clone(),
+                date_range,
             });
         }
 
@@ -261,7 +261,7 @@ impl ReplayEngine {
         });
 
         // Create replay data
-        let mut replay_data = ReplayData::new(trades, depth_snapshots, ticker_info.clone());
+        let mut replay_data = ReplayData::new(trades, depth_snapshots, ticker_info);
 
         // Pre-aggregate common timeframes if configured
         if self.config.pre_aggregate {
@@ -299,7 +299,7 @@ impl ReplayEngine {
             let mut state = self.state.write().await;
             *state = ReplayState::with_data(
                 replay_data.time_range,
-                ticker_info.clone(),
+                ticker_info,
                 replay_data.stats().trade_count,
                 replay_data.stats().depth_count,
             );
@@ -338,12 +338,7 @@ impl ReplayEngine {
 
     /// Check if data is in cache (simplified)
     async fn check_cache(&self, ticker: &FuturesTicker, date_range: &DateRange) -> bool {
-        // Check if trades are already cached
-        if let Ok(has_trades) = self.trade_repo.has_trades(ticker, date_range.start).await {
-            has_trades
-        } else {
-            false
-        }
+        self.trade_repo.has_trades(ticker, date_range.start).await.unwrap_or_default()
     }
 
     /// Pre-aggregate common timeframes
@@ -752,7 +747,7 @@ mod tests {
     #[tokio::test]
     async fn test_enhanced_replay_engine() {
         let mock_repo = Arc::new(MockTradeRepository);
-        let mut engine = ReplayEngine::with_default_config(mock_repo, None);
+        let engine = ReplayEngine::with_default_config(mock_repo, None);
 
         // Test that engine starts in stopped state
         let state = engine.state().await;

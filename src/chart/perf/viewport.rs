@@ -108,7 +108,7 @@ impl ViewportCuller {
         F: Fn(&T) -> u64,
     {
         items
-            .binary_search_by_key(&start_time, |item| time_accessor(item))
+            .binary_search_by_key(&start_time, time_accessor)
             .unwrap_or_else(|i| i)
     }
 
@@ -124,18 +124,18 @@ impl ViewportCuller {
         F: Fn(&T) -> u64,
     {
         items
-            .binary_search_by_key(&(end_time + 1), |item| time_accessor(item))
+            .binary_search_by_key(&(end_time + 1), time_accessor)
             .unwrap_or_else(|i| i)
     }
 
     /// Get slice of items within time range using binary search
     ///
     /// Much more efficient than filtering the entire slice
-    pub fn slice_time_range<'a, T, F>(
-        items: &'a [T],
+    pub fn slice_time_range<T, F>(
+        items: &[T],
         time_range: RangeInclusive<u64>,
         time_accessor: F,
-    ) -> &'a [T]
+    ) -> &[T]
     where
         F: Fn(&T) -> u64 + Copy,
     {

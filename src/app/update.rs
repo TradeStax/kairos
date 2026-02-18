@@ -32,7 +32,6 @@ impl Flowsurface {
                     self.notifications.push(Toast::error("Databento API key required for chart data".to_string()));
                     return Task::done(Message::ShowApiKeyConfig {
                         provider: data::ApiProvider::Databento,
-                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
                     });
                 };
 
@@ -148,7 +147,6 @@ impl Flowsurface {
                     self.notifications.push(Toast::error("Databento API key required for cost estimation".to_string()));
                     return Task::done(Message::ShowApiKeyConfig {
                         provider: data::ApiProvider::Databento,
-                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
                     });
                 };
 
@@ -220,13 +218,12 @@ impl Flowsurface {
                     ));
                     return Task::done(Message::ShowApiKeyConfig {
                         provider: data::ApiProvider::Databento,
-                        triggered_by: Some(crate::modal::api_key_config::TriggeredBy::DataDownload),
                     });
                 };
 
                 let schema_discriminant = schema as u16;
-                let ticker_clone = ticker.clone();
-                let date_range_clone = date_range.clone();
+                let ticker_clone = ticker;
+                let date_range_clone = date_range;
 
                 {
                     let mut progress =
@@ -290,7 +287,7 @@ impl Flowsurface {
                         )));
 
                         data::lock_or_recover(&self.downloaded_tickers)
-                            .register(ticker.clone(), date_range);
+                            .register(ticker, date_range);
                         log::info!("Registered {} in downloaded tickers registry", ticker);
 
                         let ticker_symbols: std::collections::HashSet<String> =
@@ -539,9 +536,9 @@ impl Flowsurface {
                     self.api_key_config_modal = Some(temp_modal);
                 }
             }
-            Message::ShowApiKeyConfig { provider, triggered_by } => {
+            Message::ShowApiKeyConfig { provider } => {
                 self.api_key_config_modal = Some(
-                    crate::modal::api_key_config::ApiKeyConfigModal::new(provider, triggered_by)
+                    crate::modal::api_key_config::ApiKeyConfigModal::new(provider)
                 );
                 self.sidebar.set_menu(Some(data::sidebar::Menu::ApiKeys));
             }
@@ -606,20 +603,18 @@ impl Flowsurface {
                 }
 
                 // Check if we're opening the ApiKeys menu - need to initialize the modal
-                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::ApiKeys)) = &message {
-                    if self.api_key_config_modal.is_none() {
+                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::ApiKeys)) = &message
+                    && self.api_key_config_modal.is_none() {
                         self.api_key_config_modal = Some(
                             crate::modal::api_key_config::ApiKeyConfigModal::new(
                                 data::ApiProvider::Databento,
-                                None,
                             )
                         );
                     }
-                }
 
                 // Trigger initial estimation when opening DataManagement menu
-                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::DataManagement)) = &message {
-                    if let Some(action) = self.data_management_panel.request_initial_estimation() {
+                if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::DataManagement)) = &message
+                    && let Some(action) = self.data_management_panel.request_initial_estimation() {
                         match action {
                             crate::modal::pane::data_management::Action::EstimateRequested {
                                 ticker,
@@ -643,7 +638,6 @@ impl Flowsurface {
                             }
                         }
                     }
-                }
 
                 let (task, drawing_action) = self.sidebar.update(message);
 

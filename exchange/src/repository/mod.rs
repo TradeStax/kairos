@@ -23,6 +23,7 @@ use flowsurface_data::repository::RepositoryError;
 pub(crate) fn convert_massive_error(e: MassiveError) -> RepositoryError {
     match e {
         MassiveError::SymbolNotFound(s) => RepositoryError::NotFound(s),
+        MassiveError::RateLimit(s) => RepositoryError::RateLimit(s),
         MassiveError::Cache(s) => RepositoryError::Cache(s),
         MassiveError::Parse(s) => RepositoryError::Serialization(s),
         MassiveError::InvalidData(s) => RepositoryError::InvalidData(s),

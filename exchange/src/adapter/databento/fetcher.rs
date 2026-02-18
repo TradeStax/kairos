@@ -417,7 +417,7 @@ impl HistoricalDataManager {
     /// - "Progress: 5/10 days loaded, 50,000 trades total"
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust,ignore
     /// let trades = manager.fetch_trades_cached(
     ///     "ES.c.0",
     ///     (start, end)
@@ -594,7 +594,7 @@ impl HistoricalDataManager {
     /// - `from_cache`: Whether the day was loaded from cache (true) or downloaded (false)
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust,ignore
     /// let trades = manager.fetch_trades_cached_with_progress(
     ///     "ES.c.0",
     ///     (start, end),
@@ -947,7 +947,7 @@ impl HistoricalDataManager {
     /// - Saves per-day for future reuse
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust,ignore
     /// let depth = manager.fetch_mbp10_cached("ES.c.0", (start, end)).await?;
     /// // All depth snapshots from start to end, cached per-day
     /// ```
@@ -1283,8 +1283,47 @@ impl HistoricalDataManager {
             .path(&temp_path)
             .build();
 
-        // Download to temp file
-        self.client.timeseries().get_range_to_file(&params).await?;
+        // Download to temp file with retry on transient errors
+        let max_retries = 3u32;
+        let mut last_err = None;
+        for attempt in 0..max_retries {
+            match self.client.timeseries().get_range_to_file(&params).await {
+                Ok(_) => {
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let is_retriable = err_str.contains("429")
+                        || err_str.contains("rate")
+                        || err_str.contains("too many")
+                        || err_str.contains("503")
+                        || err_str.contains("timeout");
+
+                    if is_retriable && attempt + 1 < max_retries {
+                        let delay = 1u64 << attempt; // 1s, 2s
+                        log::warn!(
+                            "Databento API error (attempt {}/{}), \
+                             retrying in {}s: {}",
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                            err_str
+                        );
+                        tokio::time::sleep(
+                            std::time::Duration::from_secs(delay),
+                        )
+                        .await;
+                        last_err = Some(e);
+                    } else {
+                        return Err(DatabentoError::from(e));
+                    }
+                }
+            }
+        }
+        if let Some(e) = last_err {
+            return Err(DatabentoError::from(e));
+        }
 
         log::info!("Downloaded {} ({:?}) for {}", symbol, schema, date);
 
@@ -1343,13 +1382,11 @@ impl HistoricalDataManager {
                 .map_err(|e| DatabentoError::Cache(format!("Failed to read date entry: {}", e)))?
             {
                 // Parse date from filename (format: YYYY-MM-DD.dbn.zst)
-                if let Some(filename) = date_entry.file_name().to_str() {
-                    if let Some(date_str) = filename.strip_suffix(".dbn.zst") {
-                        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                if let Some(filename) = date_entry.file_name().to_str()
+                    && let Some(date_str) = filename.strip_suffix(".dbn.zst")
+                        && let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
                             dates.push(date);
                         }
-                    }
-                }
             }
         }
 

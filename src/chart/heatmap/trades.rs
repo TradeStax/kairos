@@ -20,20 +20,17 @@ pub const MAX_RENDER_BUDGET: usize = 10_000;
 
 /// Trade rendering mode for heatmap
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TradeRenderingMode {
     /// Render individual trade circles (only for low trade count)
     Sparse,
     /// Render aggregated rectangles (for high trade density)
     Dense,
     /// Automatically switch based on visible trade count
+    #[default]
     Auto,
 }
 
-impl Default for TradeRenderingMode {
-    fn default() -> Self {
-        TradeRenderingMode::Auto
-    }
-}
 
 /// Render trades in sparse mode (individual circles)
 #[allow(clippy::too_many_arguments)]

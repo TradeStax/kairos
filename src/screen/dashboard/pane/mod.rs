@@ -532,8 +532,8 @@ impl State {
                 }
             }
             Event::DataManagementInteraction(message) => {
-                if let Some(Modal::DataManagement(ref mut panel)) = self.modal {
-                    if let Some(action) = panel.update(message) {
+                if let Some(Modal::DataManagement(ref mut panel)) = self.modal
+                    && let Some(action) = panel.update(message) {
                         self.modal = Some(Modal::DataManagement(panel.clone()));
 
                         match action {
@@ -547,7 +547,6 @@ impl State {
                             }
                         }
                     }
-                }
             }
         }
         None
@@ -582,7 +581,7 @@ impl State {
                 .as_mut()
                 .and_then(|c| c.invalidate(Some(now)).map(Action::Chart)),
             Content::Kline { chart, .. } => {
-                chart.as_mut().map(|c| c.invalidate());
+                if let Some(c) = chart.as_mut() { c.invalidate() }
                 None // KlineChart::invalidate doesn't return an Action
             }
             Content::TimeAndSales(panel) => panel

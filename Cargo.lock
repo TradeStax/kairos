@@ -1066,8 +1066,6 @@ dependencies = [
 name = "flowsurface-exchange"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-compression",
  "async-trait",
  "chrono",
  "databento",

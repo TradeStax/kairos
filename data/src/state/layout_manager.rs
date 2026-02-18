@@ -31,16 +31,9 @@ impl LayoutManager {
 
 /// List of layouts (for serialization)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Layouts {
     pub items: Vec<Layout>,
     pub current_index: usize,
 }
 
-impl Default for Layouts {
-    fn default() -> Self {
-        Self {
-            items: vec![],
-            current_index: 0,
-        }
-    }
-}

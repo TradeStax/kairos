@@ -89,7 +89,7 @@ impl TickerSeriesEditor {
                     container("").width(14).height(14).style(move |theme| {
                         style::colored_circle_container(theme, applied)
                     }),
-                    text(format!("{}", futures_info.ticker.as_str())).size(13),
+                    text(futures_info.ticker.as_str().to_string()).size(13),
                 ]
                 .width(Length::Fill)
                 .spacing(8)

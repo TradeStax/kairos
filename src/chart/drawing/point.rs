@@ -63,6 +63,7 @@ impl DrawingPoint {
     }
 
     /// Convert this point to screen coordinates
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_screen(&self, state: &ViewState, bounds: Size) -> Point {
         let region = state.visible_region(bounds);
 
@@ -80,6 +81,7 @@ impl DrawingPoint {
     }
 
     /// Convert to serializable format
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_serializable(&self) -> SerializablePoint {
         SerializablePoint {
             price_units: self.price.units,

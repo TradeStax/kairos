@@ -39,7 +39,7 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 ///
 /// ## Example Usage
 ///
-/// ```rust
+/// ```rust,ignore
 /// use data::services::MarketDataService;
 /// use data::domain::chart::{ChartConfig, ChartBasis};
 ///
@@ -285,7 +285,7 @@ impl MarketDataService {
     /// Takes existing trades and aggregates to new basis in <100ms.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust,ignore
     /// // User has 5M chart loaded
     /// let chart_data = service.get_chart_data(config_5m, ticker_info).await?;
     ///

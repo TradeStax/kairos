@@ -26,6 +26,7 @@ use iced::{
 use std::{collections::HashMap, sync::OnceLock, vec};
 
 // Global download progress state (shared between async tasks and subscriptions)
+#[allow(clippy::type_complexity)]
 static DOWNLOAD_PROGRESS: OnceLock<
     std::sync::Arc<std::sync::Mutex<HashMap<uuid::Uuid, (usize, usize)>>>,
 > = OnceLock::new();
@@ -81,11 +82,13 @@ pub enum Message {
         pane_id: uuid::Uuid,
         result: Result<data::ChartData, String>,
     },
-    // Options data loading
+    // Options data loading (planned feature)
+    #[allow(dead_code)]
     OptionChainLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::OptionChain, String>,
     },
+    #[allow(dead_code)]
     GexProfileLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::GexProfile, String>,
@@ -100,6 +103,7 @@ pub enum Message {
     },
     DataCostEstimated {
         pane_id: uuid::Uuid,
+        #[allow(clippy::type_complexity)]
         result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
     },
     // Data management - download

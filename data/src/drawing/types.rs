@@ -78,17 +78,14 @@ impl std::fmt::Display for DrawingTool {
 
 /// Line style for drawing strokes
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LineStyle {
+    #[default]
     Solid,
     Dashed,
     Dotted,
 }
 
-impl Default for LineStyle {
-    fn default() -> Self {
-        LineStyle::Solid
-    }
-}
 
 /// Serializable color (RGBA)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ use iced::widget::canvas::{Frame, Path};
 use iced::{Point, Size, Theme};
 
 /// Result of drawing crosshair - the snapped price and interval values
+#[allow(dead_code)]
 pub struct CrosshairResult {
     /// Rounded price at crosshair position
     pub price: f32,

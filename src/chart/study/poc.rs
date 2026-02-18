@@ -65,6 +65,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chart::study::TradeGroup;
 
     #[test]
     fn test_find_poc() {

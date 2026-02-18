@@ -38,8 +38,12 @@ impl RsiIndicator {
 
         // Emit initial RSI from the simple average
         {
-            let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
-            let rsi = 100.0 - (100.0 / (1.0 + rs));
+            let rsi = if avg_loss == 0.0 {
+                100.0
+            } else {
+                let rs = avg_gain / avg_loss;
+                100.0 - (100.0 / (1.0 + rs))
+            };
             let candle_idx = self.period;
             let key = match basis {
                 ChartBasis::Time(_) => candles[candle_idx].time.0,
@@ -53,8 +57,12 @@ impl RsiIndicator {
             avg_gain = (avg_gain * (self.period - 1) as f32 + gains[i]) / self.period as f32;
             avg_loss = (avg_loss * (self.period - 1) as f32 + losses[i]) / self.period as f32;
 
-            let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
-            let rsi = 100.0 - (100.0 / (1.0 + rs));
+            let rsi = if avg_loss == 0.0 {
+                100.0
+            } else {
+                let rs = avg_gain / avg_loss;
+                100.0 - (100.0 / (1.0 + rs))
+            };
 
             let candle_idx = i + 1;
             let key = match basis {

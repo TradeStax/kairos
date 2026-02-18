@@ -165,8 +165,8 @@ impl CacheManager {
             .map_err(|e| DatabentoError::Cache(format!("Failed to read cache dir: {}", e)))?;
 
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if let Ok(metadata) = entry.metadata().await {
-                if metadata.is_dir() {
+            if let Ok(metadata) = entry.metadata().await
+                && metadata.is_dir() {
                     // Directory name is sanitized symbol (ES-c-0 → ES.c.0)
                     // Preserve case to match ticker format
                     let dir_name = entry.file_name().to_string_lossy().to_string();
@@ -174,7 +174,6 @@ impl CacheManager {
                     log::debug!("  Found cached dir: {} → symbol: {}", dir_name, symbol);
                     cached_symbols.insert(symbol);
                 }
-            }
         }
 
         log::info!("CACHE: Found {} tickers with cached data", cached_symbols.len());

@@ -72,6 +72,7 @@ impl LayoutManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_config(
         layouts: Vec<Layout>,
         active_layout: Option<LayoutId>,
@@ -146,6 +147,7 @@ impl LayoutManager {
         final_name.chars().take(20).collect()
     }
 
+    #[allow(dead_code)]
     pub fn iter_dashboards_mut(&mut self) -> impl Iterator<Item = &mut Dashboard> {
         self.layouts.iter_mut().map(|entry| &mut entry.dashboard)
     }

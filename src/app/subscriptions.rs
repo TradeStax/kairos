@@ -13,15 +13,14 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Check global progress state
-        if let Ok(progress) = super::get_download_progress().lock() {
-            if !progress.is_empty() {
+        if let Ok(progress) = super::get_download_progress().lock()
+            && !progress.is_empty() {
                 // Get first active download (could iterate all if needed)
                 if let Some((&pane_id, &(current, total))) = progress.iter().next() {
                     // Emit progress message
                     return Some((Message::DataDownloadProgress { pane_id, current, total }, ()));
                 }
             }
-        }
 
         // No active downloads, emit dummy message that will be filtered
         Some((Message::DataDownloadProgress {

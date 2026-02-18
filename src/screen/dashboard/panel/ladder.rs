@@ -1103,11 +1103,10 @@ impl ChaseTracker {
         now_ms: u64,
         max_interval_ms: u64,
     ) {
-        if let Some(prev) = self.last_update_ms {
-            if max_interval_ms > 0 && now_ms.saturating_sub(prev) > max_interval_ms {
+        if let Some(prev) = self.last_update_ms
+            && max_interval_ms > 0 && now_ms.saturating_sub(prev) > max_interval_ms {
                 self.reset();
             }
-        }
 
         self.last_update_ms = Some(now_ms);
 

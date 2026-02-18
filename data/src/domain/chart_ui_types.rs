@@ -33,7 +33,9 @@ pub enum Autoscale {
 
 /// Kline chart kinds
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum KlineChartKind {
+    #[default]
     Candles,
     Footprint {
         clusters: ClusterKind,
@@ -42,11 +44,6 @@ pub enum KlineChartKind {
     },
 }
 
-impl Default for KlineChartKind {
-    fn default() -> Self {
-        KlineChartKind::Candles
-    }
-}
 
 impl KlineChartKind {
     pub fn min_scaling(&self) -> f32 {
@@ -97,7 +94,9 @@ impl KlineChartKind {
 
 /// Cluster kind for footprint charts
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ClusterKind {
+    #[default]
     Delta,
     Volume,
     Trades,
@@ -131,16 +130,13 @@ impl std::fmt::Display for ClusterKind {
     }
 }
 
-impl Default for ClusterKind {
-    fn default() -> Self {
-        ClusterKind::Delta
-    }
-}
 
 /// Cluster scaling for footprint charts
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ClusterScaling {
     Linear,
+    #[default]
     Sqrt,
     Log,
     VisibleRange,
@@ -176,11 +172,6 @@ impl std::fmt::Display for ClusterScaling {
     }
 }
 
-impl Default for ClusterScaling {
-    fn default() -> Self {
-        ClusterScaling::Sqrt
-    }
-}
 
 /// Footprint study types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

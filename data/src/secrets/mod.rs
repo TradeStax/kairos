@@ -172,26 +172,23 @@ impl SecretsManager {
     /// 4. Returns NotConfigured
     pub fn get_api_key(&self, provider: ApiProvider) -> ApiKeyStatus {
         // First, try keyring
-        if let Some(key) = self.get_from_keyring(provider) {
-            if !key.is_empty() {
+        if let Some(key) = self.get_from_keyring(provider)
+            && !key.is_empty() {
                 return ApiKeyStatus::FromKeyring(key);
             }
-        }
 
         // Try file-based storage (fallback)
-        if let Some(key) = self.get_from_file(provider) {
-            if !key.is_empty() {
+        if let Some(key) = self.get_from_file(provider)
+            && !key.is_empty() {
                 log::debug!("Found {} key in file storage", provider.display_name());
                 return ApiKeyStatus::FromKeyring(key); // Report as "configured in app"
             }
-        }
 
         // Fall back to environment variable
-        if let Ok(key) = std::env::var(provider.env_var()) {
-            if !key.is_empty() {
+        if let Ok(key) = std::env::var(provider.env_var())
+            && !key.is_empty() {
                 return ApiKeyStatus::FromEnv(key);
             }
-        }
 
         ApiKeyStatus::NotConfigured
     }
@@ -224,8 +221,8 @@ impl SecretsManager {
         let file_result = self.save_to_file(provider, key);
 
         // If both failed, return error
-        if keyring_result.is_err() && file_result.is_err() {
-            return Err(keyring_result.unwrap_err());
+        if let (Err(e), Err(_)) = (&keyring_result, &file_result) {
+            return Err(e.clone());
         }
 
         if keyring_result.is_ok() {

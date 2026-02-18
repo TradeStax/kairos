@@ -167,20 +167,17 @@ fn default_max_trade_markers() -> usize {
 
 /// Heatmap rendering mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum HeatmapRenderMode {
     /// Individual circles (best for low density)
     Sparse,
     /// Aggregated rectangles (best for high density)
     Dense,
     /// Automatically switch based on data density
+    #[default]
     Auto,
 }
 
-impl Default for HeatmapRenderMode {
-    fn default() -> Self {
-        HeatmapRenderMode::Auto
-    }
-}
 
 impl std::fmt::Display for HeatmapRenderMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

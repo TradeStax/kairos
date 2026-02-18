@@ -326,6 +326,7 @@ pub fn secondary(theme: &Theme, status: Status) -> Style {
     }
 }
 
+#[allow(dead_code)]
 pub fn danger(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 

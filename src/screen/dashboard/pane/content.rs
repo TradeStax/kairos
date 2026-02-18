@@ -76,9 +76,10 @@ impl Content {
                     .and_then(|v| v.time_and_sales());
                 // Convert state config to panel config
                 let panel_config = state_config.map(|cfg| {
-                    let mut defaults = data::panel::timeandsales::Config::default();
-                    defaults.max_rows = cfg.max_rows;
-                    defaults
+                    data::panel::timeandsales::Config {
+                        max_rows: cfg.max_rows,
+                        ..Default::default()
+                    }
                 });
                 Content::TimeAndSales(Some(TimeAndSales::new(panel_config, ticker_info.into())))
             }
@@ -86,9 +87,10 @@ impl Content {
                 let state_config = settings.visual_config.clone().and_then(|v| v.ladder());
                 // Convert state config to panel config
                 let panel_config = state_config.map(|cfg| {
-                    let mut defaults = data::panel::ladder::Config::default();
-                    defaults.levels = cfg.levels;
-                    defaults
+                    data::panel::ladder::Config {
+                        levels: cfg.levels,
+                        ..Default::default()
+                    }
                 });
                 Content::Ladder(Some(Ladder::new(panel_config, ticker_info.into(), ticker_info.tick_size)))
             }

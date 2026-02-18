@@ -294,7 +294,7 @@ impl GexProfile {
         for contract in contracts_with_greeks {
             by_strike
                 .entry(contract.contract.strike_price)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(contract);
         }
 
@@ -506,11 +506,10 @@ impl GexProfile {
                     .unwrap()
             });
 
-        if let Some(exposure) = call_wall_exposure {
-            if exposure.call_gamma.abs() > 0.0 {
+        if let Some(exposure) = call_wall_exposure
+            && exposure.call_gamma.abs() > 0.0 {
                 self.call_wall = Some(exposure.strike_price);
             }
-        }
 
         // Put wall: Strike with highest absolute put gamma
         let put_wall_exposure = self
@@ -523,11 +522,10 @@ impl GexProfile {
                     .unwrap()
             });
 
-        if let Some(exposure) = put_wall_exposure {
-            if exposure.put_gamma.abs() > 0.0 {
+        if let Some(exposure) = put_wall_exposure
+            && exposure.put_gamma.abs() > 0.0 {
                 self.put_wall = Some(exposure.strike_price);
             }
-        }
     }
 
     /// Calculate expected move based on gamma exposure

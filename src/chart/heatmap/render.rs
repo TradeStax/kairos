@@ -139,11 +139,11 @@ impl canvas::Program<Message> for HeatmapChart {
             }
 
             // Draw Volume Profile Study
-            if let Some(profile_kind) = self.studies.iter().find_map(|study| {
+            if let Some(profile_kind) = self.studies.iter().map(|study| {
                 match study {
-                    HeatmapStudy::VolumeProfile(profile) => Some(profile),
+                    HeatmapStudy::VolumeProfile(profile) => profile,
                 }
-            }) {
+            }).next() {
                 draw_volume_profile(
                     frame,
                     &region,
@@ -183,7 +183,6 @@ impl canvas::Program<Message> for HeatmapChart {
                     if matches!(interaction, Interaction::Panning { .. })
                         || matches!(interaction, Interaction::Ruler { start } if start.is_some())
                     {
-                        return;
                     }
                 }
             });
@@ -595,7 +594,7 @@ pub fn draw_volume_profile(
                     }
 
                     let index = ((grouped_price_units - first_tick_price.to_units())
-                        / step.units as i64) as usize;
+                        / step.units) as usize;
 
                     if let Some(entry) = profile.get_mut(index) {
                         if trade.is_sell {

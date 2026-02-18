@@ -686,8 +686,7 @@ pub fn draw_all_npocs(
         let mut is_naked = true;
 
         // Check if price was revisited in next `lookback` candles
-        for future_idx in (idx + 1)..(idx + 1 + lookback).min(candles.len()) {
-            let future_candle = &candles[future_idx];
+        for future_candle in candles.iter().take((idx + 1 + lookback).min(candles.len())).skip(idx + 1) {
 
             // Check if POC price is within future candle's range
             let future_low = domain_to_exchange_price(future_candle.low);

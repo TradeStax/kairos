@@ -204,7 +204,6 @@ impl From<DatabentoError> for AdapterError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use flowsurface_data::domain::ContractType;
 
     #[test]

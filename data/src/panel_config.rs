@@ -89,8 +89,10 @@ pub mod timeandsales {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Default)]
     pub enum StackedBarRatio {
         Count,
+        #[default]
         Volume,
         AverageSize,
     }
@@ -103,11 +105,7 @@ pub mod timeandsales {
         ];
     }
 
-    impl Default for StackedBarRatio {
-        fn default() -> Self {
-            StackedBarRatio::Volume
-        }
-    }
+    
 
     impl std::fmt::Display for StackedBarRatio {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -120,18 +118,16 @@ pub mod timeandsales {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Default)]
     pub enum TradeDisplay {
+        #[default]
         All,
         BuysOnly,
         SellsOnly,
         LargeTrades { min_size: u32 },
     }
 
-    impl Default for TradeDisplay {
-        fn default() -> Self {
-            TradeDisplay::All
-        }
-    }
+    
 
     /// Trade entry for display (contains formatted data)
     #[derive(Debug, Clone)]

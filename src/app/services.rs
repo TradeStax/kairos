@@ -106,7 +106,9 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
     };
 
     // Create repository instances (async)
-    let result = rt.block_on(async {
+    
+
+    rt.block_on(async {
         let trade_result = exchange::DatabentoTradeRepository::new(databento_config.clone()).await;
         let depth_result = exchange::DatabentoDepthRepository::new(databento_config).await;
 
@@ -133,9 +135,7 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
                 None
             }
         }
-    });
-
-    result
+    })
 }
 
 /// Create replay engine for historical data playback

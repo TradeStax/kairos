@@ -639,7 +639,7 @@ mod tests {
     fn test_days_until_expiry() {
         // Test with a future date (Dec 2026 or later)
         let ticker = FuturesTicker::new("ESZ26", FuturesVenue::CMEGlobex);
-        if let Some(days) = ticker.days_until_expiry() {
+        if let Some(_days) = ticker.days_until_expiry() {
             // Should be in the future (or very close if running near expiration)
             // Allow negative values if running after contract expiration
             // Just verify the method returns Some

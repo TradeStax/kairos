@@ -25,6 +25,12 @@ pub enum RepositoryError {
     #[error("Data not found: {0}")]
     NotFound(String),
 
+    #[error("Access denied: {0}")]
+    AccessDenied(String),
+
+    #[error("Rate limit exceeded: {0}")]
+    RateLimit(String),
+
     #[error("Cache error: {0}")]
     Cache(String),
 

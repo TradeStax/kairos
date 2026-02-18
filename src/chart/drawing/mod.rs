@@ -3,6 +3,7 @@
 //! Provides drawing tools for chart annotations including lines, rays,
 //! horizontal/vertical lines, rectangles, and trend lines.
 
+#[allow(clippy::module_inception)]
 mod drawing;
 mod manager;
 mod point;

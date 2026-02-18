@@ -27,14 +27,14 @@ pub fn convert_snapshot_response(
 
     // Fill in market data
     if let Some(last_trade) = massive_snapshot.last_trade {
-        snapshot.last_price = last_trade.price.map(|p| Price::from_f64(p));
+        snapshot.last_price = last_trade.price.map(Price::from_f64);
     }
 
     if let Some(last_quote) = massive_snapshot.last_quote {
-        snapshot.bid = last_quote.bid.map(|p| Price::from_f64(p));
-        snapshot.ask = last_quote.ask.map(|p| Price::from_f64(p));
-        snapshot.bid_size = last_quote.bid_size.map(|q| Quantity(q));
-        snapshot.ask_size = last_quote.ask_size.map(|q| Quantity(q));
+        snapshot.bid = last_quote.bid.map(Price::from_f64);
+        snapshot.ask = last_quote.ask.map(Price::from_f64);
+        snapshot.bid_size = last_quote.bid_size.map(Quantity);
+        snapshot.ask_size = last_quote.ask_size.map(Quantity);
     }
 
     // Fill in Greeks
@@ -53,11 +53,11 @@ pub fn convert_snapshot_response(
     snapshot.open_interest = massive_snapshot.open_interest;
     snapshot.break_even_price = massive_snapshot
         .break_even_price
-        .map(|p| Price::from_f64(p));
+        .map(Price::from_f64);
 
     // Fill in underlying price
     if let Some(underlying) = massive_snapshot.underlying_asset {
-        snapshot.underlying_price = underlying.price.map(|p| Price::from_f64(p));
+        snapshot.underlying_price = underlying.price.map(Price::from_f64);
     }
 
     // Fill in volume from day bar
@@ -113,6 +113,12 @@ pub fn convert_contract_response(
     // Fill in optional fields
     if let Some(shares) = massive_contract.shares_per_contract {
         contract.shares_per_contract = shares;
+    } else {
+        log::warn!(
+            "Contract {} missing shares_per_contract from API, \
+             using default of 100",
+            contract.ticker
+        );
     }
 
     contract.primary_exchange = massive_contract.primary_exchange;
@@ -131,11 +137,10 @@ pub fn convert_chain_response(
     let mut chain = OptionChain::new(underlying_ticker, date, Timestamp(timestamp));
 
     // Get underlying price from first snapshot
-    if let Some(first) = massive_snapshots.first() {
-        if let Some(ref underlying) = first.underlying_asset {
-            chain.underlying_price = underlying.price.map(|p| Price::from_f64(p));
+    if let Some(first) = massive_snapshots.first()
+        && let Some(ref underlying) = first.underlying_asset {
+            chain.underlying_price = underlying.price.map(Price::from_f64);
         }
-    }
 
     // Convert each snapshot
     for massive_snapshot in massive_snapshots {
@@ -187,6 +192,12 @@ fn convert_contract_details(
 
     if let Some(shares) = details.shares_per_contract {
         contract.shares_per_contract = shares;
+    } else {
+        log::warn!(
+            "Contract {} missing shares_per_contract from API, \
+             using default of 100",
+            ticker
+        );
     }
 
     Ok(contract)

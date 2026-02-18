@@ -167,7 +167,7 @@ impl<I: Iterator> Iterator for LodIterator<I> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let item = self.inner.next()?;
-            let should_render = self.index % self.decimation == 0;
+            let should_render = self.index.is_multiple_of(self.decimation);
             self.index += 1;
 
             if should_render {

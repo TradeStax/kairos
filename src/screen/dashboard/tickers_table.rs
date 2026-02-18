@@ -104,18 +104,15 @@ pub enum Message {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum SortOptions {
+    #[default]
     VolumeDesc,
     VolumeAsc,
     ChangeDesc,
     ChangeAsc,
 }
 
-impl Default for SortOptions {
-    fn default() -> Self {
-        SortOptions::VolumeDesc
-    }
-}
 
 pub struct TickersTable {
     ticker_rows: Vec<TickerRowData>,
@@ -134,8 +131,9 @@ pub struct TickersTable {
 }
 
 #[derive(Debug, Clone)]
-struct TickerRowData {
+pub struct TickerRowData {
     ticker: FuturesTicker,
+    #[allow(dead_code)]
     ticker_info: FuturesTickerInfo,
     stats: TickerStats,
     previous_stats: Option<TickerStats>,
@@ -200,7 +198,7 @@ impl TickersTable {
             let ticker = FuturesTicker::new_with_display(
                 symbol,
                 venue,
-                Some(&symbol.split('.').next().unwrap()),
+                Some(symbol.split('.').next().unwrap()),
                 Some(product_name),
             );
 
@@ -553,12 +551,11 @@ impl TickersTable {
         self.display_cache.clear();
         for row in &self.ticker_rows {
             // Skip if not in cached filter
-            if let Some(filter) = &self.cached_tickers_filter {
-                if !filter.contains(&row.ticker.to_string()) {
+            if let Some(filter) = &self.cached_tickers_filter
+                && !filter.contains(&row.ticker.to_string()) {
                     log::debug!("TABLE: Skipping {} (not in cache filter)", row.ticker);
                     continue; // Don't add to display cache
                 }
-            }
 
             let display_data = compute_display_data(row, row.previous_stats);
             self.display_cache.insert(row.ticker, display_data);
@@ -958,11 +955,10 @@ impl TickersTable {
                     }
 
                     // Filter 2: Must be in cached filter (if filter is set)
-                    if let Some(filter) = &self.cached_tickers_filter {
-                        if !filter.contains(&row.ticker.to_string()) {
+                    if let Some(filter) = &self.cached_tickers_filter
+                        && !filter.contains(&row.ticker.to_string()) {
                             return false;
                         }
-                    }
 
                     true
                 })
@@ -1003,11 +999,10 @@ impl TickersTable {
                 }
 
                 // Filter 2: Must be in cached filter (if filter is set)
-                if let Some(filter) = &self.cached_tickers_filter {
-                    if !filter.contains(&row.ticker.to_string()) {
+                if let Some(filter) = &self.cached_tickers_filter
+                    && !filter.contains(&row.ticker.to_string()) {
                         return false;
                     }
-                }
 
                 true
             })

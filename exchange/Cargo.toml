@@ -21,9 +21,7 @@ reqwest = { version = "0.12.9", default-features = false, features = ["json", "r
 # Databento integration
 databento = "0.22"
 time = { version = "0.3", features = ["macros", "formatting", "parsing"] }
-anyhow = "1.0"
 dirs-next = "2.0"
-async-compression = { version = "0.4", features = ["tokio", "zstd"] }
 toml = "0.8"
 flowsurface-data = { path = "../data" }
 async-trait = "0.1"

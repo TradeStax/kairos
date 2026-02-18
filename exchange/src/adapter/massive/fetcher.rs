@@ -50,12 +50,11 @@ impl HistoricalOptionsManager {
         log::info!("Fetching option chain for {} on {}", underlying_ticker, date);
 
         // Check cache first
-        if self.config.cache_enabled {
-            if self.cache.has_cached("chains", underlying_ticker, date).await {
+        if self.config.cache_enabled
+            && self.cache.has_cached("chains", underlying_ticker, date).await {
                 log::info!("✓ Cache hit for {} chain on {}", underlying_ticker, date);
                 return self.cache.load("chains", underlying_ticker, Some(date)).await;
             }
-        }
 
         // Fetch from API
         log::info!("⬇ Fetching {} chain from API...", underlying_ticker);
@@ -217,8 +216,8 @@ impl HistoricalOptionsManager {
         log::info!("Fetching contracts metadata for {}", underlying_ticker);
 
         // Check cache first (contracts change less frequently)
-        if self.config.cache_enabled {
-            if let Ok(contracts) = self
+        if self.config.cache_enabled
+            && let Ok(contracts) = self
                 .cache
                 .load::<Vec<OptionContract>>("contracts", underlying_ticker, None)
                 .await
@@ -226,7 +225,6 @@ impl HistoricalOptionsManager {
                 log::info!("✓ Cache hit for {} contracts", underlying_ticker);
                 return Ok(contracts);
             }
-        }
 
         // Fetch from API
         log::info!("⬇ Fetching contracts from API...");
@@ -280,7 +278,7 @@ impl HistoricalOptionsManager {
         date_range: &DateRange,
     ) -> MassiveResult<Vec<DateRange>> {
         if !self.config.cache_enabled {
-            return Ok(vec![date_range.clone()]);
+            return Ok(vec![*date_range]);
         }
 
         let mut gaps = Vec::new();

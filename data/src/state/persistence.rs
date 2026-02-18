@@ -173,7 +173,7 @@ impl Default for MigrationRegistry {
 /// - Version migrations
 ///
 /// ## Example
-/// ```rust
+/// ```rust,ignore
 /// let state = load_state("saved-state.json")?;
 /// ```
 pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
@@ -194,6 +194,19 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
         Ok(mut state) => {
             log::info!("Loaded state from {:?} (version {})", path, state.version);
 
+            // Reject future versions that this app doesn't understand
+            if state.version > StateVersion::CURRENT.0 {
+                log::warn!(
+                    "State file has version {} but this app only \
+                     supports up to version {}. The file may have been \
+                     created by a newer version of the application. \
+                     Using default state to avoid data corruption.",
+                    state.version,
+                    StateVersion::CURRENT.0
+                );
+                return Ok(AppState::default());
+            }
+
             // Check if migration needed
             if state.version < StateVersion::CURRENT.0 {
                 let old_version = state.version;
@@ -205,7 +218,11 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
 
                 // Create migration registry and execute migrations
                 let registry = MigrationRegistry::new();
-                state = registry.execute_migrations(state, old_version, StateVersion::CURRENT.0)?;
+                state = registry.execute_migrations(
+                    state,
+                    old_version,
+                    StateVersion::CURRENT.0,
+                )?;
 
                 // Update version after successful migration
                 state.version = StateVersion::CURRENT.0;
@@ -256,7 +273,7 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
 /// Validates state before saving.
 ///
 /// ## Example
-/// ```rust
+/// ```rust,ignore
 /// save_state(&state, "saved-state.json")?;
 /// ```
 pub fn save_state(state: &AppState, file_name: &str) -> PersistenceResult<()> {

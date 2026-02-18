@@ -8,6 +8,7 @@ use crate::chart::{
 };
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 /// How to anchor bar heights.
 pub enum Baseline {
     /// Use zero as baseline (classic volume). Extents: [0, max].
@@ -57,11 +58,13 @@ impl<V, CL, T> BarPlot<V, CL, T> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn padding(mut self, p: f32) -> Self {
         self.padding = p;
         self
     }
 
+    #[allow(dead_code)]
     pub fn baseline(mut self, b: Baseline) -> Self {
         self.baseline = b;
         self

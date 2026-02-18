@@ -58,6 +58,9 @@ impl Price {
 
     /// Round to tick size
     pub fn round_to_tick(self, tick_size: Price) -> Self {
+        if tick_size.units == 0 {
+            return self;
+        }
         let ticks = (self.units + tick_size.units / 2) / tick_size.units;
         Self {
             units: ticks * tick_size.units,

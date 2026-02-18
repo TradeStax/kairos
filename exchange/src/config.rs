@@ -219,14 +219,12 @@ impl Config {
         }
 
         // Try to load from file
-        if let Some(path) = Self::config_file_path() {
-            if path.exists() {
-                if let Ok(file_config) = Self::load_from_file(&path) {
+        if let Some(path) = Self::config_file_path()
+            && path.exists()
+                && let Ok(file_config) = Self::load_from_file(&path) {
                     config = file_config;
                     log::info!("Loaded configuration from {:?}", path);
                 }
-            }
-        }
 
         // Validate the final configuration
         config.validate()?;
@@ -287,9 +285,9 @@ impl Config {
         }
 
         // Check cache size vs available disk space
-        if self.cache.enabled {
-            if let Ok(metadata) =
-                std::fs::metadata(&self.cache.directory.parent().unwrap_or(&PathBuf::from("/")))
+        if self.cache.enabled
+            && let Ok(metadata) =
+                std::fs::metadata(self.cache.directory.parent().unwrap_or(&PathBuf::from("/")))
             {
                 // Simple check - would need platform-specific code for accurate disk space
                 if !metadata.is_dir() {
@@ -298,7 +296,6 @@ impl Config {
                     ));
                 }
             }
-        }
 
         Ok(())
     }
@@ -570,11 +567,10 @@ impl NetworkConfig {
             ));
         }
 
-        if let Some(keepalive) = self.keepalive_secs {
-            if keepalive == 0 || keepalive > 600 {
+        if let Some(keepalive) = self.keepalive_secs
+            && (keepalive == 0 || keepalive > 600) {
                 return Err(Error::Config("Keepalive must be 1-600 seconds".to_string()));
             }
-        }
 
         Ok(())
     }

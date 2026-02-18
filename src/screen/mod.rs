@@ -17,6 +17,7 @@ pub struct ConfirmDialog<M> {
     pub on_confirm_btn_text: Option<String>,
 }
 
+#[allow(dead_code)]
 impl<M> ConfirmDialog<M> {
     pub fn new(message: String, on_confirm: Box<M>) -> Self {
         Self {

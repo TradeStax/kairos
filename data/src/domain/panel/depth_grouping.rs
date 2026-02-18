@@ -42,7 +42,7 @@ impl Side {
 /// Grouped levels (rounded_price_units -> aggregated_quantity)
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use std::collections::BTreeMap;
 /// use data::domain::panel::{group_depth_by_tick, Side};
 ///

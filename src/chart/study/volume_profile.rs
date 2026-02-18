@@ -43,11 +43,10 @@ pub fn build_volume_profile(
         let price_rounded = Price::from_units(trade.price.units()).round_to_step(tick_size);
 
         // Apply price filter if specified
-        if let Some((lowest, highest)) = price_filter {
-            if price_rounded < lowest || price_rounded > highest {
+        if let Some((lowest, highest)) = price_filter
+            && (price_rounded < lowest || price_rounded > highest) {
                 continue;
             }
-        }
 
         let entry = footprint.entry(price_rounded).or_insert(TradeGroup {
             buy_qty: 0.0,

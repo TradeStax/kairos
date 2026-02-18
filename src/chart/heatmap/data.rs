@@ -128,7 +128,7 @@ impl HeatmapData {
             let price_units = price.to_units();
             self.depth_by_price
                 .entry(price_units)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(DepthRun {
                     start_time: bucket_time,
                     until_time: bucket_time + bucket_duration,
@@ -142,7 +142,7 @@ impl HeatmapData {
             let price_units = price.to_units();
             self.depth_by_price
                 .entry(price_units)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(DepthRun {
                     start_time: bucket_time,
                     until_time: bucket_time + bucket_duration,
@@ -164,7 +164,7 @@ impl HeatmapData {
         let entry = self
             .trades_by_time
             .entry(bucket_time)
-            .or_insert_with(TradeDataPoint::default);
+            .or_default();
 
         let qty = trade.quantity.value() as f32;
         let is_sell = trade.is_sell();

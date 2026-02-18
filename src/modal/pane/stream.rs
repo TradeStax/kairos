@@ -380,7 +380,7 @@ impl Modifier {
                                 ModifierKind::Heatmap(_) => {
                                     // All heatmap timeframes are supported for futures
                                     let heatmap_timeframes: Vec<Timeframe> =
-                                        Timeframe::HEATMAP.iter().copied().collect();
+                                        Timeframe::HEATMAP.to_vec();
                                     let heatmap_timeframe_grid = modifiers_grid(
                                         &heatmap_timeframes,
                                         selected_tf,

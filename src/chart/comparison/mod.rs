@@ -346,11 +346,10 @@ impl ComparisonChart {
         } else {
             // Restore original data
             for (ticker_info, original_points) in &self.original_data {
-                if let Some(idx) = self.series_index.get(ticker_info) {
-                    if let Some(series) = self.series.get_mut(*idx) {
+                if let Some(idx) = self.series_index.get(ticker_info)
+                    && let Some(series) = self.series.get_mut(*idx) {
                         series.points = original_points.clone();
                     }
-                }
             }
         }
 

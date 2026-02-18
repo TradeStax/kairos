@@ -332,7 +332,7 @@ impl HeatmapChart {
             basis,
             tick_step,
             count_decimals(ticker_info.tick_size),
-            ticker_info.clone(),
+            ticker_info,
             ViewConfig {
                 splits: layout.splits,
                 autoscale: Some(::data::Autoscale::CenterLatest),

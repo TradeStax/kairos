@@ -11,15 +11,6 @@ use iced::{
 
 use crate::style::{self, Icon, icon_text};
 
-/// What action triggered showing the API key config modal
-#[derive(Debug, Clone)]
-pub enum TriggeredBy {
-    /// User tried to download data
-    DataDownload,
-    /// User tried to load options data
-    OptionsData,
-}
-
 /// Messages for the API key config modal
 #[derive(Debug, Clone)]
 pub enum Message {

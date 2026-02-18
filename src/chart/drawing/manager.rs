@@ -230,24 +230,22 @@ impl DrawingManager {
         handle_size: f32,
     ) -> Option<(DrawingId, usize)> {
         for &id in &self.selected {
-            if let Some(drawing) = self.get(id) {
-                if let Some(handle_index) =
+            if let Some(drawing) = self.get(id)
+                && let Some(handle_index) =
                     drawing.hit_test_handle(screen_point, state, bounds, handle_size)
                 {
                     return Some((id, handle_index));
                 }
-            }
         }
         None
     }
 
     /// Move a drawing point (for handle dragging)
     pub fn move_point(&mut self, id: DrawingId, point_index: usize, new_point: DrawingPoint) {
-        if let Some(drawing) = self.get_mut(id) {
-            if point_index < drawing.points.len() && !drawing.locked {
+        if let Some(drawing) = self.get_mut(id)
+            && point_index < drawing.points.len() && !drawing.locked {
                 drawing.points[point_index] = new_point;
             }
-        }
     }
 
     /// Move entire drawing by offset

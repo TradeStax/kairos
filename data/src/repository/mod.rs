@@ -25,7 +25,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use data::repository::TradeRepository;
 //! use exchange::DatabentoTradeRepository;
 //!
