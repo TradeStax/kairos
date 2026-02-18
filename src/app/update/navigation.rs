@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use iced::Task;
 
+use crate::component::display::toast::Toast;
 use crate::screen::dashboard;
-use crate::widget::toast::Toast;
 use crate::window;
 
 use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message};

@@ -1,12 +1,9 @@
 use super::{Action, Content, Effect, State};
-use crate::chart::{
-    candlestick::KlineChart, comparison::ComparisonChart,
-    heatmap::HeatmapChart,
-};
-use crate::widget::toast::Toast;
+use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart};
+use crate::component::display::toast::Toast;
 use data::{
-    ChartBasis, ChartConfig, ChartData, ContentKind, DataSchema, DateRange,
-    LoadingStatus, Timeframe, VisualConfig,
+    ChartBasis, ChartConfig, ChartData, ContentKind, DataSchema, DateRange, LoadingStatus,
+    Timeframe, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
 use std::time::Instant;
@@ -55,14 +52,12 @@ impl State {
                 layout,
                 studies,
             } => {
-                let chart_studies: Vec<
-                    crate::chart::heatmap::HeatmapStudy,
-                > = studies
+                let chart_studies: Vec<crate::chart::heatmap::HeatmapStudy> = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
-                        }
+                        data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(
+                            kind,
+                        ) => crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind),
                     })
                     .collect();
                 log::info!(
@@ -94,57 +89,45 @@ impl State {
 
                 log::info!("HeatmapChart construction COMPLETE");
             }
-            Content::Comparison(chart_opt) => {
-                match chart_opt {
-                    Some(chart) => {
-                        if let Err(e) =
-                            chart.add_ticker(&ticker_info, chart_data)
-                        {
-                            log::warn!(
-                                "Failed to add ticker to comparison: {}",
-                                e
-                            );
-                            self.notifications.push(Toast::warn(format!(
-                                "Failed to add {}: {}",
-                                ticker_info.ticker.as_str(),
-                                e
-                            )));
-                        } else {
-                            log::info!(
-                                "Added ticker {} to comparison chart",
-                                ticker_info.ticker.as_str()
-                            );
-                            self.loading_status = LoadingStatus::Ready;
-                        }
-                    }
-                    None => {
-                        let config = self
-                            .settings
-                            .visual_config
-                            .as_ref()
-                            .and_then(|vc| {
-                                if let VisualConfig::Comparison(cfg) = vc {
-                                    Some(cfg.clone())
-                                } else {
-                                    None
-                                }
-                            });
-
-                        let new_chart =
-                            ComparisonChart::from_multi_chart_data(
-                                vec![(ticker_info, chart_data)],
-                                basis,
-                                config,
-                            );
-                        *chart_opt = Some(new_chart);
-                        self.loading_status = LoadingStatus::Ready;
+            Content::Comparison(chart_opt) => match chart_opt {
+                Some(chart) => {
+                    if let Err(e) = chart.add_ticker(&ticker_info, chart_data) {
+                        log::warn!("Failed to add ticker to comparison: {}", e);
+                        self.notifications.push(Toast::warn(format!(
+                            "Failed to add {}: {}",
+                            ticker_info.ticker.as_str(),
+                            e
+                        )));
+                    } else {
                         log::info!(
-                            "Created comparison chart with ticker {}",
+                            "Added ticker {} to comparison chart",
                             ticker_info.ticker.as_str()
                         );
+                        self.loading_status = LoadingStatus::Ready;
                     }
                 }
-            }
+                None => {
+                    let config = self.settings.visual_config.as_ref().and_then(|vc| {
+                        if let VisualConfig::Comparison(cfg) = vc {
+                            Some(cfg.clone())
+                        } else {
+                            None
+                        }
+                    });
+
+                    let new_chart = ComparisonChart::from_multi_chart_data(
+                        vec![(ticker_info, chart_data)],
+                        basis,
+                        config,
+                    );
+                    *chart_opt = Some(new_chart);
+                    self.loading_status = LoadingStatus::Ready;
+                    log::info!(
+                        "Created comparison chart with ticker {}",
+                        ticker_info.ticker.as_str()
+                    );
+                }
+            },
             Content::TimeAndSales(_panel) => {}
             Content::Ladder(_panel) => {}
             Content::Starter => {}
@@ -173,8 +156,7 @@ impl State {
             .unwrap_or(ChartBasis::Time(Timeframe::M15));
 
         self.ticker_info = Some(ticker_info);
-        self.content =
-            Content::new_for_kind(kind, ticker_info, &self.settings);
+        self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
 
         let days_total = date_range.num_days() as usize;
         self.loading_status = LoadingStatus::LoadingFromCache {
@@ -198,16 +180,8 @@ impl State {
     }
 
     /// Set content and request chart loading (legacy - uses default 1 day)
-    pub fn set_content(
-        &mut self,
-        ticker_info: FuturesTickerInfo,
-        kind: ContentKind,
-    ) -> Effect {
-        self.set_content_with_range(
-            ticker_info,
-            kind,
-            DateRange::last_n_days(1),
-        )
+    pub fn set_content(&mut self, ticker_info: FuturesTickerInfo, kind: ContentKind) -> Effect {
+        self.set_content_with_range(ticker_info, kind, DateRange::last_n_days(1))
     }
 
     pub fn invalidate(&mut self, now: Instant) -> Option<Action> {
@@ -216,7 +190,9 @@ impl State {
                 .as_mut()
                 .and_then(|c| c.invalidate(Some(now)).map(Action::Chart)),
             Content::Kline { chart, .. } => {
-                if let Some(c) = chart.as_mut() { c.invalidate() }
+                if let Some(c) = chart.as_mut() {
+                    c.invalidate()
+                }
                 None
             }
             Content::TimeAndSales(panel) => panel
@@ -260,11 +236,8 @@ impl State {
         match (invalidate_interval, last_tick) {
             (Some(interval_ms), Some(previous_tick_time)) => {
                 if interval_ms > 0 {
-                    let interval_duration =
-                        std::time::Duration::from_millis(interval_ms);
-                    if now.duration_since(previous_tick_time)
-                        >= interval_duration
-                    {
+                    let interval_duration = std::time::Duration::from_millis(interval_ms);
+                    if now.duration_since(previous_tick_time) >= interval_duration {
                         return self.invalidate(now);
                     }
                 }
