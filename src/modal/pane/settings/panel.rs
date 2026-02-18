@@ -4,7 +4,8 @@ use crate::screen::dashboard::panel::timeandsales;
 use crate::split_column;
 use crate::style;
 use crate::style::tokens;
-use crate::widget::{classic_slider_row, labeled_slider, tooltip};
+use crate::component::display::tooltip::tooltip;
+use crate::component::input::slider_field::{classic_slider_row, labeled_slider};
 
 use data::panel_config::ladder;
 use data::panel_config::timeandsales::{StackedBar, StackedBarRatio};

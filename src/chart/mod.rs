@@ -21,7 +21,7 @@ pub use core::{Caches, Chart, Interaction, PlotConstants, ViewState, canvas_inte
 
 use crate::style;
 use crate::widget::multi_split::MultiSplit;
-use crate::widget::tooltip;
+use crate::component::display::tooltip::tooltip;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
 

@@ -4,13 +4,14 @@
 //! then recent historical). Each row shows status, name, provider, and
 //! a connect/disconnect button. "Manage Connections" opens the full dialog.
 
-use crate::component::primitives::label::{body, small, tiny, title};
+use crate::component;
+use crate::component::primitives::label::{body, small};
 use crate::style;
 use crate::style::{palette, tokens};
 use data::feed::{DataFeed, DataFeedManager, FeedId, FeedStatus};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, row, rule, space, text},
+    widget::{button, column, container, row, rule, text},
 };
 
 const MAX_VISIBLE_FEEDS: usize = 5;
@@ -64,12 +65,14 @@ impl ConnectionsMenu {
     pub fn view(&self) -> Element<'_, ConnectionsMenuMessage> {
         let feeds = &self.feeds_snapshot;
 
-        let header = row![
-            title("Connections"),
-            space::horizontal().width(Length::Fill),
-            small(format!("{}/{}", feeds.active_count(), feeds.total_count())),
-        ]
-        .align_y(Alignment::Center);
+        let header: Element<'_, ConnectionsMenuMessage> =
+            component::layout::section_header::SectionHeaderBuilder::new("Connections")
+                .trailing(small(format!(
+                    "{}/{}",
+                    feeds.active_count(),
+                    feeds.total_count()
+                )))
+                .into();
 
         // Sort: connected feeds first, then by priority
         let mut display_feeds: Vec<&DataFeed> = feeds.feeds().iter().collect();
@@ -113,7 +116,7 @@ impl ConnectionsMenu {
         .spacing(tokens::spacing::MD);
 
         container(content)
-            .max_width(220)
+            .max_width(tokens::layout::MODAL_WIDTH_SM)
             .padding(tokens::spacing::XL)
             .style(style::dashboard_modal)
             .into()
@@ -125,17 +128,7 @@ impl ConnectionsMenu {
     ) -> Element<'a, ConnectionsMenuMessage> {
         let status_color = palette::status_color(&feed.status);
 
-        let status_dot =
-            container(space::horizontal().width(8).height(8)).style(
-                move |_theme: &iced::Theme| container::Style {
-                    background: Some(iced::Background::Color(status_color)),
-                    border: iced::Border {
-                        radius: 4.0.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-            );
+        let status_dot = component::display::status_dot(status_color);
 
         let feed_id = feed.id;
         let is_connected = feed.status.is_connected();

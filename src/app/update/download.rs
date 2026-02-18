@@ -74,11 +74,11 @@ impl Flowsurface {
 
                 if pane_id == uuid::Uuid::nil() {
                     self.data_management_panel.set_cache_status(
-                        crate::modal::pane::data_management::CacheStatus {
+                        crate::modal::pane::download::CacheStatus {
                             total_days,
                             cached_days,
                             uncached_days,
-                            gaps_description: gaps_desc.clone(),
+                            gaps_description: Some(gaps_desc.clone()),
                         },
                         cached_dates,
                     );
@@ -183,7 +183,7 @@ impl Flowsurface {
         if self.historical_download_id == Some(pane_id) {
             if let Some(modal) = &mut self.historical_download_modal {
                 modal.set_download_progress(
-                    crate::modal::pane::historical_download::DownloadProgress::Downloading {
+                    crate::modal::pane::download::DownloadProgress::Downloading {
                         current_day: current,
                         total_days: total,
                     },
@@ -191,7 +191,7 @@ impl Flowsurface {
             }
         } else if pane_id == uuid::Uuid::nil() {
             self.data_management_panel.set_download_progress(
-                crate::modal::pane::data_management::DownloadProgress::Downloading {
+                crate::modal::pane::download::DownloadProgress::Downloading {
                     current_day: current,
                     total_days: total,
                 },
@@ -257,7 +257,7 @@ impl Flowsurface {
 
                 if pane_id == uuid::Uuid::nil() {
                     self.data_management_panel.set_download_progress(
-                        crate::modal::pane::data_management::DownloadProgress::Idle,
+                        crate::modal::pane::download::DownloadProgress::Idle,
                     );
 
                     let estimate_ticker = data::FuturesTicker::new(
@@ -304,12 +304,12 @@ impl Flowsurface {
 
     pub(crate) fn handle_historical_download(
         &mut self,
-        msg: crate::modal::pane::historical_download::HistoricalDownloadMessage,
+        msg: crate::modal::pane::download::HistoricalDownloadMessage,
     ) -> Task<Message> {
         if let Some(modal) = &mut self.historical_download_modal {
             if let Some(action) = modal.update(msg) {
                 match action {
-                    crate::modal::pane::historical_download::Action::EstimateRequested {
+                    crate::modal::pane::download::historical::Action::EstimateRequested {
                         ticker,
                         schema,
                         date_range,
@@ -341,7 +341,7 @@ impl Flowsurface {
                             },
                         );
                     }
-                    crate::modal::pane::historical_download::Action::DownloadRequested {
+                    crate::modal::pane::download::historical::Action::DownloadRequested {
                         ticker,
                         schema,
                         date_range,
@@ -386,7 +386,7 @@ impl Flowsurface {
                             },
                         );
                     }
-                    crate::modal::pane::historical_download::Action::DatasetCreated(feed) => {
+                    crate::modal::pane::download::historical::Action::DatasetCreated(feed) => {
                         let mut feed_manager = self
                             .data_feed_manager
                             .lock()
@@ -401,7 +401,7 @@ impl Flowsurface {
                         let windows = std::collections::HashMap::new();
                         self.save_state_to_disk(&windows);
                     }
-                    crate::modal::pane::historical_download::Action::ApiKeySaved {
+                    crate::modal::pane::download::historical::Action::ApiKeySaved {
                         provider,
                         key,
                     } => {
@@ -413,7 +413,7 @@ impl Flowsurface {
                             return Task::done(Message::ReinitializeService(provider));
                         }
                     }
-                    crate::modal::pane::historical_download::Action::Closed => {
+                    crate::modal::pane::download::historical::Action::Closed => {
                         self.historical_download_modal = None;
                         self.historical_download_id = None;
                     }
@@ -438,10 +438,11 @@ impl Flowsurface {
                     cached_dates,
                 )) => {
                     modal.set_cache_status(
-                        crate::modal::pane::historical_download::CacheStatus {
+                        crate::modal::pane::download::CacheStatus {
                             total_days,
                             cached_days,
                             uncached_days,
+                            gaps_description: None,
                         },
                         cached_dates,
                     );
@@ -528,7 +529,7 @@ impl Flowsurface {
                     .push(Toast::error(format!("Download failed: {}", e)));
                 if let Some(modal) = &mut self.historical_download_modal {
                     modal.set_download_progress(
-                        crate::modal::pane::historical_download::DownloadProgress::Error(e),
+                        crate::modal::pane::download::DownloadProgress::Error(e),
                     );
                 }
             }

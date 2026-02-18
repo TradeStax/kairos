@@ -261,11 +261,13 @@ mod tests {
         let start = ViewportCuller::binary_search_time_start(&items, 2500, |i| i.time);
         let end = ViewportCuller::binary_search_time_end(&items, 4500, |i| i.time);
 
-        assert_eq!(start, 2); // First item >= 2500 is at index 2 (3000)
-        assert_eq!(end, 4); // Past-the-end index: items <= 4500 are at indices 2,3 (3000,4000)
+        assert_eq!(start, 2); // First item >= 2500 is at index 2 (time=3000)
+        // binary_search_time_end searches for 4501; insertion point is index 4
+        // (between time=4000 at [3] and time=5000 at [4])
+        assert_eq!(end, 4);
 
         let slice = ViewportCuller::slice_time_range(&items, 2500..=4500, |i| i.time);
-        assert_eq!(slice.len(), 2); // Items at 3000, 4000 (5000 > 4500, excluded)
+        assert_eq!(slice.len(), 2); // Items at time=3000, time=4000 (5000 > 4500)
     }
 
     #[test]
@@ -273,7 +275,11 @@ mod tests {
         let mut grid = SpatialGrid::new(1000, 10);
 
         grid.insert(1500, 105, "trade1");
-        grid.insert(2500, 205, "trade2");
+        // Place trade2 far enough outside the viewport that it falls in a
+        // different grid cell than any cell covered by the query bounds.
+        // Viewport end time=2000 -> bucket 2, end price=200 -> bucket 20.
+        // Use time bucket 3 (time >= 3000) to be outside the query range.
+        grid.insert(3500, 305, "trade2");
         grid.insert(1600, 110, "trade3");
 
         let bounds = ViewportBounds::new((1000, 2000), (100, 200));

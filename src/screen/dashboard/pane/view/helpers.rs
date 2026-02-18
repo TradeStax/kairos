@@ -2,7 +2,7 @@ use crate::{
     component::primitives::AZERET_MONO,
     modal::{self, ModifierKind},
     style::{self, tokens},
-    widget::button_with_tooltip,
+    component::display::tooltip::button_with_tooltip,
 };
 use data::{ChartBasis, LinkGroup};
 use iced::{
@@ -10,7 +10,7 @@ use iced::{
     widget::{button, column, container, pane_grid, row, text, tooltip},
 };
 
-use super::Message;
+use super::super::{Event, Message};
 
 pub fn link_group_modal<'a>(
     pane: pane_grid::Pane,
@@ -60,7 +60,6 @@ pub fn basis_modifier<'a>(
     modifier: Option<modal::stream::Modifier>,
     kind: ModifierKind,
 ) -> Element<'a, Message> {
-    use super::Event;
     use crate::modal::pane::Modal;
 
     let modifier_modal = Modal::StreamModifier(

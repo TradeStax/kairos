@@ -39,7 +39,7 @@ impl Flowsurface {
                 }
                 crate::modal::pane::data_feeds::Action::OpenHistoricalDownload => {
                     self.historical_download_modal = Some(
-                        crate::modal::pane::historical_download::HistoricalDownloadModal::new(),
+                        crate::modal::pane::download::HistoricalDownloadModal::new(),
                     );
                     return Task::none();
                 }
@@ -368,23 +368,23 @@ impl Flowsurface {
 
     pub(crate) fn handle_connections_menu(
         &mut self,
-        msg: crate::modal::pane::connections_menu::ConnectionsMenuMessage,
+        msg: crate::modal::pane::connections::ConnectionsMenuMessage,
     ) -> Task<Message> {
         if let Some(action) = self.connections_menu.update(msg) {
             match action {
-                crate::modal::pane::connections_menu::Action::ConnectFeed(feed_id) => {
+                crate::modal::pane::connections::Action::ConnectFeed(feed_id) => {
                     self.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
                         crate::modal::pane::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
                     ));
                 }
-                crate::modal::pane::connections_menu::Action::DisconnectFeed(feed_id) => {
+                crate::modal::pane::connections::Action::DisconnectFeed(feed_id) => {
                     self.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
                         crate::modal::pane::data_feeds::DataFeedsMessage::DisconnectFeed(feed_id),
                     ));
                 }
-                crate::modal::pane::connections_menu::Action::OpenManageDialog => {
+                crate::modal::pane::connections::Action::OpenManageDialog => {
                     self.sidebar.set_menu(Some(data::sidebar::Menu::DataFeeds));
                     let feed_manager = self
                         .data_feed_manager
@@ -505,11 +505,11 @@ impl Flowsurface {
 
     pub(crate) fn handle_data_management(
         &mut self,
-        msg: crate::modal::pane::data_management::DataManagementMessage,
+        msg: crate::modal::pane::download::DataManagementMessage,
     ) -> Task<Message> {
         if let Some(action) = self.data_management_panel.update(msg) {
             match action {
-                crate::modal::pane::data_management::Action::EstimateRequested {
+                crate::modal::pane::download::data_management::Action::EstimateRequested {
                     ticker,
                     schema,
                     date_range,
@@ -527,7 +527,7 @@ impl Flowsurface {
                         date_range,
                     }));
                 }
-                crate::modal::pane::data_management::Action::DownloadRequested {
+                crate::modal::pane::download::data_management::Action::DownloadRequested {
                     ticker,
                     schema,
                     date_range,

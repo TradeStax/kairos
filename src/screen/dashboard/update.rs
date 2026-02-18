@@ -1,12 +1,12 @@
 use super::{Dashboard, Event, Message, pane};
 use crate::{
-    modal::pane::{Modal, data_management::DownloadProgress},
+    modal::pane::{Modal, download::DownloadProgress},
     widget::toast::Toast,
     window::Window,
 };
 use data::LoadingStatus;
-
 use iced::Task;
+use iced::widget::pane_grid;
 
 impl Dashboard {
     pub fn update(
@@ -97,9 +97,7 @@ impl Dashboard {
                             };
                             let clusters_cfg = match &state.content {
                                 pane::Content::Kline {
-                                    kind: data::chart::KlineChartKind::Footprint {
-                                        clusters, ..
-                                    },
+                                    kind: data::chart::KlineChartKind::Footprint { clusters, .. },
                                     ..
                                 } => Some(*clusters),
                                 _ => None,
@@ -155,18 +153,14 @@ impl Dashboard {
                                     }
                                 });
                         }
-                    } else if let Some(state) =
-                        self.get_mut_pane(main_window.id, window, pane)
-                    {
+                    } else if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                         state.settings.visual_config = Some(cfg.clone());
                         state.content.change_visual_config(cfg);
                     }
                 }
                 pane::Message::SwitchLinkGroup(pane, group) => {
                     if group.is_none() {
-                        if let Some(state) =
-                            self.get_mut_pane(main_window.id, window, pane)
-                        {
+                        if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                             state.link_group = None;
                         }
                         return (Task::none(), None);
@@ -183,9 +177,7 @@ impl Dashboard {
                             }
                         });
 
-                    if let Some(state) =
-                        self.get_mut_pane(main_window.id, window, pane)
-                    {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                         state.link_group = group;
                         state.modal = None;
 
@@ -201,28 +193,26 @@ impl Dashboard {
                     return (self.merge_pane(main_window), None);
                 }
                 pane::Message::PaneEvent(pane, local) => {
-                    if let Some(state) =
-                        self.get_mut_pane(main_window.id, window, pane)
-                    {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                         let Some(effect) = state.update(local) else {
                             return (Task::none(), None);
                         };
 
                         // Handle pane effects
                         let pane_id = state.unique_id();
-                        let triggering_pane_link_group = state.link_group;
+                        let triggering_pane_link_group = state.link_group; // Capture link group BEFORE matching on effect
                         let (task, event) = match effect {
                             pane::Effect::LoadChart {
                                 config,
                                 ticker_info,
                             } => {
                                 // Trigger chart loading for this pane
-                                let event =
-                                    self.load_chart(pane_id, config, ticker_info);
+                                let event = self.load_chart(pane_id, config, ticker_info);
                                 (Task::none(), Some(event))
                             }
                             pane::Effect::SwitchTickersInGroup(ticker_info) => {
                                 // Switch tickers for all panes in the same link group
+                                // If no link group, pass pane_id to switch just this single pane
                                 let task = self.switch_tickers_in_group(
                                     main_window.id,
                                     ticker_info,
@@ -233,6 +223,7 @@ impl Dashboard {
                             }
                             pane::Effect::FocusWidget(_id) => {
                                 // TODO: Implement widget focusing with the specific ID
+                                // For now, this effect is not critical for core functionality
                                 (Task::none(), None)
                             }
                             pane::Effect::EstimateDataCost {
@@ -269,9 +260,7 @@ impl Dashboard {
                 }
             },
             Message::ChangePaneStatus(pane_id, status) => {
-                if let Some(pane_state) =
-                    self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
-                {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     pane_state.loading_status = status;
                 }
             }
@@ -280,11 +269,7 @@ impl Dashboard {
                 chart_data,
             } => {
                 return (
-                    self.handle_chart_data_loaded(
-                        main_window.id,
-                        pane_id,
-                        chart_data,
-                    ),
+                    self.handle_chart_data_loaded(main_window.id, pane_id, chart_data),
                     None,
                 );
             }
@@ -355,9 +340,7 @@ impl Dashboard {
                 total,
             } => {
                 // Update progress in data management modal
-                if let Some(pane_state) =
-                    self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
-                {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     if let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
                         panel.set_download_progress(DownloadProgress::Downloading {
                             current_day: current,
@@ -371,22 +354,16 @@ impl Dashboard {
                 days_downloaded,
             } => {
                 // Mark download as complete in modal
-                if let Some(pane_state) =
-                    self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
-                {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     if let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
-                        panel.set_download_progress(DownloadProgress::Complete {
-                            days_downloaded,
-                        });
+                        panel.set_download_progress(DownloadProgress::Complete { days_downloaded });
                     }
                 }
             }
             Message::DrawingToolSelected(tool) => {
                 // Set the drawing tool on the focused pane's chart
                 if let Some((window_id, pane)) = self.focus {
-                    if let Some(state) =
-                        self.get_mut_pane(main_window.id, window_id, pane)
-                    {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
                         state.content.set_drawing_tool(tool);
                     }
                 }
@@ -394,9 +371,7 @@ impl Dashboard {
             Message::DrawingSnapToggled => {
                 // Toggle snap mode on the focused pane's chart
                 if let Some((window_id, pane)) = self.focus {
-                    if let Some(state) =
-                        self.get_mut_pane(main_window.id, window_id, pane)
-                    {
+                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
                         state.content.toggle_drawing_snap();
                     }
                 }
@@ -422,6 +397,3 @@ impl Dashboard {
         (Task::none(), None)
     }
 }
-
-// Bring pane_grid types into scope for match arms
-use iced::widget::pane_grid;

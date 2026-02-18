@@ -281,6 +281,9 @@ pub struct DataFeed {
     pub status: FeedStatus,
     /// Priority for data resolution (lower = higher priority)
     pub priority: u32,
+    /// Automatically connect this feed on application startup
+    #[serde(default)]
+    pub auto_connect: bool,
 }
 
 impl DataFeed {
@@ -295,6 +298,7 @@ impl DataFeed {
             enabled: true,
             status: FeedStatus::Disconnected,
             priority: 10,
+            auto_connect: false,
         }
     }
 
@@ -309,6 +313,7 @@ impl DataFeed {
             enabled: true,
             status: FeedStatus::Disconnected,
             priority: 5,
+            auto_connect: false,
         }
     }
 
@@ -326,6 +331,7 @@ impl DataFeed {
             enabled: true,
             status: FeedStatus::Disconnected,
             priority: 100,
+            auto_connect: false,
         }
     }
 

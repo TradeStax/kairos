@@ -3,7 +3,8 @@ use crate::audio::{SoundCache, SoundType};
 use crate::component::primitives::label::title;
 use crate::component::primitives::{Icon, icon_text};
 use crate::style::{self, tokens};
-use crate::widget::{labeled_slider, tooltip};
+use crate::component::display::tooltip::tooltip;
+use crate::component::input::slider_field::labeled_slider;
 use data::audio::StreamCfg;
 use data::FuturesTicker;
 use exchange::adapter::StreamKind;
@@ -201,7 +202,7 @@ impl AudioStream {
         };
 
         container(column![volume_container, audio_contents,].spacing(tokens::spacing::XXL))
-            .max_width(320)
+            .max_width(tokens::layout::AUDIO_MODAL_WIDTH)
             .padding(tokens::spacing::XXL)
             .style(style::dashboard_modal)
             .into()
@@ -290,9 +291,52 @@ impl AudioStream {
                     }
                 }
             }
-            data::audio::Threshold::Qty(_) => {
-                log::warn!("Qty threshold not yet implemented");
-                return Ok(());
+            data::audio::Threshold::Qty(v) => {
+                // Find the largest trade that exceeds the threshold
+                let mut max_buy_qty: f32 = 0.0;
+                let mut max_sell_qty: f32 = 0.0;
+
+                for trade in trades_buffer {
+                    if trade.qty >= v as f32 {
+                        match trade.side {
+                            exchange::TradeSide::Buy => {
+                                max_buy_qty = max_buy_qty.max(trade.qty);
+                            }
+                            exchange::TradeSide::Sell => {
+                                max_sell_qty = max_sell_qty.max(trade.qty);
+                            }
+                        }
+                    }
+                }
+
+                if max_buy_qty == 0.0 && max_sell_qty == 0.0 {
+                    return Ok(());
+                }
+
+                let hard_threshold = v * HARD_THRESHOLD;
+                let sound = |qty: f32, is_sell: bool| {
+                    if qty >= hard_threshold as f32 {
+                        if is_sell {
+                            SoundType::HardSell
+                        } else {
+                            SoundType::HardBuy
+                        }
+                    } else if is_sell {
+                        SoundType::Sell
+                    } else {
+                        SoundType::Buy
+                    }
+                };
+
+                if max_buy_qty > max_sell_qty {
+                    self.play(sound(max_buy_qty, false))?;
+                } else if max_sell_qty > max_buy_qty {
+                    self.play(sound(max_sell_qty, true))?;
+                } else {
+                    // Equal max quantities on both sides
+                    self.play(sound(max_buy_qty, false))?;
+                    self.play(sound(max_sell_qty, true))?;
+                }
             }
         }
 

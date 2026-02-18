@@ -637,13 +637,25 @@ mod tests {
 
     #[test]
     fn test_days_until_expiry() {
-        // Test with a future date (Dec 2026 or later)
+        // Test with a future date (Dec 2026)
         let ticker = FuturesTicker::new("ESZ26", FuturesVenue::CMEGlobex);
-        if let Some(_days) = ticker.days_until_expiry() {
-            // Should be in the future (or very close if running near expiration)
-            // Allow negative values if running after contract expiration
-            // Just verify the method returns Some
-        }
+        let days = ticker
+            .days_until_expiry()
+            .expect("ESZ26 should return Some for days_until_expiry");
+
+        // ESZ26 expires on the third Friday of December 2026 (Dec 18, 2026).
+        // This test is written in early 2026, so days should be positive.
+        assert!(
+            days > 0,
+            "ESZ26 expiry is in Dec 2026, days_until_expiry should be positive, got {}",
+            days
+        );
+        // Sanity upper bound: should be less than ~365 days from any point in 2026
+        assert!(
+            days < 365,
+            "ESZ26 days_until_expiry should be less than 365, got {}",
+            days
+        );
 
         // Test continuous contract
         let cont_ticker = FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex);

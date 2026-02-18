@@ -9,7 +9,7 @@ use iced::{
     widget::{column, row},
 };
 
-use super::super::helpers::basis_modifier;
+use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
 
 impl State {

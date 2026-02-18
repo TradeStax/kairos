@@ -9,7 +9,7 @@ use crate::{
     component::primitives::{Icon, icon_text},
     style,
     style::tokens,
-    widget::button_with_tooltip,
+    component::display::tooltip::button_with_tooltip,
 };
 use iced::widget::tooltip::Position as TooltipPosition;
 use data::{sidebar, DrawingTool};

@@ -9,7 +9,7 @@ use crate::style;
 use crate::style::{palette, tokens};
 use data::feed::{DataFeed, FeedKind, FeedProvider, RithmicEnvironment};
 use iced::{
-    Alignment, Color, Element, Length, padding,
+    Alignment, Element, Length, padding,
     widget::{
         button, column, container, mouse_area, pick_list, row, rule, scrollable, space, stack,
         text, text_input,
@@ -291,6 +291,13 @@ impl DataFeedsModal {
         ]
         .spacing(tokens::spacing::MD);
 
+        // Auto-connect on startup toggle
+        let auto_connect_toggle = component::input::toggle_switch::toggle_switch(
+            "Connect on startup",
+            self.edit_form.auto_connect,
+            |v| DataFeedsMessage::SetAutoConnect(v),
+        );
+
         // Provider-specific fields
         let provider_fields: Element<'_, DataFeedsMessage> = match self.edit_form.provider {
             Some(FeedProvider::Databento) => self.view_databento_fields(),
@@ -300,6 +307,7 @@ impl DataFeedsModal {
 
         let form_content = column![
             name_type_row,
+            auto_connect_toggle,
             rule::horizontal(1).style(style::split_ruler),
             provider_fields,
         ]
@@ -340,31 +348,21 @@ impl DataFeedsModal {
             "Enter Databento API key"
         };
 
-        let api_key_field = column![
-            component::primitives::body("API Key"),
-            text_input(key_placeholder, &self.edit_form.api_key)
-                .on_input(DataFeedsMessage::SetApiKey)
-                .secure(true)
-                .size(tokens::text::LABEL),
-        ]
-        .spacing(tokens::spacing::XS);
+        let api_key_field: Element<'_, DataFeedsMessage> =
+            component::input::secure_field::SecureFieldBuilder::new(
+                "API Key",
+                key_placeholder,
+                &self.edit_form.api_key,
+                DataFeedsMessage::SetApiKey,
+            )
+            .show_set_indicator(has_saved_key)
+            .into();
 
-        let cache_toggle = row![
-            component::primitives::body("Enable caching"),
-            space::horizontal().width(Length::Fill),
-            button(component::primitives::small(
-                if self.edit_form.cache_enabled {
-                    "On"
-                } else {
-                    "Off"
-                },
-            ))
-            .on_press(DataFeedsMessage::SetCacheEnabled(
-                !self.edit_form.cache_enabled,
-            ))
-            .padding([tokens::spacing::XXS, tokens::spacing::MD]),
-        ]
-        .align_y(Alignment::Center);
+        let cache_toggle = component::input::toggle_switch::toggle_switch(
+            "Enable caching",
+            self.edit_form.cache_enabled,
+            |v| DataFeedsMessage::SetCacheEnabled(v),
+        );
 
         let cache_days = column![
             component::primitives::body("Cache max days"),
@@ -445,98 +443,40 @@ impl DataFeedsModal {
                 "Enter password"
             };
 
-            column![
-                component::primitives::body("Password"),
-                text_input(placeholder, &self.edit_form.password)
-                    .on_input(DataFeedsMessage::SetPassword)
-                    .secure(true)
-                    .size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
+            component::input::secure_field::SecureFieldBuilder::new(
+                "Password",
+                placeholder,
+                &self.edit_form.password,
+                DataFeedsMessage::SetPassword,
+            )
+            .show_set_indicator(has_saved)
+            .into_element()
         };
 
-        // Subscribed tickers as multi-select dropdown (pick_list style)
+        // Subscribed tickers as inline checkboxes
         let selected_tickers = &self.edit_form.subscribed_tickers;
-        let trigger_label = if selected_tickers.is_empty() {
-            "Select tickers...".to_string()
-        } else {
-            selected_tickers.join(", ")
-        };
-        let trigger_text_style = if selected_tickers.is_empty() {
-            // Placeholder style — dimmed
-            |theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(theme.extended_palette().background.strong.color),
-            }
-        } else {
-            |theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(theme.extended_palette().background.base.text),
-            }
-        };
-
-        let trigger_btn = button(
-            row![
-                component::primitives::body(trigger_label).style(trigger_text_style),
-                space::horizontal().width(Length::Fill),
-                text("\u{25BC}").size(8), // down triangle
-            ]
-            .align_y(Alignment::Center),
-        )
-        .width(Length::Fill)
-        .padding([tokens::spacing::SM, 10.0])
-        .style(style::button::pick_list_trigger)
-        .on_press(DataFeedsMessage::ToggleTickerDropdown);
-
-        let tickers_field = if self.ticker_dropdown_open {
-            let mut items = column![].spacing(0);
-            for &(symbol, _label) in RITHMIC_TICKERS {
-                let is_checked = selected_tickers.iter().any(|t| t == symbol);
-                let item_text = if is_checked {
-                    format!("\u{2713} {}", symbol) // checkmark
-                } else {
-                    format!("   {}", symbol)
-                };
-                let item = button(component::primitives::body(item_text))
-                    .width(Length::Fill)
-                    .padding([5, 10])
-                    .style(style::button::pick_list_item)
-                    .on_press(DataFeedsMessage::ToggleTicker(symbol.to_string()));
-                items = items.push(item);
-            }
-
-            let dropdown = container(scrollable(items).height(Length::Shrink))
-                .max_height(200)
-                .style(style::dropdown_container);
-
-            column![
-                component::primitives::body("Subscribed Tickers"),
-                trigger_btn,
-                dropdown,
-            ]
-            .spacing(tokens::spacing::XS)
-        } else {
-            column![
-                component::primitives::body("Subscribed Tickers"),
-                trigger_btn,
-            ]
-            .spacing(tokens::spacing::XS)
-        };
-
-        let reconnect_toggle = row![
-            component::primitives::body("Auto-reconnect"),
-            space::horizontal().width(Length::Fill),
-            button(component::primitives::small(
-                if self.edit_form.auto_reconnect {
-                    "On"
-                } else {
-                    "Off"
-                },
-            ))
-            .on_press(DataFeedsMessage::SetAutoReconnect(
-                !self.edit_form.auto_reconnect,
-            ))
-            .padding([tokens::spacing::XXS, tokens::spacing::MD]),
+        let mut tickers_col = column![
+            text("Subscribed Tickers").size(tokens::text::LABEL),
         ]
-        .align_y(Alignment::Center);
+        .spacing(tokens::spacing::XS);
+
+        for &(symbol, _label) in RITHMIC_TICKERS {
+            let is_checked = selected_tickers.iter().any(|t| t == symbol);
+            let sym = symbol.to_string();
+            let cb = iced::widget::checkbox(is_checked)
+                .label(symbol)
+                .on_toggle(move |_| DataFeedsMessage::ToggleTicker(sym.clone()))
+                .text_size(tokens::text::BODY)
+                .spacing(tokens::spacing::XS);
+            tickers_col = tickers_col.push(cb);
+        }
+        let tickers_field = tickers_col;
+
+        let reconnect_toggle = component::input::toggle_switch::toggle_switch(
+            "Auto-reconnect",
+            self.edit_form.auto_reconnect,
+            |v| DataFeedsMessage::SetAutoReconnect(v),
+        );
 
         column![
             component::primitives::title("Rithmic Settings"),

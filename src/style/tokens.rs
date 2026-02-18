@@ -64,6 +64,17 @@ pub mod layout {
     pub const DRAG_HANDLE_WIDTH: f32 = 14.0;
     pub const SCROLLBAR_WIDTH: f32 = 4.0;
     pub const MODAL_MAX_WIDTH: u32 = 650;
+
+    // Modal widths
+    pub const MODAL_WIDTH_SM: f32 = 220.0; // connections_menu
+    pub const MODAL_WIDTH_MD: f32 = 360.0; // data_management
+    pub const MODAL_WIDTH_LG: f32 = 420.0; // historical_download
+    pub const MODAL_WIDTH_XL: f32 = 650.0; // data_feeds
+    pub const CONFIRM_DIALOG_WIDTH: f32 = 340.0;
+    pub const CALENDAR_DAY_HEIGHT: f32 = 26.0;
+    pub const AUDIO_MODAL_WIDTH: f32 = 320.0;
+    pub const FEED_PANEL_WIDTH: f32 = 200.0;
+    pub const FEED_BODY_HEIGHT: f32 = 420.0;
 }
 
 // --- Chart Rendering ---

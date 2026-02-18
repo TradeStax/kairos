@@ -1,7 +1,7 @@
 use crate::component::primitives::label::label_text;
 use crate::style::tokens;
 use crate::component::primitives::{Icon, icon_text};
-use crate::{style, widget::numeric_input_box};
+use crate::style;
 
 use data::ChartBasis;
 use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
@@ -416,20 +416,31 @@ impl Modifier {
                             3,
                         );
 
-                        let custom_input = {
+                        let custom_input: Element<'_, Message> = {
                             let tick_count_to_submit = parsed_input
                                 .filter(|tc| *tc >= TICK_COUNT_MIN && *tc <= TICK_COUNT_MAX);
 
-                            numeric_input_box::<_, Message>(
-                                "Custom: ",
+                            let mut input = iced::widget::text_input(
                                 &format!("{}-{}", TICK_COUNT_MIN, TICK_COUNT_MAX),
                                 &raw_input_buf.to_display_string(),
-                                is_input_valid,
-                                Message::TickCountInputChanged,
-                                tick_count_to_submit
-                                    .map(|tc| Message::BasisSelected(ChartBasis::Tick(tc as u32))),
                             )
+                            .on_input(Message::TickCountInputChanged)
+                            .align_x(iced::Alignment::Center)
+                            .style(move |theme, status| {
+                                style::validated_text_input(theme, status, is_input_valid)
+                            });
+                            if let Some(tc) = tick_count_to_submit {
+                                input = input.on_submit(
+                                    Message::BasisSelected(ChartBasis::Tick(tc as u32)),
+                                );
+                            }
+
+                            row![label_text("Custom: "), input]
+                                .spacing(tokens::spacing::XS)
+                                .align_y(iced::Alignment::Center)
+                                .into()
                         };
+
                         basis_selection_column = basis_selection_column.push(custom_input);
                         basis_selection_column = basis_selection_column.push(tick_count_grid);
                     }

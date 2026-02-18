@@ -3,7 +3,7 @@ use crate::screen::dashboard::pane::{Event, Message};
 use crate::split_column;
 use crate::style;
 use crate::style::tokens;
-use crate::widget::{classic_slider_row, labeled_slider};
+use crate::component::input::slider_field::{classic_slider_row, labeled_slider};
 
 use data::ChartBasis;
 use data::domain::chart_ui_types::heatmap::{CoalesceKind, HeatmapStudy};

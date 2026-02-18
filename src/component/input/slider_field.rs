@@ -1,10 +1,14 @@
 //! Labeled slider with value display.
 
-use iced::widget::{container, row, slider, text};
-use iced::{Element, Length};
+use iced::widget::{column, container, row, slider, space, text};
+use iced::{
+    Alignment::{self, Center},
+    Color, Element,
+    Length::{self, Fill},
+    Theme, border,
+};
 
-use crate::style;
-use crate::style::tokens;
+use crate::style::{self, tokens};
 
 type FormatFn<T> = Box<dyn Fn(&T) -> String>;
 
@@ -99,4 +103,92 @@ where
     fn from(builder: SliderFieldBuilder<'a, T, Message>) -> Self {
         builder.into_element()
     }
+}
+
+pub fn classic_slider_row<'a, Message>(
+    label: iced::widget::Text<'a>,
+    slider: Element<'a, Message>,
+    placeholder: Option<iced::widget::Text<'a>>,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let slider = if let Some(placeholder) = placeholder {
+        column![slider, placeholder]
+            .spacing(tokens::spacing::XXS)
+            .align_x(Alignment::Center)
+    } else {
+        column![slider]
+    };
+
+    container(
+        row![label, slider]
+            .align_y(Alignment::Center)
+            .spacing(tokens::spacing::MD)
+            .padding(tokens::spacing::MD),
+    )
+    .style(style::modal_container)
+    .into()
+}
+
+pub fn labeled_slider<'a, T, Message: Clone + 'static>(
+    label: impl text::IntoFragment<'a>,
+    range: std::ops::RangeInclusive<T>,
+    current: T,
+    on_change: impl Fn(T) -> Message + 'a,
+    to_string: impl Fn(&T) -> String,
+    step: Option<T>,
+) -> Element<'a, Message>
+where
+    T: 'static + Copy + PartialOrd + Into<f64> + From<u8> + num_traits::FromPrimitive,
+{
+    let mut slider = iced::widget::slider(range, current, on_change)
+        .width(Fill)
+        .height(24)
+        .style(|theme: &Theme, status| {
+            let palette = theme.extended_palette();
+
+            slider::Style {
+                rail: slider::Rail {
+                    backgrounds: (
+                        palette.background.strong.color.into(),
+                        Color::TRANSPARENT.into(),
+                    ),
+                    width: 24.0,
+                    border: border::rounded(2),
+                },
+                handle: slider::Handle {
+                    shape: slider::HandleShape::Rectangle {
+                        width: 2,
+                        border_radius: 2.0.into(),
+                    },
+                    background: match status {
+                        iced::widget::slider::Status::Active => {
+                            palette.background.strong.color.into()
+                        }
+                        iced::widget::slider::Status::Hovered => {
+                            palette.primary.base.color.into()
+                        }
+                        iced::widget::slider::Status::Dragged => {
+                            palette.primary.weak.color.into()
+                        }
+                    },
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        });
+
+    if let Some(v) = step {
+        slider = slider.step(v);
+    }
+
+    iced::widget::stack![
+        container(slider).style(style::modal_container),
+        row![text(label), space::horizontal(), text(to_string(&current))]
+            .padding([0, 10])
+            .height(Fill)
+            .align_y(Center),
+    ]
+    .into()
 }

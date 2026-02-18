@@ -6,17 +6,19 @@ mod update;
 use crate::layout::{LayoutId, configuration};
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
-use crate::screen::dashboard::{self, Dashboard, tickers_table::{self, TickersTable}};
-use crate::widget::{
-    confirm_dialog_container,
-    toast::{self, Toast},
-    tooltip,
+use crate::screen::dashboard::{
+    self, Dashboard,
+    tickers_table::{self, TickersTable},
 };
 use crate::style::tokens;
+use crate::component;
+use crate::component::display::tooltip::tooltip;
+use crate::widget::toast::{self, Toast};
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
 
+use data::FeedId;
 use iced::{
     Alignment, Element, Subscription, Task, padding,
     widget::{
@@ -25,7 +27,6 @@ use iced::{
     },
 };
 use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
-use data::FeedId;
 
 // Global download progress state (shared between async tasks and subscriptions)
 #[allow(clippy::type_complexity)]
@@ -39,12 +40,10 @@ pub fn get_download_progress()
 }
 
 // Global staging for Rithmic streaming events
-static RITHMIC_EVENTS: OnceLock<
-    std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>>,
-> = OnceLock::new();
+static RITHMIC_EVENTS: OnceLock<std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>>> =
+    OnceLock::new();
 
-pub fn get_rithmic_events()
--> &'static std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>> {
+pub fn get_rithmic_events() -> &'static std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>> {
     RITHMIC_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
 }
 
@@ -65,10 +64,11 @@ pub struct Flowsurface {
     pub(crate) layout_manager: LayoutManager,
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
-    pub(crate) data_management_panel: crate::modal::pane::data_management::DataManagementPanel,
-    pub(crate) connections_menu: crate::modal::pane::connections_menu::ConnectionsMenu,
+    pub(crate) data_management_panel: crate::modal::pane::download::DataManagementPanel,
+    pub(crate) connections_menu: crate::modal::pane::connections::ConnectionsMenu,
     pub(crate) data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal,
-    pub(crate) historical_download_modal: Option<crate::modal::pane::historical_download::HistoricalDownloadModal>,
+    pub(crate) historical_download_modal:
+        Option<crate::modal::pane::download::HistoricalDownloadModal>,
     pub(crate) historical_download_id: Option<uuid::Uuid>,
     pub(crate) data_feed_manager: std::sync::Arc<std::sync::Mutex<data::DataFeedManager>>,
     pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
@@ -78,12 +78,9 @@ pub struct Flowsurface {
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
     // Rithmic connection state
-    pub(crate) rithmic_client:
-        Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
-    pub(crate) rithmic_trade_repo:
-        Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
-    pub(crate) rithmic_depth_repo:
-        Option<std::sync::Arc<exchange::RithmicDepthRepository>>,
+    pub(crate) rithmic_client: Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
+    pub(crate) rithmic_trade_repo: Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
+    pub(crate) rithmic_depth_repo: Option<std::sync::Arc<exchange::RithmicDepthRepository>>,
     pub(crate) rithmic_feed_id: Option<FeedId>,
     // User preferences
     pub(crate) ui_scale_factor: data::ScaleFactor,
@@ -159,7 +156,7 @@ pub enum DownloadMessage {
         date_range: data::DateRange,
         result: Result<usize, String>,
     },
-    HistoricalDownload(crate::modal::pane::historical_download::HistoricalDownloadMessage),
+    HistoricalDownload(crate::modal::pane::download::HistoricalDownloadMessage),
     HistoricalDownloadCostEstimated {
         result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
     },
@@ -179,8 +176,8 @@ pub enum Message {
         layout_id: Option<uuid::Uuid>,
         event: dashboard::Message,
     },
-    DataManagement(crate::modal::pane::data_management::DataManagementMessage),
-    ConnectionsMenu(crate::modal::pane::connections_menu::ConnectionsMenuMessage),
+    DataManagement(crate::modal::pane::download::DataManagementMessage),
+    ConnectionsMenu(crate::modal::pane::connections::ConnectionsMenuMessage),
     DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
     DataFeedPreviewLoaded {
         feed_id: data::FeedId,
@@ -235,9 +232,8 @@ impl Flowsurface {
         );
 
         // Create shared data feed manager
-        let data_feed_manager = std::sync::Arc::new(std::sync::Mutex::new(
-            saved_state_temp.data_feeds.clone(),
-        ));
+        let data_feed_manager =
+            std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.data_feeds.clone()));
 
         // Create final SavedState with shared Arc in layout_manager
         let saved_state = crate::layout::SavedState {
@@ -278,8 +274,8 @@ impl Flowsurface {
             layout_manager: saved_state.layout_manager,
             theme_editor: ThemeEditor::new(saved_state.custom_theme),
             audio_stream: AudioStream::new(saved_state.audio_cfg),
-            data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
-            connections_menu: crate::modal::pane::connections_menu::ConnectionsMenu::new(),
+            data_management_panel: crate::modal::pane::download::DataManagementPanel::new(),
+            connections_menu: crate::modal::pane::connections::ConnectionsMenu::new(),
             data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal::new(),
             historical_download_modal: None,
             historical_download_id: None,
@@ -311,44 +307,61 @@ impl Flowsurface {
         );
         let load_layout = state.load_layout(active_layout_id.unique, main_window_id);
 
-        // Auto-connect Databento feeds on startup (FeedStatus is transient,
-        // starts Disconnected after deserialization)
-        let auto_connect_tasks: Vec<Task<Message>> = {
+        // Auto-connect feeds that have auto_connect enabled
+        {
             let mut feed_manager = state
                 .data_feed_manager
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             let secrets = data::SecretsManager::new();
-            let mut tasks = Vec::new();
 
-            // Collect Databento feed IDs that should auto-connect
-            let databento_ids: Vec<data::FeedId> = feed_manager
+            let auto_connect_ids: Vec<data::FeedId> = feed_manager
                 .feeds()
                 .iter()
-                .filter(|f| f.provider == data::FeedProvider::Databento && f.enabled)
+                .filter(|f| f.auto_connect && f.enabled)
                 .map(|f| f.id)
                 .collect();
 
-            if secrets.has_api_key(data::ApiProvider::Databento) {
-                for fid in databento_ids {
-                    feed_manager.set_status(fid, data::FeedStatus::Connected);
-                    log::info!("Auto-connected Databento feed {} on startup", fid);
+            for fid in &auto_connect_ids {
+                if let Some(feed) = feed_manager.get(*fid) {
+                    let has_key = match feed.provider {
+                        data::FeedProvider::Databento => {
+                            secrets.has_api_key(data::ApiProvider::Databento)
+                        }
+                        data::FeedProvider::Rithmic => {
+                            secrets.has_api_key(data::ApiProvider::Rithmic)
+                        }
+                    };
+                    if has_key {
+                        feed_manager.set_status(*fid, data::FeedStatus::Connected);
+                        log::info!("Auto-connected feed {} on startup", fid);
+                    }
                 }
             }
 
-            // Sync UI snapshots
+            // Populate ticker list for auto-connected feeds
+            if !auto_connect_ids.is_empty() {
+                let ticker_symbols: std::collections::HashSet<String> = state
+                    .downloaded_tickers
+                    .lock()
+                    .unwrap()
+                    .list_tickers()
+                    .into_iter()
+                    .collect();
+                if !ticker_symbols.is_empty() {
+                    state.tickers_table.set_cached_filter(ticker_symbols);
+                }
+            }
+
             state.data_feeds_modal.sync_snapshot(&feed_manager);
             state.connections_menu.sync_snapshot(&feed_manager);
-
-            tasks
-        };
+        }
 
         (
             state,
             open_main_window
                 .discard()
-                .chain(load_layout)
-                .chain(Task::batch(auto_connect_tasks)),
+                .chain(load_layout),
         )
     }
 
@@ -495,7 +508,9 @@ impl Flowsurface {
                         sidebar::DateRangePreset::ALL,
                         Some(self.sidebar.date_range_preset()),
                         |preset| {
-                            Message::Sidebar(dashboard::sidebar::Message::SetDateRangePreset(preset))
+                            Message::Sidebar(dashboard::sidebar::Message::SetDateRangePreset(
+                                preset,
+                            ))
                         },
                     );
 
@@ -519,7 +534,8 @@ impl Flowsurface {
                         container(
                             row![
                                 decrease_btn,
-                                text(format!("{:.0}%", current_value * 100.0)).size(tokens::text::TITLE),
+                                text(format!("{:.0}%", current_value * 100.0))
+                                    .size(tokens::text::TITLE),
                                 increase_btn,
                             ]
                             .align_y(Alignment::Center)
@@ -583,14 +599,17 @@ impl Flowsurface {
                 );
 
                 if let Some(dialog) = &self.confirm_dialog {
-                    let dialog_content =
-                        confirm_dialog_container(dialog.clone(), Message::ToggleDialogModal(None));
-
-                    main_dialog_modal(
-                        base_content,
-                        dialog_content,
-                        Message::ToggleDialogModal(None),
-                    )
+                    let on_cancel = Message::ToggleDialogModal(None);
+                    let mut builder =
+                        component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                            dialog.message.clone(),
+                            *dialog.on_confirm.clone(),
+                            on_cancel,
+                        );
+                    if let Some(text) = &dialog.on_confirm_btn_text {
+                        builder = builder.confirm_text(text.clone());
+                    }
+                    builder.view(base_content)
                 } else {
                     base_content
                 }
@@ -714,9 +733,7 @@ impl Flowsurface {
 
                 dashboard_modal(
                     base,
-                    self.connections_menu
-                        .view()
-                        .map(Message::ConnectionsMenu),
+                    self.connections_menu.view().map(Message::ConnectionsMenu),
                     Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::End,
@@ -724,9 +741,7 @@ impl Flowsurface {
                 )
             }
             sidebar::Menu::DataFeeds => {
-                let data_feeds_content = self.data_feeds_modal
-                    .view()
-                    .map(Message::DataFeeds);
+                let data_feeds_content = self.data_feeds_modal.view().map(Message::DataFeeds);
 
                 let mut base_content = main_dialog_modal(
                     base,
@@ -736,26 +751,30 @@ impl Flowsurface {
 
                 // Stack historical download modal on top if open
                 if let Some(dl_modal) = &self.historical_download_modal {
-                    let dl_content = dl_modal.view().map(|msg| {
-                        Message::Download(DownloadMessage::HistoricalDownload(msg))
-                    });
+                    let dl_content = dl_modal
+                        .view()
+                        .map(|msg| Message::Download(DownloadMessage::HistoricalDownload(msg)));
                     base_content = main_dialog_modal(
                         base_content,
                         dl_content,
                         Message::Download(DownloadMessage::HistoricalDownload(
-                            crate::modal::pane::historical_download::HistoricalDownloadMessage::Close,
+                            crate::modal::pane::download::HistoricalDownloadMessage::Close,
                         )),
                     );
                 }
 
                 if let Some(dialog) = &self.confirm_dialog {
-                    let dialog_content =
-                        confirm_dialog_container(dialog.clone(), Message::ToggleDialogModal(None));
-                    main_dialog_modal(
-                        base_content,
-                        dialog_content,
-                        Message::ToggleDialogModal(None),
-                    )
+                    let on_cancel = Message::ToggleDialogModal(None);
+                    let mut builder =
+                        component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                            dialog.message.clone(),
+                            *dialog.on_confirm.clone(),
+                            on_cancel,
+                        );
+                    if let Some(text) = &dialog.on_confirm_btn_text {
+                        builder = builder.confirm_text(text.clone());
+                    }
+                    builder.view(base_content)
                 } else {
                     base_content
                 }

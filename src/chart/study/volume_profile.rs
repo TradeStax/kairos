@@ -150,10 +150,10 @@ mod tests {
         }
     }
 
-    /// Helper to build a lookup key the same way build_volume_profile does:
-    /// data::Price -> exchange::Price via units, then round to step.
-    fn lookup_price(price_f32: f32, tick_size: PriceStep) -> Price {
-        Price::from_units(data::Price::from_f32(price_f32).units()).round_to_step(tick_size)
+    /// Build an exchange::util::Price from data::Price to match how
+    /// build_volume_profile creates its BTreeMap keys (via Price::from_units).
+    fn price_key(value: f32) -> Price {
+        Price::from_units(data::Price::from_f32(value).units())
     }
 
     #[test]
@@ -170,11 +170,13 @@ mod tests {
 
         assert_eq!(profile.len(), 3);
 
-        let level_100 = profile.get(&lookup_price(100.0, tick_size)).unwrap();
+        // Lookup keys must be built the same way as build_volume_profile:
+        // Price::from_units(data_price.units()).round_to_step(tick_size)
+        let level_100 = profile.get(&price_key(100.0)).unwrap();
         assert_eq!(level_100.buy_qty, 10.0);
         assert_eq!(level_100.sell_qty, 5.0);
 
-        let level_101 = profile.get(&lookup_price(101.0, tick_size)).unwrap();
+        let level_101 = profile.get(&price_key(101.0)).unwrap();
         assert_eq!(level_101.buy_qty, 15.0);
         assert_eq!(level_101.sell_qty, 0.0);
     }

@@ -1,5 +1,6 @@
 use super::{Dashboard, Message, pane};
 use crate::window::{self, Window};
+use data::WindowSpec;
 
 use iced::{
     Task, Vector,
@@ -86,8 +87,7 @@ impl Dashboard {
             });
 
             let (state, id) = pane_grid::State::new(pane);
-            self.popout
-                .insert(window, (state, data::WindowSpec::default()));
+            self.popout.insert(window, (state, WindowSpec::default()));
 
             return task.then(move |window| {
                 Task::done(Message::Pane(window, pane::Message::PaneClicked(id)))
@@ -104,8 +104,7 @@ impl Dashboard {
                 .remove(&window)
                 .and_then(|(mut panes, _)| panes.panes.remove(&pane))
         {
-            let task =
-                self.new_pane(pane_grid::Axis::Horizontal, main_window, Some(pane_state));
+            let task = self.new_pane(pane_grid::Axis::Horizontal, main_window, Some(pane_state));
 
             return Task::batch(vec![window::close(window), task]);
         }

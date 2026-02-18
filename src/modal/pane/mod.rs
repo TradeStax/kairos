@@ -1,15 +1,11 @@
-use iced::{
-    Alignment, Element, Length, padding,
-    widget::{container, mouse_area, opaque},
-};
+use iced::{Alignment, Element, padding};
 
 pub mod calendar;
-pub mod connections_menu;
+pub mod connections;
 pub mod data_feeds;
-pub mod data_management;
-pub mod historical_download;
+pub mod download;
 pub mod indicators;
-pub mod mini_tickers_list;
+pub mod tickers;
 pub mod settings;
 pub mod stream;
 
@@ -43,14 +39,16 @@ pub const SCHEMAS: &[(exchange::DatabentoSchema, &str, u8)] = &[
 #[derive(Debug, Clone, PartialEq)]
 pub enum Modal {
     StreamModifier(super::stream::Modifier),
-    MiniTickersList(mini_tickers_list::MiniPanel),
-    DataManagement(data_management::DataManagementPanel),
+    MiniTickersList(tickers::MiniPanel),
+    DataManagement(download::data_management::DataManagementPanel),
     Settings,
     Indicators,
     LinkGroup,
     Controls,
 }
 
+/// Positioned overlay for pane-level modals.
+/// Delegates to the unified `positioned_overlay` in `modal::mod`.
 pub fn stack_modal<'a, Message>(
     base: impl Into<Element<'a, Message>>,
     content: impl Into<Element<'a, Message>>,
@@ -61,16 +59,5 @@ pub fn stack_modal<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    iced::widget::stack![
-        base.into(),
-        mouse_area(
-            container(opaque(content))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(padding)
-                .align_x(alignment)
-        )
-        .on_press(on_blur)
-    ]
-    .into()
+    super::positioned_overlay(base, content, on_blur, padding, Alignment::Start, alignment)
 }

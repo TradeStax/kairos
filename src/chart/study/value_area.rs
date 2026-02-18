@@ -149,18 +149,40 @@ mod tests {
         let mut footprint = Footprint::new();
 
         // Create a distribution with clear POC at 100.0
+        // Volumes: 98=>15, 99=>35, 100=>95, 101=>45, 102=>25  (total=215)
         footprint.insert(Price::from_f32(98.0), TradeGroup::new(10.0, 5.0));
         footprint.insert(Price::from_f32(99.0), TradeGroup::new(20.0, 15.0));
         footprint.insert(Price::from_f32(100.0), TradeGroup::new(50.0, 45.0)); // POC
         footprint.insert(Price::from_f32(101.0), TradeGroup::new(25.0, 20.0));
         footprint.insert(Price::from_f32(102.0), TradeGroup::new(15.0, 10.0));
 
-        let config = ValueAreaConfig::default();
+        let config = ValueAreaConfig::default(); // 70% = 150.5 target
         let va = calculate_value_area(&footprint, &config).unwrap();
 
+        // POC is at 100.0 (highest volume = 95)
         assert_eq!(va.poc, Price::from_f32(100.0));
-        // Value area should encompass the POC
-        assert!(va.val <= va.poc);
-        assert!(va.vah >= va.poc);
+
+        // Algorithm trace:
+        // Start: va_volume=95, expanding from poc_idx=2
+        // vol_above (101+102) = 45+25 = 70, vol_below (99+98) = 35+15 = 50
+        // Expand up: add 101 (va=140), still < 150.5, add 102 (va=165)
+        // Result: VAL stays at 100.0, VAH expands to 102.0
+        assert_eq!(
+            va.val,
+            Price::from_f32(100.0),
+            "VAL should be 100.0 (algorithm only expanded upward)"
+        );
+        assert_eq!(
+            va.vah,
+            Price::from_f32(102.0),
+            "VAH should be 102.0 (expanded to include 101 and 102)"
+        );
+
+        // Verify the accumulated volume: 95 + 45 + 25 = 165
+        assert!(
+            (va.volume - 165.0).abs() < 0.01,
+            "VA volume should be 165.0, got {}",
+            va.volume
+        );
     }
 }

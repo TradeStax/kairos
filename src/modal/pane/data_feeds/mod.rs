@@ -32,8 +32,6 @@ pub struct DataFeedsModal {
     pub(super) feeds_snapshot: DataFeedManager,
     /// "+" popup open
     pub(super) add_popup_open: bool,
-    /// Ticker multi-select dropdown open
-    pub(super) ticker_dropdown_open: bool,
     /// Preview data for selected historical feed
     pub(super) preview_data: Option<PreviewData>,
     pub(super) preview_loading: bool,
@@ -47,7 +45,6 @@ impl PartialEq for DataFeedsModal {
             && self.has_changes == other.has_changes
             && self.feeds_snapshot == other.feeds_snapshot
             && self.add_popup_open == other.add_popup_open
-            && self.preview_loading == other.preview_loading
     }
 }
 
@@ -68,6 +65,8 @@ pub(super) struct EditForm {
     pub(super) password: String,
     pub(super) auto_reconnect: bool,
     pub(super) subscribed_tickers: Vec<String>,
+    // General
+    pub(super) auto_connect: bool,
 }
 
 impl Default for EditForm {
@@ -85,6 +84,7 @@ impl Default for EditForm {
             password: String::new(),
             auto_reconnect: true,
             subscribed_tickers: Vec::new(),
+            auto_connect: false,
         }
     }
 }
@@ -95,6 +95,7 @@ impl EditForm {
             provider: Some(feed.provider),
             name: feed.name.clone(),
             priority: feed.priority.to_string(),
+            auto_connect: feed.auto_connect,
             ..Default::default()
         };
 
@@ -161,8 +162,7 @@ pub enum DataFeedsMessage {
     SetUserId(String),
     SetPassword(String),
     SetAutoReconnect(bool),
-    ToggleTickerDropdown,
-    CloseTickerDropdown,
+    SetAutoConnect(bool),
     ToggleTicker(String),
     // Connection actions
     ConnectFeed(FeedId),
@@ -191,7 +191,6 @@ impl DataFeedsModal {
             has_changes: false,
             feeds_snapshot: DataFeedManager::default(),
             add_popup_open: false,
-            ticker_dropdown_open: false,
             preview_data: None,
             preview_loading: false,
         }
@@ -214,7 +213,6 @@ impl DataFeedsModal {
                     self.selected_feed = Some(id);
                     self.is_creating = false;
                     self.has_changes = false;
-                    self.ticker_dropdown_open = false;
 
                     // Load preview for historical feeds
                     if let Some(info) = feed.dataset_info() {
@@ -240,7 +238,6 @@ impl DataFeedsModal {
                 self.has_changes = false;
                 self.preview_data = None;
                 self.preview_loading = false;
-                self.ticker_dropdown_open = false;
             }
             DataFeedsMessage::RemoveFeed(id) => {
                 feed_manager.remove(id);
@@ -451,11 +448,19 @@ impl DataFeedsModal {
                 self.edit_form.auto_reconnect = v;
                 self.has_changes = true;
             }
-            DataFeedsMessage::ToggleTickerDropdown => {
-                self.ticker_dropdown_open = !self.ticker_dropdown_open;
-            }
-            DataFeedsMessage::CloseTickerDropdown => {
-                self.ticker_dropdown_open = false;
+            DataFeedsMessage::SetAutoConnect(v) => {
+                self.edit_form.auto_connect = v;
+                self.has_changes = true;
+
+                // Apply immediately for historical feeds (no Save button)
+                if let Some(id) = self.selected_feed {
+                    if let Some(feed) = feed_manager.get_mut(id) {
+                        if feed.is_historical() {
+                            feed.auto_connect = v;
+                            return Some(Action::FeedsUpdated);
+                        }
+                    }
+                }
             }
             DataFeedsMessage::ToggleTicker(ticker) => {
                 if let Some(pos) = self
@@ -482,6 +487,7 @@ impl DataFeedsModal {
             .priority
             .parse::<u32>()
             .unwrap_or(feed.priority);
+        feed.auto_connect = self.edit_form.auto_connect;
 
         match &mut feed.config {
             FeedConfig::Databento(cfg) => {

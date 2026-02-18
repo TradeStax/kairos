@@ -6,7 +6,7 @@ use crate::{
 use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
 use iced::{Element, widget::column};
 
-use super::super::helpers::basis_modifier;
+use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
 
 impl State {

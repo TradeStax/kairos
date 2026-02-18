@@ -2,6 +2,7 @@ pub mod checkbox_field;
 pub mod color_picker;
 pub mod combo_select;
 pub mod dropdown;
+pub mod link_group_button;
 pub mod multi_select;
 pub mod numeric_field;
 pub mod radio_group;

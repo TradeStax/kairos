@@ -155,7 +155,7 @@ impl Flowsurface {
         {
             if let Some(action) = self.data_management_panel.request_initial_estimation() {
                 match action {
-                    crate::modal::pane::data_management::Action::EstimateRequested {
+                    crate::modal::pane::download::data_management::Action::EstimateRequested {
                         ticker,
                         schema,
                         date_range,
@@ -173,7 +173,7 @@ impl Flowsurface {
                                 },
                             )));
                     }
-                    crate::modal::pane::data_management::Action::DownloadRequested { .. } => {
+                    crate::modal::pane::download::data_management::Action::DownloadRequested { .. } => {
                         // Shouldn't happen on initial open
                     }
                 }
@@ -211,14 +211,8 @@ impl Flowsurface {
         let action = self.tickers_table.update(msg);
 
         match action {
-            Some(tickers_table::Action::Fetch(task)) => {
-                return task.map(Message::TickersTable);
-            }
             Some(tickers_table::Action::ErrorOccurred(err)) => {
                 self.notifications.push(Toast::error(err.to_string()));
-            }
-            Some(tickers_table::Action::FocusWidget(id)) => {
-                return iced::widget::operation::focus(id);
             }
             // TickerSelected is handled by pane modals directly
             Some(tickers_table::Action::TickerSelected(_, _)) => {}

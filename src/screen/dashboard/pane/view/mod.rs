@@ -1,30 +1,30 @@
 mod comparison;
+mod controls;
 mod heatmap;
+pub(crate) mod helpers;
 mod kline;
+mod modal_stack;
 mod starter;
+
+pub(crate) use modal_stack::CompactControls;
 
 use crate::{
     component::primitives::{Icon, exchange_icon, icon_text, label::*},
-    modal::{self, ModifierKind, pane::Modal},
+    component::input::link_group_button::link_group_button,
+    modal::{self, pane::Modal},
     screen::dashboard::{panel, tickers_table::TickersTable},
     style::{self, palette, tokens},
-    widget::{self, button_with_tooltip, link_group_button},
     window::{self, Window},
 };
-use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
-use exchange::FuturesTickerInfo;
+use data::{ContentKind, UserTimezone};
 use iced::{
     Alignment, Element, Length, Renderer, Theme,
     alignment::Vertical,
     padding,
-    widget::{button, center, column, container, pane_grid, row, text, tooltip},
+    widget::{button, center, column, container, pane_grid, row, text},
 };
 
-use super::helpers::{basis_modifier, link_group_modal};
 use super::{Content, Event, Message, State};
-
-/// Alias for the optional compact-controls overlay element.
-pub(crate) type CompactControls<'a> = Option<Element<'a, Message>>;
 
 impl State {
     pub fn view<'a>(
@@ -46,7 +46,6 @@ impl State {
             })]
         };
 
-        // Show ticker info button if we have ticker info
         if let Some(ticker_info) = self.ticker_info {
             let exchange_icon = icon_text(exchange_icon(ticker_info.ticker.venue), 14);
             let symbol = ticker_info.ticker.as_str().to_string();
@@ -59,7 +58,7 @@ impl State {
                 .on_press(Message::PaneEvent(
                     id,
                     Event::ShowModal(Modal::MiniTickersList(
-                        modal::pane::mini_tickers_list::MiniPanel::new(),
+                        modal::pane::tickers::MiniPanel::new(),
                     )),
                 ))
                 .style(|theme, status| {
@@ -73,7 +72,6 @@ impl State {
 
             stream_info_element = stream_info_element.push(tickers_list_btn);
         } else if !matches!(self.content, Content::Starter) {
-            // No ticker selected - show prompt
             let content = row![label_text("Choose a ticker")]
                 .align_y(Alignment::Center)
                 .spacing(tokens::spacing::XS);
@@ -82,7 +80,7 @@ impl State {
                 .on_press(Message::PaneEvent(
                     id,
                     Event::ShowModal(Modal::MiniTickersList(
-                        modal::pane::mini_tickers_list::MiniPanel::new(),
+                        modal::pane::tickers::MiniPanel::new(),
                     )),
                 ))
                 .style(|theme, status| {
@@ -117,7 +115,6 @@ impl State {
 
         let uninitialized_base = |kind: ContentKind| -> Element<'a, Message> {
             if self.loading_status.is_loading() {
-                // Show detailed status instead of generic "Loading..."
                 let status_text = match &self.loading_status {
                     data::LoadingStatus::Downloading {
                         schema,
@@ -215,12 +212,11 @@ impl State {
                     let basis = self
                         .settings
                         .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M5));
+                        .unwrap_or(data::ChartBasis::Time(data::Timeframe::M5));
 
-                    let kind = ModifierKind::Orderbook(basis);
+                    let kind = modal::ModifierKind::Orderbook(basis);
 
-                    // Tick multiplier removed - only for crypto
-                    let modifiers = basis_modifier(id, basis, modifier, kind);
+                    let modifiers = helpers::basis_modifier(id, basis, modifier, kind);
 
                     stream_info_element = stream_info_element.push(modifiers);
 
@@ -298,7 +294,6 @@ impl State {
             }
         };
 
-        // Show loading status in title bar
         match &self.loading_status {
             data::LoadingStatus::Downloading {
                 schema,
@@ -330,7 +325,6 @@ impl State {
                 )));
             }
             data::LoadingStatus::Ready | data::LoadingStatus::Idle => {
-                // Show disconnected indicator if chart has data but no feed
                 if self.feed_id.is_none()
                     && self.ticker_info.is_some()
                     && self.content.initialized()
@@ -389,215 +383,5 @@ impl State {
         } else {
             title_bar.always_show_controls()
         })
-    }
-
-    pub(crate) fn view_controls(
-        &'_ self,
-        pane: pane_grid::Pane,
-        total_panes: usize,
-        is_maximized: bool,
-        is_popout: bool,
-    ) -> Element<'_, Message> {
-        let modal_btn_style = |modal: Modal| {
-            let is_active = self.modal == Some(modal);
-            move |theme: &Theme, status: button::Status| {
-                style::button::transparent(theme, status, is_active)
-            }
-        };
-
-        let control_btn_style = |is_active: bool| {
-            move |theme: &Theme, status: button::Status| {
-                style::button::transparent(theme, status, is_active)
-            }
-        };
-
-        let treat_as_starter =
-            matches!(&self.content, Content::Starter) || !self.content.initialized();
-
-        let tooltip_pos = tooltip::Position::Bottom;
-        let mut buttons = row![];
-
-        let show_modal = |modal: Modal| Message::PaneEvent(pane, Event::ShowModal(modal));
-
-        if !treat_as_starter {
-            // Settings button
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::Cog, 12),
-                show_modal(Modal::Settings),
-                None,
-                tooltip_pos,
-                modal_btn_style(Modal::Settings),
-            ));
-        }
-        if !treat_as_starter
-            && matches!(
-                &self.content,
-                Content::Heatmap { .. } | Content::Kline { .. }
-            )
-        {
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::ChartOutline, 12),
-                show_modal(Modal::Indicators),
-                Some("Indicators"),
-                tooltip_pos,
-                modal_btn_style(Modal::Indicators),
-            ));
-        }
-
-        if is_popout {
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::Popout, 12),
-                Message::Merge,
-                Some("Merge"),
-                tooltip_pos,
-                control_btn_style(is_popout),
-            ));
-        } else if total_panes > 1 {
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::Popout, 12),
-                Message::Popout,
-                Some("Pop out"),
-                tooltip_pos,
-                control_btn_style(is_popout),
-            ));
-        }
-
-        if total_panes > 1 {
-            let (resize_icon, message) = if is_maximized {
-                (Icon::ResizeSmall, Message::Restore)
-            } else {
-                (Icon::ResizeFull, Message::MaximizePane(pane))
-            };
-
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(resize_icon, 12),
-                message,
-                None,
-                tooltip_pos,
-                control_btn_style(is_maximized),
-            ));
-
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::Close, 12),
-                Message::ClosePane(pane),
-                None,
-                tooltip_pos,
-                control_btn_style(false),
-            ));
-        }
-
-        buttons
-            .padding(padding::right(tokens::spacing::XS).left(tokens::spacing::XS))
-            .align_y(Vertical::Center)
-            .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT))
-            .into()
-    }
-
-    pub(crate) fn compose_stack_view<'a, F>(
-        &'a self,
-        base: Element<'a, Message>,
-        pane: pane_grid::Pane,
-        indicator_modal: Option<Element<'a, Message>>,
-        compact_controls: Option<Element<'a, Message>>,
-        settings_modal: F,
-        selected_tickers: Option<&'a [FuturesTickerInfo]>,
-        tickers_table: &'a TickersTable,
-    ) -> Element<'a, Message>
-    where
-        F: FnOnce() -> Element<'a, Message>,
-    {
-        use modal::pane::stack_modal;
-
-        let base =
-            widget::toast::Manager::new(base, &self.notifications, Alignment::End, move |msg| {
-                Message::PaneEvent(pane, Event::DeleteNotification(msg))
-            })
-            .into();
-
-        let on_blur = Message::PaneEvent(pane, Event::HideModal);
-
-        match &self.modal {
-            Some(Modal::LinkGroup) => {
-                let content = link_group_modal(pane, self.link_group);
-
-                stack_modal(
-                    base,
-                    content,
-                    on_blur,
-                    padding::right(tokens::spacing::LG).left(tokens::spacing::XS),
-                    Alignment::Start,
-                )
-            }
-            Some(Modal::StreamModifier(modifier)) => stack_modal(
-                base,
-                modifier.view(self.ticker_info).map(move |message| {
-                    Message::PaneEvent(pane, Event::StreamModifierChanged(message))
-                }),
-                Message::PaneEvent(pane, Event::HideModal),
-                padding::right(tokens::spacing::LG).left(48),
-                Alignment::Start,
-            ),
-            Some(Modal::MiniTickersList(panel)) => {
-                let mini_list = panel
-                    .view(tickers_table, selected_tickers, self.ticker_info)
-                    .map(move |msg| {
-                        Message::PaneEvent(pane, Event::MiniTickersListInteraction(msg))
-                    });
-
-                let content: Element<_> = container(mini_list)
-                    .max_width(260)
-                    .max_height(480)
-                    .clip(true)
-                    .padding(tokens::spacing::XL)
-                    .style(style::chart_modal)
-                    .into();
-
-                stack_modal(
-                    base,
-                    content,
-                    Message::PaneEvent(pane, Event::HideModal),
-                    padding::left(tokens::spacing::LG),
-                    Alignment::Start,
-                )
-            }
-            Some(Modal::Settings) => stack_modal(
-                base,
-                settings_modal(),
-                on_blur,
-                padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
-                Alignment::End,
-            ),
-            Some(Modal::Indicators) => stack_modal(
-                base,
-                indicator_modal.unwrap_or_else(|| column![].into()),
-                on_blur,
-                padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
-                Alignment::End,
-            ),
-            Some(Modal::Controls) => stack_modal(
-                base,
-                if let Some(controls) = compact_controls {
-                    controls
-                } else {
-                    column![].into()
-                },
-                on_blur,
-                padding::left(tokens::spacing::LG),
-                Alignment::End,
-            ),
-            Some(Modal::DataManagement(panel)) => {
-                let pane_id = pane;
-                stack_modal(
-                    base,
-                    panel.view().map(move |msg| {
-                        Message::PaneEvent(pane_id, Event::DataManagementInteraction(msg))
-                    }),
-                    on_blur,
-                    padding::all(tokens::spacing::LG),
-                    Alignment::Center,
-                )
-            }
-            None => base,
-        }
     }
 }

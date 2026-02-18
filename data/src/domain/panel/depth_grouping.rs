@@ -44,12 +44,12 @@ impl Side {
 /// # Example
 /// ```ignore
 /// use std::collections::BTreeMap;
-/// use data::domain::panel::{group_depth_by_tick, Side};
+/// use flowsurface_data::domain::panel::depth_grouping::{group_depth_by_tick, Side};
 ///
 /// let mut levels = BTreeMap::new();
-/// levels.insert(100_000_000, 10.0);  // 1.00 @ 10
-/// levels.insert(100_500_000, 5.0);   // 1.005 @ 5
-/// levels.insert(101_000_000, 8.0);   // 1.01 @ 8
+/// levels.insert(100_000_000_i64, 10.0_f32);  // 1.00 @ 10
+/// levels.insert(100_500_000_i64, 5.0_f32);   // 1.005 @ 5
+/// levels.insert(101_000_000_i64, 8.0_f32);   // 1.01 @ 8
 ///
 /// // Group to 0.01 tick (1_000_000 units at PRICE_SCALE=8)
 /// let grouped = group_depth_by_tick(&levels, Side::Bid, 1_000_000);
