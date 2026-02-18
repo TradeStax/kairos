@@ -32,35 +32,6 @@ pub fn neutral_color() -> Color {
     Color::from_rgb(0.5, 0.5, 0.5)
 }
 
-// ── UI utility colors ───────────────────────────────────────────────
-
-/// Drop-shadow color used by modal / floating containers.
-pub fn shadow_color() -> Color {
-    Color::from_rgba(0.0, 0.0, 0.0, 0.5)
-}
-
-/// Subtle gray background for "already cached" or disabled items.
-pub fn subtle_background() -> Color {
-    Color::from_rgba(0.5, 0.5, 0.5, 0.2)
-}
-
-// ── Calendar text colors ────────────────────────────────────────────
-
-/// Text color for days outside the current month (very dim).
-pub fn calendar_text_outside_month() -> Color {
-    Color::from_rgba(0.5, 0.5, 0.5, 0.3)
-}
-
-/// Text color for cached (available) calendar days -- full opacity.
-pub fn calendar_text_cached() -> Color {
-    Color::from_rgba(1.0, 1.0, 1.0, 1.0)
-}
-
-/// Text color for non-cached calendar days -- half opacity.
-pub fn calendar_text_default() -> Color {
-    Color::from_rgba(1.0, 1.0, 1.0, 0.5)
-}
-
 // ── Feed status ─────────────────────────────────────────────────────
 
 /// Connection status colors -- single source of truth.

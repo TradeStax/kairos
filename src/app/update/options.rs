@@ -1,45 +1,8 @@
-use iced::Task;
-
 use crate::widget::toast::{Notification, Toast};
 
-use super::super::{Flowsurface, Message, OptionsMessage};
+use super::super::Flowsurface;
 
 impl Flowsurface {
-    pub(crate) fn handle_load_option_chain(
-        &mut self,
-        pane_id: uuid::Uuid,
-        underlying_ticker: String,
-        date: chrono::NaiveDate,
-    ) -> Task<Message> {
-        let secrets = data::SecretsManager::new();
-        if !secrets.has_api_key(data::ApiProvider::Massive) {
-            log::warn!("Massive API key not configured");
-            self.notifications
-                .push(Toast::error("Massive API key not configured.".to_string()));
-            return Task::none();
-        }
-
-        if let Some(service) = self.options_service.clone() {
-            return Task::perform(
-                async move {
-                    service
-                        .get_chain_with_greeks(&underlying_ticker, date)
-                        .await
-                        .map_err(|e| e.to_string())
-                },
-                move |result| {
-                    Message::Options(OptionsMessage::OptionChainLoaded { pane_id, result })
-                },
-            );
-        } else {
-            log::warn!("Options service not available - reinitializing may be required");
-            self.notifications.push(Toast::error(
-                "Options service not initialized - try reconfiguring API key".to_string(),
-            ));
-        }
-        Task::none()
-    }
-
     pub(crate) fn handle_option_chain_loaded(
         &mut self,
         pane_id: uuid::Uuid,
@@ -65,41 +28,6 @@ impl Flowsurface {
                     .push(Toast::error(format!("Failed to load option chain: {}", e)));
             }
         }
-    }
-
-    pub(crate) fn handle_load_gex_profile(
-        &mut self,
-        pane_id: uuid::Uuid,
-        underlying_ticker: String,
-        date: chrono::NaiveDate,
-    ) -> Task<Message> {
-        let secrets = data::SecretsManager::new();
-        if !secrets.has_api_key(data::ApiProvider::Massive) {
-            log::warn!("Massive API key not configured");
-            self.notifications
-                .push(Toast::error("Massive API key not configured.".to_string()));
-            return Task::none();
-        }
-
-        if let Some(service) = self.options_service.clone() {
-            return Task::perform(
-                async move {
-                    service
-                        .get_gex_profile(&underlying_ticker, date)
-                        .await
-                        .map_err(|e| e.to_string())
-                },
-                move |result| {
-                    Message::Options(OptionsMessage::GexProfileLoaded { pane_id, result })
-                },
-            );
-        } else {
-            log::warn!("Options service not available - reinitializing may be required");
-            self.notifications.push(Toast::error(
-                "Options service not initialized - try reconfiguring API key".to_string(),
-            ));
-        }
-        Task::none()
     }
 
     pub(crate) fn handle_gex_profile_loaded(

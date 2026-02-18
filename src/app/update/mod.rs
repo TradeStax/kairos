@@ -29,9 +29,6 @@ impl Flowsurface {
                 } => {
                     return self.handle_chart_data_loaded(layout_id, pane_id, result);
                 }
-                ChartMessage::ReplayEvent(event) => {
-                    self.handle_replay_event(event);
-                }
                 ChartMessage::UpdateLoadingStatus => {
                     return self.handle_update_loading_status();
                 }
@@ -39,22 +36,8 @@ impl Flowsurface {
 
             // Options data loading (sub-enum)
             Message::Options(msg) => match msg {
-                OptionsMessage::LoadOptionChain {
-                    pane_id,
-                    underlying_ticker,
-                    date,
-                } => {
-                    return self.handle_load_option_chain(pane_id, underlying_ticker, date);
-                }
                 OptionsMessage::OptionChainLoaded { pane_id, result } => {
                     self.handle_option_chain_loaded(pane_id, result);
-                }
-                OptionsMessage::LoadGexProfile {
-                    pane_id,
-                    underlying_ticker,
-                    date,
-                } => {
-                    return self.handle_load_gex_profile(pane_id, underlying_ticker, date);
                 }
                 OptionsMessage::GexProfileLoaded { pane_id, result } => {
                     self.handle_gex_profile_loaded(pane_id, result);
@@ -122,9 +105,6 @@ impl Flowsurface {
             Message::ConnectionsMenu(msg) => {
                 return self.handle_connections_menu(msg);
             }
-            Message::DataManagement(msg) => {
-                return self.handle_data_management(msg);
-            }
             Message::RithmicConnected { feed_id, result } => {
                 return self.handle_rithmic_connected(feed_id, result);
             }
@@ -141,9 +121,6 @@ impl Flowsurface {
             }
             Message::ExitRequested(windows) => {
                 return self.handle_exit_requested(windows);
-            }
-            Message::RestartRequested(windows) => {
-                return self.handle_restart_requested(windows);
             }
             Message::GoBack => {
                 self.handle_go_back();

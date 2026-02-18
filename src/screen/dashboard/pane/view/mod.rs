@@ -9,7 +9,7 @@ mod starter;
 pub(crate) use modal_stack::CompactControls;
 
 use crate::{
-    component::primitives::{Icon, exchange_icon, icon_text, label::*},
+    component::primitives::{exchange_icon, icon_text, label::*},
     component::input::link_group_button::link_group_button,
     modal::{self, pane::Modal},
     screen::dashboard::{panel, tickers_table::TickersTable},

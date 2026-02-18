@@ -1,4 +1,4 @@
-use super::{Content, Effect};
+use super::Content;
 use crate::{
     chart,
     modal::{self, pane::Modal},

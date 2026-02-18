@@ -5,7 +5,6 @@ use super::{ChartMessage, DownloadMessage, Message};
 use crate::screen::dashboard::tickers_table::TickersTable;
 use crate::window;
 
-use exchange;
 
 /// Rithmic streaming event monitor
 /// Drains ALL events from the global buffer every 50ms
@@ -30,7 +29,7 @@ fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
         futures::stream::iter(
             events
                 .into_iter()
-                .map(|event| Message::RithmicStreamEvent(event)),
+                .map(Message::RithmicStreamEvent),
         )
     })
 }
@@ -60,7 +59,7 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
 
         Some((messages, ()))
     })
-    .flat_map(|messages| futures::stream::iter(messages))
+    .flat_map(futures::stream::iter)
 }
 
 /// Build the main application subscription

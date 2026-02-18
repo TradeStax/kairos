@@ -12,7 +12,7 @@ use crate::{
     component::display::tooltip::button_with_tooltip,
 };
 use iced::widget::tooltip::Position as TooltipPosition;
-use data::{sidebar, DrawingTool};
+use data::sidebar;
 
 use iced::{
     Alignment, Element, Length, Task,
@@ -247,13 +247,4 @@ impl Sidebar {
         self.state.date_range_preset
     }
 
-    #[allow(dead_code)]
-    pub fn active_drawing_tool(&self) -> DrawingTool {
-        self.drawing_tools.active_tool
-    }
-
-    #[allow(dead_code)]
-    pub fn set_drawing_tool(&mut self, tool: DrawingTool) {
-        self.drawing_tools.update(drawing_tools::Message::ToolSelected(tool));
-    }
 }

@@ -3,7 +3,6 @@ mod state;
 mod subscriptions;
 mod update;
 
-use crate::layout::{LayoutId, configuration};
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{
@@ -26,7 +25,7 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{borrow::Cow, collections::HashMap, sync::OnceLock, vec};
+use std::{collections::HashMap, sync::OnceLock, vec};
 
 // Global download progress state (shared between async tasks and subscriptions)
 #[allow(clippy::type_complexity)]
@@ -104,22 +103,15 @@ pub enum ChartMessage {
         pane_id: uuid::Uuid,
         result: Result<data::ChartData, String>,
     },
-    ReplayEvent(data::services::ReplayEvent),
     UpdateLoadingStatus,
 }
 
 #[derive(Debug, Clone)]
 pub enum OptionsMessage {
-    LoadOptionChain {
-        pane_id: uuid::Uuid,
-        underlying_ticker: String,
-        date: chrono::NaiveDate,
-    },
     OptionChainLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::OptionChain, String>,
     },
-    #[allow(dead_code)]
     GexProfileLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::GexProfile, String>,
@@ -176,7 +168,6 @@ pub enum Message {
         layout_id: Option<uuid::Uuid>,
         event: dashboard::Message,
     },
-    DataManagement(crate::modal::pane::download::DataManagementMessage),
     ConnectionsMenu(crate::modal::pane::connections::ConnectionsMenuMessage),
     DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
     DataFeedPreviewLoaded {
@@ -261,7 +252,7 @@ impl Flowsurface {
         };
 
         // Create tickers table at app level (shared by pane dropdowns)
-        let (mut tickers_table, _initial_fetch) = TickersTable::new();
+        let (tickers_table, _initial_fetch) = TickersTable::new();
 
         // Ticker list starts empty - tickers only appear after the user
         // connects to a data feed via the connections menu.

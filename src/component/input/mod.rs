@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod checkbox_field;
 pub mod color_picker;
 pub mod combo_select;

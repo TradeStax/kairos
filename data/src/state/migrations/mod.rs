@@ -11,9 +11,7 @@ use crate::state::persistence::{PersistenceResult, StateMigration};
 /// This function should be called by the MigrationRegistry constructor
 /// to register all available migrations.
 pub fn register_all_migrations() -> Vec<Box<dyn StateMigration>> {
-    vec![
-        Box::new(MigrationV1ToV2),
-    ]
+    vec![Box::new(MigrationV1ToV2)]
 }
 
 /// Migration v1 -> v2: Add data feed manager
@@ -34,11 +32,9 @@ impl StateMigration for MigrationV1ToV2 {
     fn migrate(&self, mut state: AppState) -> PersistenceResult<AppState> {
         // Check if Databento API key is available
         let secrets = crate::secrets::SecretsManager::new();
-        let has_databento_key =
-            secrets.has_api_key(crate::secrets::ApiProvider::Databento);
+        let has_databento_key = secrets.has_api_key(crate::secrets::ApiProvider::Databento);
 
-        state.data_feeds =
-            crate::feed::DataFeedManager::migrate_from_legacy(has_databento_key);
+        state.data_feeds = crate::feed::DataFeedManager::migrate_from_legacy(has_databento_key);
 
         log::info!(
             "Migration v1->v2: Created DataFeedManager with {} feed(s)",
@@ -54,7 +50,6 @@ impl StateMigration for MigrationV1ToV2 {
 }
 
 /// Base trait extensions for migrations
-#[allow(dead_code)] // Utility methods for future migrations
 pub trait MigrationExt: StateMigration {
     /// Log the migration start
     fn log_start(&self) {

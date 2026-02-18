@@ -99,15 +99,14 @@ impl<'a, Message: 'a> TextFieldBuilder<'a, Message> {
 
         let mut col = column![label_widget, input].spacing(tokens::spacing::XS);
 
-        if !self.is_valid {
-            if let Some(err) = self.error_message {
+        if !self.is_valid
+            && let Some(err) = self.error_message {
                 col = col.push(
                     text(err)
                         .size(tokens::text::TINY)
                         .color(iced::Color::from_rgb(0.9, 0.2, 0.2)),
                 );
             }
-        }
 
         col.into()
     }

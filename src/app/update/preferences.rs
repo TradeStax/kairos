@@ -152,8 +152,7 @@ impl Flowsurface {
         if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(
             data::sidebar::Menu::DataFeeds,
         )) = &message
-        {
-            if let Some(action) = self.data_management_panel.request_initial_estimation() {
+            && let Some(action) = self.data_management_panel.request_initial_estimation() {
                 match action {
                     crate::modal::pane::download::data_management::Action::EstimateRequested {
                         ticker,
@@ -178,7 +177,6 @@ impl Flowsurface {
                     }
                 }
             }
-        }
 
         let (task, drawing_action) = self.sidebar.update(message);
 

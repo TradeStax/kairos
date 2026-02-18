@@ -12,7 +12,6 @@ pub mod indicator;
 pub mod overlay;
 pub mod perf;
 pub(crate) mod scale;
-pub mod study;
 
 // Re-export KlineChart for backwards compatibility
 

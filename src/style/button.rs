@@ -278,25 +278,6 @@ pub fn menu_body(theme: &Theme, status: Status, is_selected: bool) -> Style {
     }
 }
 
-/// Button styled to look like a pick_list trigger
-pub fn pick_list_trigger(theme: &Theme, status: Status) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        text_color: palette.background.base.text,
-        background: Some(palette.background.base.color.into()),
-        border: Border {
-            width: tokens::border::THIN,
-            color: match status {
-                Status::Hovered => palette.background.strong.color,
-                _ => palette.background.weak.color,
-            },
-            radius: tokens::radius::MD.into(),
-        },
-        ..Default::default()
-    }
-}
-
 /// Item inside a dropdown menu (pick_list-like)
 pub fn pick_list_item(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
@@ -399,35 +380,3 @@ pub fn layout_name(theme: &Theme, status: Status) -> Style {
     }
 }
 
-pub fn ticker_card(theme: &Theme, status: Status) -> Style {
-    let palette = theme.extended_palette();
-
-    let color = if palette.is_dark {
-        palette.background.weak.color
-    } else {
-        palette.background.strong.color
-    };
-
-    match status {
-        Status::Hovered => Style {
-            text_color: palette.background.base.text,
-            background: Some(palette.background.weak.color.into()),
-            border: Border {
-                width: tokens::border::THIN,
-                radius: tokens::radius::SM.into(),
-                color,
-            },
-            ..Default::default()
-        },
-        _ => Style {
-            background: Some(color.scale_alpha(tokens::alpha::LIGHT).into()),
-            text_color: palette.background.base.text,
-            border: Border {
-                width: tokens::border::THIN,
-                radius: tokens::radius::SM.into(),
-                color: color.scale_alpha(tokens::alpha::HEAVY),
-            },
-            ..Default::default()
-        },
-    }
-}

@@ -216,7 +216,7 @@ impl State {
                 .as_mut()
                 .and_then(|c| c.invalidate(Some(now)).map(Action::Chart)),
             Content::Kline { chart, .. } => {
-                chart.as_mut().map(|c| c.invalidate());
+                if let Some(c) = chart.as_mut() { c.invalidate() }
                 None
             }
             Content::TimeAndSales(panel) => panel

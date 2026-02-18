@@ -51,14 +51,6 @@ impl Flowsurface {
         iced::exit()
     }
 
-    pub(crate) fn handle_restart_requested(
-        &mut self,
-        windows: HashMap<window::Id, data::layout::WindowSpec>,
-    ) -> Task<Message> {
-        self.save_state_to_disk(&windows);
-        self.restart()
-    }
-
     pub(crate) fn handle_go_back(&mut self) {
         let main_window = self.main_window.id;
 
@@ -73,7 +65,6 @@ impl Flowsurface {
             let dashboard = self.active_dashboard_mut();
 
             if dashboard.go_back(main_window) {
-                return;
             } else if dashboard.focus.is_some() {
                 dashboard.focus = None;
             }

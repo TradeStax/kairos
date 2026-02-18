@@ -1,16 +1,14 @@
-use super::{pane, Dashboard, DashboardError, Message};
+use super::{pane, Dashboard, Message};
 use crate::{
     screen::dashboard::tickers_table::TickersTable,
     style::{self, tokens},
-    widget::toast::Toast,
     window::{self, Window},
 };
-use data::{LoadingStatus, UserTimezone};
+use data::UserTimezone;
 use iced::{
     Element, Length, Task,
     widget::{
         PaneGrid, center, container,
-        pane_grid,
     },
 };
 
@@ -130,21 +128,4 @@ impl Dashboard {
         false
     }
 
-    pub(super) fn handle_error(
-        &mut self,
-        pane_id: Option<uuid::Uuid>,
-        err: &DashboardError,
-        main_window: window::Id,
-    ) -> Task<Message> {
-        match pane_id {
-            Some(id) => {
-                if let Some(state) = self.get_mut_pane_state_by_uuid(main_window, id) {
-                    state.loading_status = LoadingStatus::Ready;
-                    state.notifications.push(Toast::error(err.to_string()));
-                }
-                Task::none()
-            }
-            _ => Task::done(Message::Notification(Toast::error(err.to_string()))),
-        }
-    }
 }

@@ -12,12 +12,11 @@ pub use sidebar::Sidebar;
 
 use super::DashboardError;
 use crate::{
-    modal::pane::download::{CacheStatus, DownloadProgress},
     widget::toast::Toast,
     window,
 };
 use data::{
-    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus,
+    ChartConfig, ChartData, ChartState, LoadingStatus,
     WindowSpec,
 };
 use exchange::FuturesTickerInfo;
@@ -85,8 +84,6 @@ pub struct Dashboard {
     pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>,
     pub downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     pub date_range_preset: data::sidebar::DateRangePreset,
-    #[allow(dead_code)]
-    layout_id: uuid::Uuid,
 }
 
 impl Dashboard {
@@ -104,7 +101,6 @@ impl Dashboard {
             crosshair_positions: HashMap::new(),
             downloaded_tickers,
             date_range_preset,
-            layout_id: uuid::Uuid::new_v4(),
         }
     }
 
@@ -151,7 +147,7 @@ impl Dashboard {
     pub fn from_config(
         panes: Configuration<pane::State>,
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
-        layout_id: uuid::Uuid,
+        _layout_id: uuid::Uuid,
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
         date_range_preset: data::sidebar::DateRangePreset,
@@ -176,7 +172,6 @@ impl Dashboard {
             crosshair_positions: HashMap::new(),
             downloaded_tickers,
             date_range_preset,
-            layout_id,
         }
     }
 }

@@ -10,7 +10,6 @@ use crate::style::tokens;
 pub type TooltipPosition = iced::widget::tooltip::Position;
 
 /// Default delay before showing tooltips.
-#[allow(dead_code)]
 pub const DEFAULT_TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Tooltip with themed styling and no delay.

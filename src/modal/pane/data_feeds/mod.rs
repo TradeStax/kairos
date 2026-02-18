@@ -149,7 +149,6 @@ pub enum DataFeedsMessage {
     // Right panel - form
     SetProvider(FeedProvider),
     SetName(String),
-    SetPriority(String),
     SaveFeed,
     CancelEdit,
     // Databento fields
@@ -295,8 +294,8 @@ impl DataFeedsModal {
                             self.edit_form.priority = "5".to_string();
                         }
                     }
-                    if let Some(id) = self.selected_feed {
-                        if let Some(feed) = feed_manager.get_mut(id) {
+                    if let Some(id) = self.selected_feed
+                        && let Some(feed) = feed_manager.get_mut(id) {
                             feed.provider = provider;
                             feed.name = "New Connection".to_string();
                             feed.config = match provider {
@@ -312,7 +311,6 @@ impl DataFeedsModal {
                                 FeedProvider::Rithmic => 5,
                             };
                         }
-                    }
                     self.has_changes = true;
                 }
             }
@@ -359,13 +357,10 @@ impl DataFeedsModal {
                     self.is_creating = false;
                     self.has_changes = false;
                     return Some(Action::FeedsUpdated);
-                } else {
-                    if let Some(id) = self.selected_feed {
-                        if let Some(feed) = feed_manager.get(id) {
-                            self.edit_form = EditForm::from_feed(feed);
-                            self.has_changes = false;
-                        }
-                    }
+                } else if let Some(id) = self.selected_feed
+                && let Some(feed) = feed_manager.get(id) {
+                    self.edit_form = EditForm::from_feed(feed);
+                    self.has_changes = false;
                 }
             }
 
@@ -403,18 +398,12 @@ impl DataFeedsModal {
 
                 // For historical feeds, also update the name in the
                 // manager immediately
-                if let Some(id) = self.selected_feed {
-                    if let Some(feed) = feed_manager.get_mut(id) {
-                        if feed.is_historical() {
+                if let Some(id) = self.selected_feed
+                    && let Some(feed) = feed_manager.get_mut(id)
+                        && feed.is_historical() {
                             feed.name = self.edit_form.name.clone();
                             return Some(Action::FeedsUpdated);
                         }
-                    }
-                }
-            }
-            DataFeedsMessage::SetPriority(v) => {
-                self.edit_form.priority = v;
-                self.has_changes = true;
             }
             DataFeedsMessage::SetApiKey(v) => {
                 self.edit_form.api_key = v;
@@ -453,14 +442,12 @@ impl DataFeedsModal {
                 self.has_changes = true;
 
                 // Apply immediately for historical feeds (no Save button)
-                if let Some(id) = self.selected_feed {
-                    if let Some(feed) = feed_manager.get_mut(id) {
-                        if feed.is_historical() {
+                if let Some(id) = self.selected_feed
+                    && let Some(feed) = feed_manager.get_mut(id)
+                        && feed.is_historical() {
                             feed.auto_connect = v;
                             return Some(Action::FeedsUpdated);
                         }
-                    }
-                }
             }
             DataFeedsMessage::ToggleTicker(ticker) => {
                 if let Some(pos) = self

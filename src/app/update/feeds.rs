@@ -293,7 +293,7 @@ impl Flowsurface {
     ) -> Task<Message> {
         if let Some(service) = self.market_data_service.clone() {
             let ticker_str = info.ticker.clone();
-            let date_range = info.date_range.clone();
+            let date_range = info.date_range;
             let _schema = info.schema.clone();
             return Task::perform(
                 async move {
@@ -336,14 +336,11 @@ impl Flowsurface {
                         })
                         .collect();
 
-                    let date_range_str = format!("{} - {}", date_range.start, date_range.end);
-
                     Ok(crate::modal::pane::data_feeds::PreviewData {
                         feed_id,
                         price_line,
                         trades: trade_rows,
                         total_trades,
-                        date_range_str,
                     })
                 },
                 move |result| Message::DataFeedPreviewLoaded { feed_id, result },
@@ -359,7 +356,7 @@ impl Flowsurface {
     ) {
         self.data_feeds_modal.update(
             crate::modal::pane::data_feeds::DataFeedsMessage::PreviewLoaded(feed_id, result),
-            &mut *self
+            &mut self
                 .data_feed_manager
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()),
@@ -477,7 +474,7 @@ impl Flowsurface {
                     layout_id: None,
                     event: dashboard::Message::ExchangeEvent(exchange::Event::TradeReceived(
                         stream_kind,
-                        _trade.clone(),
+                        *_trade,
                     )),
                 });
             }
@@ -499,53 +496,6 @@ impl Flowsurface {
                 return self.handle_rithmic_connection_lost();
             }
             _ => {}
-        }
-        Task::none()
-    }
-
-    pub(crate) fn handle_data_management(
-        &mut self,
-        msg: crate::modal::pane::download::DataManagementMessage,
-    ) -> Task<Message> {
-        if let Some(action) = self.data_management_panel.update(msg) {
-            match action {
-                crate::modal::pane::download::data_management::Action::EstimateRequested {
-                    ticker,
-                    schema,
-                    date_range,
-                } => {
-                    log::info!(
-                        "Estimate requested from sidebar: {:?} {:?} {:?}",
-                        ticker,
-                        schema,
-                        date_range
-                    );
-                    return Task::done(Message::Download(DownloadMessage::EstimateDataCost {
-                        pane_id: uuid::Uuid::nil(),
-                        ticker,
-                        schema,
-                        date_range,
-                    }));
-                }
-                crate::modal::pane::download::data_management::Action::DownloadRequested {
-                    ticker,
-                    schema,
-                    date_range,
-                } => {
-                    log::info!(
-                        "Download requested from sidebar: {:?} {:?} {:?}",
-                        ticker,
-                        schema,
-                        date_range
-                    );
-                    return Task::done(Message::Download(DownloadMessage::DownloadData {
-                        pane_id: uuid::Uuid::nil(),
-                        ticker,
-                        schema,
-                        date_range,
-                    }));
-                }
-            }
         }
         Task::none()
     }

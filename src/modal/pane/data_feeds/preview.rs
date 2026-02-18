@@ -25,7 +25,6 @@ pub struct PreviewData {
     pub price_line: Vec<(u64, f64)>,
     pub trades: Vec<TradePreviewRow>,
     pub total_trades: usize,
-    pub date_range_str: String,
 }
 
 #[derive(Debug, Clone)]
@@ -238,7 +237,7 @@ impl DataFeedsModal {
                     .padding([tokens::spacing::XXS, tokens::spacing::XS]);
 
                     let mut rows = column![header].spacing(tokens::spacing::XXXS);
-                    for (_i, trade) in preview.trades.iter().take(50).enumerate() {
+                    for trade in preview.trades.iter().take(50) {
                         let side_style = if trade.side == "Buy" {
                             palette::success_color()
                         } else {

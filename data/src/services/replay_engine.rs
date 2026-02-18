@@ -203,7 +203,7 @@ impl ReplayEngine {
         if self.check_cache(&ticker_info.ticker, &date_range).await {
             self.emit_event(ReplayEvent::CacheHit {
                 symbol: ticker_info.ticker.to_string(),
-                date_range,
+                date_range: date_range,
             });
         }
 

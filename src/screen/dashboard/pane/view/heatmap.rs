@@ -40,7 +40,7 @@ impl State {
             let kind = ModifierKind::Heatmap(basis);
 
             // Tick multiplier removed - only for crypto
-            let modifiers: Element<'a, Message> = basis_modifier(id, basis, modifier, kind).into();
+            let modifiers: Element<'a, Message> = basis_modifier(id, basis, modifier, kind);
 
             extra.push(modifiers);
 

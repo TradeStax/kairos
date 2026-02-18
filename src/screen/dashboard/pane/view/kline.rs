@@ -44,7 +44,7 @@ impl State {
 
                     // Tick multiplier removed - only for crypto
                     let modifiers: Element<'a, Message> =
-                        basis_modifier(id, basis, modifier.clone(), kind).into();
+                        basis_modifier(id, basis, modifier, kind);
 
                     extra.push(modifiers);
                 }
@@ -56,7 +56,7 @@ impl State {
                     let kind = ModifierKind::Candlestick(selected_basis);
 
                     let modifiers: Element<'a, Message> =
-                        row![basis_modifier(id, selected_basis, modifier.clone(), kind),]
+                        row![basis_modifier(id, selected_basis, modifier, kind),]
                             .spacing(tokens::spacing::XS)
                             .into();
 

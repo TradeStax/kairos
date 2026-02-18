@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod button_grid;
 pub mod button_group;
 pub mod card;

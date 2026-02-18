@@ -81,8 +81,6 @@ pub struct TickersTable {
 #[derive(Debug, Clone)]
 pub struct TickerRowData {
     ticker: FuturesTicker,
-    #[allow(dead_code)]
-    ticker_info: FuturesTickerInfo,
     stats: TickerStats,
     previous_stats: Option<TickerStats>,
     is_favorited: bool,
@@ -93,22 +91,6 @@ pub struct TickerRowData {
 #[derive(Debug, Clone)]
 struct TickerDisplayData {
     display_ticker: String,
-    product_name: String,
-    contract_type: String,
-    mark_price_display: String,
-    daily_change_pct: String,
-    volume_display: String,
-    price_unchanged_part: String,
-    price_changed_part: String,
-    price_change_direction: PriceChangeDirection,
-    card_color_alpha: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PriceChangeDirection {
-    Increased,
-    Decreased,
-    Unchanged,
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +147,6 @@ impl TickersTable {
 
             let row = TickerRowData {
                 ticker,
-                ticker_info,
                 stats: TickerStats::default(),
                 previous_stats: None,
                 is_favorited: self.favorited_tickers.contains(&ticker),
@@ -796,118 +777,13 @@ fn calc_search_rank(
 
 fn compute_display_data(
     row: &TickerRowData,
-    previous_stats: Option<TickerStats>,
+    _previous_stats: Option<TickerStats>,
 ) -> TickerDisplayData {
-    let mark_price = row.stats.mark_price;
-    let daily_change_pct = row.stats.daily_price_chg;
-    let volume = row.stats.daily_volume;
-
-    let has_data = mark_price > 0.0
-        || daily_change_pct.abs() > 0.0
-        || volume > 0.0;
-
-    let price_str = if has_data {
-        format!("{:.2}", mark_price)
-    } else {
-        "N/A".to_string()
-    };
-
-    let (unchanged, changed, direction) = if !has_data {
-        (
-            price_str.clone(),
-            String::new(),
-            PriceChangeDirection::Unchanged,
-        )
-    } else if let Some(prev) = previous_stats {
-        if mark_price > prev.mark_price {
-            let parts: Vec<&str> = price_str
-                .splitn(2, |c: char| !c.is_ascii_digit())
-                .collect();
-            if parts.len() > 1 {
-                (
-                    parts[0].to_string(),
-                    format!(".{}", parts[1]),
-                    PriceChangeDirection::Increased,
-                )
-            } else {
-                (
-                    price_str.clone(),
-                    String::new(),
-                    PriceChangeDirection::Increased,
-                )
-            }
-        } else if mark_price < prev.mark_price {
-            let parts: Vec<&str> = price_str
-                .splitn(2, |c: char| !c.is_ascii_digit())
-                .collect();
-            if parts.len() > 1 {
-                (
-                    parts[0].to_string(),
-                    format!(".{}", parts[1]),
-                    PriceChangeDirection::Decreased,
-                )
-            } else {
-                (
-                    price_str.clone(),
-                    String::new(),
-                    PriceChangeDirection::Decreased,
-                )
-            }
-        } else {
-            (
-                price_str.clone(),
-                String::new(),
-                PriceChangeDirection::Unchanged,
-            )
-        }
-    } else {
-        (
-            price_str.clone(),
-            String::new(),
-            PriceChangeDirection::Unchanged,
-        )
-    };
-
-    let volume_display = if !has_data {
-        "N/A".to_string()
-    } else if volume >= 1_000_000.0 {
-        format!("{:.1}M", volume / 1_000_000.0)
-    } else if volume >= 1_000.0 {
-        format!("{:.1}K", volume / 1_000.0)
-    } else if volume > 0.0 {
-        format!("{:.0}", volume)
-    } else {
-        "0".to_string()
-    };
-
-    let daily_change_display = if !has_data {
-        "N/A".to_string()
-    } else {
-        let change_sign = if daily_change_pct > 0.0 { "+" } else { "" };
-        format!("{}{:.2}%", change_sign, daily_change_pct)
-    };
-
-    let card_color_alpha =
-        if has_data && daily_change_pct.abs() > 0.01 {
-            0.15
-        } else {
-            0.0
-        };
-
     TickerDisplayData {
         display_ticker: row
             .ticker
             .display_name()
             .unwrap_or(row.ticker.as_str())
             .to_string(),
-        product_name: row.product_name.clone(),
-        contract_type: row.contract_type_display.clone(),
-        mark_price_display: price_str,
-        daily_change_pct: daily_change_display,
-        volume_display,
-        price_unchanged_part: unchanged,
-        price_changed_part: changed,
-        price_change_direction: direction,
-        card_color_alpha,
     }
 }

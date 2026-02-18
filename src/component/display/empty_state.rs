@@ -57,7 +57,7 @@ impl<'a, Message: 'a> EmptyStateBuilder<'a, Message> {
         if let (Some(label), Some(msg)) = (self.action_label, self.action_msg) {
             let btn = button(text(label).size(tokens::text::BODY))
                 .on_press(msg)
-                .style(|theme, status| style::button::primary(theme, status))
+                .style(style::button::primary)
                 .padding([tokens::spacing::SM, tokens::spacing::LG]);
 
             col = col.push(btn);

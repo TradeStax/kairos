@@ -2,6 +2,7 @@
 //!
 //! Configuration and state types for panels (Ladder, Time & Sales)
 
+
 // Re-export domain panel types
 pub use crate::domain::panel::{ChaseTracker, TradeAggregator};
 

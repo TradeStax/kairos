@@ -308,8 +308,7 @@ impl State {
             Event::DataManagementInteraction(message) => {
                 if let Some(Modal::DataManagement(ref mut panel)) =
                     self.modal
-                {
-                    if let Some(action) = panel.update(message) {
+                    && let Some(action) = panel.update(message) {
                         self.modal =
                             Some(Modal::DataManagement(panel.clone()));
 
@@ -324,7 +323,6 @@ impl State {
                             }
                         }
                     }
-                }
             }
         }
         None

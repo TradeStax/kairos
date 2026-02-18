@@ -15,7 +15,6 @@ use crate::style;
 
 pub const DEFAULT_TIMEOUT: u64 = 8;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Status {
     #[default]

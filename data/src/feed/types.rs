@@ -10,16 +10,13 @@ pub type FeedId = uuid::Uuid;
 
 /// Whether a feed is realtime (live connection) or historical (downloaded dataset)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum FeedKind {
+    #[default]
     Realtime,
     Historical(HistoricalDatasetInfo),
 }
 
-impl Default for FeedKind {
-    fn default() -> Self {
-        FeedKind::Realtime
-    }
-}
 
 /// Metadata about a downloaded historical dataset
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

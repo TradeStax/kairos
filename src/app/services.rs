@@ -143,7 +143,6 @@ pub struct RithmicServiceResult {
     pub client: Arc<tokio::sync::Mutex<exchange::RithmicClient>>,
     pub trade_repo: Arc<exchange::RithmicTradeRepository>,
     pub depth_repo: Arc<exchange::RithmicDepthRepository>,
-    pub status_rx: tokio::sync::mpsc::UnboundedReceiver<data::FeedStatus>,
 }
 
 /// Initialize Rithmic services from a feed config and password
@@ -154,7 +153,7 @@ pub async fn initialize_rithmic_service(
     feed_config: &data::feed::RithmicFeedConfig,
     password: &str,
 ) -> Result<RithmicServiceResult, String> {
-    let (status_tx, status_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (status_tx, _status_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let (local_config, rithmic_config) =
         exchange::RithmicConfig::from_feed_config(feed_config, password)
@@ -180,7 +179,6 @@ pub async fn initialize_rithmic_service(
         client,
         trade_repo,
         depth_repo,
-        status_rx,
     })
 }
 

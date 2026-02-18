@@ -11,7 +11,6 @@ pub mod spacing {
     pub const LG: f32 = 12.0; // Comfortable (form field spacing)
     pub const XL: f32 = 16.0; // Generous (card padding)
     pub const XXL: f32 = 24.0; // Spacious (modal padding, section breaks)
-    pub const XXXL: f32 = 32.0; // Page-level (outer margins)
 }
 
 // --- Typography ---
@@ -56,25 +55,16 @@ pub mod layout {
     pub const TITLE_BAR_HEIGHT: f32 = 32.0;
     pub const SIDEBAR_WIDTH: f32 = 32.0;
     pub const SIDEBAR_BUTTON_HEIGHT: f32 = 34.0;
-    pub const TICKER_CARD_HEIGHT: f32 = 56.0;
-    pub const TICKER_CARD_EXPANDED: f32 = 64.0;
     pub const PANEL_ROW_HEIGHT: f32 = 16.0; // Ladder
     pub const PANEL_ROW_HEIGHT_SM: f32 = 14.0; // TimeAndSales
-    pub const MIN_PANEL_HEIGHT: f32 = 40.0;
-    pub const DRAG_HANDLE_WIDTH: f32 = 14.0;
-    pub const SCROLLBAR_WIDTH: f32 = 4.0;
     pub const MODAL_MAX_WIDTH: u32 = 650;
 
     // Modal widths
     pub const MODAL_WIDTH_SM: f32 = 220.0; // connections_menu
     pub const MODAL_WIDTH_MD: f32 = 360.0; // data_management
     pub const MODAL_WIDTH_LG: f32 = 420.0; // historical_download
-    pub const MODAL_WIDTH_XL: f32 = 650.0; // data_feeds
     pub const CONFIRM_DIALOG_WIDTH: f32 = 340.0;
-    pub const CALENDAR_DAY_HEIGHT: f32 = 26.0;
     pub const AUDIO_MODAL_WIDTH: f32 = 320.0;
-    pub const FEED_PANEL_WIDTH: f32 = 200.0;
-    pub const FEED_BODY_HEIGHT: f32 = 420.0;
 }
 
 // --- Chart Rendering ---
@@ -82,9 +72,6 @@ pub mod chart {
     pub const Y_AXIS_GUTTER: f32 = 66.0;
     pub const X_AXIS_HEIGHT: f32 = 24.0;
     pub const MIN_X_TICK_PX: f32 = 80.0;
-    pub const CLUSTER_BAR_WIDTH_FACTOR: f32 = 0.9;
-    pub const CLUSTER_SPACING_PX: f32 = 1.0;
-    pub const TEXT_ALPHA_VISIBLE: f32 = 0.8;
     pub const ZOOM_SENSITIVITY: f32 = 30.0;
     pub const ZOOM_BASE: f32 = 2.0;
     pub const ZOOM_STEP_PCT: f32 = 0.05;

@@ -1,12 +1,12 @@
 use super::super::{Content, Event, Message, State};
 use crate::{
     component::display::tooltip::button_with_tooltip,
-    component::primitives::{Icon, icon_text, label::*},
+    component::primitives::{Icon, icon_text},
     modal::pane::Modal,
     style::{self, tokens},
 };
 use iced::{
-    Alignment, Element, Length,
+    Element, Length,
     alignment::Vertical,
     padding,
     widget::{button, pane_grid, row, tooltip},

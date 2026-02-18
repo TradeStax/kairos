@@ -69,8 +69,8 @@ impl<'a, Message: 'a> SearchFieldBuilder<'a, Message> {
             .spacing(tokens::spacing::XS)
             .align_y(iced::Alignment::Center);
 
-        if let Some(clear_msg) = self.on_clear {
-            if !self.value.is_empty() {
+        if let Some(clear_msg) = self.on_clear
+            && !self.value.is_empty() {
                 let clear_icon = text(char::from(Icon::Close).to_string())
                     .font(ICONS_FONT)
                     .size(12);
@@ -82,7 +82,6 @@ impl<'a, Message: 'a> SearchFieldBuilder<'a, Message> {
 
                 search_row = search_row.push(clear_btn);
             }
-        }
 
         search_row.into()
     }

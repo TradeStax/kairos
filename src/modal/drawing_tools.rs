@@ -118,18 +118,6 @@ impl DrawingToolsPanel {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_active_tool(mut self, tool: DrawingTool) -> Self {
-        self.set_active_tool(tool);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_snap(mut self, enabled: bool) -> Self {
-        self.snap_enabled = enabled;
-        self
-    }
-
     fn set_active_tool(&mut self, tool: DrawingTool) {
         self.active_tool = tool;
         // Update the selected tool for this category
@@ -174,12 +162,6 @@ impl DrawingToolsPanel {
                 None
             }
         }
-    }
-
-    /// Check if a dropdown is currently open
-    #[allow(dead_code)]
-    pub fn has_open_dropdown(&self) -> bool {
-        self.open_category.is_some()
     }
 
     /// Get the currently open category (if any)

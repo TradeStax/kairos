@@ -463,18 +463,14 @@ impl CacheConfig {
             return Ok(0);
         }
 
-        fn dir_size(path: &std::path::Path) -> std::io::Result<u64> {
-            let mut total = 0u64;
-            for entry in std::fs::read_dir(path)? {
-                let entry = entry?;
-                let metadata = entry.metadata()?;
-                if metadata.is_dir() {
-                    total += dir_size(&entry.path())?;
-                } else {
-                    total += metadata.len();
+        let mut total_size = 0u64;
+        for entry in std::fs::read_dir(&self.directory)
+            .map_err(|e| Error::Config(format!("Cannot read cache directory: {}", e)))?
+        {
+            if let Ok(entry) = entry
+                && let Ok(metadata) = entry.metadata() {
+                    total_size += metadata.len();
                 }
-            }
-            Ok(total)
         }
 
         let total_bytes = dir_size(&self.directory)

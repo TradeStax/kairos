@@ -54,7 +54,6 @@ pub enum Action {
         schema: exchange::DatabentoSchema,
         date_range: DateRange,
     },
-    DatasetCreated(data::DataFeed),
     ApiKeySaved {
         provider: data::ApiProvider,
         key: String,
@@ -226,15 +225,6 @@ impl HistoricalDownloadModal {
 
     pub fn selected_schema_idx(&self) -> usize {
         self.selected_schema_idx
-    }
-
-    pub fn current_date_range(&self) -> DateRange {
-        let (start, end) = if self.calendar.end_date >= self.calendar.start_date {
-            (self.calendar.start_date, self.calendar.end_date)
-        } else {
-            (self.calendar.end_date, self.calendar.start_date)
-        };
-        DateRange::new(start, end)
     }
 
     pub fn view(&self) -> Element<'_, HistoricalDownloadMessage> {

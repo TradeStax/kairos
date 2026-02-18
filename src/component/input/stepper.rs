@@ -78,7 +78,7 @@ where
 
         let mut dec_btn = button(text("-").size(tokens::text::BODY))
             .padding([tokens::spacing::XXS, tokens::spacing::SM])
-            .style(|theme, status| style::button::secondary(theme, status));
+            .style(style::button::secondary);
 
         if can_dec {
             dec_btn = dec_btn.on_press((self.on_change)(dec_value));
@@ -86,7 +86,7 @@ where
 
         let mut inc_btn = button(text("+").size(tokens::text::BODY))
             .padding([tokens::spacing::XXS, tokens::spacing::SM])
-            .style(|theme, status| style::button::secondary(theme, status));
+            .style(style::button::secondary);
 
         if can_inc {
             inc_btn = inc_btn.on_press((self.on_change)(inc_value));

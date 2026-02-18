@@ -1,4 +1,4 @@
-use super::{Dashboard, Message, pane};
+use super::{Dashboard, Message};
 use crate::window;
 use data::{ChartConfig, DateRange, LoadingStatus};
 use exchange::FuturesTickerInfo;
@@ -49,8 +49,8 @@ impl Dashboard {
                     &state.loading_status,
                     LoadingStatus::Error { .. }
                 );
-                if needs_reload {
-                    if let Some(ticker_info) = state.ticker_info {
+                if needs_reload
+                    && let Some(ticker_info) = state.ticker_info {
                         let date_range = self
                             .downloaded_tickers
                             .lock()
@@ -77,7 +77,6 @@ impl Dashboard {
                             ticker_info,
                         ));
                     }
-                }
             }
         }
 

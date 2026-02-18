@@ -15,13 +15,6 @@ use super::candle::draw_candle;
 use super::footprint::{ContentGaps, draw_all_npocs, draw_clusters, effective_cluster_qty, should_show_text};
 use super::KlineChart;
 
-/// Maximum font size for footprint cluster text labels
-const MAX_TEXT_SIZE: f32 = 16.0;
-/// Padding subtracted from text size to prevent overflow
-const TEXT_SIZE_PADDING: f32 = 3.0;
-/// Ratio of cell width used for the footprint candle body
-const FOOTPRINT_CANDLE_WIDTH_RATIO: f32 = 0.1;
-
 impl canvas::Program<Message> for KlineChart {
     type State = Interaction;
 

@@ -78,24 +78,6 @@ impl LayoutManager {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn from_config(
-        layouts: Vec<Layout>,
-        active_layout: Option<LayoutId>,
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-        date_range_preset: data::sidebar::DateRangePreset,
-    ) -> Self {
-        Self {
-            layouts,
-            active_layout_id: active_layout.map(|l| l.unique),
-            edit_mode: Editing::None,
-            market_data_service,
-            downloaded_tickers,
-            date_range_preset,
-        }
-    }
-
     /// Update the date range preset for all dashboards
     pub fn set_date_range_preset(&mut self, preset: data::sidebar::DateRangePreset) {
         self.date_range_preset = preset;
@@ -151,11 +133,6 @@ impl LayoutManager {
             suffix += 1;
         }
         final_name.chars().take(20).collect()
-    }
-
-    #[allow(dead_code)]
-    pub fn iter_dashboards_mut(&mut self) -> impl Iterator<Item = &mut Dashboard> {
-        self.layouts.iter_mut().map(|entry| &mut entry.dashboard)
     }
 
     pub fn mut_dashboard(&mut self, id: Uuid) -> Option<&mut Dashboard> {

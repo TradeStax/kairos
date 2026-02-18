@@ -295,7 +295,7 @@ impl DataFeedsModal {
         let auto_connect_toggle = component::input::toggle_switch::toggle_switch(
             "Connect on startup",
             self.edit_form.auto_connect,
-            |v| DataFeedsMessage::SetAutoConnect(v),
+            DataFeedsMessage::SetAutoConnect,
         );
 
         // Provider-specific fields
@@ -361,7 +361,7 @@ impl DataFeedsModal {
         let cache_toggle = component::input::toggle_switch::toggle_switch(
             "Enable caching",
             self.edit_form.cache_enabled,
-            |v| DataFeedsMessage::SetCacheEnabled(v),
+            DataFeedsMessage::SetCacheEnabled,
         );
 
         let cache_days = column![
@@ -475,7 +475,7 @@ impl DataFeedsModal {
         let reconnect_toggle = component::input::toggle_switch::toggle_switch(
             "Auto-reconnect",
             self.edit_form.auto_reconnect,
-            |v| DataFeedsMessage::SetAutoReconnect(v),
+            DataFeedsMessage::SetAutoReconnect,
         );
 
         column![

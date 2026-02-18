@@ -133,15 +133,14 @@ impl Dashboard {
                                         state.content.change_visual_config(cfg.clone());
 
                                         // Update studies for heatmap content
-                                        if let Some(studies) = &studies_cfg {
-                                            if let pane::Content::Heatmap {
+                                        if let Some(studies) = &studies_cfg
+                                            && let pane::Content::Heatmap {
                                                 studies: hm_studies,
                                                 ..
                                             } = &mut state.content
                                             {
                                                 *hm_studies = studies.clone();
                                             }
-                                        }
 
                                         if let Some(cluster_kind) = &clusters_cfg
                                             && let pane::Content::Kline { chart, .. } =
@@ -340,41 +339,37 @@ impl Dashboard {
                 total,
             } => {
                 // Update progress in data management modal
-                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
-                    if let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
+                    && let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
                         panel.set_download_progress(DownloadProgress::Downloading {
                             current_day: current,
                             total_days: total,
                         });
                     }
-                }
             }
             Message::DataDownloadComplete {
                 pane_id,
                 days_downloaded,
             } => {
                 // Mark download as complete in modal
-                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
-                    if let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
+                    && let Some(Modal::DataManagement(ref mut panel)) = pane_state.modal {
                         panel.set_download_progress(DownloadProgress::Complete { days_downloaded });
                     }
-                }
             }
             Message::DrawingToolSelected(tool) => {
                 // Set the drawing tool on the focused pane's chart
-                if let Some((window_id, pane)) = self.focus {
-                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
                         state.content.set_drawing_tool(tool);
                     }
-                }
             }
             Message::DrawingSnapToggled => {
                 // Toggle snap mode on the focused pane's chart
-                if let Some((window_id, pane)) = self.focus {
-                    if let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane) {
                         state.content.toggle_drawing_snap();
                     }
-                }
             }
             Message::ExchangeEvent(event) => {
                 // Forward live streaming events to chart panes

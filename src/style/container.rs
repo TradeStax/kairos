@@ -294,44 +294,6 @@ pub fn ticker_card(theme: &Theme) -> Style {
     }
 }
 
-pub fn ticker_card_bar(theme: &Theme, color_alpha: f32) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        background: {
-            if color_alpha > 0.0 {
-                Some(
-                    palette
-                        .success
-                        .strong
-                        .color
-                        .scale_alpha(color_alpha)
-                        .into(),
-                )
-            } else {
-                Some(
-                    palette
-                        .danger
-                        .strong
-                        .color
-                        .scale_alpha(-color_alpha)
-                        .into(),
-                )
-            }
-        },
-        border: Border {
-            radius: tokens::radius::MD.into(),
-            width: tokens::border::THIN,
-            color: if color_alpha > 0.0 {
-                palette.success.strong.color.scale_alpha(color_alpha)
-            } else {
-                palette.danger.strong.color.scale_alpha(-color_alpha)
-            },
-        },
-        ..Default::default()
-    }
-}
-
 pub fn colored_circle_container(theme: &Theme, color: iced::Color) -> Style {
     let palette = theme.extended_palette();
 

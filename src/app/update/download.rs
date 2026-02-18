@@ -131,8 +131,8 @@ impl Flowsurface {
         };
 
         let schema_discriminant = schema as u16;
-        let ticker_clone = ticker.clone();
-        let date_range_clone = date_range.clone();
+        let ticker_clone = ticker;
+        let date_range_clone = date_range;
 
         {
             let mut progress = get_download_progress().lock().unwrap();
@@ -239,7 +239,7 @@ impl Flowsurface {
                 self.downloaded_tickers
                     .lock()
                     .unwrap()
-                    .register(ticker.clone(), date_range);
+                    .register(ticker, date_range);
                 log::info!("Registered {} in downloaded tickers registry", ticker);
 
                 let ticker_symbols: std::collections::HashSet<String> = self
@@ -306,8 +306,8 @@ impl Flowsurface {
         &mut self,
         msg: crate::modal::pane::download::HistoricalDownloadMessage,
     ) -> Task<Message> {
-        if let Some(modal) = &mut self.historical_download_modal {
-            if let Some(action) = modal.update(msg) {
+        if let Some(modal) = &mut self.historical_download_modal
+            && let Some(action) = modal.update(msg) {
                 match action {
                     crate::modal::pane::download::historical::Action::EstimateRequested {
                         ticker,
@@ -358,8 +358,8 @@ impl Flowsurface {
                             let mut progress = get_download_progress().lock().unwrap();
                             progress.insert(download_id, (0, date_range.num_days() as usize));
                         }
-                        let ticker_clone = ticker.clone();
-                        let date_range_clone = date_range.clone();
+                        let ticker_clone = ticker;
+                        let date_range_clone = date_range;
                         return Task::perform(
                             async move {
                                 service
@@ -386,21 +386,6 @@ impl Flowsurface {
                             },
                         );
                     }
-                    crate::modal::pane::download::historical::Action::DatasetCreated(feed) => {
-                        let mut feed_manager = self
-                            .data_feed_manager
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner());
-                        let _feed_id = feed.id;
-                        feed_manager.add(feed);
-                        self.data_feeds_modal.sync_snapshot(&feed_manager);
-                        self.connections_menu.sync_snapshot(&feed_manager);
-                        drop(feed_manager);
-                        self.historical_download_modal = None;
-                        self.historical_download_id = None;
-                        let windows = std::collections::HashMap::new();
-                        self.save_state_to_disk(&windows);
-                    }
                     crate::modal::pane::download::historical::Action::ApiKeySaved {
                         provider,
                         key,
@@ -419,7 +404,6 @@ impl Flowsurface {
                     }
                 }
             }
-        }
         Task::none()
     }
 
@@ -479,7 +463,7 @@ impl Flowsurface {
                 self.downloaded_tickers
                     .lock()
                     .unwrap()
-                    .register(ticker.clone(), date_range.clone());
+                    .register(ticker, date_range);
                 let ticker_symbols: std::collections::HashSet<String> = self
                     .downloaded_tickers
                     .lock()
@@ -499,7 +483,7 @@ impl Flowsurface {
 
                     let info = data::HistoricalDatasetInfo {
                         ticker: ticker_sym.to_string(),
-                        date_range: date_range.clone(),
+                        date_range,
                         schema: schema_name.to_string(),
                         trade_count: None,
                         file_size_bytes: None,
