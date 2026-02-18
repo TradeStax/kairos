@@ -3,6 +3,9 @@ mod state;
 mod subscriptions;
 mod update;
 
+use crate::component;
+use crate::component::display::toast::{self, Toast};
+use crate::component::display::tooltip::tooltip;
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{
@@ -10,9 +13,6 @@ use crate::screen::dashboard::{
     tickers_table::{self, TickersTable},
 };
 use crate::style::tokens;
-use crate::component;
-use crate::component::display::tooltip::tooltip;
-use crate::widget::toast::{self, Toast};
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
@@ -348,12 +348,7 @@ impl Flowsurface {
             state.connections_menu.sync_snapshot(&feed_manager);
         }
 
-        (
-            state,
-            open_main_window
-                .discard()
-                .chain(load_layout),
-        )
+        (state, open_main_window.discard().chain(load_layout))
     }
 
     pub fn title(&self, _window: window::Id) -> String {
@@ -591,12 +586,11 @@ impl Flowsurface {
 
                 if let Some(dialog) = &self.confirm_dialog {
                     let on_cancel = Message::ToggleDialogModal(None);
-                    let mut builder =
-                        component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
-                            dialog.message.clone(),
-                            *dialog.on_confirm.clone(),
-                            on_cancel,
-                        );
+                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                        dialog.message.clone(),
+                        *dialog.on_confirm.clone(),
+                        on_cancel,
+                    );
                     if let Some(text) = &dialog.on_confirm_btn_text {
                         builder = builder.confirm_text(text.clone());
                     }
@@ -756,12 +750,11 @@ impl Flowsurface {
 
                 if let Some(dialog) = &self.confirm_dialog {
                     let on_cancel = Message::ToggleDialogModal(None);
-                    let mut builder =
-                        component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
-                            dialog.message.clone(),
-                            *dialog.on_confirm.clone(),
-                            on_cancel,
-                        );
+                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                        dialog.message.clone(),
+                        *dialog.on_confirm.clone(),
+                        on_cancel,
+                    );
                     if let Some(text) = &dialog.on_confirm_btn_text {
                         builder = builder.confirm_text(text.clone());
                     }

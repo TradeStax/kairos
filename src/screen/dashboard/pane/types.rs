@@ -1,13 +1,13 @@
 use super::Content;
 use crate::{
     chart,
+    component::display::toast::Toast,
     modal::{self, pane::Modal},
     screen::dashboard::panel,
-    widget::toast::Toast,
 };
 use data::{
-    ChartConfig, ChartData, ContentKind, LinkGroup, LoadingStatus, Settings,
-    UiIndicator, VisualConfig,
+    ChartConfig, ChartData, ContentKind, LinkGroup, LoadingStatus, Settings, UiIndicator,
+    VisualConfig,
 };
 use exchange::FuturesTickerInfo;
 use iced::widget::pane_grid;
@@ -48,9 +48,7 @@ pub enum Event {
     ToggleIndicator(UiIndicator),
     DeleteNotification(usize),
     ReorderIndicator(crate::widget::column_drag::DragEvent),
-    DataManagementInteraction(
-        crate::modal::pane::download::DataManagementMessage,
-    ),
+    DataManagementInteraction(crate::modal::pane::download::DataManagementMessage),
     ClusterKindSelected(data::ClusterKind),
     ClusterScalingSelected(data::ClusterScaling),
     StudyConfigurator(modal::pane::settings::study::StudyMessage),

@@ -1,7 +1,7 @@
 use iced::Task;
 
+use crate::component::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use crate::widget::toast::{Notification, Toast};
 
 use super::super::{DownloadMessage, Flowsurface, Message, get_download_progress};
 
@@ -307,103 +307,96 @@ impl Flowsurface {
         msg: crate::modal::pane::download::HistoricalDownloadMessage,
     ) -> Task<Message> {
         if let Some(modal) = &mut self.historical_download_modal
-            && let Some(action) = modal.update(msg) {
-                match action {
-                    crate::modal::pane::download::historical::Action::EstimateRequested {
-                        ticker,
-                        schema,
-                        date_range,
-                    } => {
-                        let Some(service) = self.market_data_service.clone() else {
-                            self.notifications.push(Toast::error(
-                                "Databento API key not configured. Set it \
+            && let Some(action) = modal.update(msg)
+        {
+            match action {
+                crate::modal::pane::download::historical::Action::EstimateRequested {
+                    ticker,
+                    schema,
+                    date_range,
+                } => {
+                    let Some(service) = self.market_data_service.clone() else {
+                        self.notifications.push(Toast::error(
+                            "Databento API key not configured. Set it \
                                  in connection settings."
-                                    .to_string(),
-                            ));
-                            return Task::none();
-                        };
-                        let schema_discriminant = schema as u16;
-                        return Task::perform(
-                            async move {
-                                service
-                                    .estimate_data_request(
-                                        &ticker,
-                                        schema_discriminant,
-                                        &date_range,
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            move |result| {
-                                Message::Download(
-                                    DownloadMessage::HistoricalDownloadCostEstimated { result },
+                                .to_string(),
+                        ));
+                        return Task::none();
+                    };
+                    let schema_discriminant = schema as u16;
+                    return Task::perform(
+                        async move {
+                            service
+                                .estimate_data_request(&ticker, schema_discriminant, &date_range)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        move |result| {
+                            Message::Download(DownloadMessage::HistoricalDownloadCostEstimated {
+                                result,
+                            })
+                        },
+                    );
+                }
+                crate::modal::pane::download::historical::Action::DownloadRequested {
+                    ticker,
+                    schema,
+                    date_range,
+                } => {
+                    let Some(service) = self.market_data_service.clone() else {
+                        self.notifications
+                            .push(Toast::error("Databento API key required".to_string()));
+                        return Task::none();
+                    };
+                    let schema_discriminant = schema as u16;
+                    let download_id = uuid::Uuid::new_v4();
+                    self.historical_download_id = Some(download_id);
+                    {
+                        let mut progress = get_download_progress().lock().unwrap();
+                        progress.insert(download_id, (0, date_range.num_days() as usize));
+                    }
+                    let ticker_clone = ticker;
+                    let date_range_clone = date_range;
+                    return Task::perform(
+                        async move {
+                            service
+                                .download_to_cache_with_progress(
+                                    &ticker,
+                                    schema_discriminant,
+                                    &date_range,
+                                    Box::new(move |current, total| {
+                                        if let Ok(mut progress) = get_download_progress().lock() {
+                                            progress.insert(download_id, (current, total));
+                                        }
+                                    }),
                                 )
-                            },
-                        );
-                    }
-                    crate::modal::pane::download::historical::Action::DownloadRequested {
-                        ticker,
-                        schema,
-                        date_range,
-                    } => {
-                        let Some(service) = self.market_data_service.clone() else {
-                            self.notifications
-                                .push(Toast::error("Databento API key required".to_string()));
-                            return Task::none();
-                        };
-                        let schema_discriminant = schema as u16;
-                        let download_id = uuid::Uuid::new_v4();
-                        self.historical_download_id = Some(download_id);
-                        {
-                            let mut progress = get_download_progress().lock().unwrap();
-                            progress.insert(download_id, (0, date_range.num_days() as usize));
-                        }
-                        let ticker_clone = ticker;
-                        let date_range_clone = date_range;
-                        return Task::perform(
-                            async move {
-                                service
-                                    .download_to_cache_with_progress(
-                                        &ticker,
-                                        schema_discriminant,
-                                        &date_range,
-                                        Box::new(move |current, total| {
-                                            if let Ok(mut progress) = get_download_progress().lock()
-                                            {
-                                                progress.insert(download_id, (current, total));
-                                            }
-                                        }),
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            },
-                            move |result| {
-                                Message::Download(DownloadMessage::HistoricalDownloadComplete {
-                                    ticker: ticker_clone,
-                                    date_range: date_range_clone,
-                                    result,
-                                })
-                            },
-                        );
-                    }
-                    crate::modal::pane::download::historical::Action::ApiKeySaved {
-                        provider,
-                        key,
-                    } => {
-                        let secrets = data::SecretsManager::new();
-                        if let Err(e) = secrets.set_api_key(provider, &key) {
-                            log::warn!("Failed to save API key: {}", e);
-                        } else {
-                            log::info!("API key saved for {:?}", provider);
-                            return Task::done(Message::ReinitializeService(provider));
-                        }
-                    }
-                    crate::modal::pane::download::historical::Action::Closed => {
-                        self.historical_download_modal = None;
-                        self.historical_download_id = None;
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        move |result| {
+                            Message::Download(DownloadMessage::HistoricalDownloadComplete {
+                                ticker: ticker_clone,
+                                date_range: date_range_clone,
+                                result,
+                            })
+                        },
+                    );
+                }
+                crate::modal::pane::download::historical::Action::ApiKeySaved { provider, key } => {
+                    let secrets = data::SecretsManager::new();
+                    if let Err(e) = secrets.set_api_key(provider, &key) {
+                        log::warn!("Failed to save API key: {}", e);
+                    } else {
+                        log::info!("API key saved for {:?}", provider);
+                        return Task::done(Message::ReinitializeService(provider));
                     }
                 }
+                crate::modal::pane::download::historical::Action::Closed => {
+                    self.historical_download_modal = None;
+                    self.historical_download_id = None;
+                }
             }
+        }
         Task::none()
     }
 

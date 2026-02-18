@@ -3,7 +3,7 @@
 use iced::widget::{column, row, text, text_input};
 use iced::{Element, Length};
 
-use crate::style::tokens;
+use crate::style::{palette, tokens};
 
 pub struct SecureFieldBuilder<'a, Message> {
     label: &'a str,
@@ -48,13 +48,6 @@ impl<'a, Message: 'a> SecureFieldBuilder<'a, Message> {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn with_visibility_toggle(self) -> Self {
-        // For now, just returns self; toggle behaviour would need
-        // local state that the caller manages.
-        self
-    }
-
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = Some(width.into());
         self
@@ -78,11 +71,11 @@ impl<'a, Message: 'a> SecureFieldBuilder<'a, Message> {
             let indicator = if self.is_set {
                 text("(set)")
                     .size(tokens::text::TINY)
-                    .color(iced::Color::from_rgb(0.2, 0.8, 0.2))
+                    .color(palette::success_color())
             } else {
                 text("(not set)")
                     .size(tokens::text::TINY)
-                    .color(iced::Color::from_rgb(0.5, 0.5, 0.5))
+                    .color(palette::neutral_color())
             };
             row![label_widget, indicator]
                 .spacing(tokens::spacing::XS)

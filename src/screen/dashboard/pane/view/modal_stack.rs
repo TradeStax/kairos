@@ -1,15 +1,14 @@
 use super::super::{Event, Message, State};
 use super::helpers::link_group_modal;
 use crate::{
+    component::display::toast,
     modal::{self, pane::Modal},
     screen::dashboard::tickers_table::TickersTable,
     style::{self, tokens},
-    widget,
 };
 use exchange::FuturesTickerInfo;
 use iced::{
-    Alignment, Element,
-    padding,
+    Alignment, Element, padding,
     widget::{column, container, pane_grid},
 };
 
@@ -32,11 +31,10 @@ impl State {
     {
         use modal::pane::stack_modal;
 
-        let base =
-            widget::toast::Manager::new(base, &self.notifications, Alignment::End, move |msg| {
-                Message::PaneEvent(pane, Event::DeleteNotification(msg))
-            })
-            .into();
+        let base = toast::Manager::new(base, &self.notifications, Alignment::End, move |msg| {
+            Message::PaneEvent(pane, Event::DeleteNotification(msg))
+        })
+        .into();
 
         let on_blur = Message::PaneEvent(pane, Event::HideModal);
 

@@ -65,6 +65,10 @@ pub mod layout {
     pub const MODAL_WIDTH_LG: f32 = 420.0; // historical_download
     pub const CONFIRM_DIALOG_WIDTH: f32 = 340.0;
     pub const AUDIO_MODAL_WIDTH: f32 = 320.0;
+    pub const SCROLLBAR_WIDTH: f32 = 4.0;
+    pub const SLIDER_HEIGHT: f32 = 24.0;
+    pub const TOGGLER_SIZE: f32 = 18.0;
+    pub const TOAST_MAX_WIDTH: f32 = 200.0;
 }
 
 // --- Chart Rendering ---

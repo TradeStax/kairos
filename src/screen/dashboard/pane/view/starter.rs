@@ -1,8 +1,8 @@
 use crate::{
+    component,
     component::primitives::label::*,
     screen::dashboard::{pane::view::CompactControls, tickers_table::TickersTable},
     style::tokens,
-    widget,
 };
 use data::ContentKind;
 use iced::{
@@ -25,7 +25,7 @@ impl State {
                 Message::PaneEvent(id, Event::ContentSelected(kind))
             });
 
-        let base: Element<_> = widget::toast::Manager::new(
+        let base: Element<_> = component::display::toast::Manager::new(
             center(
                 column![heading("Choose a view to get started"), content_picklist]
                     .align_x(Alignment::Center)

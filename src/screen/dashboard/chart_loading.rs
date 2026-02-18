@@ -1,8 +1,6 @@
 use super::{Dashboard, Event, Message, pane};
-use crate::{widget::toast::Toast, window};
-use data::{
-    ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus,
-};
+use crate::{component::display::toast::Toast, window};
+use data::{ChartConfig, ChartData, ChartState, ContentKind, DateRange, LinkGroup, LoadingStatus};
 use exchange::FuturesTickerInfo;
 use iced::Task;
 
@@ -115,12 +113,7 @@ impl Dashboard {
             // Collect all panes in this link group
             for (window, pane, state) in self.iter_all_panes(main_window) {
                 if state.link_group == Some(link_group) {
-                    panes_to_update.push((
-                        window,
-                        pane,
-                        state.unique_id(),
-                        state.content.kind(),
-                    ));
+                    panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
                 }
             }
         } else if let Some(pane_id) = fallback_pane_id {
@@ -136,20 +129,13 @@ impl Dashboard {
                 .iter_all_panes(main_window)
                 .find(|(_, _, s)| s.unique_id() == pane_id)
             {
-                panes_to_update.push((
-                    window,
-                    pane,
-                    state.unique_id(),
-                    state.content.kind(),
-                ));
+                panes_to_update.push((window, pane, state.unique_id(), state.content.kind()));
             } else {
                 log::error!("Could not find triggering pane by UUID: {}", pane_id);
                 return Task::none();
             }
         } else {
-            log::debug!(
-                "No link group and no fallback pane ID - cannot switch tickers"
-            );
+            log::debug!("No link group and no fallback pane ID - cannot switch tickers");
             return Task::none();
         }
 
@@ -186,12 +172,10 @@ impl Dashboard {
         let mut tasks = Vec::new();
         for (_, _, pane_id, content_kind) in panes_to_update {
             // Get the pane state and update it
-            if let Some(pane_state) =
-                self.get_mut_pane_state_by_uuid(main_window, pane_id)
-            {
+            if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
                 // Use set_content_with_range to use registered date range
-                let effect = pane_state
-                    .set_content_with_range(ticker_info, content_kind, date_range);
+                let effect =
+                    pane_state.set_content_with_range(ticker_info, content_kind, date_range);
 
                 log::info!(
                     "  Pane {} effect received: {:?}",
@@ -199,8 +183,7 @@ impl Dashboard {
                     match &effect {
                         pane::Effect::LoadChart { config, .. } =>
                             format!("LoadChart({:?})", config.chart_type),
-                        pane::Effect::SwitchTickersInGroup(_) =>
-                            "SwitchTickersInGroup".to_string(),
+                        pane::Effect::SwitchTickersInGroup(_) => "SwitchTickersInGroup".to_string(),
                         _ => "Other".to_string(),
                     }
                 );
@@ -211,10 +194,7 @@ impl Dashboard {
                     ticker_info,
                 } = effect
                 {
-                    log::info!(
-                        "  Creating LoadChart event for pane {}",
-                        pane_id
-                    );
+                    log::info!("  Creating LoadChart event for pane {}", pane_id);
                     let event = self.load_chart(pane_id, config, ticker_info);
                     if let Event::LoadChart {
                         pane_id,
@@ -222,9 +202,7 @@ impl Dashboard {
                         ticker_info,
                     } = event
                     {
-                        log::info!(
-                            "  Pushing LoadChart message to task queue"
-                        );
+                        log::info!("  Pushing LoadChart message to task queue");
                         tasks.push(Message::LoadChart {
                             pane_id,
                             config,
@@ -257,9 +235,7 @@ impl Dashboard {
         }
 
         // Update pane state (separate borrow)
-        if let Some(pane_state) =
-            self.get_mut_pane_state_by_uuid(main_window, pane_id)
-        {
+        if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
             pane_state.set_chart_data(chart_data);
             log::info!("Chart data loaded for pane {}", pane_id);
         } else {

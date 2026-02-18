@@ -2,6 +2,7 @@ use iced::widget::container;
 use iced::{Element, Length, Padding};
 
 use crate::style;
+use crate::style::tokens;
 
 /// Visual style variant for a card.
 #[derive(Debug, Clone, Copy, Default)]
@@ -32,7 +33,7 @@ impl<'a, Message: 'a> CardBuilder<'a, Message> {
         Self {
             content: content.into(),
             kind: CardKind::Default,
-            padding: Padding::new(12.0),
+            padding: Padding::new(tokens::spacing::LG),
             max_width: None,
             width: None,
         }

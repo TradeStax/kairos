@@ -1,24 +1,18 @@
+mod chart_loading;
+mod feed_management;
 pub mod pane;
+mod pane_management;
 pub mod panel;
 pub mod sidebar;
 pub mod tickers_table;
-mod chart_loading;
-mod feed_management;
-mod pane_management;
 mod update;
 mod view;
 
 pub use sidebar::Sidebar;
 
 use super::DashboardError;
-use crate::{
-    widget::toast::Toast,
-    window,
-};
-use data::{
-    ChartConfig, ChartData, ChartState, LoadingStatus,
-    WindowSpec,
-};
+use crate::{component::display::toast::Toast, window};
+use data::{ChartConfig, ChartData, ChartState, LoadingStatus, WindowSpec};
 use exchange::FuturesTickerInfo;
 
 use iced::widget::pane_grid::{self, Configuration};

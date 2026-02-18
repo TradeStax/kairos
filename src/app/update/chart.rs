@@ -1,7 +1,7 @@
 use iced::Task;
 
+use crate::component::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use crate::widget::toast::{Notification, Toast};
 use data::LoadingStatus;
 
 use super::super::{ChartMessage, Flowsurface, Message};
@@ -127,8 +127,6 @@ impl Flowsurface {
             }
         }
     }
-
-
 
     pub(crate) fn handle_update_loading_status(&mut self) -> Task<Message> {
         let Some(service) = &self.market_data_service else {

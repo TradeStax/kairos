@@ -3,6 +3,8 @@
 use iced::widget::{text, toggler};
 use iced::{Element, Renderer, Theme};
 
+use crate::style::tokens;
+
 /// A labeled toggle switch.
 pub fn toggle_switch<'a, Message: 'a + Clone>(
     label: impl text::IntoFragment<'a>,
@@ -12,7 +14,7 @@ pub fn toggle_switch<'a, Message: 'a + Clone>(
     toggler(is_toggled)
         .label(label)
         .on_toggle(on_toggle)
-        .size(18)
-        .spacing(8)
+        .size(tokens::layout::TOGGLER_SIZE)
+        .spacing(tokens::spacing::MD)
         .into()
 }

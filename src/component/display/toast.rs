@@ -12,6 +12,7 @@ use iced::{
 use iced::{Border, mouse, padding, theme, window};
 
 use crate::style;
+use crate::style::tokens;
 
 pub const DEFAULT_TIMEOUT: u64 = 8;
 
@@ -109,7 +110,12 @@ where
                                 .style(move |theme, status| {
                                     style::button::transparent(theme, status, true)
                                 })
-                                .padding(padding::right(6).left(6).top(2).bottom(2))
+                                .padding(
+                                    padding::right(tokens::spacing::SM)
+                                        .left(tokens::spacing::SM)
+                                        .top(tokens::spacing::XXS)
+                                        .bottom(tokens::spacing::XXS),
+                                )
                         ]
                         .align_y(Center)
                     )
@@ -121,12 +127,14 @@ where
                         Status::Warning => warning,
                     })
                     .width(Fill)
-                    .padding(4),
-                    container(text(toast.body.as_str())).width(Fill).padding(4)
+                    .padding(tokens::spacing::XS),
+                    container(text(toast.body.as_str()))
+                        .width(Fill)
+                        .padding(tokens::spacing::XS)
                 ])
                 .style(style::chart_modal)
-                .padding(4)
-                .max_width(200)
+                .padding(tokens::spacing::XS)
+                .max_width(tokens::layout::TOAST_MAX_WIDTH)
                 .into()
             })
             .collect();
@@ -341,7 +349,7 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
             Fill,
             Fill,
             32.into(),
-            10.0,
+            tokens::spacing::LG,
             self.alignment,
             self.toasts,
             self.state,
@@ -489,9 +497,9 @@ fn styled(pair: theme::palette::Pair) -> container::Style {
         background: Some(pair.color.into()),
         text_color: pair.text.into(),
         border: Border {
-            width: 1.0,
+            width: tokens::border::THIN,
             color: pair.color,
-            radius: 2.0.into(),
+            radius: tokens::radius::SM.into(),
         },
         ..Default::default()
     }

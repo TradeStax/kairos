@@ -70,7 +70,7 @@ where
 
         let mut s = slider(self.range, self.value, self.on_change)
             .width(Length::Fill)
-            .height(24);
+            .height(tokens::layout::SLIDER_HEIGHT);
 
         if let Some(step) = self.step {
             s = s.step(step);
@@ -144,7 +144,7 @@ where
 {
     let mut slider = iced::widget::slider(range, current, on_change)
         .width(Fill)
-        .height(24)
+        .height(tokens::layout::SLIDER_HEIGHT)
         .style(|theme: &Theme, status| {
             let palette = theme.extended_palette();
 
@@ -186,7 +186,7 @@ where
     iced::widget::stack![
         container(slider).style(style::modal_container),
         row![text(label), space::horizontal(), text(to_string(&current))]
-            .padding([0, 10])
+            .padding([0.0, tokens::spacing::LG])
             .height(Fill)
             .align_y(Center),
     ]

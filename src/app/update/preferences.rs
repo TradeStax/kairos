@@ -1,8 +1,8 @@
 use iced::Task;
 
+use crate::component::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 use crate::screen::dashboard::tickers_table;
-use crate::widget::toast::{Notification, Toast};
 
 use super::super::{DownloadMessage, Flowsurface, Message, services};
 
@@ -149,34 +149,36 @@ impl Flowsurface {
         }
 
         // Trigger initial estimation when opening DataFeeds menu
-        if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(
-            data::sidebar::Menu::DataFeeds,
-        )) = &message
-            && let Some(action) = self.data_management_panel.request_initial_estimation() {
-                match action {
-                    crate::modal::pane::download::data_management::Action::EstimateRequested {
-                        ticker,
-                        schema,
-                        date_range,
-                    } => {
-                        let (task, _) = self.sidebar.update(message);
+        if let dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::DataFeeds)) =
+            &message
+            && let Some(action) = self.data_management_panel.request_initial_estimation()
+        {
+            match action {
+                crate::modal::pane::download::data_management::Action::EstimateRequested {
+                    ticker,
+                    schema,
+                    date_range,
+                } => {
+                    let (task, _) = self.sidebar.update(message);
 
-                        return task
-                            .map(Message::Sidebar)
-                            .chain(Task::done(Message::Download(
-                                DownloadMessage::EstimateDataCost {
-                                    pane_id: uuid::Uuid::nil(),
-                                    ticker,
-                                    schema,
-                                    date_range,
-                                },
-                            )));
-                    }
-                    crate::modal::pane::download::data_management::Action::DownloadRequested { .. } => {
-                        // Shouldn't happen on initial open
-                    }
+                    return task
+                        .map(Message::Sidebar)
+                        .chain(Task::done(Message::Download(
+                            DownloadMessage::EstimateDataCost {
+                                pane_id: uuid::Uuid::nil(),
+                                ticker,
+                                schema,
+                                date_range,
+                            },
+                        )));
+                }
+                crate::modal::pane::download::data_management::Action::DownloadRequested {
+                    ..
+                } => {
+                    // Shouldn't happen on initial open
                 }
             }
+        }
 
         let (task, drawing_action) = self.sidebar.update(message);
 

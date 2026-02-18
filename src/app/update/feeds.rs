@@ -1,7 +1,7 @@
 use iced::Task;
 
+use crate::component::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use crate::widget::toast::{Notification, Toast};
 
 use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message, services};
 
@@ -38,9 +38,8 @@ impl Flowsurface {
                     return self.handle_feeds_updated(feed_manager);
                 }
                 crate::modal::pane::data_feeds::Action::OpenHistoricalDownload => {
-                    self.historical_download_modal = Some(
-                        crate::modal::pane::download::HistoricalDownloadModal::new(),
-                    );
+                    self.historical_download_modal =
+                        Some(crate::modal::pane::download::HistoricalDownloadModal::new());
                     return Task::none();
                 }
                 crate::modal::pane::data_feeds::Action::LoadPreview(feed_id, info) => {

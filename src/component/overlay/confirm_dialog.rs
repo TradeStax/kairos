@@ -78,7 +78,7 @@ impl<'a, Message: Clone + 'a> ConfirmDialogBuilder<'a, Message> {
         ModalShell::new(body, self.on_cancel)
             .kind(ModalKind::Confirm)
             .footer(footer)
-            .max_width(420.0)
+            .max_width(tokens::layout::CONFIRM_DIALOG_WIDTH)
             .view(base)
     }
 }

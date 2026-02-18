@@ -4,7 +4,7 @@ use iced::widget::{column, text, text_input};
 use iced::{Element, Length};
 
 use crate::style;
-use crate::style::tokens;
+use crate::style::{palette, tokens};
 
 pub struct TextFieldBuilder<'a, Message> {
     label: &'a str,
@@ -104,7 +104,7 @@ impl<'a, Message: 'a> TextFieldBuilder<'a, Message> {
                 col = col.push(
                     text(err)
                         .size(tokens::text::TINY)
-                        .color(iced::Color::from_rgb(0.9, 0.2, 0.2)),
+                        .color(palette::error_color()),
                 );
             }
 
