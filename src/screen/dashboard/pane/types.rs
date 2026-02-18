@@ -47,7 +47,7 @@ pub enum Event {
     PanelInteraction(panel::Message),
     ToggleIndicator(UiIndicator),
     DeleteNotification(usize),
-    ReorderIndicator(crate::widget::column_drag::DragEvent),
+    ReorderIndicator(crate::component::layout::reorderable_list::DragEvent),
     DataManagementInteraction(crate::modal::pane::download::DataManagementMessage),
     ClusterKindSelected(data::ClusterKind),
     ClusterScalingSelected(data::ClusterScaling),

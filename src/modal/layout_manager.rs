@@ -6,7 +6,7 @@ use crate::component::primitives::{Icon, icon_text};
 use crate::style::tokens;
 use crate::component::display::tooltip::tooltip;
 use crate::component::layout::dragger_row::dragger_row;
-use crate::widget::column_drag::{self, DragEvent};
+use crate::component::layout::reorderable_list::{self as column_drag, DragEvent};
 
 use iced::widget::{
     button, center, column, container, row, scrollable, space, text, text_input,

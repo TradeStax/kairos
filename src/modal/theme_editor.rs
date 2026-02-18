@@ -6,7 +6,7 @@ use iced::{
 use crate::{
     component::primitives::{Icon, icon_text},
     style::{self, tokens},
-    widget::color_picker::color_picker,
+    component::input::color_picker::color_picker,
 };
 use palette::Hsva;
 

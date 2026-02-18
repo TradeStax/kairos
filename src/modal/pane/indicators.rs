@@ -4,7 +4,7 @@ use crate::component::primitives::{Icon, icon_text};
 use crate::style;
 use crate::style::tokens;
 use crate::component::layout::dragger_row::dragger_row;
-use crate::widget::column_drag;
+use crate::component::layout::reorderable_list as column_drag;
 
 use data::chart::indicator::{Indicator, UiIndicator};
 use iced::{

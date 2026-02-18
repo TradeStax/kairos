@@ -1,6 +1,6 @@
 use crate::chart::{comparison::ComparisonChart, heatmap::HeatmapChart, candlestick::KlineChart};
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
-use crate::widget::column_drag;
+use crate::component::layout::reorderable_list as column_drag;
 
 use data::{
     ContentKind, DrawingTool, FootprintStudy, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
