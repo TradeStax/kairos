@@ -1,4 +1,4 @@
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
 use data::util::abbr_large_numbers;
 use data::{Candle, ChartBasis, ClusterKind, ClusterScaling};
 use exchange::util::{Price, PriceStep};
@@ -176,7 +176,7 @@ fn draw_cluster_text(
         color,
         align_x: align_x.into(),
         align_y: align_y.into(),
-        font: style::AZERET_MONO,
+        font: AZERET_MONO,
         ..canvas::Text::default()
     });
 }

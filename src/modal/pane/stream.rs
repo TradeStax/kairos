@@ -1,7 +1,7 @@
-use crate::{
-    style::{self, icon_text},
-    widget::numeric_input_box,
-};
+use crate::component::primitives::label::label_text;
+use crate::style::tokens;
+use crate::component::primitives::{Icon, icon_text};
+use crate::{style, widget::numeric_input_box};
 
 use data::ChartBasis;
 use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
@@ -247,7 +247,7 @@ impl Modifier {
         match self.view_mode {
             ViewMode::BasisSelection => {
                 let mut basis_selection_column =
-                    column![].padding(4).spacing(8).align_x(Horizontal::Center);
+                    column![].padding(tokens::spacing::XS).spacing(tokens::spacing::MD).align_x(Horizontal::Center);
 
                 let allows_tick_basis = match kind {
                     ModifierKind::Candlestick(_) | ModifierKind::Footprint(_) => true,
@@ -276,7 +276,7 @@ impl Modifier {
                                         row![
                                             content,
                                             iced::widget::space::horizontal(),
-                                            icon_text(style::Icon::Checkmark, 12)
+                                            icon_text(Icon::Checkmark, 12)
                                         ]
                                     } else {
                                         row![content]
@@ -332,13 +332,13 @@ impl Modifier {
                                     !is_timeframe_selected,
                                 ),
                             ]
-                            .spacing(4)
+                            .spacing(tokens::spacing::XS)
                         } else {
                             let text_content = match kind {
                                 ModifierKind::Comparison(_) => "Timeframe",
                                 _ => "Aggregation",
                             };
-                            row![text(text_content).size(13)]
+                            row![label_text(text_content)]
                         }
                     };
 
@@ -442,7 +442,7 @@ impl Modifier {
                     ),
                 ))
                 .max_width(240)
-                .padding(16)
+                .padding(tokens::spacing::XL)
                 .style(style::chart_modal)
                 .into()
             }
@@ -472,7 +472,7 @@ where
     T: Copy + PartialEq + ToString,
     FMsg: Fn(T) -> Message,
 {
-    let mut grid_column = column![].spacing(4);
+    let mut grid_column = column![].spacing(tokens::spacing::XS);
     let mut remaining_slice = items_source;
 
     while !remaining_slice.is_empty() {
@@ -490,7 +490,7 @@ where
         let (chunk, rest) = remaining_slice.split_at(take);
         remaining_slice = rest;
 
-        let mut button_row = row![].spacing(4);
+        let mut button_row = row![].spacing(tokens::spacing::XS);
 
         for &item_value in chunk {
             let is_selected = selected_value == Some(item_value);

@@ -5,6 +5,7 @@ use iced::{
     Element, padding,
     widget::{canvas, center, container, text},
 };
+use crate::style::tokens;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy)]
@@ -30,7 +31,7 @@ pub trait Panel: canvas::Program<Message> {
 
 pub fn view<T: Panel>(panel: &'_ T, _timezone: data::UserTimezone) -> Element<'_, Message> {
     if panel.is_empty() {
-        return center(text("Waiting for data...").size(16)).into();
+        return center(text("Waiting for data...").size(tokens::text::HEADING)).into();
     }
 
     container(
@@ -38,7 +39,7 @@ pub fn view<T: Panel>(panel: &'_ T, _timezone: data::UserTimezone) -> Element<'_
             .height(iced::Length::Fill)
             .width(iced::Length::Fill),
     )
-    .padding(padding::left(1).right(1).bottom(1))
+    .padding(padding::left(tokens::spacing::XXXS).right(tokens::spacing::XXXS).bottom(tokens::spacing::XXXS))
     .into()
 }
 

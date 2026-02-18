@@ -5,7 +5,7 @@
 
 use super::calendar::{CalendarMessage, DateRangeCalendar};
 use super::{FUTURES_PRODUCTS, SCHEMAS};
-use crate::style;
+use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};
 use exchange::FuturesVenue;
 use iced::{
@@ -294,11 +294,11 @@ impl HistoricalDownloadModal {
 
     pub fn view(&self) -> Element<'_, HistoricalDownloadMessage> {
         let title = row![
-            text("Download Historical Data").size(16),
+            text("Download Historical Data").size(tokens::text::HEADING),
             space::horizontal().width(Length::Fill),
             button(
                 text("\u{00D7}")
-                    .size(14)
+                    .size(tokens::text::TITLE)
                     .align_x(Alignment::Center),
             )
             .width(28)
@@ -308,7 +308,7 @@ impl HistoricalDownloadModal {
         .align_y(Alignment::Center);
 
         let source_label =
-            text("Source: Databento").size(12);
+            text("Source: Databento").size(tokens::text::BODY);
 
         // Ticker dropdown
         let ticker_section = {
@@ -320,7 +320,7 @@ impl HistoricalDownloadModal {
                 .collect();
 
             column![
-                text("Ticker").size(12),
+                text("Ticker").size(tokens::text::BODY),
                 pick_list(
                     ticker_options,
                     Some(format!("{} - {}", symbol, name)),
@@ -342,7 +342,7 @@ impl HistoricalDownloadModal {
                 )
                 .width(Length::Fill),
             ]
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
         };
 
         // Schema dropdown
@@ -357,7 +357,7 @@ impl HistoricalDownloadModal {
                 .collect();
 
             column![
-                text("Schema").size(12),
+                text("Schema").size(tokens::text::BODY),
                 pick_list(
                     schema_options,
                     Some(format!(
@@ -383,34 +383,34 @@ impl HistoricalDownloadModal {
                 )
                 .width(Length::Fill),
             ]
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
         };
 
         // Calendar
         let calendar_section = column![
             row![
-                text("From:").size(11),
+                text("From:").size(tokens::text::SMALL),
                 text(
                     self.calendar
                         .start_date
                         .format("%b %d, %Y")
                         .to_string()
                 )
-                .size(11),
+                .size(tokens::text::SMALL),
                 space::horizontal(),
-                text("To:").size(11),
+                text("To:").size(tokens::text::SMALL),
                 text(
                     self.calendar
                         .end_date
                         .format("%b %d, %Y")
                         .to_string()
                 )
-                .size(11),
+                .size(tokens::text::SMALL),
             ]
-            .spacing(4),
+            .spacing(tokens::spacing::XS),
             self.calendar.view(HistoricalDownloadMessage::Calendar),
         ]
-        .spacing(4);
+        .spacing(tokens::spacing::XS);
 
         // Cache status line
         let cache_line: Element<'_, HistoricalDownloadMessage> =
@@ -418,7 +418,7 @@ impl HistoricalDownloadModal {
                 self.download_progress,
                 DownloadProgress::CheckingCost
             ) {
-                text("Checking...").size(11).into()
+                text("Checking...").size(tokens::text::SMALL).into()
             } else if let Some(ref status) = self.cache_status {
                 let num_selected = (self.calendar.end_date
                     - self.calendar.start_date)
@@ -429,19 +429,19 @@ impl HistoricalDownloadModal {
                     "{} days selected ({} cached)",
                     num_selected, status.cached_days
                 ))
-                .size(11)
+                .size(tokens::text::SMALL)
                 .into()
             } else {
-                text("Select a date range").size(11).into()
+                text("Select a date range").size(tokens::text::SMALL).into()
             };
 
         // API key field
         let api_key_section: Element<'_, HistoricalDownloadMessage> =
             if self.api_key_stored {
                 row![
-                    text("API Key:").size(12),
+                    text("API Key:").size(tokens::text::BODY),
                     text("saved")
-                        .size(12)
+                        .size(tokens::text::BODY)
                         .style(|theme: &iced::Theme| {
                             iced::widget::text::Style {
                                 color: Some(
@@ -454,20 +454,20 @@ impl HistoricalDownloadModal {
                             }
                         }),
                 ]
-                .spacing(6)
+                .spacing(tokens::spacing::SM)
                 .into()
             } else {
                 column![
-                    text("API Key").size(12),
+                    text("API Key").size(tokens::text::BODY),
                     text_input(
                         "Enter Databento API key",
                         &self.api_key_input,
                     )
                     .on_input(HistoricalDownloadMessage::SetApiKey)
                     .secure(true)
-                    .size(13),
+                    .size(tokens::text::LABEL),
                 ]
-                .spacing(4)
+                .spacing(tokens::spacing::XS)
                 .into()
             };
 
@@ -488,7 +488,7 @@ impl HistoricalDownloadModal {
                 Some(
                     column![
                         row![
-                            text("Downloading...").size(12),
+                            text("Downloading...").size(tokens::text::BODY),
                             space::horizontal().width(Length::Fill),
                             text(format!(
                                 "{}/{} days ({}%)",
@@ -496,14 +496,14 @@ impl HistoricalDownloadModal {
                                 total_days,
                                 pct as u32
                             ))
-                            .size(11),
+                            .size(tokens::text::SMALL),
                         ]
                         .align_y(Alignment::Center),
                         progress_bar(0.0..=100.0, pct)
                             .girth(6.0)
                             .style(style::progress_bar),
                     ]
-                    .spacing(4)
+                    .spacing(tokens::spacing::XS)
                     .into(),
                 )
             }
@@ -512,7 +512,7 @@ impl HistoricalDownloadModal {
                     "Download complete - {} days",
                     days_downloaded
                 ))
-                .size(12)
+                .size(tokens::text::BODY)
                 .style(|theme: &iced::Theme| {
                     iced::widget::text::Style {
                         color: Some(
@@ -528,7 +528,7 @@ impl HistoricalDownloadModal {
             ),
             DownloadProgress::Error(err) => Some(
                 text(format!("Error: {}", err))
-                    .size(12)
+                    .size(tokens::text::BODY)
                     .style(|theme: &iced::Theme| {
                         iced::widget::text::Style {
                             color: Some(
@@ -562,19 +562,19 @@ impl HistoricalDownloadModal {
         let buttons = row![
             button(
                 text("Cancel")
-                    .size(13)
+                    .size(tokens::text::LABEL)
                     .align_x(Alignment::Center)
             )
             .width(Length::Fill)
             .on_press(HistoricalDownloadMessage::Close)
-            .padding([8, 16]),
+            .padding([tokens::spacing::MD, tokens::spacing::XL]),
             button(
                 text(if is_downloading {
                     "Downloading..."
                 } else {
                     "Download"
                 })
-                .size(13)
+                .size(tokens::text::LABEL)
                 .align_x(Alignment::Center)
             )
             .width(Length::Fill)
@@ -583,10 +583,10 @@ impl HistoricalDownloadModal {
             } else {
                 None
             })
-            .padding([8, 16])
+            .padding([tokens::spacing::MD, tokens::spacing::XL])
             .style(style::button::primary),
         ]
-        .spacing(8);
+        .spacing(tokens::spacing::MD);
 
         // Build content
         let mut content_items: Vec<
@@ -678,8 +678,8 @@ impl HistoricalDownloadModal {
             column![
                 text("Confirm Download").size(18),
                 space::vertical().height(Length::Fixed(12.0)),
-                text(format!("{} - {}", symbol, name)).size(14),
-                text(format!("Schema: {}", schema_name)).size(13),
+                text(format!("{} - {}", symbol, name)).size(tokens::text::TITLE),
+                text(format!("Schema: {}", schema_name)).size(tokens::text::LABEL),
                 text(format!(
                     "Date Range: {} to {}",
                     self.calendar
@@ -687,43 +687,43 @@ impl HistoricalDownloadModal {
                         .format("%b %d, %Y"),
                     self.calendar.end_date.format("%b %d, %Y")
                 ))
-                .size(13),
+                .size(tokens::text::LABEL),
                 space::vertical().height(Length::Fixed(8.0)),
                 text(format!(
                     "{} days total ({} cached, {} to download)",
                     total_days, cached_days, uncached_days
                 ))
-                .size(12),
+                .size(tokens::text::BODY),
                 space::vertical().height(Length::Fixed(12.0)),
                 cost_text,
                 space::vertical().height(Length::Fixed(16.0)),
                 row![
                     button(
                         text("Cancel")
-                            .size(13)
+                            .size(tokens::text::LABEL)
                             .align_x(Alignment::Center)
                     )
                     .on_press(
                         HistoricalDownloadMessage::CancelDownload
                     )
                     .width(Length::Fill)
-                    .padding([10, 16])
+                    .padding([10.0, tokens::spacing::XL])
                     .style(style::button::secondary),
                     button(
                         text("Confirm")
-                            .size(13)
+                            .size(tokens::text::LABEL)
                             .align_x(Alignment::Center)
                     )
                     .on_press(
                         HistoricalDownloadMessage::ConfirmDownload
                     )
                     .width(Length::Fill)
-                    .padding([10, 16])
+                    .padding([10.0, tokens::spacing::XL])
                     .style(style::button::primary),
                 ]
                 .spacing(10)
             ]
-            .spacing(6)
+            .spacing(tokens::spacing::SM)
             .padding(20)
             .align_x(Alignment::Center),
         )

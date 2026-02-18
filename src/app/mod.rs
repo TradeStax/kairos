@@ -12,6 +12,7 @@ use crate::widget::{
     toast::{self, Toast},
     tooltip,
 };
+use crate::style::tokens;
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
@@ -94,22 +95,7 @@ pub struct Flowsurface {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
-    Sidebar(dashboard::sidebar::Message),
-    TickersTable(tickers_table::Message),
-    Dashboard {
-        /// If `None`, the active layout is used for the event.
-        layout_id: Option<uuid::Uuid>,
-        event: dashboard::Message,
-    },
-    DataManagement(crate::modal::pane::data_management::DataManagementMessage),
-    ConnectionsMenu(crate::modal::pane::connections_menu::ConnectionsMenuMessage),
-    DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
-    DataFeedPreviewLoaded {
-        feed_id: data::FeedId,
-        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
-    },
-    // Async chart data loading
+pub enum ChartMessage {
     LoadChartData {
         layout_id: uuid::Uuid,
         pane_id: uuid::Uuid,
@@ -121,8 +107,17 @@ pub enum Message {
         pane_id: uuid::Uuid,
         result: Result<data::ChartData, String>,
     },
-    // Options data loading (planned feature)
-    #[allow(dead_code)]
+    ReplayEvent(data::services::ReplayEvent),
+    UpdateLoadingStatus,
+}
+
+#[derive(Debug, Clone)]
+pub enum OptionsMessage {
+    LoadOptionChain {
+        pane_id: uuid::Uuid,
+        underlying_ticker: String,
+        date: chrono::NaiveDate,
+    },
     OptionChainLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::OptionChain, String>,
@@ -132,8 +127,10 @@ pub enum Message {
         pane_id: uuid::Uuid,
         result: Result<data::domain::GexProfile, String>,
     },
-    UpdateLoadingStatus,
-    // Data management - cost estimation
+}
+
+#[derive(Debug, Clone)]
+pub enum DownloadMessage {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
@@ -145,7 +142,6 @@ pub enum Message {
         #[allow(clippy::type_complexity)]
         result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
     },
-    // Data management - download
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
@@ -163,6 +159,36 @@ pub enum Message {
         date_range: data::DateRange,
         result: Result<usize, String>,
     },
+    HistoricalDownload(crate::modal::pane::historical_download::HistoricalDownloadMessage),
+    HistoricalDownloadCostEstimated {
+        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+    },
+    HistoricalDownloadComplete {
+        ticker: data::FuturesTicker,
+        date_range: data::DateRange,
+        result: Result<usize, String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Sidebar(dashboard::sidebar::Message),
+    TickersTable(tickers_table::Message),
+    Dashboard {
+        /// If `None`, the active layout is used for the event.
+        layout_id: Option<uuid::Uuid>,
+        event: dashboard::Message,
+    },
+    DataManagement(crate::modal::pane::data_management::DataManagementMessage),
+    ConnectionsMenu(crate::modal::pane::connections_menu::ConnectionsMenuMessage),
+    DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
+    DataFeedPreviewLoaded {
+        feed_id: data::FeedId,
+        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
+    },
+    Chart(ChartMessage),
+    Options(OptionsMessage),
+    Download(DownloadMessage),
     Tick(std::time::Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
@@ -177,17 +203,6 @@ pub enum Message {
     Layouts(crate::modal::layout_manager::Message),
     AudioStream(crate::modal::audio::Message),
     ReinitializeService(data::ApiProvider),
-    // Historical download modal
-    HistoricalDownload(crate::modal::pane::historical_download::HistoricalDownloadMessage),
-    HistoricalDownloadCostEstimated {
-        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
-    },
-    HistoricalDownloadComplete {
-        ticker: data::FuturesTicker,
-        date_range: data::DateRange,
-        result: Result<usize, String>,
-    },
-    // Rithmic connection
     RithmicConnected {
         feed_id: FeedId,
         result: Result<(), String>,
@@ -252,19 +267,9 @@ impl Flowsurface {
         // Create tickers table at app level (shared by pane dropdowns)
         let (mut tickers_table, _initial_fetch) = TickersTable::new();
 
-        // Apply filter from downloaded tickers registry
-        let ticker_symbols: std::collections::HashSet<String> =
-            data::lock_or_recover(&downloaded_tickers)
-                .list_tickers()
-                .into_iter()
-                .collect();
-        if !ticker_symbols.is_empty() {
-            log::info!("Applying filter from registry: {} downloaded tickers", ticker_symbols.len());
-            tickers_table.set_cached_filter(ticker_symbols);
-        } else {
-            log::info!("No downloaded tickers in registry - ticker list will be empty");
-            tickers_table.set_cached_filter(std::collections::HashSet::new());
-        }
+        // Ticker list starts empty - tickers only appear after the user
+        // connects to a data feed via the connections menu.
+        log::info!("Ticker list empty until a data feed is connected");
 
         let sidebar = dashboard::Sidebar::new(&saved_state);
 
@@ -395,12 +400,12 @@ impl Flowsurface {
                                 weight: iced::font::Weight::Bold,
                                 ..Default::default()
                             })
-                            .size(16)
+                            .size(tokens::text::HEADING)
                             .style(style::title_text),
                     )
                     .height(20)
                     .align_y(Alignment::Center)
-                    .padding(padding::top(4))
+                    .padding(padding::top(tokens::spacing::XS))
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -414,8 +419,8 @@ impl Flowsurface {
                     sidebar::Position::Left => row![sidebar_view, dashboard_view,],
                     sidebar::Position::Right => row![dashboard_view, sidebar_view],
                 }
-                .spacing(4)
-                .padding(8),
+                .spacing(tokens::spacing::XS)
+                .padding(tokens::spacing::MD),
             ];
 
             if let Some(menu) = self.sidebar.active_menu() {
@@ -514,12 +519,12 @@ impl Flowsurface {
                         container(
                             row![
                                 decrease_btn,
-                                text(format!("{:.0}%", current_value * 100.0)).size(14),
+                                text(format!("{:.0}%", current_value * 100.0)).size(tokens::text::TITLE),
                                 increase_btn,
                             ]
                             .align_y(Alignment::Center)
-                            .spacing(8)
-                            .padding(4),
+                            .spacing(tokens::spacing::MD)
+                            .padding(tokens::spacing::XS),
                         )
                         .style(style::modal_container)
                     };
@@ -536,17 +541,17 @@ impl Flowsurface {
                     };
 
                     let column_content = split_column![
-                        column![open_data_folder,].spacing(8),
-                        column![text("Date range").size(14), date_range_picker,].spacing(12),
-                        column![text("Time zone").size(14), timezone_picklist,].spacing(12),
-                        column![text("Theme").size(14), theme_picklist,].spacing(12),
-                        column![text("Interface scale").size(14), scale_factor,].spacing(12),
+                        column![open_data_folder,].spacing(tokens::spacing::MD),
+                        column![text("Date range").size(tokens::text::TITLE), date_range_picker,].spacing(tokens::spacing::LG),
+                        column![text("Time zone").size(tokens::text::TITLE), timezone_picklist,].spacing(tokens::spacing::LG),
+                        column![text("Theme").size(tokens::text::TITLE), theme_picklist,].spacing(tokens::spacing::LG),
+                        column![text("Interface scale").size(tokens::text::TITLE), scale_factor,].spacing(tokens::spacing::LG),
                         column![
-                            text("Experimental").size(14),
+                            text("Experimental").size(tokens::text::TITLE),
                             toggle_theme_editor,
                         ]
-                        .spacing(12),
-                        ; spacing = 16, align_x = Alignment::Start
+                        .spacing(tokens::spacing::LG),
+                        ; spacing = tokens::spacing::XL, align_x = Alignment::Start
                     ];
 
                     let content = scrollable::Scrollable::with_direction(
@@ -559,7 +564,7 @@ impl Flowsurface {
                     container(content)
                         .align_x(Alignment::Start)
                         .max_width(240)
-                        .padding(24)
+                        .padding(tokens::spacing::XXL)
                         .style(style::dashboard_modal)
                 };
 
@@ -667,11 +672,11 @@ impl Flowsurface {
                                 TooltipPosition::Top,
                             ),
                         ]
-                        .spacing(8)
+                        .spacing(tokens::spacing::MD)
                     ]
-                    .spacing(8)
+                    .spacing(tokens::spacing::MD)
                 } else {
-                    column![text("No pane selected"),].spacing(8)
+                    column![text("No pane selected"),].spacing(tokens::spacing::MD)
                 };
 
                 let manage_layout_modal = {
@@ -683,7 +688,7 @@ impl Flowsurface {
 
                     container(col.align_x(Alignment::Center).spacing(20))
                         .width(260)
-                        .padding(24)
+                        .padding(tokens::spacing::XXL)
                         .style(style::dashboard_modal)
                 };
 
@@ -731,13 +736,15 @@ impl Flowsurface {
 
                 // Stack historical download modal on top if open
                 if let Some(dl_modal) = &self.historical_download_modal {
-                    let dl_content = dl_modal.view().map(Message::HistoricalDownload);
+                    let dl_content = dl_modal.view().map(|msg| {
+                        Message::Download(DownloadMessage::HistoricalDownload(msg))
+                    });
                     base_content = main_dialog_modal(
                         base_content,
                         dl_content,
-                        Message::HistoricalDownload(
+                        Message::Download(DownloadMessage::HistoricalDownload(
                             crate::modal::pane::historical_download::HistoricalDownloadMessage::Close,
-                        ),
+                        )),
                     );
                 }
 

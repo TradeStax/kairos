@@ -3,7 +3,9 @@
 //! Reusable date range calendar used by DataManagementPanel and
 //! HistoricalDownloadModal.
 
+use crate::component::primitives::label::{label_text, tiny};
 use crate::style;
+use crate::style::tokens;
 use chrono::{Datelike, NaiveDate, Weekday};
 use iced::{
     Alignment, Color, Element, Length,
@@ -139,8 +141,7 @@ impl DateRangeCalendar {
                 .on_press(map_msg(CalendarMessage::PrevMonth))
                 .style(|t, s| style::button::transparent(t, s, false))
                 .width(Length::Fixed(28.0)),
-            text(month.format("%B %Y").to_string())
-                .size(13)
+            label_text(month.format("%B %Y").to_string())
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
             button(text(">").size(14))
@@ -151,35 +152,33 @@ impl DateRangeCalendar {
         .align_y(Alignment::Center);
 
         let dow_headers = row![
-            text("Mon")
-                .size(10)
+            tiny("Mon")
                 .width(Length::FillPortion(1))
                 .align_x(Alignment::Center),
-            text("Tue")
-                .size(10)
+            tiny("Tue")
                 .width(Length::FillPortion(1))
                 .align_x(Alignment::Center),
-            text("Wed")
-                .size(10)
+            tiny("Wed")
                 .width(Length::FillPortion(1))
                 .align_x(Alignment::Center),
-            text("Thu")
-                .size(10)
+            tiny("Thu")
                 .width(Length::FillPortion(1))
                 .align_x(Alignment::Center),
-            text("Fri")
-                .size(10)
+            tiny("Fri")
                 .width(Length::FillPortion(1))
                 .align_x(Alignment::Center),
         ]
-        .spacing(2);
+        .spacing(tokens::spacing::XXS);
 
         let grid = self.build_grid(map_msg);
 
-        container(column![header, dow_headers, grid].spacing(4))
-            .padding(12)
-            .style(style::modal_container)
-            .into()
+        container(
+            column![header, dow_headers, grid]
+                .spacing(tokens::spacing::XS),
+        )
+        .padding(tokens::spacing::LG)
+        .style(style::modal_container)
+        .into()
     }
 
     fn build_grid<M: Clone + 'static>(
@@ -211,10 +210,10 @@ impl DateRangeCalendar {
         let end = self.end_date;
         let yesterday = today - chrono::Duration::days(1);
 
-        let mut grid = column![].spacing(4);
+        let mut grid = column![].spacing(tokens::spacing::XS);
 
         for week in 0..6 {
-            let mut week_row = row![].spacing(4);
+            let mut week_row = row![].spacing(tokens::spacing::XS);
 
             for day in 0..5 {
                 let date = calendar_start
@@ -245,8 +244,7 @@ impl DateRangeCalendar {
                     Color::from_rgba(1.0, 1.0, 1.0, 0.5)
                 };
 
-                let day_text = text(format!("{}", date.day()))
-                    .size(10)
+                let day_text = tiny(format!("{}", date.day()))
                     .align_x(Alignment::Center);
 
                 let day_button = button(day_text)
@@ -306,13 +304,13 @@ fn calendar_day_style(
             },
             border: if is_selected {
                 iced::Border {
-                    width: 1.5,
+                    width: tokens::border::MEDIUM,
                     color: palette.primary.strong.color,
                     radius: 3.0.into(),
                 }
             } else {
                 iced::Border {
-                    width: 0.0,
+                    width: tokens::border::NONE,
                     color: Color::TRANSPARENT,
                     radius: 3.0.into(),
                 }

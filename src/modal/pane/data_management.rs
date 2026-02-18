@@ -7,7 +7,7 @@
 //! - Clean layout with proper sections
 //! - NO emojis
 
-use crate::{style, widget::scrollable_content};
+use crate::{style, style::tokens, widget::scrollable_content};
 use data::{DateRange, FuturesTicker};
 use exchange::{DatabentoSchema, FuturesVenue};
 use iced::{
@@ -232,7 +232,7 @@ impl DataManagementPanel {
                 .collect();
 
             column![
-                text("Ticker").size(13),
+                text("Ticker").size(tokens::text::LABEL),
                 pick_list(
                     ticker_options,
                     Some(format!("{} - {}", symbol, name)),
@@ -246,7 +246,7 @@ impl DataManagementPanel {
                 )
                 .width(Length::Fill),
             ]
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
         };
 
         // Schema dropdown section
@@ -258,7 +258,7 @@ impl DataManagementPanel {
                 .collect();
 
             column![
-                text("Schema").size(13),
+                text("Schema").size(tokens::text::LABEL),
                 pick_list(
                     schema_options,
                     Some(format!("{} (Cost: {}/10)", name, cost_rating)),
@@ -272,31 +272,31 @@ impl DataManagementPanel {
                 )
                 .width(Length::Fill),
             ]
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
         };
 
         // Date range calendar section
         let calendar_section = column![
-            text("Date Range").size(13),
+            text("Date Range").size(tokens::text::LABEL),
             row![
                 text("From:"),
                 text(self.calendar.start_date.format("%b %d, %Y").to_string())
-                    .size(11),
+                    .size(tokens::text::SMALL),
                 space::horizontal(),
                 text("To:"),
                 text(self.calendar.end_date.format("%b %d, %Y").to_string())
-                    .size(11),
+                    .size(tokens::text::SMALL),
             ]
-            .spacing(4),
+            .spacing(tokens::spacing::XS),
             self.calendar.view(DataManagementMessage::Calendar),
         ]
-        .spacing(6);
+        .spacing(tokens::spacing::SM);
 
         // Cache status summary - CLEARLY shows what's already downloaded (NO COST)
         let cache_summary = if matches!(self.download_progress, DownloadProgress::CheckingCost) {
             // Show "Checking cost..." when estimating
             column![
-                text("Checking cost...").size(11)
+                text("Checking cost...").size(tokens::text::SMALL)
                     .style(|theme: &iced::Theme| iced::widget::text::Style {
                         color: Some(theme.extended_palette().primary.base.color),
                     }),
@@ -308,20 +308,20 @@ impl DataManagementPanel {
 
             let summary_text = if cached_days == total_days {
                 text(format!("✓ All {} days already downloaded", total_days))
-                    .size(12)
+                    .size(tokens::text::BODY)
                     .style(|theme: &iced::Theme| iced::widget::text::Style {
                         color: Some(theme.extended_palette().success.base.color),
                     })
             } else if cached_days > 0 {
                 text(format!("○ {}/{} days cached ({} to download)",
                     cached_days, total_days, uncached_days))
-                    .size(12)
+                    .size(tokens::text::BODY)
                     .style(|theme: &iced::Theme| iced::widget::text::Style {
                         color: Some(theme.extended_palette().primary.base.color),
                     })
             } else {
                 text(format!("⬇ Need to download all {} days", total_days))
-                    .size(12)
+                    .size(tokens::text::BODY)
                     .style(|theme: &iced::Theme| iced::widget::text::Style {
                         color: Some(theme.extended_palette().secondary.base.color),
                     })
@@ -331,10 +331,10 @@ impl DataManagementPanel {
             column![
                 summary_text,
             ]
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
         } else {
             column![
-                text("Select date range to see cache status").size(11),
+                text("Select date range to see cache status").size(tokens::text::SMALL),
             ]
         };
 
@@ -351,17 +351,17 @@ impl DataManagementPanel {
                     container(
                         column![
                             row![
-                                text("Downloading...").size(12),
+                                text("Downloading...").size(tokens::text::BODY),
                                 space::horizontal(),
-                                text(format!("{}/{} days ({}%)", current_day, total_days, progress_pct as u32)).size(11),
+                                text(format!("{}/{} days ({}%)", current_day, total_days, progress_pct as u32)).size(tokens::text::SMALL),
                             ].align_y(Alignment::Center),
                             progress_bar(0.0..=100.0, progress_pct)
                                 .girth(6.0)
                                 .style(style::progress_bar),
                         ]
-                        .spacing(6)
+                        .spacing(tokens::spacing::SM)
                     )
-                    .padding(12)
+                    .padding(tokens::spacing::LG)
                     .style(style::modal_container)
                     .into()
                 )
@@ -370,7 +370,7 @@ impl DataManagementPanel {
                 Some(
                     container(
                         text(format!("Download complete - {} days", days_downloaded))
-                            .size(12)
+                            .size(tokens::text::BODY)
                             .style(|theme: &iced::Theme| iced::widget::text::Style {
                                 color: Some(theme.extended_palette().success.base.color),
                             })
@@ -384,7 +384,7 @@ impl DataManagementPanel {
                 Some(
                     container(
                         text(format!("Error: {}", err))
-                            .size(12)
+                            .size(tokens::text::BODY)
                             .style(|theme: &iced::Theme| iced::widget::text::Style {
                                 color: Some(theme.extended_palette().danger.base.color),
                             })
@@ -411,7 +411,7 @@ impl DataManagementPanel {
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
         let action_buttons = button(
-            text(download_button_text).size(13).align_x(Alignment::Center)
+            text(download_button_text).size(tokens::text::LABEL).align_x(Alignment::Center)
         )
         .width(Length::Fill)
         .padding([10, 16])
@@ -485,26 +485,26 @@ impl DataManagementPanel {
             column![
                 text("Confirm Download").size(18),
                 space::vertical().height(Length::Fixed(12.0)),
-                text(format!("{} - {}", symbol, name)).size(14),
-                text(format!("Schema: {}", schema_name)).size(13),
+                text(format!("{} - {}", symbol, name)).size(tokens::text::TITLE),
+                text(format!("Schema: {}", schema_name)).size(tokens::text::LABEL),
                 text(format!("Date Range: {} to {}",
                     self.calendar.start_date.format("%b %d, %Y"),
                     self.calendar.end_date.format("%b %d, %Y")
-                )).size(13),
+                )).size(tokens::text::LABEL),
                 space::vertical().height(Length::Fixed(8.0)),
                 text(format!("{} days total ({} cached, {} to download)",
                     total_days, cached_days, uncached_days))
-                    .size(12),
+                    .size(tokens::text::BODY),
                 space::vertical().height(Length::Fixed(12.0)),
                 cost_text,
                 space::vertical().height(Length::Fixed(16.0)),
                 row![
-                    button(text("Cancel").size(13).align_x(Alignment::Center))
+                    button(text("Cancel").size(tokens::text::LABEL).align_x(Alignment::Center))
                         .on_press(DataManagementMessage::CancelDownload)
                         .width(Length::Fill)
                         .padding([10, 16])
                         .style(style::button::secondary),
-                    button(text("Confirm").size(13).align_x(Alignment::Center))
+                    button(text("Confirm").size(tokens::text::LABEL).align_x(Alignment::Center))
                         .on_press(DataManagementMessage::ConfirmDownload)
                         .width(Length::Fill)
                         .padding([10, 16])
@@ -512,7 +512,7 @@ impl DataManagementPanel {
                 ]
                 .spacing(10)
             ]
-            .spacing(6)
+            .spacing(tokens::spacing::SM)
             .padding(20)
             .align_x(Alignment::Center)
         )

@@ -29,7 +29,9 @@
 
 use crate::{
     modal::pane::mini_tickers_list::RowSelection,
-    style::{self, Icon, icon_text},
+    component::primitives::{Icon, icon_text},
+    style,
+    style::tokens,
 };
 use data::state::pane_config::ContentKind;
 use exchange::{
@@ -53,7 +55,7 @@ const INACTIVE_UPDATE_INTERVAL: u64 = 300;
 
 /// Number of extra cards to render for visibility during scrolling
 const OVERSCAN_BUFFER: isize = 3;
-const TICKER_CARD_HEIGHT: f32 = 64.0;
+const TICKER_CARD_HEIGHT: f32 = tokens::layout::TICKER_CARD_EXPANDED;
 
 const FAVORITES_SEPARATOR_HEIGHT: f32 = 12.0;
 const FAVORITES_EMPTY_HINT_HEIGHT: f32 = 32.0;
@@ -328,8 +330,8 @@ impl TickersTable {
         );
 
         let mut content = column![top_bar]
-            .spacing(8)
-            .padding(padding::right(8))
+            .spacing(tokens::spacing::MD)
+            .padding(padding::right(tokens::spacing::MD))
             .width(Length::Fill);
 
         if self.show_sort_options {
@@ -393,8 +395,8 @@ impl TickersTable {
         let list = self.compact_all_rows(&fav_rows, &rest_rows, on_select, selection_enabled);
 
         let mut content = column![top_bar]
-            .spacing(8)
-            .padding(padding::right(8))
+            .spacing(tokens::spacing::MD)
+            .padding(padding::right(tokens::spacing::MD))
             .width(Length::Fill);
         if let Some(sel) = selected_section {
             content = content
@@ -520,14 +522,14 @@ impl TickersTable {
 
     fn update_display_cache(&mut self) {
         self.display_cache.clear();
+        let Some(filter) = &self.cached_tickers_filter else {
+            return; // No cached data available, show nothing
+        };
         for row in &self.ticker_rows {
-            // Skip if not in cached filter
-            if let Some(filter) = &self.cached_tickers_filter
-                && !filter.contains(&row.ticker.to_string()) {
-                    log::debug!("TABLE: Skipping {} (not in cache filter)", row.ticker);
-                    continue; // Don't add to display cache
-                }
-
+            if !filter.contains(&row.ticker.to_string()) {
+                log::debug!("TABLE: Skipping {} (not in cache filter)", row.ticker);
+                continue;
+            }
             let display_data = compute_display_data(row, row.previous_stats);
             self.display_cache.insert(row.ticker, display_data);
         }
@@ -564,7 +566,7 @@ impl TickersTable {
                 .on_input(Message::UpdateSearchQuery)
                 .id("full_ticker_search_box")
                 .align_x(Horizontal::Left)
-                .padding(6),
+                .padding(tokens::spacing::SM),
             button(
                 icon_text(Icon::Sort, 14)
                     .align_x(Horizontal::Center)
@@ -591,7 +593,7 @@ impl TickersTable {
             })
         ]
         .align_y(Vertical::Center)
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .into()
     }
 
@@ -639,7 +641,7 @@ impl TickersTable {
                     .width(Length::FillPortion(2))
                     .height(Length::Shrink),
             ]
-            .spacing(4),
+            .spacing(tokens::spacing::XS),
             rule::horizontal(1.0).style(style::split_ruler),
             text(if total == 0 {
                 "No tickers match filters".to_string()
@@ -651,7 +653,7 @@ impl TickersTable {
             rule::horizontal(2.0).style(style::split_ruler),
         ]
         .align_x(Alignment::Center)
-        .spacing(8)
+        .spacing(tokens::spacing::MD)
         .into()
     }
 
@@ -668,23 +670,23 @@ impl TickersTable {
                 "Favorited tickers will appear here"
             };
             column![
-                text(hint).size(11),
+                text(hint).size(tokens::text::SMALL),
                 rule::horizontal(2.0).style(style::split_ruler),
             ]
-            .spacing(8)
+            .spacing(tokens::spacing::MD)
             .align_x(Horizontal::Center)
             .width(Length::Fill)
         } else {
             column![rule::horizontal(2.0).style(style::split_ruler),]
                 .align_x(Horizontal::Center)
-                .spacing(16)
+                .spacing(tokens::spacing::XL)
                 .width(Length::Fill)
         };
 
         container(col)
             .width(Length::Fill)
             .height(Length::Fixed(sep_block_height))
-            .padding(padding::top(if fav_n == 0 { 12 } else { 4 }))
+            .padding(padding::top(if fav_n == 0 { tokens::spacing::LG } else { tokens::spacing::XS }))
             .into()
     }
 
@@ -706,7 +708,7 @@ impl TickersTable {
             .width(Length::Shrink)
             .height(Length::Fixed(win.bottom_space));
 
-        let mut cards = column![top_space].spacing(4);
+        let mut cards = column![top_space].spacing(tokens::spacing::XS);
 
         for idx in win.first..win.last {
             match vcfg.virtual_to_item(idx) {
@@ -754,10 +756,10 @@ impl TickersTable {
                 .on_input(on_search)
                 .id(search_box_id.clone())
                 .align_x(Alignment::Start)
-                .padding(6),
+                .padding(tokens::spacing::SM),
         ]
         .align_y(Alignment::Center)
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .into()
     }
 
@@ -776,7 +778,7 @@ impl TickersTable {
             return None;
         }
 
-        let mut col = column![].spacing(2);
+        let mut col = column![].spacing(tokens::spacing::XXS);
 
         if let Some(bt) = base_ticker {
             let label = self.label_for(bt.ticker);
@@ -824,7 +826,7 @@ impl TickersTable {
         M: 'a + Clone,
         FSelect: 'static + Copy + Fn(RowSelection) -> M,
     {
-        let mut list = column![].spacing(2);
+        let mut list = column![].spacing(tokens::spacing::XXS);
         for row_ref in fav_rows.iter().chain(rest_rows.iter()) {
             let label = self.label_for(row_ref.ticker);
             let info_opt: Option<FuturesTickerInfo> =
@@ -884,13 +886,11 @@ impl TickersTable {
                         return false;
                     }
 
-                    // Filter 2: Must be in cached filter (if filter is set)
-                    if let Some(filter) = &self.cached_tickers_filter
-                        && !filter.contains(&row.ticker.to_string()) {
-                            return false;
-                        }
-
-                    true
+                    // Filter 2: Must be in cached filter (show nothing if no filter set)
+                    match &self.cached_tickers_filter {
+                        Some(filter) => filter.contains(&row.ticker.to_string()),
+                        None => false,
+                    }
                 })
                 .filter_map(|row| calc_search_rank(row, search_upper).map(|rank| (row, rank)))
                 .collect()
@@ -928,13 +928,11 @@ impl TickersTable {
                     return false;
                 }
 
-                // Filter 2: Must be in cached filter (if filter is set)
-                if let Some(filter) = &self.cached_tickers_filter
-                    && !filter.contains(&row.ticker.to_string()) {
-                        return false;
-                    }
-
-                true
+                // Filter 2: Must be in cached filter (show nothing if no filter set)
+                match &self.cached_tickers_filter {
+                    Some(filter) => filter.contains(&row.ticker.to_string()),
+                    None => false,
+                }
             })
             .filter_map(|row| calc_search_rank(row, search_upper).map(|rank| (row, rank)))
             .collect();
@@ -1155,24 +1153,24 @@ fn ticker_card<'a>(ticker: &FuturesTicker, display_data: &'a TickerDisplayData) 
                         Space::new().width(Length::Fill).height(Length::Shrink),
                         text(&display_data.daily_change_pct),
                     ]
-                    .spacing(4)
+                    .spacing(tokens::spacing::XS)
                     .align_y(alignment::Vertical::Center),
                     row![
                         price_display,
                         Space::new().width(Length::Fill).height(Length::Shrink),
                         text(&display_data.volume_display),
                     ]
-                    .spacing(4),
+                    .spacing(tokens::spacing::XS),
                 ]
-                .padding(padding::left(8).right(8).bottom(4).top(4))
-                .spacing(4),
+                .padding(padding::left(tokens::spacing::MD).right(tokens::spacing::MD).bottom(tokens::spacing::XS).top(tokens::spacing::XS))
+                .spacing(tokens::spacing::XS),
             ]
             .align_y(Alignment::Center),
         )
         .style(style::button::ticker_card)
         .on_press(Message::ExpandTickerCard(Some(*ticker))),
     )
-    .height(Length::Fixed(56.0))
+    .height(Length::Fixed(tokens::layout::TICKER_CARD_HEIGHT))
     .into()
 }
 
@@ -1194,38 +1192,38 @@ fn expanded_ticker_card<'a>(
             .on_press(Message::FavoriteTicker(*ticker))
             .style(move |theme, status| { style::button::transparent(theme, status, false) }),
         ]
-        .spacing(2),
+        .spacing(tokens::spacing::XXS),
         row![
-            text(&display_data.display_ticker).size(16),
+            text(&display_data.display_ticker).size(tokens::text::HEADING),
         ]
-        .spacing(2),
+        .spacing(tokens::spacing::XXS),
         row![
-            text(&display_data.product_name).size(13),
+            text(&display_data.product_name).size(tokens::text::LABEL),
         ]
-        .spacing(2),
+        .spacing(tokens::spacing::XXS),
         row![
-            text(&display_data.contract_type).size(11),
+            text(&display_data.contract_type).size(tokens::text::SMALL),
         ]
-        .spacing(2),
+        .spacing(tokens::spacing::XXS),
         container(
             column![
                 row![
-                    text("Last Price: ").size(11),
+                    text("Last Price: ").size(tokens::text::SMALL),
                     Space::new().width(Length::Fill).height(Length::Shrink),
                     text(&display_data.mark_price_display)
                 ],
                 row![
-                    text("Daily Change: ").size(11),
+                    text("Daily Change: ").size(tokens::text::SMALL),
                     Space::new().width(Length::Fill).height(Length::Shrink),
                     text(&display_data.daily_change_pct),
                 ],
                 row![
-                    text("Daily Volume: ").size(11),
+                    text("Daily Volume: ").size(tokens::text::SMALL),
                     Space::new().width(Length::Fill).height(Length::Shrink),
                     text(&display_data.volume_display),
                 ],
             ]
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
         )
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
@@ -1243,10 +1241,10 @@ fn expanded_ticker_card<'a>(
             init_content_button(ContentKind::Ladder, *ticker, 160.0),
         ]
         .width(Length::Fill)
-        .spacing(2)
+        .spacing(tokens::spacing::XXS)
     ]
-    .padding(padding::top(8).right(16).left(16).bottom(16))
-    .spacing(12)
+    .padding(padding::top(tokens::spacing::MD).right(tokens::spacing::XL).left(tokens::spacing::XL).bottom(tokens::spacing::XL))
+    .spacing(tokens::spacing::LG)
     .into()
 }
 
@@ -1263,7 +1261,7 @@ where
 {
     let left_btn_base = button(
         row![text(label)]
-            .spacing(6)
+            .spacing(tokens::spacing::SM)
             .align_y(alignment::Vertical::Center)
             .height(Length::Fill),
     )
@@ -1279,7 +1277,7 @@ where
 
     let right_el: Option<Element<'a, M>> = right_label_and_action.map(|(lbl, action)| {
         let btn_base = button(
-            row![text(lbl).size(11)]
+            row![text(lbl).size(tokens::text::SMALL)]
                 .align_y(alignment::Vertical::Center)
                 .height(Length::Fill),
         )
@@ -1296,8 +1294,8 @@ where
     });
 
     let chip_el: Option<Element<'a, M>> = chip_label.map(|lbl| {
-        container(text(lbl).size(11))
-            .padding([2, 6])
+        container(text(lbl).size(tokens::text::SMALL))
+            .padding([tokens::spacing::XXS as u16, tokens::spacing::SM as u16])
             .style(style::dragger_row_container)
             .into()
     });
@@ -1342,7 +1340,7 @@ fn sort_button(
                 14
             )
         ]
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .align_y(Vertical::Center),
     )
     .on_press(Message::ChangeSortOption(asc_variant))

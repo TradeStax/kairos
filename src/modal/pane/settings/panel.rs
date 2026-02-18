@@ -1,17 +1,22 @@
+use crate::component::primitives::label::{body, label_text, title};
 use crate::screen::dashboard::pane::Message;
 use crate::screen::dashboard::panel::timeandsales;
 use crate::split_column;
 use crate::style;
+use crate::style::tokens;
 use crate::widget::{classic_slider_row, labeled_slider, tooltip};
 
 use data::panel_config::ladder;
 use data::panel_config::timeandsales::{StackedBar, StackedBarRatio};
-use data::state::pane_config::{VisualConfig, TimeAndSalesConfig, LadderConfig};
+use data::state::pane_config::{LadderConfig, TimeAndSalesConfig, VisualConfig};
 use data::util::format_with_commas;
 
 use iced::{
     Alignment, Element, Length,
-    widget::{button, checkbox, column, container, pane_grid, pick_list, radio, row, slider, space, text, rule, tooltip::Position as TooltipPosition},
+    widget::{
+        button, checkbox, column, container, pane_grid, pick_list, radio, row, rule, slider, space,
+        text, tooltip::Position as TooltipPosition,
+    },
 };
 
 use super::common::{cfg_view_container, sync_all_button};
@@ -28,7 +33,8 @@ pub fn timesales_cfg_view<'a>(
             filter,
             move |value| {
                 let stacked_bar = cfg.stacked_bar.map(|sb| {
-                    let is_compact = matches!(sb, data::panel::timeandsales::StackedBar::Compact(_));
+                    let is_compact =
+                        matches!(sb, data::panel::timeandsales::StackedBar::Compact(_));
                     let ratio = sb.ratio();
                     (is_compact, ratio)
                 });
@@ -48,7 +54,7 @@ pub fn timesales_cfg_view<'a>(
             Some(500.0),
         );
 
-        column![text("Size filter").size(14), slider].spacing(8)
+        column![title("Size filter"), slider].spacing(tokens::spacing::MD)
     };
 
     let retention_minutes = (cfg.trade_retention.as_secs_f32() / 60.0).max(1.0);
@@ -76,24 +82,27 @@ pub fn timesales_cfg_view<'a>(
         classic_slider_row(
             text("Keep trades for"),
             slider_ui.into(),
-            Some(text(format!("≈ {} min", retention_minutes.round() as u64)).size(13)),
+            Some(label_text(format!(
+                "≈ {} min",
+                retention_minutes.round() as u64
+            ))),
         )
     };
 
     let history_column = column![
         row![
-            text("History").size(14),
+            title("History"),
             tooltip(
                 button("i").style(style::button::info),
                 Some("Affects the stacked bar, colors and how much you can scroll down"),
                 TooltipPosition::Top,
             )
         ]
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .align_y(Alignment::Center),
         retention_slider
     ]
-    .spacing(8);
+    .spacing(tokens::spacing::MD);
 
     let stacked_bar: Element<_> = {
         let is_shown = cfg.stacked_bar.is_some();
@@ -140,7 +149,7 @@ pub fn timesales_cfg_view<'a>(
                     )
                 }
             })
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
 
             let full = radio("Full", false, Some(is_compact), {
                 move |v| {
@@ -158,7 +167,7 @@ pub fn timesales_cfg_view<'a>(
                     )
                 }
             })
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
 
             let metric_picklist = pick_list(StackedBarRatio::ALL, Some(ratio), move |new_ratio| {
                 let stacked_bar = Some((is_compact, new_ratio));
@@ -177,19 +186,19 @@ pub fn timesales_cfg_view<'a>(
 
             column![
                 rule::horizontal(1),
-                text("Mode").size(12),
-                row![compact, full].spacing(12),
-                text("Metric").size(12),
+                body("Mode"),
+                row![compact, full].spacing(tokens::spacing::LG),
+                body("Metric"),
                 metric_picklist,
             ]
-            .spacing(8)
+            .spacing(tokens::spacing::MD)
             .into()
         });
 
         let mut inner = column![enable_checkbox]
             .width(Length::Fill)
-            .padding(4)
-            .spacing(8);
+            .padding(tokens::spacing::XS)
+            .spacing(tokens::spacing::MD);
 
         if let Some(ctrls) = controls {
             inner = inner.push(ctrls);
@@ -197,7 +206,7 @@ pub fn timesales_cfg_view<'a>(
 
         container(inner)
             .style(style::modal_container)
-            .padding(8)
+            .padding(tokens::spacing::MD)
             .into()
     };
 
@@ -215,7 +224,7 @@ pub fn timesales_cfg_view<'a>(
                 (is_compact, sb.ratio())
             }),
         }))],
-        ; spacing = 12, align_x = Alignment::Start
+        ; spacing = tokens::spacing::LG, align_x = Alignment::Start
     ];
 
     cfg_view_container(320, content)
@@ -254,7 +263,7 @@ pub fn ladder_cfg_view<'a>(cfg: ladder::Config, pane: pane_grid::Pane) -> Elemen
             });
 
         column![
-            text("Display Options").size(14),
+            title("Display Options"),
             column![
                 spread,
                 row![
@@ -266,11 +275,11 @@ pub fn ladder_cfg_view<'a>(cfg: ladder::Config, pane: pane_grid::Pane) -> Elemen
                     )
                 ]
                 .align_y(Alignment::Center)
-                .spacing(4)
+                .spacing(tokens::spacing::XS)
             ]
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
         ]
-        .spacing(8)
+        .spacing(tokens::spacing::MD)
     };
 
     let retention_slider = {
@@ -293,11 +302,15 @@ pub fn ladder_cfg_view<'a>(cfg: ladder::Config, pane: pane_grid::Pane) -> Elemen
         classic_slider_row(
             text("Keep trades for"),
             slider_ui.into(),
-            Some(text(format!("≈ {} min", retention_minutes.round() as u64)).size(13)),
+            Some(label_text(format!(
+                "≈ {} min",
+                retention_minutes.round() as u64
+            ))),
         )
     };
 
-    let history_column = column![text("History").size(14), retention_slider].spacing(8);
+    let history_column =
+        column![title("History"), retention_slider].spacing(tokens::spacing::MD);
 
     let content = split_column![
         display_options,
@@ -311,7 +324,7 @@ pub fn ladder_cfg_view<'a>(cfg: ladder::Config, pane: pane_grid::Pane) -> Elemen
                 trade_retention_secs: cfg.trade_retention.as_secs(),
             }))
         ],
-        ; spacing = 12, align_x = Alignment::Start
+        ; spacing = tokens::spacing::LG, align_x = Alignment::Start
     ];
 
     cfg_view_container(320, content)

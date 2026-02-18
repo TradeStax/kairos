@@ -3,7 +3,9 @@
 //! Provides drawing tool selection with category-based organization.
 //! Tools are grouped into categories, each showing the currently selected tool's icon.
 
-use crate::style::{self, Icon, icon_text};
+use crate::component::primitives::label::title;
+use crate::component::primitives::{Icon, icon_text};
+use crate::style::{self, tokens};
 use data::DrawingTool;
 use iced::widget::{button, column, container, row, text};
 use iced::{Alignment, Element, Length, padding};
@@ -213,7 +215,7 @@ impl DrawingToolsPanel {
         buttons.push(snap_btn);
 
         column(buttons)
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
             .align_x(Alignment::Center)
             .into()
     }
@@ -235,7 +237,7 @@ impl DrawingToolsPanel {
             })
             .collect();
 
-        let dropdown_content = column(tool_buttons).spacing(1).padding(4);
+        let dropdown_content = column(tool_buttons).spacing(tokens::spacing::XXXS).padding(tokens::spacing::XS);
 
         let dropdown = container(dropdown_content).style(style::dropdown_container);
 
@@ -279,7 +281,7 @@ impl DrawingToolsPanel {
         };
 
         button(content)
-            .padding(padding::all(4))
+            .padding(padding::all(tokens::spacing::XS))
             .on_press(msg)
             .style(move |theme, status| {
                 style::button::transparent(theme, status, is_active || is_open)
@@ -297,7 +299,7 @@ impl DrawingToolsPanel {
         let content = icon_text(icon, 12).width(24).align_x(Alignment::Center);
 
         button(content)
-            .padding(padding::all(4))
+            .padding(padding::all(tokens::spacing::XS))
             .on_press(Message::ToggleSnap)
             .style(move |theme, status| {
                 style::button::transparent(theme, status, self.snap_enabled)
@@ -305,6 +307,58 @@ impl DrawingToolsPanel {
             .into()
     }
 
+    /// Legacy view for full modal (keeping for backwards compatibility)
+    pub fn view(&self) -> Element<'_, Message> {
+        let tools = [
+            (DrawingTool::None, Icon::DrawCursor, "Select"),
+            (DrawingTool::Line, Icon::DrawLine, "Line"),
+            (DrawingTool::Ray, Icon::DrawRay, "Ray"),
+            (DrawingTool::HorizontalLine, Icon::DrawHLine, "H-Line"),
+            (DrawingTool::VerticalLine, Icon::DrawVLine, "V-Line"),
+            (DrawingTool::Rectangle, Icon::DrawRectangle, "Rectangle"),
+            (DrawingTool::TrendLine, Icon::DrawTrendLine, "Trend Line"),
+        ];
+
+        let tool_buttons: Vec<Element<'_, Message>> = tools
+            .iter()
+            .map(|(tool, icon, label)| {
+                let is_active = self.active_tool == *tool;
+                tool_button(*tool, *icon, label, is_active)
+            })
+            .collect();
+
+        let tools_column = column(tool_buttons).spacing(tokens::spacing::XXS);
+
+        let snap_button = {
+            let label = if self.snap_enabled {
+                "Snap: On"
+            } else {
+                "Snap: Off"
+            };
+            button(
+                text(label)
+                    .size(tokens::text::BODY)
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center),
+            )
+            .width(Length::Fill)
+            .on_press(Message::ToggleSnap)
+            .style(move |theme, status| {
+                style::button::transparent(theme, status, self.snap_enabled)
+            })
+        };
+
+        let content = column![
+            title("Drawing Tools"),
+            tools_column,
+            container(snap_button).padding(padding::top(tokens::spacing::MD)),
+        ]
+        .spacing(tokens::spacing::MD)
+        .padding(tokens::spacing::LG)
+        .width(Length::Fixed(140.0));
+
+        container(content).style(style::dashboard_modal).into()
+    }
 }
 
 /// Create a tool button for the dropdown
@@ -313,15 +367,34 @@ fn dropdown_tool_button(tool: DrawingTool, is_selected: bool) -> Element<'static
     let label = tool_label(tool);
 
     button(
-        row![icon_text(icon, 12).width(16), text(label).size(11),]
-            .spacing(6)
+        row![icon_text(icon, 12).width(16), text(label).size(tokens::text::SMALL),]
+            .spacing(tokens::spacing::SM)
             .align_y(Alignment::Center)
-            .padding(padding::left(2).right(4)),
+            .padding(padding::left(tokens::spacing::XXS).right(tokens::spacing::XS)),
     )
-    .padding(padding::all(4))
+    .padding(padding::all(tokens::spacing::XS))
     .width(Length::Fill)
     .on_press(Message::ToolSelected(tool))
     .style(move |theme, status| style::button::transparent(theme, status, is_selected))
+    .into()
+}
+
+/// Create a tool button (legacy, for full modal)
+fn tool_button<'a>(
+    tool: DrawingTool,
+    icon: Icon,
+    label: &'a str,
+    is_active: bool,
+) -> Element<'a, Message> {
+    button(
+        row![icon_text(icon, 14).width(20), text(label).size(tokens::text::BODY),]
+            .spacing(tokens::spacing::MD)
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+    )
+    .width(Length::Fill)
+    .on_press(Message::ToolSelected(tool))
+    .style(move |theme, status| style::button::transparent(theme, status, is_active))
     .into()
 }
 

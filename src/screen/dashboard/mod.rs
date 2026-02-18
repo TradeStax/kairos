@@ -13,7 +13,7 @@ use crate::{
         data_management::{CacheStatus, DownloadProgress},
     },
     screen::dashboard::tickers_table::TickersTable,
-    style,
+    style::{self, tokens},
     widget::toast::Toast,
     window::{self, Window},
 };
@@ -820,7 +820,7 @@ impl Dashboard {
         .on_click(pane::Message::PaneClicked)
         .on_drag(pane::Message::PaneDragged)
         .on_resize(8, pane::Message::PaneResized)
-        .spacing(6)
+        .spacing(tokens::spacing::SM)
         .style(style::pane_grid)
         .into();
 
@@ -853,7 +853,7 @@ impl Dashboard {
             )
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(8);
+            .padding(tokens::spacing::MD);
 
             Element::new(content).map(move |message| Message::Pane(window, message))
         } else {

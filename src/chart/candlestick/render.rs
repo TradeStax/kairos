@@ -2,7 +2,7 @@ use crate::chart::{Chart, Interaction, Message, TEXT_SIZE, ViewState};
 use crate::chart::drawing;
 use crate::chart::indicator::kline::OverlayLine;
 use crate::chart::indicator::plot::{AnySeries, Series};
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
 use data::util::count_decimals;
 use data::{Candle, ChartBasis, ClusterKind, FootprintStudy, KlineChartKind, Trade};
 use exchange::FuturesTickerInfo;
@@ -517,7 +517,7 @@ fn draw_crosshair_tooltip(
                 position: Point::new(x, position.y),
                 size: iced::Pixels(12.0),
                 color: seg_color,
-                font: style::AZERET_MONO,
+                font: AZERET_MONO,
                 ..canvas::Text::default()
             });
             x += text.len() as f32 * 8.0;

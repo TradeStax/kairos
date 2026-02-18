@@ -1,11 +1,13 @@
+use crate::component::primitives::label::{label_text, title};
 use crate::screen::dashboard::pane::{Event, Message};
 use crate::split_column;
 use crate::style;
+use crate::style::tokens;
 use crate::widget::{classic_slider_row, labeled_slider};
 
 use data::ChartBasis;
 use data::domain::chart_ui_types::heatmap::{CoalesceKind, HeatmapStudy};
-use data::state::pane_config::{VisualConfig, HeatmapConfig};
+use data::state::pane_config::{HeatmapConfig, VisualConfig};
 use data::util::format_with_commas;
 
 use iced::{
@@ -13,8 +15,8 @@ use iced::{
     widget::{checkbox, column, container, pane_grid, radio, row, slider, space, text},
 };
 
-use super::study::{self, StudyMessage};
 use super::common::{cfg_view_container, sync_all_button};
+use super::study::{self, StudyMessage};
 
 pub fn heatmap_cfg_view<'a>(
     cfg: HeatmapConfig,
@@ -107,7 +109,7 @@ pub fn heatmap_cfg_view<'a>(
             })
             .step(10u16)
             .into(),
-            Some(text(format!("{}%", radius_scale)).size(13)),
+            Some(label_text(format!("{}%", radius_scale))),
         )
     });
 
@@ -135,7 +137,7 @@ pub fn heatmap_cfg_view<'a>(
                     )
                 },
             )
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
 
             let first = radio(
                 "First",
@@ -157,7 +159,7 @@ pub fn heatmap_cfg_view<'a>(
                     )
                 },
             )
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
 
             let max = radio(
                 "Max",
@@ -179,13 +181,13 @@ pub fn heatmap_cfg_view<'a>(
                     )
                 },
             )
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
 
             row![
                 text("Merge method: "),
-                row![average, first, max].spacing(12)
+                row![average, first, max].spacing(tokens::spacing::LG)
             ]
-            .spacing(12)
+            .spacing(tokens::spacing::LG)
         };
 
         let threshold_slider = classic_slider_row(
@@ -207,24 +209,27 @@ pub fn heatmap_cfg_view<'a>(
             })
             .step(0.05)
             .into(),
-            Some(text(format!("{:.0}%", threshold_pct * 100.0)).size(13)),
+            Some(label_text(format!("{:.0}%", threshold_pct * 100.0))),
         );
 
         Some(
-            container(column![coalescer_kinds, threshold_slider].spacing(8))
-                .style(style::modal_container)
-                .padding(8)
-                .into(),
+            container(
+                column![coalescer_kinds, threshold_slider]
+                    .spacing(tokens::spacing::MD),
+            )
+            .style(style::modal_container)
+            .padding(tokens::spacing::MD)
+            .into(),
         )
     } else {
         None
     };
 
     let size_filters_column = column![
-        text("Size filters").size(14),
-        column![trade_size_slider, order_size_slider].spacing(8),
+        title("Size filters"),
+        column![trade_size_slider, order_size_slider].spacing(tokens::spacing::MD),
     ]
-    .spacing(8);
+    .spacing(tokens::spacing::MD);
 
     let noise_filters_column = {
         let merge_checkbox = checkbox(cfg.coalescing.is_some())
@@ -249,7 +254,8 @@ pub fn heatmap_cfg_view<'a>(
                 )
             });
 
-        let mut col = column![text("Noise filters").size(14), merge_checkbox].spacing(8);
+        let mut col =
+            column![title("Noise filters"), merge_checkbox].spacing(tokens::spacing::MD);
         if let Some(c) = coalescer_cfg {
             col = col.push(c);
         }
@@ -275,7 +281,8 @@ pub fn heatmap_cfg_view<'a>(
                 )
             });
 
-        let mut col = column![text("Trade visualization").size(14), dyn_checkbox].spacing(8);
+        let mut col = column![title("Trade visualization"), dyn_checkbox]
+            .spacing(tokens::spacing::MD);
         if let Some(slider) = circle_scaling_slider {
             col = col.push(slider);
         }
@@ -283,22 +290,19 @@ pub fn heatmap_cfg_view<'a>(
     };
 
     let study_cfg = study_config.view(studies, basis).map(move |msg| {
-        Message::PaneEvent(
-            pane,
-            Event::StudyConfigurator(StudyMessage::Heatmap(msg)),
-        )
+        Message::PaneEvent(pane, Event::StudyConfigurator(StudyMessage::Heatmap(msg)))
     });
 
     let content = split_column![
         size_filters_column,
         noise_filters_column,
         trade_viz_column,
-        column![text("Studies").size(14), study_cfg].spacing(8),
+        column![title("Studies"), study_cfg].spacing(tokens::spacing::MD),
         row![
             space::horizontal(),
             sync_all_button(pane, VisualConfig::Heatmap(cfg.clone()))
         ]
-        ; spacing = 12, align_x = Alignment::Start
+        ; spacing = tokens::spacing::LG, align_x = Alignment::Start
     ];
 
     cfg_view_container(360, content)

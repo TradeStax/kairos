@@ -1,7 +1,7 @@
 use iced::{keyboard, Subscription};
 use futures::stream::StreamExt;
 
-use super::Message;
+use super::{ChartMessage, DownloadMessage, Message};
 use crate::screen::dashboard::tickers_table::TickersTable;
 use crate::window;
 
@@ -46,11 +46,11 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
                 progress
                     .iter()
                     .map(|(&pane_id, &(current, total))| {
-                        Message::DataDownloadProgress {
+                        Message::Download(DownloadMessage::DataDownloadProgress {
                             pane_id,
                             current,
                             total,
-                        }
+                        })
                     })
                     .collect()
             } else {
@@ -73,7 +73,7 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
     // Poll for loading status updates every 500ms.
     // The handler in update.rs short-circuits when no service is available.
     let status_poll = iced::time::every(std::time::Duration::from_millis(500))
-        .map(|_| Message::UpdateLoadingStatus);
+        .map(|_| Message::Chart(ChartMessage::UpdateLoadingStatus));
 
     // Download progress monitoring subscription
     let download_poll = Subscription::run(download_progress_monitor);

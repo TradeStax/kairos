@@ -1,9 +1,11 @@
+use crate::component::primitives::label::body;
 use crate::layout::{Layout, LayoutId};
 use crate::screen::dashboard::Dashboard;
-use crate::style::{Icon, icon_text};
+use crate::style;
+use crate::component::primitives::{Icon, icon_text};
+use crate::style::tokens;
 use crate::widget::column_drag::{self, DragEvent};
 use crate::widget::dragger_row;
-use crate::style;
 use crate::widget::tooltip;
 
 use iced::widget::{
@@ -62,7 +64,11 @@ impl LayoutManager {
         Self {
             layouts: vec![Layout {
                 id: default_layout.clone(),
-                dashboard: Dashboard::new(market_data_service.clone(), downloaded_tickers.clone(), date_range_preset),
+                dashboard: Dashboard::new(
+                    market_data_service.clone(),
+                    downloaded_tickers.clone(),
+                    date_range_preset,
+                ),
             }],
             active_layout_id: Some(default_layout.unique),
             edit_mode: Editing::None,
@@ -188,7 +194,14 @@ impl LayoutManager {
                     name: self.generate_unique_layout_name(),
                 };
 
-                self.insert_layout(new_layout.clone(), Dashboard::new(self.market_data_service.clone(), self.downloaded_tickers.clone(), self.date_range_preset));
+                self.insert_layout(
+                    new_layout.clone(),
+                    Dashboard::new(
+                        self.market_data_service.clone(),
+                        self.downloaded_tickers.clone(),
+                        self.date_range_preset,
+                    ),
+                );
 
                 return Some(Action::Select(new_layout.unique));
             }
@@ -227,12 +240,12 @@ impl LayoutManager {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let mut content = column![].spacing(8);
+        let mut content = column![].spacing(tokens::spacing::MD);
 
         let is_edit_mode = self.edit_mode != Editing::None;
 
         let edit_btn = if is_edit_mode {
-            button(icon_text(style::Icon::Return, 12))
+            button(icon_text(Icon::Return, 12))
                 .on_press(Message::ToggleEditMode(Editing::Preview))
         } else {
             button(text("Edit")).on_press(Message::ToggleEditMode(Editing::Preview))
@@ -251,7 +264,7 @@ impl LayoutManager {
                     ),
                     edit_btn,
                 ]
-                .spacing(4)
+                .spacing(tokens::spacing::XS)
             }
         ]);
 
@@ -260,7 +273,9 @@ impl LayoutManager {
         for layout in &self.layouts {
             let layout_id = &layout.id;
 
-            let mut layout_row = row![].height(iced::Length::Fixed(32.0)).padding(4);
+            let mut layout_row = row![]
+                .height(iced::Length::Fixed(32.0))
+                .padding(tokens::spacing::XS);
 
             let is_active = self.active_layout_id == Some(layout_id.unique);
             match &self.edit_mode {
@@ -269,7 +284,7 @@ impl LayoutManager {
                         let (confirm_btn, cancel_btn) = create_confirm_delete_buttons(layout_id);
 
                         layout_row = layout_row
-                            .push(center(text(format!("Delete {}?", layout.id.name)).size(12)))
+                            .push(center(body(format!("Delete {}?", layout.id.name))))
                             .push(confirm_btn)
                             .push(cancel_btn);
                     } else {
@@ -285,7 +300,10 @@ impl LayoutManager {
                         let (_, cancel_btn) = create_confirm_delete_buttons(layout_id);
 
                         layout_row = layout_row
-                            .push(center(input_box).padding(padding::left(4)))
+                            .push(
+                                center(input_box)
+                                    .padding(padding::left(tokens::spacing::XS)),
+                            )
                             .push(cancel_btn);
                     } else {
                         layout_row = layout_row.push(create_layout_button(layout_id, None));
@@ -314,8 +332,10 @@ impl LayoutManager {
             }
 
             if is_active && !is_edit_mode {
-                layout_row = layout_row
-                    .push(container(icon_text(Icon::Checkmark, 12)).padding(padding::right(16)));
+                layout_row = layout_row.push(
+                    container(icon_text(Icon::Checkmark, 12))
+                        .padding(padding::right(tokens::spacing::XL)),
+                );
             }
 
             let styled_container = container(layout_row.align_y(iced::Alignment::Center))
@@ -340,11 +360,11 @@ impl LayoutManager {
         let layouts_list: Element<'_, Message> = if is_edit_mode {
             column_drag::Column::with_children(layout_widgets)
                 .on_drag(Message::Reorder)
-                .spacing(4)
+                .spacing(tokens::spacing::XS)
                 .into()
         } else {
             iced::widget::Column::with_children(layout_widgets)
-                .spacing(4)
+                .spacing(tokens::spacing::XS)
                 .into()
         };
 
@@ -371,7 +391,7 @@ impl LayoutManager {
 
 fn create_delete_button<'a>(layout: &LayoutId) -> Element<'a, Message> {
     create_icon_button(
-        style::Icon::TrashBin,
+        Icon::TrashBin,
         12,
         |theme, status| style::button::layout_name(theme, *status),
         Some(Message::ToggleEditMode(Editing::ConfirmingDelete(
@@ -383,7 +403,7 @@ fn create_delete_button<'a>(layout: &LayoutId) -> Element<'a, Message> {
 
 fn create_rename_button<'a>(layout: &LayoutId) -> button::Button<'a, Message> {
     create_icon_button(
-        style::Icon::Edit,
+        Icon::Edit,
         12,
         |theme, status| style::button::layout_name(theme, *status),
         Some(Message::ToggleEditMode(Editing::Renaming(
@@ -396,7 +416,7 @@ fn create_rename_button<'a>(layout: &LayoutId) -> button::Button<'a, Message> {
 fn create_clone_button<'a>(layout: &LayoutId) -> Element<'a, Message> {
     tooltip(
         create_icon_button(
-            style::Icon::Clone,
+            Icon::Clone,
             12,
             |theme, status| style::button::layout_name(theme, *status),
             Some(Message::CloneLayout(layout.unique)),
@@ -410,14 +430,14 @@ fn create_confirm_delete_buttons<'a>(
     layout: &LayoutId,
 ) -> (button::Button<'a, Message>, button::Button<'a, Message>) {
     let confirm = create_icon_button(
-        style::Icon::Checkmark,
+        Icon::Checkmark,
         12,
         |theme, status| style::button::confirm(theme, *status, true),
         Some(Message::RemoveLayout(layout.unique)),
     );
 
     let cancel = create_icon_button(
-        style::Icon::Close,
+        Icon::Close,
         12,
         |theme, status| style::button::cancel(theme, *status, true),
         Some(Message::ToggleEditMode(Editing::Preview)),
@@ -439,7 +459,7 @@ fn create_layout_button<'a>(layout: &LayoutId, on_press: Option<Message>) -> Ele
 }
 
 fn create_icon_button<'a>(
-    icon: style::Icon,
+    icon: Icon,
     size: u16,
     style_fn: impl Fn(&Theme, &button::Status) -> button::Style + 'static,
     on_press: Option<Message>,

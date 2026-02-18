@@ -1,8 +1,13 @@
+mod comparison;
+mod heatmap;
+mod kline;
+mod starter;
+
 use crate::{
-    chart,
+    component::primitives::{Icon, exchange_icon, icon_text, label::*},
     modal::{self, ModifierKind, pane::Modal},
     screen::dashboard::{panel, tickers_table::TickersTable},
-    style::{self, Icon, icon_text},
+    style::{self, palette, tokens},
     widget::{self, button_with_tooltip, link_group_button},
     window::{self, Window},
 };
@@ -12,11 +17,14 @@ use iced::{
     Alignment, Element, Length, Renderer, Theme,
     alignment::Vertical,
     padding,
-    widget::{button, center, column, container, pane_grid, pick_list, row, text, tooltip},
+    widget::{button, center, column, container, pane_grid, row, text, tooltip},
 };
 
-use super::{Content, Event, Message, State};
 use super::helpers::{basis_modifier, link_group_modal};
+use super::{Content, Event, Message, State};
+
+/// Alias for the optional compact-controls overlay element.
+pub(crate) type CompactControls<'a> = Option<Element<'a, Message>>;
 
 impl State {
     pub fn view<'a>(
@@ -40,17 +48,19 @@ impl State {
 
         // Show ticker info button if we have ticker info
         if let Some(ticker_info) = self.ticker_info {
-            let exchange_icon = icon_text(style::exchange_icon(ticker_info.ticker.venue), 14);
+            let exchange_icon = icon_text(exchange_icon(ticker_info.ticker.venue), 14);
             let symbol = ticker_info.ticker.as_str().to_string();
 
-            let content = row![exchange_icon, text(symbol).size(14)]
+            let content = row![exchange_icon, title(symbol)]
                 .align_y(Vertical::Center)
-                .spacing(4);
+                .spacing(tokens::spacing::XS);
 
             let tickers_list_btn = button(content)
                 .on_press(Message::PaneEvent(
                     id,
-                    Event::ShowModal(Modal::MiniTickersList(modal::pane::mini_tickers_list::MiniPanel::new())),
+                    Event::ShowModal(Modal::MiniTickersList(
+                        modal::pane::mini_tickers_list::MiniPanel::new(),
+                    )),
                 ))
                 .style(|theme, status| {
                     style::button::modifier(
@@ -64,14 +74,16 @@ impl State {
             stream_info_element = stream_info_element.push(tickers_list_btn);
         } else if !matches!(self.content, Content::Starter) {
             // No ticker selected - show prompt
-            let content = row![text("Choose a ticker").size(13)]
+            let content = row![label_text("Choose a ticker")]
                 .align_y(Alignment::Center)
-                .spacing(4);
+                .spacing(tokens::spacing::XS);
 
             let tickers_list_btn = button(content)
                 .on_press(Message::PaneEvent(
                     id,
-                    Event::ShowModal(Modal::MiniTickersList(modal::pane::mini_tickers_list::MiniPanel::new())),
+                    Event::ShowModal(Modal::MiniTickersList(
+                        modal::pane::mini_tickers_list::MiniPanel::new(),
+                    )),
                 ))
                 .style(|theme, status| {
                     style::button::modifier(
@@ -93,7 +105,7 @@ impl State {
             }
         });
 
-        let compact_controls = if self.modal == Some(Modal::Controls) {
+        let compact_controls: CompactControls<'a> = if self.modal == Some(Modal::Controls) {
             Some(
                 container(self.view_controls(id, panes, maximized, window != main_window.id))
                     .style(style::chart_modal)
@@ -123,27 +135,27 @@ impl State {
                     } => {
                         format!("Loading {} ({}/{})", schema, days_loaded, days_total)
                     }
-                    data::LoadingStatus::Building { operation, progress } => {
+                    data::LoadingStatus::Building {
+                        operation,
+                        progress,
+                    } => {
                         format!("{} ({:.0}%)", operation, progress * 100.0)
                     }
-                    _ => "Loading…".to_string(),
+                    _ => "Loading\u{2026}".to_string(),
                 };
-                center(text(status_text).size(16)).into()
+                center(heading(status_text)).into()
             } else if let data::LoadingStatus::Error { message } = &self.loading_status {
-                let content = column![
-                    text(kind.to_string()).size(16),
-                    text(message).size(14)
-                ]
-                .spacing(8)
-                .align_x(Alignment::Center);
+                let content = column![heading(kind.to_string()), title(message)]
+                    .spacing(tokens::spacing::MD)
+                    .align_x(Alignment::Center);
 
                 center(content).into()
             } else {
                 let content = column![
-                    text(kind.to_string()).size(16),
-                    text("No ticker selected").size(14)
+                    heading(kind.to_string()),
+                    title("No ticker selected")
                 ]
-                .spacing(8)
+                .spacing(tokens::spacing::MD)
                 .align_x(Alignment::Center);
 
                 center(content).into()
@@ -151,77 +163,21 @@ impl State {
         };
 
         let body = match &self.content {
-            Content::Starter => {
-                let content_picklist =
-                    pick_list(ContentKind::ALL, Some(ContentKind::Starter), move |kind| {
-                        Message::PaneEvent(id, Event::ContentSelected(kind))
-                    });
-
-                let base: Element<_> = widget::toast::Manager::new(
-                    center(
-                        column![
-                            text("Choose a view to get started").size(16),
-                            content_picklist
-                        ]
-                        .align_x(Alignment::Center)
-                        .spacing(12),
-                    ),
-                    &self.notifications,
-                    Alignment::End,
-                    move |msg| Message::PaneEvent(id, Event::DeleteNotification(msg)),
-                )
-                .into();
-
-                self.compose_stack_view(
-                    base,
-                    id,
-                    None,
-                    compact_controls,
-                    || column![].into(),
-                    None,
-                    tickers_table,
-                )
-            }
+            Content::Starter => self.view_starter_body(id, compact_controls, tickers_table),
             Content::Comparison(chart) => {
-                if let Some(c) = chart {
-                    let selected_basis = self
-                        .settings
-                        .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M15));
-                    let kind = ModifierKind::Comparison(selected_basis);
-
-                    let modifiers =
-                        row![basis_modifier(id, selected_basis, modifier, kind),].spacing(4);
-
-                    stream_info_element = stream_info_element.push(modifiers);
-
-                    let base = c.view(timezone).map(move |message| {
-                        Message::PaneEvent(id, Event::ComparisonChartInteraction(message))
-                    });
-
-                    let settings_modal = || modal::pane::settings::comparison_cfg_view(id, c);
-
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        None,
-                        compact_controls,
-                        settings_modal,
-                        Some(&self.cached_selected_tickers),
-                        tickers_table,
-                    )
-                } else {
-                    let base = uninitialized_base(ContentKind::ComparisonChart);
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        None,
-                        compact_controls,
-                        || column![].into(),
-                        None,
-                        tickers_table,
-                    )
+                let (body, extras) = self.view_comparison_body(
+                    id,
+                    chart,
+                    modifier,
+                    compact_controls,
+                    uninitialized_base,
+                    timezone,
+                    tickers_table,
+                );
+                for e in extras {
+                    stream_info_element = stream_info_element.push(e);
                 }
+                body
             }
             Content::TimeAndSales(panel) => {
                 if let Some(panel) = panel {
@@ -264,12 +220,7 @@ impl State {
                     let kind = ModifierKind::Orderbook(basis);
 
                     // Tick multiplier removed - only for crypto
-                    let modifiers = basis_modifier(
-                        id,
-                        basis,
-                        modifier,
-                        kind,
-                    );
+                    let modifiers = basis_modifier(id, basis, modifier, kind);
 
                     stream_info_element = stream_info_element.push(modifiers);
 
@@ -308,80 +259,20 @@ impl State {
                 studies,
                 ..
             } => {
-                if let Some(chart) = chart {
-                    let ticker_info = self.ticker_info;
-                    let _exchange = ticker_info.as_ref().map(|info| info.ticker.venue);
-
-                    let basis = self
-                        .settings
-                        .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M5));
-
-                    let kind = ModifierKind::Heatmap(basis);
-
-                    // Tick multiplier removed - only for crypto
-                    let modifiers = basis_modifier(id, basis, modifier, kind);
-
-                    stream_info_element = stream_info_element.push(modifiers);
-
-                    let base = chart::view(chart, indicators, timezone).map(move |message| {
-                        Message::PaneEvent(id, Event::ChartInteraction(message))
-                    });
-                    // Pre-compute settings data outside closure so it lives
-                    // long enough to be borrowed by the returned Element
-                    let visual = chart.visual_config();
-                    let heatmap_cfg = data::state::pane_config::HeatmapConfig {
-                        trade_size_filter: visual.trade_size_filter,
-                        order_size_filter: visual.order_size_filter,
-                        trade_size_scale: visual.trade_size_scale,
-                        coalescing: None,
-                        rendering_mode: data::state::pane_config::HeatmapRenderMode::Auto,
-                        max_trade_markers: visual.max_trade_markers,
-                        performance_preset: None,
-                    };
-                    // `studies` is borrowed from `self.content` with lifetime
-                    // 'a, so the closure can safely reference it.
-                    let settings_modal = || {
-                        modal::pane::settings::heatmap_cfg_view(
-                            heatmap_cfg,
-                            id,
-                            chart.study_configurator(),
-                            studies,
-                            basis,
-                        )
-                    };
-
-                    let indicator_modal = if self.modal == Some(Modal::Indicators) {
-                        Some(modal::pane::indicators::content_row_heatmap(
-                            id,
-                            indicators,
-                            false, // Heatmap doesn't allow dragging
-                        ))
-                    } else {
-                        None
-                    };
-
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        indicator_modal,
-                        compact_controls,
-                        settings_modal,
-                        None,
-                        tickers_table,
-                    )
-                } else {
-                    let base = uninitialized_base(ContentKind::HeatmapChart);
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        None,
-                        compact_controls,
-                        || column![].into(),
-                        None,
-                        tickers_table,
-                    )
+                let (body, extras) = self.view_heatmap_body(
+                    id,
+                    chart,
+                    indicators,
+                    modifier,
+                    compact_controls,
+                    uninitialized_base,
+                    timezone,
+                    tickers_table,
+                );
+                for e in extras {
+                    stream_info_element = stream_info_element.push(e);
                 }
+                body
             }
             Content::Kline {
                 chart,
@@ -389,79 +280,21 @@ impl State {
                 kind: chart_kind,
                 ..
             } => {
-                if let Some(chart) = chart {
-                    match chart_kind {
-                        data::KlineChartKind::Footprint { .. } => {
-                            let basis = self
-                                .settings
-                                .selected_basis
-                                .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                            let kind = ModifierKind::Footprint(basis);
-
-                            // Tick multiplier removed - only for crypto
-                            let modifiers = basis_modifier(id, basis, modifier, kind);
-
-                            stream_info_element = stream_info_element.push(modifiers);
-                        }
-                        data::KlineChartKind::Candles => {
-                            let selected_basis = self
-                                .settings
-                                .selected_basis
-                                .unwrap_or(ChartBasis::Time(Timeframe::M15));
-                            let kind = ModifierKind::Candlestick(selected_basis);
-
-                            let modifiers =
-                                row![basis_modifier(id, selected_basis, modifier, kind),]
-                                    .spacing(4);
-
-                            stream_info_element = stream_info_element.push(modifiers);
-                        }
-                    }
-
-                    let base = chart::view(chart, indicators, timezone).map(move |message| {
-                        Message::PaneEvent(id, Event::ChartInteraction(message))
-                    });
-                    let settings_modal = || {
-                        // KlineChart doesn't expose visual config - use default
-                        let cfg = data::state::pane_config::KlineConfig::default();
-                        modal::pane::settings::kline_cfg_view(cfg, chart.study_configurator(), chart_kind, id, chart.basis())
-                    };
-
-                    let indicator_modal = if self.modal == Some(Modal::Indicators) {
-                        Some(modal::pane::indicators::content_row_kline(
-                            id,
-                            indicators,
-                            true, // Kline allows dragging
-                        ))
-                    } else {
-                        None
-                    };
-
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        indicator_modal,
-                        compact_controls,
-                        settings_modal,
-                        None,
-                        tickers_table,
-                    )
-                } else {
-                    let content_kind = match chart_kind {
-                        data::KlineChartKind::Candles => ContentKind::CandlestickChart,
-                        data::KlineChartKind::Footprint { .. } => ContentKind::FootprintChart,
-                    };
-                    let base = uninitialized_base(content_kind);
-                    self.compose_stack_view(
-                        base,
-                        id,
-                        None,
-                        compact_controls,
-                        || column![].into(),
-                        None,
-                        tickers_table,
-                    )
+                let (body, extras) = self.view_kline_body(
+                    id,
+                    chart,
+                    indicators,
+                    chart_kind,
+                    modifier,
+                    compact_controls,
+                    uninitialized_base,
+                    timezone,
+                    tickers_table,
+                );
+                for e in extras {
+                    stream_info_element = stream_info_element.push(e);
                 }
+                body
             }
         };
 
@@ -479,12 +312,17 @@ impl State {
                 )));
             }
             data::LoadingStatus::LoadingFromCache {
-                schema, days_loaded, ..
+                schema,
+                days_loaded,
+                ..
             } => {
                 stream_info_element = stream_info_element
                     .push(text(format!("Loading {} ({} days)", schema, days_loaded)));
             }
-            data::LoadingStatus::Building { operation, progress } => {
+            data::LoadingStatus::Building {
+                operation,
+                progress,
+            } => {
                 stream_info_element = stream_info_element.push(text(format!(
                     "{} ({:.0}%)",
                     operation,
@@ -497,11 +335,8 @@ impl State {
                     && self.ticker_info.is_some()
                     && self.content.initialized()
                 {
-                    stream_info_element = stream_info_element.push(
-                        text("Disconnected")
-                            .size(12)
-                            .color(iced::Color::from_rgb(0.7, 0.5, 0.2)),
-                    );
+                    stream_info_element = stream_info_element
+                        .push(colored("Disconnected", palette::warning_color()));
                 }
             }
             data::LoadingStatus::Error { message } => {
@@ -514,7 +349,7 @@ impl State {
 
         let controls = {
             let compact_control = container(
-                button(text("...").size(13).align_y(Alignment::End))
+                button(label_text("...").align_y(Alignment::End))
                     .on_press(Message::PaneEvent(id, Event::ShowModal(Modal::Controls)))
                     .style(move |theme, status| {
                         style::button::transparent(
@@ -526,8 +361,8 @@ impl State {
                     }),
             )
             .align_y(Alignment::Center)
-            .height(Length::Fixed(32.0))
-            .padding(4);
+            .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT))
+            .padding(tokens::spacing::XS);
 
             if self.modal == Some(Modal::Controls) {
                 pane_grid::Controls::new(compact_control)
@@ -541,10 +376,10 @@ impl State {
 
         let title_bar = pane_grid::TitleBar::new(
             stream_info_element
-                .padding(padding::left(4).top(1))
+                .padding(padding::left(tokens::spacing::XS).top(tokens::spacing::XXXS))
                 .align_y(Vertical::Center)
-                .spacing(8)
-                .height(Length::Fixed(32.0)),
+                .spacing(tokens::spacing::MD)
+                .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT)),
         )
         .controls(controls)
         .style(style::pane_title_bar);
@@ -652,9 +487,9 @@ impl State {
         }
 
         buttons
-            .padding(padding::right(4).left(4))
+            .padding(padding::right(tokens::spacing::XS).left(tokens::spacing::XS))
             .align_y(Vertical::Center)
-            .height(Length::Fixed(32.0))
+            .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT))
             .into()
     }
 
@@ -689,7 +524,7 @@ impl State {
                     base,
                     content,
                     on_blur,
-                    padding::right(12).left(4),
+                    padding::right(tokens::spacing::LG).left(tokens::spacing::XS),
                     Alignment::Start,
                 )
             }
@@ -699,7 +534,7 @@ impl State {
                     Message::PaneEvent(pane, Event::StreamModifierChanged(message))
                 }),
                 Message::PaneEvent(pane, Event::HideModal),
-                padding::right(12).left(48),
+                padding::right(tokens::spacing::LG).left(48),
                 Alignment::Start,
             ),
             Some(Modal::MiniTickersList(panel)) => {
@@ -713,7 +548,7 @@ impl State {
                     .max_width(260)
                     .max_height(480)
                     .clip(true)
-                    .padding(16)
+                    .padding(tokens::spacing::XL)
                     .style(style::chart_modal)
                     .into();
 
@@ -721,7 +556,7 @@ impl State {
                     base,
                     content,
                     Message::PaneEvent(pane, Event::HideModal),
-                    padding::left(12),
+                    padding::left(tokens::spacing::LG),
                     Alignment::Start,
                 )
             }
@@ -729,14 +564,14 @@ impl State {
                 base,
                 settings_modal(),
                 on_blur,
-                padding::right(12).left(12),
+                padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
                 Alignment::End,
             ),
             Some(Modal::Indicators) => stack_modal(
                 base,
                 indicator_modal.unwrap_or_else(|| column![].into()),
                 on_blur,
-                padding::right(12).left(12),
+                padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
                 Alignment::End,
             ),
             Some(Modal::Controls) => stack_modal(
@@ -747,16 +582,18 @@ impl State {
                     column![].into()
                 },
                 on_blur,
-                padding::left(12),
+                padding::left(tokens::spacing::LG),
                 Alignment::End,
             ),
             Some(Modal::DataManagement(panel)) => {
                 let pane_id = pane;
                 stack_modal(
                     base,
-                    panel.view().map(move |msg| Message::PaneEvent(pane_id, Event::DataManagementInteraction(msg))),
+                    panel.view().map(move |msg| {
+                        Message::PaneEvent(pane_id, Event::DataManagementInteraction(msg))
+                    }),
                     on_blur,
-                    padding::all(12),
+                    padding::all(tokens::spacing::LG),
                     Alignment::Center,
                 )
             }

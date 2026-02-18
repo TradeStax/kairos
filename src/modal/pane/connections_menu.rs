@@ -4,7 +4,9 @@
 //! then recent historical). Each row shows status, name, provider, and
 //! a connect/disconnect button. "Manage Connections" opens the full dialog.
 
+use crate::component::primitives::label::{body, small, tiny, title};
 use crate::style;
+use crate::style::{palette, tokens};
 use data::feed::{DataFeed, DataFeedManager, FeedId, FeedStatus};
 use iced::{
     Alignment, Element, Length,
@@ -63,10 +65,9 @@ impl ConnectionsMenu {
         let feeds = &self.feeds_snapshot;
 
         let header = row![
-            text("Connections").size(14),
+            title("Connections"),
             space::horizontal().width(Length::Fill),
-            text(format!("{}/{}", feeds.active_count(), feeds.total_count()))
-                .size(11),
+            small(format!("{}/{}", feeds.active_count(), feeds.total_count())),
         ]
         .align_y(Alignment::Center);
 
@@ -81,11 +82,11 @@ impl ConnectionsMenu {
         });
         display_feeds.truncate(MAX_VISIBLE_FEEDS);
 
-        let mut feed_list = column![].spacing(4);
+        let mut feed_list = column![].spacing(tokens::spacing::XS);
 
         if display_feeds.is_empty() {
             feed_list = feed_list.push(
-                text("No feeds configured").size(12),
+                body("No feeds configured"),
             );
         } else {
             for feed in &display_feeds {
@@ -95,12 +96,12 @@ impl ConnectionsMenu {
 
         let manage_button = button(
             text("Manage Connections")
-                .size(12)
+                .size(tokens::text::BODY)
                 .align_x(Alignment::Center),
         )
         .width(Length::Fill)
         .on_press(ConnectionsMenuMessage::OpenManageDialog)
-        .padding([4, 8]);
+        .padding([tokens::spacing::XS, tokens::spacing::MD]);
 
         let content = column![
             header,
@@ -109,11 +110,11 @@ impl ConnectionsMenu {
             rule::horizontal(1).style(style::split_ruler),
             manage_button,
         ]
-        .spacing(8);
+        .spacing(tokens::spacing::MD);
 
         container(content)
             .max_width(220)
-            .padding(16)
+            .padding(tokens::spacing::XL)
             .style(style::dashboard_modal)
             .into()
     }
@@ -122,17 +123,7 @@ impl ConnectionsMenu {
         &self,
         feed: &'a DataFeed,
     ) -> Element<'a, ConnectionsMenuMessage> {
-        let status_color = match &feed.status {
-            FeedStatus::Connected => iced::Color::from_rgb(0.2, 0.8, 0.2),
-            FeedStatus::Connecting => iced::Color::from_rgb(0.9, 0.7, 0.1),
-            FeedStatus::Downloading { .. } => {
-                iced::Color::from_rgb(0.3, 0.6, 1.0)
-            }
-            FeedStatus::Error(_) => iced::Color::from_rgb(0.9, 0.2, 0.2),
-            FeedStatus::Disconnected => {
-                iced::Color::from_rgb(0.5, 0.5, 0.5)
-            }
-        };
+        let status_color = palette::status_color(&feed.status);
 
         let status_dot =
             container(space::horizontal().width(8).height(8)).style(
@@ -151,7 +142,7 @@ impl ConnectionsMenu {
         let is_connecting = matches!(feed.status, FeedStatus::Connecting);
 
         let provider_label = text(feed.provider.display_name())
-            .size(10)
+            .size(tokens::text::TINY)
             .style(|theme: &iced::Theme| iced::widget::text::Style {
                 color: Some(
                     theme.extended_palette().secondary.weak.color,
@@ -160,7 +151,7 @@ impl ConnectionsMenu {
 
         let name_label = container(
             text(&feed.name)
-                .size(12)
+                .size(tokens::text::BODY)
                 .wrapping(iced::widget::text::Wrapping::None),
         )
         .width(Length::Fill)
@@ -171,7 +162,7 @@ impl ConnectionsMenu {
             name_label,
             provider_label,
         ]
-        .spacing(8)
+        .spacing(tokens::spacing::MD)
         .align_y(Alignment::Center);
 
         let msg = if is_connected {

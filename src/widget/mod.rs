@@ -1,8 +1,9 @@
 use iced::Element;
 pub type TooltipPosition = iced::widget::tooltip::Position;
 use crate::{
+    component::primitives::{AZERET_MONO, Icon, icon_text, label::title},
     screen::ConfirmDialog,
-    style::{self, Icon, icon_text, modal_container},
+    style::{self, modal_container, tokens},
 };
 use iced::{
     Alignment::{self, Center},
@@ -36,7 +37,9 @@ pub fn tooltip_with_delay<'a, Message: 'a>(
     match tooltip {
         Some(tooltip) => iced::widget::tooltip(
             content,
-            container(text(tooltip)).style(style::tooltip).padding(8),
+            container(text(tooltip))
+                .style(style::tooltip)
+                .padding(tokens::spacing::MD),
             position,
         )
         .delay(delay)
@@ -65,19 +68,19 @@ pub fn confirm_dialog_container<'a, Message: 'a + Clone>(
 
     container(
         column![
-            text(dialog).size(14),
+            title(dialog),
             row![
                 button(text("Cancel"))
                     .style(|theme, status| style::button::transparent(theme, status, false))
                     .on_press(on_cancel),
                 button(text(on_confirm_msg.unwrap_or("Confirm".to_string()))).on_press(on_confirm),
             ]
-            .spacing(8),
+            .spacing(tokens::spacing::MD),
         ]
         .align_x(Alignment::Center)
-        .spacing(16),
+        .spacing(tokens::spacing::XL),
     )
-    .padding(24)
+    .padding(tokens::spacing::XXL)
     .style(style::dashboard_modal)
     .into()
 }
@@ -92,7 +95,7 @@ where
 {
     let slider = if let Some(placeholder) = placeholder {
         column![slider, placeholder]
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
             .align_x(Alignment::Center)
     } else {
         column![slider]
@@ -101,8 +104,8 @@ where
     container(
         row![label, slider]
             .align_y(Alignment::Center)
-            .spacing(8)
-            .padding(8),
+            .spacing(tokens::spacing::MD)
+            .padding(tokens::spacing::MD),
     )
     .style(style::modal_container)
     .into()
@@ -135,14 +138,14 @@ where
         let icon = icon_text(Icon::DragHandle, 11);
         row![icon, content,]
             .align_y(Alignment::Center)
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
             .into()
     } else {
         content
     };
 
     container(content)
-        .padding(2)
+        .padding(tokens::spacing::XXS)
         .style(style::dragger_row_container)
         .into()
 }
@@ -224,7 +227,7 @@ where
 
     row![text(label), text_input_widget]
         .padding(padding::right(20).left(20))
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .align_y(iced::Alignment::Center)
         .into()
 }
@@ -242,12 +245,12 @@ where
 
     let icon = if let Some(group) = link_group {
         text(group.to_string())
-            .font(style::AZERET_MONO)
+            .font(AZERET_MONO)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
     } else {
         text("-")
-            .font(style::AZERET_MONO)
+            .font(AZERET_MONO)
             .align_x(Alignment::Start)
             .align_y(Alignment::Center)
     };

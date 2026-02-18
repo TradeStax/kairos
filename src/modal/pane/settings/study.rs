@@ -1,6 +1,8 @@
 use crate::{
     split_column,
-    style::{self, Icon, icon_text},
+    component::primitives::{Icon, icon_text},
+    style,
+    style::tokens,
 };
 use data::ChartBasis;
 use data::domain::chart_ui_types::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
@@ -59,7 +61,7 @@ impl Study for FootprintStudy {
                         })
                         .step(25.0);
 
-                    column![info_text, threshold_slider,].padding(8).spacing(4)
+                    column![info_text, threshold_slider,].padding(tokens::spacing::MD).spacing(tokens::spacing::XS)
                 };
 
                 let color_scaling = {
@@ -93,13 +95,13 @@ impl Study for FootprintStudy {
                             })
                             .step(50.0)
                         ]
-                        .spacing(2);
+                        .spacing(tokens::spacing::XXS);
 
                         column![color_scale_checkbox, scaling_slider]
-                            .padding(8)
-                            .spacing(8)
+                            .padding(tokens::spacing::MD)
+                            .spacing(tokens::spacing::MD)
                     } else {
-                        column![color_scale_checkbox].padding(8)
+                        column![color_scale_checkbox].padding(tokens::spacing::MD)
                     }
                 };
 
@@ -114,11 +116,11 @@ impl Study for FootprintStudy {
                         },
                     );
 
-                    column![cbox].padding(8).spacing(4)
+                    column![cbox].padding(tokens::spacing::MD).spacing(tokens::spacing::XS)
                 };
 
                 split_column![qty_threshold, color_scaling, ignore_zeros_checkbox]
-                    .padding(4)
+                    .padding(tokens::spacing::XS)
                     .into()
             }
             FootprintStudy::NPoC { lookback } => {
@@ -130,15 +132,15 @@ impl Study for FootprintStudy {
                 .step(10.0);
 
                 column![text(format!("Lookback: {lookback} datapoints")), slider_ui]
-                    .padding(8)
-                    .spacing(4)
+                    .padding(tokens::spacing::MD)
+                    .spacing(tokens::spacing::XS)
                     .into()
             }
             FootprintStudy::PointOfControl => {
-                column![text("Point of Control - no configuration")].padding(8).into()
+                column![text("Point of Control - no configuration")].padding(tokens::spacing::MD).into()
             }
             FootprintStudy::ValueArea => {
-                column![text("Value Area - no configuration")].padding(8).into()
+                column![text("Value Area - no configuration")].padding(tokens::spacing::MD).into()
             }
         }
     }
@@ -209,8 +211,8 @@ impl Study for HeatmapStudy {
                         )),
                         slider,
                     ]
-                    .padding(8)
-                    .spacing(4)
+                    .padding(tokens::spacing::MD)
+                    .spacing(tokens::spacing::XS)
                     .into()
                 }
                 ProfileKind::VisibleRange => {
@@ -221,8 +223,8 @@ impl Study for HeatmapStudy {
                     );
 
                     column![row![space::horizontal(), switch_kind,],]
-                        .padding(8)
-                        .spacing(4)
+                        .padding(tokens::spacing::MD)
+                        .spacing(tokens::spacing::XS)
                         .into()
                 }
                 ProfileKind::Fixed(_n) => {
@@ -231,8 +233,8 @@ impl Study for HeatmapStudy {
                     );
 
                     column![row![space::horizontal(), switch_kind,],]
-                        .padding(8)
-                        .spacing(4)
+                        .padding(tokens::spacing::MD)
+                        .spacing(tokens::spacing::XS)
                         .into()
                 }
             },
@@ -299,7 +301,7 @@ impl<S: Study> Configurator<S> {
         active_studies: &'a [S],
         basis: data::ChartBasis,
     ) -> Element<'a, Message<S>> {
-        let mut content = column![].spacing(4);
+        let mut content = column![].spacing(tokens::spacing::XS);
 
         for available_study in S::all() {
             content =
@@ -336,8 +338,8 @@ impl<S: Study> Configurator<S> {
         let mut checkbox_row = row![checkbox, space::horizontal()]
             .height(36)
             .align_y(iced::Alignment::Center)
-            .padding(padding::left(8).right(4))
-            .spacing(4);
+            .padding(padding::left(tokens::spacing::MD).right(tokens::spacing::XS))
+            .spacing(tokens::spacing::XS);
 
         let is_expanded = self
             .expanded_card

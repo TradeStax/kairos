@@ -6,7 +6,9 @@
 use crate::{
     layout::SavedState,
     modal::drawing_tools::{self, DrawingToolsPanel, ToolCategory},
-    style::{self, Icon, icon_text},
+    component::primitives::{Icon, icon_text},
+    style,
+    style::tokens,
     widget::button_with_tooltip,
 };
 use iced::widget::tooltip::Position as TooltipPosition;
@@ -106,7 +108,7 @@ impl Sidebar {
                 .map(Message::DrawingTools);
 
             container(tools_buttons)
-                .padding(padding::all(4))
+                .padding(padding::all(tokens::spacing::XS))
                 .style(style::drawing_tools_container)
         };
 
@@ -173,8 +175,8 @@ impl Sidebar {
             connections_button,
             settings_modal_button,
         ]
-        .width(32)
-        .spacing(4)
+        .width(tokens::layout::SIDEBAR_WIDTH)
+        .spacing(tokens::spacing::XS)
         .align_x(Alignment::Center)
         .into()
     }
@@ -218,7 +220,8 @@ impl Sidebar {
                 .position(|c| *c == category)
                 .unwrap_or(0);
 
-            DRAWING_TOOLS_BASE_OFFSET + (category_index as f32 * TOOL_BUTTON_HEIGHT)
+            // Each button is approximately 32px tall with 2px spacing
+            base_offset + (category_index as f32 * tokens::layout::SIDEBAR_BUTTON_HEIGHT)
         } else {
             DRAWING_TOOLS_BASE_OFFSET
         }

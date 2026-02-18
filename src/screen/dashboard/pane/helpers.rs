@@ -1,6 +1,7 @@
 use crate::{
+    component::primitives::AZERET_MONO,
     modal::{self, ModifierKind},
-    style,
+    style::{self, tokens},
     widget::button_with_tooltip,
 };
 use data::{ChartBasis, LinkGroup};
@@ -15,15 +16,15 @@ pub fn link_group_modal<'a>(
     pane: pane_grid::Pane,
     selected_group: Option<LinkGroup>,
 ) -> Element<'a, Message> {
-    let mut grid = column![].spacing(4);
+    let mut grid = column![].spacing(tokens::spacing::XS);
     let rows = LinkGroup::ALL.chunks(3);
 
     for row_groups in rows {
-        let mut button_row = row![].spacing(4);
+        let mut button_row = row![].spacing(tokens::spacing::XS);
 
         for &group in row_groups {
             let is_selected = selected_group == Some(group);
-            let btn_content = text(group.to_string()).font(style::AZERET_MONO);
+            let btn_content = text(group.to_string()).font(AZERET_MONO);
 
             let btn = if is_selected {
                 button_with_tooltip(
@@ -48,7 +49,7 @@ pub fn link_group_modal<'a>(
 
     container(grid)
         .max_width(240)
-        .padding(16)
+        .padding(tokens::spacing::XL)
         .style(style::chart_modal)
         .into()
 }

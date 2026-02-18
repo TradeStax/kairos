@@ -4,7 +4,8 @@ use iced::{
 };
 
 use crate::{
-    style::{self, Icon, icon_text},
+    component::primitives::{Icon, icon_text},
+    style::{self, tokens},
     widget::color_picker::color_picker,
 };
 use palette::Hsva;
@@ -171,8 +172,8 @@ impl ThemeEditor {
                     } else {
                         palette.danger.base.color
                     },
-                    width: 1.0,
-                    radius: 2.0.into(),
+                    width: tokens::border::THIN,
+                    radius: tokens::radius::SM.into(),
                 },
                 ..default(theme, status)
             }
@@ -188,9 +189,9 @@ impl ThemeEditor {
             row![
                 close_editor,
                 space::horizontal(),
-                row![hex_input, focused_field,].spacing(4),
+                row![hex_input, focused_field,].spacing(tokens::spacing::XS),
             ]
-            .spacing(8)
+            .spacing(tokens::spacing::MD)
             .align_y(Alignment::Center),
             color_picker(hsva_in, Message::Color),
         ]
@@ -198,7 +199,7 @@ impl ThemeEditor {
 
         container(content)
             .max_width(380)
-            .padding(24)
+            .padding(tokens::spacing::XXL)
             .style(style::dashboard_modal)
             .into()
     }

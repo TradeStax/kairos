@@ -1,17 +1,19 @@
+use crate::component::primitives::label::title;
 use crate::screen::dashboard::pane::{Event, Message};
 use crate::split_column;
+use crate::style::tokens;
 
+use data::state::pane_config::{KlineConfig, VisualConfig};
 use data::{ChartBasis, ClusterKind, FootprintStudy, KlineChartKind};
-use data::state::pane_config::{VisualConfig, KlineConfig};
 
+use iced::widget::pane_grid;
 use iced::{
     Alignment, Element,
     widget::{column, pick_list, row, slider, space, text},
 };
-use iced::widget::pane_grid;
 
-use super::study::{self, StudyMessage};
 use super::common::{cfg_view_container, sync_all_button};
+use super::study::{self, StudyMessage};
 
 pub fn kline_cfg_view<'a>(
     cfg: KlineConfig,
@@ -48,7 +50,9 @@ pub fn kline_cfg_view<'a>(
                         Message::PaneEvent(
                             pane,
                             Event::ClusterScalingSelected(
-                                data::domain::chart_ui_types::ClusterScaling::Hybrid { weight: new_weight },
+                                data::domain::chart_ui_types::ClusterScaling::Hybrid {
+                                    weight: new_weight,
+                                },
                             ),
                         )
                     })
@@ -59,28 +63,28 @@ pub fn kline_cfg_view<'a>(
                         hybrid_slider,
                         text("Blend visible-range and per-candle scaling"),
                     ]
-                    .spacing(8)
+                    .spacing(tokens::spacing::MD)
                 } else {
-                    column![picklist].spacing(8)
+                    column![picklist].spacing(tokens::spacing::MD)
                 }
             };
 
             let study_cfg = study_config.view(studies, basis).map(move |msg| {
-                Message::PaneEvent(
-                    pane,
-                    Event::StudyConfigurator(StudyMessage::Footprint(msg)),
-                )
+                Message::PaneEvent(pane, Event::StudyConfigurator(StudyMessage::Footprint(msg)))
             });
 
             split_column![
-                column![text("Cluster type").size(14), cluster_picklist].spacing(8),
-                column![text("Cluster scaling").size(14), scaling].spacing(8),
-                column![text("Studies").size(14), study_cfg].spacing(8),
+                column![title("Cluster type"), cluster_picklist]
+                    .spacing(tokens::spacing::MD),
+                column![title("Cluster scaling"), scaling]
+                    .spacing(tokens::spacing::MD),
+                column![title("Studies"), study_cfg]
+                    .spacing(tokens::spacing::MD),
                 row![
                     space::horizontal(),
                     sync_all_button(pane, VisualConfig::Kline(cfg))
                 ],
-                ; spacing = 12, align_x = Alignment::Start
+                ; spacing = tokens::spacing::LG, align_x = Alignment::Start
             ]
         }
     };
