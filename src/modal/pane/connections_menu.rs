@@ -158,10 +158,13 @@ impl ConnectionsMenu {
                 ),
             });
 
+        let name_label = container(text(&feed.name).size(12))
+            .width(Length::Fill)
+            .clip(true);
+
         let row_content = row![
             status_dot,
-            text(&feed.name).size(12),
-            space::horizontal().width(Length::Fill),
+            name_label,
             provider_label,
         ]
         .spacing(8)
