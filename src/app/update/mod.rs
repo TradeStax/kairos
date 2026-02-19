@@ -4,6 +4,7 @@ mod feeds;
 mod navigation;
 mod options;
 mod preferences;
+mod replay;
 
 use iced::Task;
 
@@ -110,6 +111,12 @@ impl Flowsurface {
             }
             Message::RithmicStreamEvent(event) => {
                 return self.handle_rithmic_stream_event(event);
+            }
+            Message::Replay(msg) => {
+                return self.handle_replay_message(msg);
+            }
+            Message::ReplayEvent(event) => {
+                return self.handle_replay_event(event);
             }
 
             // Window/navigation events

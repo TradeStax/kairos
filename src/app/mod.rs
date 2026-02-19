@@ -46,6 +46,16 @@ pub fn get_rithmic_events() -> &'static std::sync::Arc<std::sync::Mutex<Vec<exch
     RITHMIC_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
 }
 
+// Global staging for Replay engine events
+static REPLAY_EVENTS: OnceLock<
+    std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>>,
+> = OnceLock::new();
+
+pub fn get_replay_events()
+-> &'static std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>> {
+    REPLAY_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
+}
+
 // Staging slot for Rithmic service result (non-Clone, consumed once)
 static RITHMIC_SERVICE_RESULT: OnceLock<
     std::sync::Arc<std::sync::Mutex<Option<services::RithmicServiceResult>>>,
@@ -76,6 +86,7 @@ pub struct Flowsurface {
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
+    pub(crate) replay_manager: crate::modal::replay_manager::ReplayManager,
     // Rithmic connection state
     pub(crate) rithmic_client: Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
     pub(crate) rithmic_trade_repo: Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
@@ -196,6 +207,8 @@ pub enum Message {
         result: Result<(), String>,
     },
     RithmicStreamEvent(exchange::Event),
+    Replay(crate::modal::replay_manager::Message),
+    ReplayEvent(data::services::ReplayEvent),
 }
 
 impl Flowsurface {
@@ -281,6 +294,7 @@ impl Flowsurface {
             market_data_service,
             options_service,
             replay_engine,
+            replay_manager: crate::modal::replay_manager::ReplayManager::new(),
             timezone: saved_state.timezone,
             ui_scale_factor: saved_state.scale_factor,
             theme: saved_state.theme,
@@ -781,6 +795,25 @@ impl Flowsurface {
                     Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::Replay => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => {
+                        (Alignment::Start, padding::left(44).bottom(100))
+                    }
+                    sidebar::Position::Right => {
+                        (Alignment::End, padding::right(44).bottom(100))
+                    }
+                };
+
+                dashboard_modal(
+                    base,
+                    self.replay_manager.view().map(Message::Replay),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
                     align_x,
                 )
             }

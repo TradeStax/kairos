@@ -58,6 +58,13 @@ pub enum Icon {
     ExpandRight,
     SnapOn,
     SnapOff,
+    // Replay controls
+    Play,
+    Pause,
+    Stop,
+    SkipForward,
+    SkipBackward,
+    Replay,
 }
 
 impl From<Icon> for char {
@@ -104,6 +111,14 @@ impl From<Icon> for char {
             Icon::ExpandRight => '\u{E808}', // Right arrow/caret
             Icon::SnapOn => '\u{E807}',      // Link icon for snap on
             Icon::SnapOff => '\u{E801}',     // Unlocked for snap off
+            // Replay controls - using codepoints from icon font
+            // Replace with actual glyphs when available
+            Icon::Play => '\u{E818}',
+            Icon::Pause => '\u{E819}',
+            Icon::Stop => '\u{E81A}',
+            Icon::SkipForward => '\u{E81B}',
+            Icon::SkipBackward => '\u{E81C}',
+            Icon::Replay => '\u{E81D}',
         }
     }
 }

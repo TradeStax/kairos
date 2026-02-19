@@ -75,6 +75,7 @@ pub enum Menu {
     Settings,
     Audio,
     ThemeEditor,
+    Replay,
 }
 
 /// Date range preset for controlling how much historical data is loaded when opening charts.

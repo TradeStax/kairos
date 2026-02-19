@@ -59,6 +59,11 @@ impl DownloadedTickersRegistry {
         self.tickers.keys().cloned().collect()
     }
 
+    /// Get the downloaded date range by ticker string key.
+    pub fn get_range_by_ticker_str(&self, ticker_str: &str) -> Option<DateRange> {
+        self.tickers.get(ticker_str).copied()
+    }
+
     /// Check if a ticker has been registered
     pub fn has_ticker(&self, ticker: &FuturesTicker) -> bool {
         self.tickers.contains_key(&ticker.to_string())

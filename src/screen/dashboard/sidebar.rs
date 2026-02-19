@@ -113,6 +113,20 @@ impl Sidebar {
         };
 
         // Bottom buttons
+        let replay_btn = {
+            let is_active = self.is_menu_active(sidebar::Menu::Replay);
+
+            button_with_tooltip(
+                icon_text(Icon::Replay, 14)
+                    .width(24)
+                    .align_x(Alignment::Center),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Replay)),
+                Some("Replay"),
+                tooltip_position,
+                move |theme, status| crate::style::button::transparent(theme, status, is_active),
+            )
+        };
+
         let audio_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Audio);
 
@@ -171,6 +185,7 @@ impl Sidebar {
             // Spacer to push bottom buttons down
             space::vertical().height(Length::Fill),
             // Bottom section
+            replay_btn,
             audio_btn,
             connections_button,
             settings_modal_button,

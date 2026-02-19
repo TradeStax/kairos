@@ -2,6 +2,7 @@ pub mod audio;
 pub mod drawing_tools;
 pub mod layout_manager;
 pub mod pane;
+pub mod replay_manager;
 pub mod theme_editor;
 
 use iced::widget::{center, container, mouse_area, opaque, stack};

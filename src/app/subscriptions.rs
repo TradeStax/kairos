@@ -34,6 +34,34 @@ fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
     })
 }
 
+/// Replay engine event monitor
+/// Drains ALL events from the global buffer every 50ms
+fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
+    futures::stream::unfold((), |_| async {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let events: Vec<data::services::ReplayEvent> = {
+            if let Ok(mut buf) = super::get_replay_events().lock() {
+                if buf.is_empty() {
+                    return Some((Vec::new(), ()));
+                }
+                buf.drain(..).collect()
+            } else {
+                Vec::new()
+            }
+        };
+
+        Some((events, ()))
+    })
+    .flat_map(|events| {
+        futures::stream::iter(
+            events
+                .into_iter()
+                .map(Message::ReplayEvent),
+        )
+    })
+}
+
 /// Download progress monitoring subscription
 /// Uses global download progress state to avoid Subscription capture issues
 pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Message> {
@@ -80,6 +108,9 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
     // Rithmic streaming event subscription
     let rithmic_poll = Subscription::run(rithmic_event_monitor);
 
+    // Replay engine event subscription
+    let replay_poll = Subscription::run(replay_event_monitor);
+
     let hotkeys = keyboard::listen().filter_map(|event| {
         let keyboard::Event::KeyPressed { key, .. } = event else {
             return None;
@@ -97,6 +128,7 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
         status_poll,
         download_poll,
         rithmic_poll,
+        replay_poll,
         hotkeys,
     ])
 }

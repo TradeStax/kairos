@@ -380,9 +380,15 @@ impl Dashboard {
                 log::trace!("Dashboard received exchange event");
                 match &event {
                     exchange::Event::TradeReceived(_stream_kind, trade) => {
-                        // Append trade to active chart panes
+                        // Convert exchange::Trade to domain::Trade and append
+                        let domain_trade = data::Trade::from_raw(
+                            trade.time,
+                            trade.price,
+                            trade.qty,
+                            trade.side == exchange::TradeSide::Sell,
+                        );
                         for chart_state in self.charts.values_mut() {
-                            chart_state.append_live_trade(trade);
+                            chart_state.append_live_trade(domain_trade);
                         }
                     }
                     exchange::Event::DepthReceived(_stream_kind, _ts, _depth, _trades) => {

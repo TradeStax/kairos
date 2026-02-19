@@ -180,6 +180,30 @@ impl Flowsurface {
             }
         }
 
+        // Refresh available streams when opening Replay menu
+        if matches!(
+            &message,
+            dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::Replay))
+        ) {
+            let feed_manager = self
+                .data_feed_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let downloaded = self
+                .downloaded_tickers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+
+            // Build ticker info map from the tickers table (has full specs)
+            let mut ticker_infos = std::collections::HashMap::new();
+            for (ticker, info) in &self.tickers_table.tickers_info {
+                ticker_infos.insert(ticker.to_string(), *info);
+            }
+
+            self.replay_manager
+                .refresh_streams(&feed_manager, &downloaded, &ticker_infos);
+        }
+
         let (task, drawing_action) = self.sidebar.update(message);
 
         // Handle drawing tool actions from the sidebar
