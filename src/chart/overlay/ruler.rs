@@ -6,14 +6,15 @@
 //! - Number of bars/ticks
 
 use crate::chart::core::ViewState;
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
 use data::ChartBasis;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, Text};
+use crate::style::tokens;
 use iced::{Alignment, Point, Size};
 
-const TEXT_SIZE: f32 = 12.0;
+const TEXT_SIZE: f32 = tokens::text::BODY;
 
 /// Draw ruler measurement between two points
 pub fn draw_ruler(
@@ -205,7 +206,7 @@ pub fn draw_ruler(
             2 | 3 => Alignment::End.into(),
             _ => Alignment::Center.into(),
         },
-        font: style::AZERET_MONO,
+        font: AZERET_MONO,
         ..Default::default()
     });
 }

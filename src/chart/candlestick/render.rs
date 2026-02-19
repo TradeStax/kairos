@@ -1,24 +1,19 @@
-use crate::chart::{Chart, Interaction, Message, TEXT_SIZE};
+use crate::chart::{Chart, Interaction, Message, TEXT_SIZE, ViewState};
 use crate::chart::drawing;
-use crate::style;
+use crate::chart::indicator::kline::OverlayLine;
+use crate::chart::indicator::plot::{AnySeries, Series};
+use crate::component::primitives::AZERET_MONO;
 use data::util::count_decimals;
 use data::{Candle, ChartBasis, ClusterKind, FootprintStudy, KlineChartKind, Trade};
 use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Event, Geometry};
+use iced::widget::canvas::{self, Event, Geometry, Path, Stroke};
 use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
 
 use super::candle::draw_candle;
 use super::footprint::{ContentGaps, draw_all_npocs, draw_clusters, effective_cluster_qty, should_show_text};
 use super::KlineChart;
-
-/// Maximum font size for footprint cluster text labels
-const MAX_TEXT_SIZE: f32 = 16.0;
-/// Padding subtracted from text size to prevent overflow
-const TEXT_SIZE_PADDING: f32 = 3.0;
-/// Ratio of cell width used for the footprint candle body
-const FOOTPRINT_CANDLE_WIDTH_RATIO: f32 = 0.1;
 
 impl canvas::Program<Message> for KlineChart {
     type State = Interaction;
@@ -223,7 +218,25 @@ impl canvas::Program<Message> for KlineChart {
                 }
             }
 
+            // Draw overlay indicators (SMA, EMA, Bollinger Bands)
+            for (_kind, indi_opt) in &self.indicators {
+                if let Some(indi) = indi_opt {
+                    let lines = indi.overlay_lines();
+                    for line in &lines {
+                        draw_overlay_line(
+                            frame, chart, self.basis,
+                            line, earliest, latest,
+                        );
+                    }
+                }
+            }
+
             crate::chart::overlay::draw_last_price_line(chart, frame, palette, region);
+
+            // Draw data gap markers
+            if !self.chart_data.gaps.is_empty() {
+                crate::chart::overlay::draw_gap_markers(frame, chart, &self.chart_data.gaps, &region);
+            }
         });
 
         let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
@@ -285,6 +298,45 @@ impl canvas::Program<Message> for KlineChart {
             }
         }
     }
+}
+
+/// Draw a single overlay indicator line on the main chart canvas.
+///
+/// Converts f32 price values → exchange `Price` → chart Y coordinates,
+/// using the same transforms as candle rendering.
+fn draw_overlay_line(
+    frame: &mut canvas::Frame,
+    chart: &ViewState,
+    basis: ChartBasis,
+    line: &OverlayLine<'_>,
+    earliest: u64,
+    latest: u64,
+) {
+    if line.data.is_empty() {
+        return;
+    }
+
+    let stroke = Stroke::with_color(
+        Stroke { width: line.stroke_width, ..Stroke::default() },
+        line.color,
+    );
+
+    let series = AnySeries::for_basis(basis, line.data);
+    let mut prev: Option<(f32, f32)> = None;
+
+    series.for_each_in(earliest..=latest, |x, value| {
+        let sx = chart.interval_to_x(x) - (chart.cell_width / 2.0);
+        let price = Price::from_f32(*value);
+        let sy = chart.price_to_y(price);
+
+        if let Some((px, py)) = prev {
+            frame.stroke(
+                &Path::line(Point::new(px, py), Point::new(sx, sy)),
+                stroke,
+            );
+        }
+        prev = Some((sx, sy));
+    });
 }
 
 fn render_candles<F>(
@@ -458,7 +510,7 @@ fn draw_crosshair_tooltip(
                 position: Point::new(x, position.y),
                 size: iced::Pixels(12.0),
                 color: seg_color,
-                font: style::AZERET_MONO,
+                font: AZERET_MONO,
                 ..canvas::Text::default()
             });
             x += text.len() as f32 * 8.0;

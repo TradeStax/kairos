@@ -3,7 +3,8 @@
 //! Provides drawing tool selection with category-based organization.
 //! Tools are grouped into categories, each showing the currently selected tool's icon.
 
-use crate::style::{self, Icon, icon_text};
+use crate::component::primitives::{Icon, icon_text};
+use crate::style::{self, tokens};
 use data::DrawingTool;
 use iced::widget::{button, column, container, row, text};
 use iced::{Alignment, Element, Length, padding};
@@ -117,18 +118,6 @@ impl DrawingToolsPanel {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_active_tool(mut self, tool: DrawingTool) -> Self {
-        self.set_active_tool(tool);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_snap(mut self, enabled: bool) -> Self {
-        self.snap_enabled = enabled;
-        self
-    }
-
     fn set_active_tool(&mut self, tool: DrawingTool) {
         self.active_tool = tool;
         // Update the selected tool for this category
@@ -175,12 +164,6 @@ impl DrawingToolsPanel {
         }
     }
 
-    /// Check if a dropdown is currently open
-    #[allow(dead_code)]
-    pub fn has_open_dropdown(&self) -> bool {
-        self.open_category.is_some()
-    }
-
     /// Get the currently open category (if any)
     pub fn open_category(&self) -> Option<ToolCategory> {
         self.open_category
@@ -213,7 +196,7 @@ impl DrawingToolsPanel {
         buttons.push(snap_btn);
 
         column(buttons)
-            .spacing(2)
+            .spacing(tokens::spacing::XXS)
             .align_x(Alignment::Center)
             .into()
     }
@@ -235,7 +218,7 @@ impl DrawingToolsPanel {
             })
             .collect();
 
-        let dropdown_content = column(tool_buttons).spacing(1).padding(4);
+        let dropdown_content = column(tool_buttons).spacing(tokens::spacing::XXXS).padding(tokens::spacing::XS);
 
         let dropdown = container(dropdown_content).style(style::dropdown_container);
 
@@ -279,7 +262,7 @@ impl DrawingToolsPanel {
         };
 
         button(content)
-            .padding(padding::all(4))
+            .padding(padding::all(tokens::spacing::XS))
             .on_press(msg)
             .style(move |theme, status| {
                 style::button::transparent(theme, status, is_active || is_open)
@@ -297,7 +280,7 @@ impl DrawingToolsPanel {
         let content = icon_text(icon, 12).width(24).align_x(Alignment::Center);
 
         button(content)
-            .padding(padding::all(4))
+            .padding(padding::all(tokens::spacing::XS))
             .on_press(Message::ToggleSnap)
             .style(move |theme, status| {
                 style::button::transparent(theme, status, self.snap_enabled)
@@ -307,18 +290,19 @@ impl DrawingToolsPanel {
 
 }
 
+
 /// Create a tool button for the dropdown
 fn dropdown_tool_button(tool: DrawingTool, is_selected: bool) -> Element<'static, Message> {
     let icon = tool_icon(tool);
     let label = tool_label(tool);
 
     button(
-        row![icon_text(icon, 12).width(16), text(label).size(11),]
-            .spacing(6)
+        row![icon_text(icon, 12).width(16), text(label).size(tokens::text::SMALL),]
+            .spacing(tokens::spacing::SM)
             .align_y(Alignment::Center)
-            .padding(padding::left(2).right(4)),
+            .padding(padding::left(tokens::spacing::XXS).right(tokens::spacing::XS)),
     )
-    .padding(padding::all(4))
+    .padding(padding::all(tokens::spacing::XS))
     .width(Length::Fill)
     .on_press(Message::ToolSelected(tool))
     .style(move |theme, status| style::button::transparent(theme, status, is_selected))

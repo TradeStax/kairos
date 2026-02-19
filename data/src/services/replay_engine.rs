@@ -203,7 +203,7 @@ impl ReplayEngine {
         if self.check_cache(&ticker_info.ticker, &date_range).await {
             self.emit_event(ReplayEvent::CacheHit {
                 symbol: ticker_info.ticker.to_string(),
-                date_range,
+                date_range: date_range,
             });
         }
 
@@ -689,10 +689,11 @@ impl Drop for ReplayEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{Price as DomainPrice, Quantity, Side, Timestamp};
     use crate::repository::RepositoryResult;
     use chrono::NaiveDate;
 
-    // Mock repository for testing
+    // Mock repository that returns actual test trade data
     struct MockTradeRepository;
 
     #[async_trait::async_trait]
@@ -702,8 +703,26 @@ mod tests {
             _ticker: &FuturesTicker,
             _date_range: &DateRange,
         ) -> RepositoryResult<Vec<Trade>> {
-            // Return some test trades
-            Ok(vec![])
+            Ok(vec![
+                Trade {
+                    time: Timestamp::from_millis(1000),
+                    price: DomainPrice::from_f32(100.0),
+                    quantity: Quantity(10.0),
+                    side: Side::Buy,
+                },
+                Trade {
+                    time: Timestamp::from_millis(2000),
+                    price: DomainPrice::from_f32(101.0),
+                    quantity: Quantity(20.0),
+                    side: Side::Sell,
+                },
+                Trade {
+                    time: Timestamp::from_millis(3000),
+                    price: DomainPrice::from_f32(100.5),
+                    quantity: Quantity(15.0),
+                    side: Side::Buy,
+                },
+            ])
         }
 
         async fn has_trades(
@@ -744,14 +763,76 @@ mod tests {
         }
     }
 
+    fn test_ticker_info() -> FuturesTickerInfo {
+        FuturesTickerInfo {
+            ticker: FuturesTicker::new(
+                "ES.c.0",
+                crate::domain::futures::FuturesVenue::CMEGlobex,
+            ),
+            tick_size: 0.25,
+            min_qty: 1.0,
+            contract_size: 50.0,
+        }
+    }
+
     #[tokio::test]
     async fn test_enhanced_replay_engine() {
         let mock_repo = Arc::new(MockTradeRepository);
         let engine = ReplayEngine::with_default_config(mock_repo, None);
 
-        // Test that engine starts in stopped state
+        // Test that engine starts in stopped state with no data loaded
         let state = engine.state().await;
         assert_eq!(state.status, PlaybackStatus::Stopped);
         assert!(!state.is_loaded);
+        assert_eq!(state.speed, SpeedPreset::Normal);
+
+        // Load test data via mock repository
+        let ticker_info = test_ticker_info();
+        let date_range = DateRange::new(
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
+        );
+        engine
+            .load_data(ticker_info, date_range)
+            .await
+            .expect("load_data should succeed with mock trades");
+
+        // After loading, state should reflect loaded data
+        let state = engine.state().await;
+        assert!(state.is_loaded, "State should be loaded after load_data");
+        assert_eq!(state.status, PlaybackStatus::Stopped);
+        assert_eq!(state.trade_count, 3, "Mock returns 3 trades");
+        assert_eq!(state.depth_count, 0, "No depth repo provided");
+
+        // Verify data stats through the engine API
+        let stats = engine
+            .data_stats()
+            .await
+            .expect("data_stats should return Some after loading");
+        assert_eq!(stats.0, 3, "Should have 3 trades");
+        assert_eq!(stats.1, 0, "Should have 0 depth snapshots");
+
+        // Test play transition
+        engine.play().await.expect("play should succeed");
+        let state = engine.state().await;
+        assert_eq!(state.status, PlaybackStatus::Playing);
+
+        // Test pause transition
+        engine.pause().await.expect("pause should succeed");
+        let state = engine.state().await;
+        assert_eq!(state.status, PlaybackStatus::Paused);
+
+        // Test stop transition (resets position)
+        engine.stop().await.expect("stop should succeed");
+        let state = engine.state().await;
+        assert_eq!(state.status, PlaybackStatus::Stopped);
+
+        // Test speed change
+        engine
+            .set_speed(SpeedPreset::Double)
+            .await
+            .expect("set_speed should succeed");
+        let state = engine.state().await;
+        assert_eq!(state.speed, SpeedPreset::Double);
     }
 }

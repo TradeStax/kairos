@@ -5,8 +5,6 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-// Removed: tickers_table dependency (GUI logic)
-
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Sidebar {
@@ -15,7 +13,6 @@ pub struct Sidebar {
     pub date_range_preset: DateRangePreset,
     #[serde(skip)]
     pub active_menu: Option<Menu>,
-    // tickers_table settings removed (GUI-specific logic)
 }
 
 impl Sidebar {
@@ -34,8 +31,6 @@ impl Sidebar {
     pub fn is_menu_active(&self, menu: Menu) -> bool {
         self.active_menu == Some(menu)
     }
-
-    // Ticker table sync removed (GUI-specific)
 }
 
 impl Default for Sidebar {
@@ -44,7 +39,6 @@ impl Default for Sidebar {
             position: Position::Left,
             date_range_preset: DateRangePreset::default(),
             active_menu: None,
-            // tickers_table field removed
         }
     }
 }
@@ -75,11 +69,13 @@ impl std::fmt::Display for Position {
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub enum Menu {
     Layout,
-    DataManagement,
+    Connections,
+    #[serde(alias = "DataManagement")]
+    DataFeeds,
     Settings,
     Audio,
     ThemeEditor,
-    ApiKeys,
+    Replay,
 }
 
 /// Date range preset for controlling how much historical data is loaded when opening charts.

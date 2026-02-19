@@ -7,9 +7,10 @@ use crate::chart::scale::linear::PriceInfoLabel;
 use data::{ChartBasis, ViewConfig};
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
+use crate::style::tokens;
 use iced::{Length, Rectangle, Size, Vector};
 
-const TEXT_SIZE: f32 = 12.0;
+const TEXT_SIZE: f32 = tokens::text::BODY;
 
 /// Complete view state for a chart
 ///

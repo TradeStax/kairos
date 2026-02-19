@@ -6,9 +6,11 @@ use super::traits::Chart;
 use crate::chart::Message;
 use crate::widget::multi_split::DRAG_SIZE;
 use data::DrawingTool;
+use crate::style::tokens;
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
-use crate::chart::{ZOOM_BASE, ZOOM_SENSITIVITY};
+const ZOOM_SENSITIVITY: f32 = tokens::chart::ZOOM_SENSITIVITY;
+const ZOOM_BASE: f32 = tokens::chart::ZOOM_BASE;
 
 /// Current interaction mode for the chart
 #[derive(Default, Debug, Clone, Copy)]

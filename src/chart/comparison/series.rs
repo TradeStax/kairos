@@ -5,7 +5,7 @@
 
 use crate::style;
 use crate::widget::chart::Series;
-use crate::widget::color_picker::color_picker;
+use crate::component::input::color_picker::color_picker;
 use exchange::FuturesTickerInfo;
 use iced::widget::{button, column, container, row, text};
 use iced::{Element, Length};

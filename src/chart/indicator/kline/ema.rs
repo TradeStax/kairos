@@ -1,6 +1,13 @@
 //! Exponential Moving Average (EMA) Indicator
 
-use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
+use crate::chart::{
+    Caches, Message, ViewState,
+    indicator::{
+        indicator_row,
+        kline::{KlineIndicatorImpl, OverlayLine},
+        plot::{PlotTooltip, line::LinePlot},
+    },
+};
 use data::{Candle, ChartBasis};
 use std::{collections::BTreeMap, ops::RangeInclusive};
 
@@ -34,21 +41,46 @@ impl EmaIndicator {
         }
     }
 
+    fn get_color(&self) -> iced::Color {
+        match self.period {
+            9 => iced::Color::from_rgb(0.3, 1.0, 0.3),   // Green
+            21 => iced::Color::from_rgb(1.0, 0.3, 0.3),   // Red
+            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),    // Gray
+        }
+    }
 }
 
 impl KlineIndicatorImpl for EmaIndicator {
     fn clear_all_caches(&mut self) { self.cache.clear_all(); }
     fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
 
-    fn element<'a>(&'a self, chart: &'a ViewState, visible_range: RangeInclusive<u64>) -> iced::Element<'a, Message> {
+    fn element<'a>(
+        &'a self,
+        chart: &'a ViewState,
+        visible_range: RangeInclusive<u64>,
+    ) -> iced::Element<'a, Message> {
+        // EMA is an overlay indicator; fallback panel view.
         let period = self.period;
-        let tooltip = move |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("EMA({}): {:.2}", period, v));
-        let plot = LinePlot::new(|v: &f32| *v).stroke_width(1.5).show_points(false).with_tooltip(tooltip);
+        let tooltip = move |v: &f32, _n: Option<&f32>| {
+            PlotTooltip::new(format!("EMA({}): {:.2}", period, v))
+        };
+        let plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.5)
+            .show_points(false)
+            .with_tooltip(tooltip);
         indicator_row(chart, &self.cache, plot, &self.data, visible_range)
     }
 
     fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.calculate(candles, basis);
         self.clear_all_caches();
+    }
+
+    fn overlay_lines(&self) -> Vec<OverlayLine<'_>> {
+        vec![OverlayLine {
+            data: &self.data,
+            color: self.get_color(),
+            stroke_width: 1.5,
+        }]
     }
 }

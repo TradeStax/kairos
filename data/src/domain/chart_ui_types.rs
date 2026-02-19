@@ -349,6 +349,25 @@ impl KlineIndicator {
             KlineIndicator::BollingerBands,
         ]
     }
+
+    /// Whether this indicator overlays on the main price chart
+    /// rather than rendering in a separate panel below.
+    ///
+    /// Overlay indicators (SMA, EMA, Bollinger Bands) produce values
+    /// in price space and are drawn directly on the candlestick chart.
+    /// Panel indicators (Volume, Delta, RSI, MACD, OI) have their own
+    /// Y-axis scale and are shown in separate sub-panels.
+    pub fn is_overlay(&self) -> bool {
+        matches!(
+            self,
+            KlineIndicator::Sma20
+                | KlineIndicator::Sma50
+                | KlineIndicator::Sma200
+                | KlineIndicator::Ema9
+                | KlineIndicator::Ema21
+                | KlineIndicator::BollingerBands
+        )
+    }
 }
 
 /// Heatmap indicator types

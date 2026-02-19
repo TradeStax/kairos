@@ -263,10 +263,13 @@ mod tests {
         let chain = create_test_chain_with_gamma();
         let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
 
-        // May or may not have zero gamma level depending on distribution
+        // All strikes have identical gamma/OI, so net_gamma is the same negative value
+        // at every strike. No sign change means no zero-gamma crossing.
         let zero_level = service.find_zero_gamma_level(&profile);
-        // Test passes whether Some or None
-        assert!(zero_level.is_some() || zero_level.is_none());
+        assert!(
+            zero_level.is_none(),
+            "Symmetric chain with uniform negative net gamma should have no zero-gamma crossing"
+        );
     }
 
     #[test]
@@ -286,11 +289,12 @@ mod tests {
         let chain = create_test_chain_with_gamma();
         let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
 
+        // total_net_gamma = 5 strikes * (-166,050,000) = -830,250,000
+        // This is < -1,000,000 so the regime is "Negative Gamma"
         let regime = service.determine_market_regime(&profile);
-        assert!(
-            regime == "Positive Gamma"
-                || regime == "Negative Gamma"
-                || regime == "Neutral Gamma"
+        assert_eq!(
+            regime, "Negative Gamma",
+            "Dealer-short chain with large negative net gamma should be Negative Gamma regime"
         );
     }
 
@@ -300,8 +304,14 @@ mod tests {
         let chain = create_test_chain_with_gamma();
         let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
 
+        // total_abs_gamma = 5 * 166,050,000 = 830,250,000
+        // 830,250,000 > 10,000,000 so the function returns 0.2
         let vol_score = service.calculate_volatility_expectation(&profile);
-        assert!(vol_score >= 0.0 && vol_score <= 1.0);
+        assert!(
+            (vol_score - 0.2).abs() < f64::EPSILON,
+            "High absolute gamma (830M > 10M threshold) should yield low volatility score of 0.2, got {}",
+            vol_score
+        );
     }
 
     #[test]
@@ -322,9 +332,22 @@ mod tests {
         let chain = create_test_chain_with_gamma();
         let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
 
+        // Call gamma per strike: 0.05 * 10000 * 100 * 450^2 * 0.01 = 101,250,000
+        // Put gamma per strike:  0.04 * 8000  * 100 * 450^2 * 0.01 = 64,800,000
+        // gamma_ratio = (5 * 101,250,000) / (5 * 64,800,000) = 1.5625
+        // 1.5625 > 1.5 threshold -> "Bullish"
         let (sentiment, ratio) = service.analyze_gamma_skew(&profile);
-        assert!(sentiment == "Bullish" || sentiment == "Bearish" || sentiment == "Neutral");
-        assert!(ratio > 0.0);
+        assert_eq!(
+            sentiment, "Bullish",
+            "Call gamma dominance (ratio 1.5625 > 1.5) should be Bullish"
+        );
+
+        let expected_ratio = 101_250_000.0 / 64_800_000.0; // 1.5625
+        assert!(
+            (ratio - expected_ratio).abs() < 0.001,
+            "Gamma ratio should be ~1.5625, got {}",
+            ratio
+        );
     }
 
     #[test]
@@ -333,9 +356,15 @@ mod tests {
         let chain = create_test_chain_with_gamma();
         let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
 
+        // Price exactly at the 450 strike: nearest exposure has total_oi=18000 (>10k),
+        // total_gamma=166,050,000 (>500k), and distance is 0% (<2%), so squeeze = true
         let current_price = Price::from_f64(450.0);
         let has_squeeze = service.has_squeeze_potential(&profile, current_price);
-        // Test passes whether true or false
-        assert!(has_squeeze || !has_squeeze);
+        assert!(has_squeeze, "Should detect squeeze potential when price is at a high-gamma strike");
+
+        // Price far from any strike (e.g. 500.0): nearest strike is 460, distance ~8% (>2%)
+        let far_price = Price::from_f64(500.0);
+        let no_squeeze = service.has_squeeze_potential(&profile, far_price);
+        assert!(!no_squeeze, "Should not detect squeeze when price is far from strikes");
     }
 }

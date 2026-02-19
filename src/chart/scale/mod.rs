@@ -1,7 +1,8 @@
 pub mod linear;
 pub mod timeseries;
 
-use crate::{chart::TEXT_SIZE, style::AZERET_MONO};
+use crate::chart::TEXT_SIZE;
+use crate::component::primitives::AZERET_MONO;
 
 use super::{Interaction, Message};
 use data::ChartBasis;

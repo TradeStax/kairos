@@ -3,19 +3,21 @@ mod state;
 mod subscriptions;
 mod update;
 
-use crate::modal::api_key_config::ApiKeyConfigModal;
+use crate::component;
+use crate::component::display::toast::{self, Toast};
+use crate::component::display::tooltip::tooltip;
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
-use crate::screen::dashboard::{self, Dashboard, tickers_table::{self, TickersTable}};
-use crate::widget::{
-    confirm_dialog_container,
-    toast::{self, Toast},
-    tooltip,
+use crate::screen::dashboard::{
+    self, Dashboard,
+    tickers_table::{self, TickersTable},
 };
+use crate::style::tokens;
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
 
+use data::FeedId;
 use iced::{
     Alignment, Element, Subscription, Task, padding,
     widget::{
@@ -36,6 +38,34 @@ pub fn get_download_progress()
     DOWNLOAD_PROGRESS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())))
 }
 
+// Global staging for Rithmic streaming events
+static RITHMIC_EVENTS: OnceLock<std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>>> =
+    OnceLock::new();
+
+pub fn get_rithmic_events() -> &'static std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>> {
+    RITHMIC_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
+}
+
+// Global staging for Replay engine events
+static REPLAY_EVENTS: OnceLock<
+    std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>>,
+> = OnceLock::new();
+
+pub fn get_replay_events()
+-> &'static std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>> {
+    REPLAY_EVENTS.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
+}
+
+// Staging slot for Rithmic service result (non-Clone, consumed once)
+static RITHMIC_SERVICE_RESULT: OnceLock<
+    std::sync::Arc<std::sync::Mutex<Option<services::RithmicServiceResult>>>,
+> = OnceLock::new();
+
+pub fn get_rithmic_service_staging()
+-> &'static std::sync::Arc<std::sync::Mutex<Option<services::RithmicServiceResult>>> {
+    RITHMIC_SERVICE_RESULT.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+}
+
 pub struct Flowsurface {
     pub(crate) main_window: window::Window,
     pub(crate) sidebar: dashboard::Sidebar,
@@ -43,14 +73,25 @@ pub struct Flowsurface {
     pub(crate) layout_manager: LayoutManager,
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
-    pub(crate) data_management_panel: crate::modal::pane::data_management::DataManagementPanel,
-    pub(crate) api_key_config_modal: Option<ApiKeyConfigModal>,
+    pub(crate) data_management_panel: crate::modal::pane::download::DataManagementPanel,
+    pub(crate) connections_menu: crate::modal::pane::connections::ConnectionsMenu,
+    pub(crate) data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal,
+    pub(crate) historical_download_modal:
+        Option<crate::modal::pane::download::HistoricalDownloadModal>,
+    pub(crate) historical_download_id: Option<uuid::Uuid>,
+    pub(crate) data_feed_manager: std::sync::Arc<std::sync::Mutex<data::DataFeedManager>>,
     pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
     // Service layer (optional - None when API key not configured)
     pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
+    pub(crate) replay_manager: crate::modal::replay_manager::ReplayManager,
+    // Rithmic connection state
+    pub(crate) rithmic_client: Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
+    pub(crate) rithmic_trade_repo: Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
+    pub(crate) rithmic_depth_repo: Option<std::sync::Arc<exchange::RithmicDepthRepository>>,
+    pub(crate) rithmic_feed_id: Option<FeedId>,
     // User preferences
     pub(crate) ui_scale_factor: data::ScaleFactor,
     pub(crate) timezone: data::UserTimezone,
@@ -61,16 +102,7 @@ pub struct Flowsurface {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
-    Sidebar(dashboard::sidebar::Message),
-    TickersTable(tickers_table::Message),
-    Dashboard {
-        /// If `None`, the active layout is used for the event.
-        layout_id: Option<uuid::Uuid>,
-        event: dashboard::Message,
-    },
-    DataManagement(crate::modal::pane::data_management::DataManagementMessage),
-    // Async chart data loading
+pub enum ChartMessage {
     LoadChartData {
         layout_id: uuid::Uuid,
         pane_id: uuid::Uuid,
@@ -82,19 +114,23 @@ pub enum Message {
         pane_id: uuid::Uuid,
         result: Result<data::ChartData, String>,
     },
-    // Options data loading (planned feature)
-    #[allow(dead_code)]
+    UpdateLoadingStatus,
+}
+
+#[derive(Debug, Clone)]
+pub enum OptionsMessage {
     OptionChainLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::OptionChain, String>,
     },
-    #[allow(dead_code)]
     GexProfileLoaded {
         pane_id: uuid::Uuid,
         result: Result<data::domain::GexProfile, String>,
     },
-    UpdateLoadingStatus,
-    // Data management - cost estimation
+}
+
+#[derive(Debug, Clone)]
+pub enum DownloadMessage {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
@@ -106,7 +142,6 @@ pub enum Message {
         #[allow(clippy::type_complexity)]
         result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
     },
-    // Data management - download
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
@@ -124,6 +159,35 @@ pub enum Message {
         date_range: data::DateRange,
         result: Result<usize, String>,
     },
+    HistoricalDownload(crate::modal::pane::download::HistoricalDownloadMessage),
+    HistoricalDownloadCostEstimated {
+        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+    },
+    HistoricalDownloadComplete {
+        ticker: data::FuturesTicker,
+        date_range: data::DateRange,
+        result: Result<usize, String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Sidebar(dashboard::sidebar::Message),
+    TickersTable(tickers_table::Message),
+    Dashboard {
+        /// If `None`, the active layout is used for the event.
+        layout_id: Option<uuid::Uuid>,
+        event: dashboard::Message,
+    },
+    ConnectionsMenu(crate::modal::pane::connections::ConnectionsMenuMessage),
+    DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
+    DataFeedPreviewLoaded {
+        feed_id: data::FeedId,
+        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
+    },
+    Chart(ChartMessage),
+    Options(OptionsMessage),
+    Download(DownloadMessage),
     Tick(std::time::Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
@@ -137,12 +201,14 @@ pub enum Message {
     ThemeEditor(crate::modal::theme_editor::Message),
     Layouts(crate::modal::layout_manager::Message),
     AudioStream(crate::modal::audio::Message),
-    // API key configuration
-    ApiKeyConfig(crate::modal::api_key_config::Message),
-    ShowApiKeyConfig {
-        provider: data::ApiProvider,
-    },
     ReinitializeService(data::ApiProvider),
+    RithmicConnected {
+        feed_id: FeedId,
+        result: Result<(), String>,
+    },
+    RithmicStreamEvent(exchange::Event),
+    Replay(crate::modal::replay_manager::Message),
+    ReplayEvent(data::services::ReplayEvent),
 }
 
 impl Flowsurface {
@@ -169,6 +235,10 @@ impl Flowsurface {
             saved_state_temp.sidebar.date_range_preset,
         );
 
+        // Create shared data feed manager
+        let data_feed_manager =
+            std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.data_feeds.clone()));
+
         // Create final SavedState with shared Arc in layout_manager
         let saved_state = crate::layout::SavedState {
             theme: saved_state_temp.theme,
@@ -180,6 +250,7 @@ impl Flowsurface {
             scale_factor: saved_state_temp.scale_factor,
             audio_cfg: saved_state_temp.audio_cfg,
             downloaded_tickers: saved_state_temp.downloaded_tickers,
+            data_feeds: saved_state_temp.data_feeds,
         };
 
         let (main_window_id, open_main_window) = {
@@ -194,21 +265,11 @@ impl Flowsurface {
         };
 
         // Create tickers table at app level (shared by pane dropdowns)
-        let (mut tickers_table, _initial_fetch) = TickersTable::new();
+        let (tickers_table, _initial_fetch) = TickersTable::new();
 
-        // Apply filter from downloaded tickers registry
-        let ticker_symbols: std::collections::HashSet<String> =
-            data::lock_or_recover(&downloaded_tickers)
-                .list_tickers()
-                .into_iter()
-                .collect();
-        if !ticker_symbols.is_empty() {
-            log::info!("Applying filter from registry: {} downloaded tickers", ticker_symbols.len());
-            tickers_table.set_cached_filter(ticker_symbols);
-        } else {
-            log::info!("No downloaded tickers in registry - ticker list will be empty");
-            tickers_table.set_cached_filter(std::collections::HashSet::new());
-        }
+        // Ticker list starts empty - tickers only appear after the user
+        // connects to a data feed via the connections menu.
+        log::info!("Ticker list empty until a data feed is connected");
 
         let sidebar = dashboard::Sidebar::new(&saved_state);
 
@@ -217,14 +278,23 @@ impl Flowsurface {
             layout_manager: saved_state.layout_manager,
             theme_editor: ThemeEditor::new(saved_state.custom_theme),
             audio_stream: AudioStream::new(saved_state.audio_cfg),
-            data_management_panel: crate::modal::pane::data_management::DataManagementPanel::new(),
-            api_key_config_modal: None,
+            data_management_panel: crate::modal::pane::download::DataManagementPanel::new(),
+            connections_menu: crate::modal::pane::connections::ConnectionsMenu::new(),
+            data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal::new(),
+            historical_download_modal: None,
+            historical_download_id: None,
+            data_feed_manager,
             sidebar,
             tickers_table,
             confirm_dialog: None,
+            rithmic_client: None,
+            rithmic_trade_repo: None,
+            rithmic_depth_repo: None,
+            rithmic_feed_id: None,
             market_data_service,
             options_service,
             replay_engine,
+            replay_manager: crate::modal::replay_manager::ReplayManager::new(),
             timezone: saved_state.timezone,
             ui_scale_factor: saved_state.scale_factor,
             theme: saved_state.theme,
@@ -242,12 +312,57 @@ impl Flowsurface {
         );
         let load_layout = state.load_layout(active_layout_id.unique, main_window_id);
 
-        (
-            state,
-            open_main_window
-                .discard()
-                .chain(load_layout),
-        )
+        // Auto-connect feeds that have auto_connect enabled
+        {
+            let mut feed_manager = state
+                .data_feed_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let secrets = data::SecretsManager::new();
+
+            let auto_connect_ids: Vec<data::FeedId> = feed_manager
+                .feeds()
+                .iter()
+                .filter(|f| f.auto_connect && f.enabled)
+                .map(|f| f.id)
+                .collect();
+
+            for fid in &auto_connect_ids {
+                if let Some(feed) = feed_manager.get(*fid) {
+                    let has_key = match feed.provider {
+                        data::FeedProvider::Databento => {
+                            secrets.has_api_key(data::ApiProvider::Databento)
+                        }
+                        data::FeedProvider::Rithmic => {
+                            secrets.has_api_key(data::ApiProvider::Rithmic)
+                        }
+                    };
+                    if has_key {
+                        feed_manager.set_status(*fid, data::FeedStatus::Connected);
+                        log::info!("Auto-connected feed {} on startup", fid);
+                    }
+                }
+            }
+
+            // Populate ticker list for auto-connected feeds
+            if !auto_connect_ids.is_empty() {
+                let ticker_symbols: std::collections::HashSet<String> = state
+                    .downloaded_tickers
+                    .lock()
+                    .unwrap()
+                    .list_tickers()
+                    .into_iter()
+                    .collect();
+                if !ticker_symbols.is_empty() {
+                    state.tickers_table.set_cached_filter(ticker_symbols);
+                }
+            }
+
+            state.data_feeds_modal.sync_snapshot(&feed_manager);
+            state.connections_menu.sync_snapshot(&feed_manager);
+        }
+
+        (state, open_main_window.discard().chain(load_layout))
     }
 
     pub fn title(&self, _window: window::Id) -> String {
@@ -298,12 +413,12 @@ impl Flowsurface {
                                 weight: iced::font::Weight::Bold,
                                 ..Default::default()
                             })
-                            .size(16)
+                            .size(tokens::text::HEADING)
                             .style(style::title_text),
                     )
                     .height(20)
                     .align_y(Alignment::Center)
-                    .padding(padding::top(4))
+                    .padding(padding::top(tokens::spacing::XS))
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -317,8 +432,8 @@ impl Flowsurface {
                     sidebar::Position::Left => row![sidebar_view, dashboard_view,],
                     sidebar::Position::Right => row![dashboard_view, sidebar_view],
                 }
-                .spacing(4)
-                .padding(8),
+                .spacing(tokens::spacing::XS)
+                .padding(tokens::spacing::MD),
             ];
 
             if let Some(menu) = self.sidebar.active_menu() {
@@ -393,7 +508,9 @@ impl Flowsurface {
                         sidebar::DateRangePreset::ALL,
                         Some(self.sidebar.date_range_preset()),
                         |preset| {
-                            Message::Sidebar(dashboard::sidebar::Message::SetDateRangePreset(preset))
+                            Message::Sidebar(dashboard::sidebar::Message::SetDateRangePreset(
+                                preset,
+                            ))
                         },
                     );
 
@@ -417,12 +534,13 @@ impl Flowsurface {
                         container(
                             row![
                                 decrease_btn,
-                                text(format!("{:.0}%", current_value * 100.0)).size(14),
+                                text(format!("{:.0}%", current_value * 100.0))
+                                    .size(tokens::text::TITLE),
                                 increase_btn,
                             ]
                             .align_y(Alignment::Center)
-                            .spacing(8)
-                            .padding(4),
+                            .spacing(tokens::spacing::MD)
+                            .padding(tokens::spacing::XS),
                         )
                         .style(style::modal_container)
                     };
@@ -438,24 +556,18 @@ impl Flowsurface {
                         )
                     };
 
-                    let api_keys_button = button(text("API Keys")).on_press(Message::Sidebar(
-                        dashboard::sidebar::Message::ToggleSidebarMenu(Some(
-                            sidebar::Menu::ApiKeys,
-                        )),
-                    ));
-
                     let column_content = split_column![
-                        column![open_data_folder, api_keys_button,].spacing(8),
-                        column![text("Date range").size(14), date_range_picker,].spacing(12),
-                        column![text("Time zone").size(14), timezone_picklist,].spacing(12),
-                        column![text("Theme").size(14), theme_picklist,].spacing(12),
-                        column![text("Interface scale").size(14), scale_factor,].spacing(12),
+                        column![open_data_folder,].spacing(tokens::spacing::MD),
+                        column![text("Date range").size(tokens::text::TITLE), date_range_picker,].spacing(tokens::spacing::LG),
+                        column![text("Time zone").size(tokens::text::TITLE), timezone_picklist,].spacing(tokens::spacing::LG),
+                        column![text("Theme").size(tokens::text::TITLE), theme_picklist,].spacing(tokens::spacing::LG),
+                        column![text("Interface scale").size(tokens::text::TITLE), scale_factor,].spacing(tokens::spacing::LG),
                         column![
-                            text("Experimental").size(14),
+                            text("Experimental").size(tokens::text::TITLE),
                             toggle_theme_editor,
                         ]
-                        .spacing(12),
-                        ; spacing = 16, align_x = Alignment::Start
+                        .spacing(tokens::spacing::LG),
+                        ; spacing = tokens::spacing::XL, align_x = Alignment::Start
                     ];
 
                     let content = scrollable::Scrollable::with_direction(
@@ -468,7 +580,7 @@ impl Flowsurface {
                     container(content)
                         .align_x(Alignment::Start)
                         .max_width(240)
-                        .padding(24)
+                        .padding(tokens::spacing::XXL)
                         .style(style::dashboard_modal)
                 };
 
@@ -487,14 +599,16 @@ impl Flowsurface {
                 );
 
                 if let Some(dialog) = &self.confirm_dialog {
-                    let dialog_content =
-                        confirm_dialog_container(dialog.clone(), Message::ToggleDialogModal(None));
-
-                    main_dialog_modal(
-                        base_content,
-                        dialog_content,
-                        Message::ToggleDialogModal(None),
-                    )
+                    let on_cancel = Message::ToggleDialogModal(None);
+                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                        dialog.message.clone(),
+                        *dialog.on_confirm.clone(),
+                        on_cancel,
+                    );
+                    if let Some(text) = &dialog.on_confirm_btn_text {
+                        builder = builder.confirm_text(text.clone());
+                    }
+                    builder.view(base_content)
                 } else {
                     base_content
                 }
@@ -576,11 +690,11 @@ impl Flowsurface {
                                 TooltipPosition::Top,
                             ),
                         ]
-                        .spacing(8)
+                        .spacing(tokens::spacing::MD)
                     ]
-                    .spacing(8)
+                    .spacing(tokens::spacing::MD)
                 } else {
-                    column![text("No pane selected"),].spacing(8)
+                    column![text("No pane selected"),].spacing(tokens::spacing::MD)
                 };
 
                 let manage_layout_modal = {
@@ -592,7 +706,7 @@ impl Flowsurface {
 
                     container(col.align_x(Alignment::Center).spacing(20))
                         .width(260)
-                        .padding(24)
+                        .padding(tokens::spacing::XXL)
                         .style(style::dashboard_modal)
                 };
 
@@ -610,22 +724,58 @@ impl Flowsurface {
                     align_x,
                 )
             }
-            sidebar::Menu::DataManagement => {
+            sidebar::Menu::Connections => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(40)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(40)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(80)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(80)),
                 };
 
                 dashboard_modal(
                     base,
-                    self.data_management_panel
-                        .view()
-                        .map(Message::DataManagement),
+                    self.connections_menu.view().map(Message::ConnectionsMenu),
                     Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::End,
                     align_x,
                 )
+            }
+            sidebar::Menu::DataFeeds => {
+                let data_feeds_content = self.data_feeds_modal.view().map(Message::DataFeeds);
+
+                let mut base_content = main_dialog_modal(
+                    base,
+                    data_feeds_content,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                );
+
+                // Stack historical download modal on top if open
+                if let Some(dl_modal) = &self.historical_download_modal {
+                    let dl_content = dl_modal
+                        .view()
+                        .map(|msg| Message::Download(DownloadMessage::HistoricalDownload(msg)));
+                    base_content = main_dialog_modal(
+                        base_content,
+                        dl_content,
+                        Message::Download(DownloadMessage::HistoricalDownload(
+                            crate::modal::pane::download::HistoricalDownloadMessage::Close,
+                        )),
+                    );
+                }
+
+                if let Some(dialog) = &self.confirm_dialog {
+                    let on_cancel = Message::ToggleDialogModal(None);
+                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                        dialog.message.clone(),
+                        *dialog.on_confirm.clone(),
+                        on_cancel,
+                    );
+                    if let Some(text) = &dialog.on_confirm_btn_text {
+                        builder = builder.confirm_text(text.clone());
+                    }
+                    builder.view(base_content)
+                } else {
+                    base_content
+                }
             }
             sidebar::Menu::Audio => {
                 let (align_x, padding) = match sidebar_pos {
@@ -648,6 +798,25 @@ impl Flowsurface {
                     align_x,
                 )
             }
+            sidebar::Menu::Replay => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => {
+                        (Alignment::Start, padding::left(44).bottom(100))
+                    }
+                    sidebar::Position::Right => {
+                        (Alignment::End, padding::right(44).bottom(100))
+                    }
+                };
+
+                dashboard_modal(
+                    base,
+                    self.replay_manager.view().map(Message::Replay),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                )
+            }
             sidebar::Menu::ThemeEditor => {
                 let (align_x, padding) = match sidebar_pos {
                     sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
@@ -664,36 +833,6 @@ impl Flowsurface {
                     Alignment::End,
                     align_x,
                 )
-            }
-            sidebar::Menu::ApiKeys => {
-                let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
-                };
-
-                // If we have an api key config modal, show it
-                if let Some(modal) = &self.api_key_config_modal {
-                    dashboard_modal(
-                        base,
-                        modal.view().map(Message::ApiKeyConfig),
-                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    )
-                } else {
-                    // No modal yet - this shouldn't normally happen, but fallback to showing text
-                    dashboard_modal(
-                        base,
-                        container(text("Loading API configuration..."))
-                            .padding(24)
-                            .style(style::dashboard_modal),
-                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    )
-                }
             }
         }
     }

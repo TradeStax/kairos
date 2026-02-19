@@ -71,9 +71,10 @@ pub enum AggregationError {
 ///    - Sell Volume: sum of sell trades
 ///
 /// # Example
-/// ```ignore
-/// use data::domain::{Trade, Price, Quantity, Timestamp, Side};
-/// use data::domain::aggregation::aggregate_trades_to_candles;
+/// ```
+/// use flowsurface_data::domain::entities::Trade;
+/// use flowsurface_data::domain::types::{Price, Quantity, Timestamp, Side};
+/// use flowsurface_data::domain::aggregation::aggregate_trades_to_candles;
 ///
 /// let trades = vec![
 ///     Trade::new(Timestamp(1000), Price::from_f32(100.0), Quantity(10.0), Side::Buy),
@@ -195,7 +196,7 @@ fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Pri
 /// Vector of tick candles
 ///
 /// # Example
-/// ```ignore
+/// ```rust,ignore
 /// let candles = aggregate_trades_to_ticks(&trades, 50, tick_size).unwrap();
 /// // Each candle contains exactly 50 trades (except possibly the last one)
 /// ```

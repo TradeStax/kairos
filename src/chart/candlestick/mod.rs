@@ -2,19 +2,14 @@ mod candle;
 mod footprint;
 mod render;
 
-use crate::chart::{
-    Chart, Message, PlotConstants, ViewState,
-    drawing::DrawingManager,
-    indicator,
-};
 use crate::chart::indicator::kline::KlineIndicatorImpl;
+use crate::chart::{Chart, Message, PlotConstants, ViewState, drawing::DrawingManager, indicator};
 use crate::modal::pane::settings::study;
+use data::util::count_decimals;
 use data::{
     Autoscale, Candle, ChartBasis, ChartData, ClusterKind, ClusterScaling, FootprintStudy,
-    KlineChartKind, KlineIndicator, Price as DomainPrice,
-    Side, Trade, ViewConfig,
+    KlineChartKind, KlineIndicator, Price as DomainPrice, Side, Trade, ViewConfig,
 };
-use data::util::count_decimals;
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 
@@ -58,6 +53,11 @@ impl Chart for KlineChart {
         let mut elements = vec![];
 
         for selected_indicator in enabled {
+            // Overlay indicators are drawn on the main chart canvas,
+            // not as separate panel elements.
+            if selected_indicator.is_overlay() {
+                continue;
+            }
             if let Some(indi) = self.indicators[*selected_indicator].as_ref() {
                 elements.push(indi.element(chart_state, earliest..=latest));
             }
@@ -193,20 +193,28 @@ impl KlineChart {
             let start_idx = end_idx.saturating_sub(candle_count);
 
             let recent_candles = &chart_data.candles[start_idx..end_idx];
-            let high = recent_candles.iter().map(|c| domain_to_exchange_price(c.high)).max().unwrap_or(Price::from_f32(0.0));
-            let low = recent_candles.iter().map(|c| domain_to_exchange_price(c.low)).min().unwrap_or(Price::from_f32(0.0));
+            let high = recent_candles
+                .iter()
+                .map(|c| domain_to_exchange_price(c.high))
+                .max()
+                .unwrap_or(Price::from_f32(0.0));
+            let low = recent_candles
+                .iter()
+                .map(|c| domain_to_exchange_price(c.low))
+                .min()
+                .unwrap_or(Price::from_f32(0.0));
             (high, low)
         } else {
             (Price::from_f32(100.0), Price::from_f32(0.0))
         };
 
-        let base_price_y = chart_data.candles.first()
+        let base_price_y = chart_data
+            .candles
+            .first()
             .map(|c| domain_to_exchange_price(c.close))
             .unwrap_or(Price::from_f32(0.0));
 
-        let latest_x = chart_data.candles.last()
-            .map(|c| c.time.0)
-            .unwrap_or(0);
+        let latest_x = chart_data.candles.last().map(|c| c.time.0).unwrap_or(0);
 
         let low_rounded = scale_low.round_to_side_step(true, step);
         let high_rounded = scale_high.round_to_side_step(false, step);
@@ -284,8 +292,12 @@ impl KlineChart {
         let new_candles = match new_basis {
             ChartBasis::Time(timeframe) => {
                 let tick_size = DomainPrice::from_f32(ticker_info.tick_size);
-                data::aggregate_trades_to_candles(&self.chart_data.trades, timeframe.to_milliseconds(), tick_size)
-                    .unwrap_or_default()
+                data::aggregate_trades_to_candles(
+                    &self.chart_data.trades,
+                    timeframe.to_milliseconds(),
+                    tick_size,
+                )
+                .unwrap_or_default()
             }
             ChartBasis::Tick(tick_count) => {
                 let tick_size = DomainPrice::from_f32(ticker_info.tick_size);
@@ -307,8 +319,16 @@ impl KlineChart {
             let start_idx = end_idx.saturating_sub(candle_count);
 
             let recent_candles = &self.chart_data.candles[start_idx..end_idx];
-            let high = recent_candles.iter().map(|c| domain_to_exchange_price(c.high)).max().unwrap_or(Price::from_f32(0.0));
-            let low = recent_candles.iter().map(|c| domain_to_exchange_price(c.low)).min().unwrap_or(Price::from_f32(0.0));
+            let high = recent_candles
+                .iter()
+                .map(|c| domain_to_exchange_price(c.high))
+                .max()
+                .unwrap_or(Price::from_f32(0.0));
+            let low = recent_candles
+                .iter()
+                .map(|c| domain_to_exchange_price(c.low))
+                .min()
+                .unwrap_or(Price::from_f32(0.0));
             (high, low)
         } else {
             (Price::from_f32(100.0), Price::from_f32(0.0))
@@ -332,7 +352,10 @@ impl KlineChart {
         self.chart.tick_size = step;
 
         // Update latest_x
-        self.chart.latest_x = self.chart_data.candles.last()
+        self.chart.latest_x = self
+            .chart_data
+            .candles
+            .last()
             .map(|c| c.time.0)
             .unwrap_or(0);
 
@@ -476,12 +499,20 @@ impl KlineChart {
             ChartBasis::Time(timeframe) => {
                 let interval_ms = timeframe.to_milliseconds();
                 // For time-based, find candles in timestamp range
-                let visible_candles: Vec<&Candle> = self.chart_data.candles
+                let visible_candles: Vec<&Candle> = self
+                    .chart_data
+                    .candles
                     .iter()
                     .filter(|c| c.time.0 >= earliest && c.time.0 <= latest)
                     .collect();
 
-                self.max_qty_from_candles(&visible_candles, rounded_highest, rounded_lowest, cluster_kind, interval_ms)
+                self.max_qty_from_candles(
+                    &visible_candles,
+                    rounded_highest,
+                    rounded_lowest,
+                    cluster_kind,
+                    interval_ms,
+                )
             }
             ChartBasis::Tick(_tick_count) => {
                 // For tick-based, use index range
@@ -489,7 +520,9 @@ impl KlineChart {
                 let latest = latest as usize;
                 let len = self.chart_data.candles.len();
 
-                let visible_candles: Vec<&Candle> = self.chart_data.candles
+                let visible_candles: Vec<&Candle> = self
+                    .chart_data
+                    .candles
                     .iter()
                     .rev()
                     .enumerate()
@@ -499,7 +532,13 @@ impl KlineChart {
 
                 // For tick charts, we use tick count to estimate time range
                 let interval_estimate = 1000; // 1 second default
-                self.max_qty_from_candles(&visible_candles, rounded_highest, rounded_lowest, cluster_kind, interval_estimate)
+                self.max_qty_from_candles(
+                    &visible_candles,
+                    rounded_highest,
+                    rounded_lowest,
+                    cluster_kind,
+                    interval_estimate,
+                )
             }
         }
     }
@@ -521,7 +560,9 @@ impl KlineChart {
             let candle_end = candle.time.0 + interval_ms;
 
             // Find start index using binary search
-            let start_idx = self.chart_data.trades
+            let start_idx = self
+                .chart_data
+                .trades
                 .binary_search_by_key(&candle_start, |t| t.time.0)
                 .unwrap_or_else(|i| i);
 
@@ -565,7 +606,12 @@ impl KlineChart {
     }
 
     /// Build footprint for a single candle from trades
-    fn build_footprint(&self, trades: &[Trade], highest: Price, lowest: Price) -> BTreeMap<Price, TradeGroup> {
+    fn build_footprint(
+        &self,
+        trades: &[Trade],
+        highest: Price,
+        lowest: Price,
+    ) -> BTreeMap<Price, TradeGroup> {
         let step = self.chart.tick_size;
         let mut trades_map = BTreeMap::new();
 
@@ -591,6 +637,52 @@ impl KlineChart {
         trades_map
     }
 
+    /// Get or build cached footprint for a candle index
+    ///
+    /// Uses lazy initialization - builds full cache on first access,
+    /// then serves from cache on subsequent calls.
+    fn get_cached_footprint(
+        &mut self,
+        candle_index: usize,
+        interval_ms: u64,
+        highest: Price,
+        lowest: Price,
+    ) -> Option<BTreeMap<Price, TradeGroup>> {
+        // Check if we need to rebuild cache
+        if self.footprint_cache.is_none() {
+            self.build_footprint_cache(interval_ms);
+        }
+
+        // Retrieve from cache
+        self.footprint_cache
+            .as_ref()
+            .and_then(|cache| cache.get(candle_index).cloned())
+            .or_else(|| {
+                // Fallback: build on-demand if cache miss
+                if candle_index < self.chart_data.candles.len() {
+                    let candle = &self.chart_data.candles[candle_index];
+                    let candle_start = candle.time.0;
+                    let candle_end = candle.time.0 + interval_ms;
+
+                    let start_idx = self
+                        .chart_data
+                        .trades
+                        .binary_search_by_key(&candle_start, |t| t.time.0)
+                        .unwrap_or_else(|i| i);
+
+                    let end_idx = self.chart_data.trades[start_idx..]
+                        .binary_search_by_key(&candle_end, |t| t.time.0)
+                        .map(|i| start_idx + i)
+                        .unwrap_or_else(|i| start_idx + i);
+
+                    let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
+                    Some(self.build_footprint(trades_in_candle, highest, lowest))
+                } else {
+                    None
+                }
+            })
+    }
+
     /// Build complete footprint cache for all candles
     ///
     /// Pre-computes footprints for better rendering performance
@@ -611,7 +703,9 @@ impl KlineChart {
             };
 
             // Binary search for trade range
-            let start_idx = self.chart_data.trades
+            let start_idx = self
+                .chart_data
+                .trades
                 .binary_search_by_key(&candle_start, |t| t.time.0)
                 .unwrap_or_else(|i| i);
 
@@ -701,16 +795,17 @@ impl KlineChart {
                     let (start_interval, end_interval) = chart.interval_range(&visible_region);
 
                     let visible_candles: Vec<&Candle> = match &self.basis {
-                        ChartBasis::Time(_) => {
-                            self.chart_data.candles
-                                .iter()
-                                .filter(|c| c.time.0 >= start_interval && c.time.0 <= end_interval)
-                                .collect()
-                        }
+                        ChartBasis::Time(_) => self
+                            .chart_data
+                            .candles
+                            .iter()
+                            .filter(|c| c.time.0 >= start_interval && c.time.0 <= end_interval)
+                            .collect(),
                         ChartBasis::Tick(_) => {
                             let start_idx = start_interval as usize;
                             let end_idx = end_interval as usize;
-                            self.chart_data.candles
+                            self.chart_data
+                                .candles
                                 .iter()
                                 .rev()
                                 .enumerate()
@@ -721,8 +816,14 @@ impl KlineChart {
                     };
 
                     if !visible_candles.is_empty() {
-                        let highest = visible_candles.iter().map(|c| c.high.to_f32()).fold(f32::MIN, f32::max);
-                        let lowest = visible_candles.iter().map(|c| c.low.to_f32()).fold(f32::MAX, f32::min);
+                        let highest = visible_candles
+                            .iter()
+                            .map(|c| c.high.to_f32())
+                            .fold(f32::MIN, f32::max);
+                        let lowest = visible_candles
+                            .iter()
+                            .map(|c| c.low.to_f32())
+                            .fold(f32::MAX, f32::min);
 
                         let padding = (highest - lowest) * 0.05;
                         let price_span = (highest - lowest) + (2.0 * padding);
@@ -752,7 +853,15 @@ impl KlineChart {
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
-        let prev_indi_count = self.indicators.values().filter(|v| v.is_some()).count();
+        let panel_count =
+            |indicators: &EnumMap<KlineIndicator, Option<Box<dyn KlineIndicatorImpl>>>| {
+                indicators
+                    .iter()
+                    .filter(|(k, v)| v.is_some() && !k.is_overlay())
+                    .count()
+            };
+
+        let prev_panel_count = panel_count(&self.indicators);
 
         if self.indicators[indicator].is_some() {
             self.indicators[indicator] = None;
@@ -762,14 +871,19 @@ impl KlineChart {
             self.indicators[indicator] = Some(box_indi);
         }
 
-        if let Some(main_split) = self.chart.layout.splits.first() {
-            let current_indi_count = self.indicators.values().filter(|v| v.is_some()).count();
+        // Only adjust layout splits for panel (non-overlay) indicators.
+        if !indicator.is_overlay()
+            && let Some(main_split) = self.chart.layout.splits.first()
+        {
+            let current_panel_count = panel_count(&self.indicators);
             self.chart.layout.splits = data::util::calc_panel_splits(
                 *main_split,
-                current_indi_count,
-                Some(prev_indi_count),
+                current_panel_count,
+                Some(prev_panel_count),
             );
         }
+
+        self.invalidate();
     }
 }
 

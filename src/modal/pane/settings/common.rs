@@ -1,6 +1,7 @@
 use crate::screen::dashboard::pane::Message;
 use crate::style;
-use crate::widget::{scrollable_content, tooltip};
+use crate::component::display::tooltip::tooltip;
+use crate::component::layout::scrollable_content::scrollable_content;
 
 use data::state::pane_config::VisualConfig;
 

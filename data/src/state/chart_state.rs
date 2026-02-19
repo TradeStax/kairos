@@ -3,8 +3,8 @@
 //! Chart-specific state that is kept in memory only (NOT persisted).
 //! Chart data is derived from cache, not stored in saved state.
 
-use crate::domain::FuturesTickerInfo;
-use crate::domain::chart::{ChartConfig, ChartData, LoadingStatus};
+use crate::domain::chart::{ChartBasis, ChartConfig, ChartData, LoadingStatus};
+use crate::domain::{Candle, FuturesTickerInfo, Side, Trade, Timestamp, Volume};
 
 /// Chart state (in-memory only, NOT persisted)
 ///
@@ -72,6 +72,93 @@ impl ChartState {
     pub fn clear_data(&mut self) {
         self.data = ChartData::from_trades(vec![], vec![]);
         self.loading_status = LoadingStatus::Idle;
+    }
+
+    /// Append a live trade and update the latest candle.
+    ///
+    /// For time-based charts, trades are bucketed into candle periods.
+    /// For tick-based charts, a new candle starts every N trades.
+    pub fn append_live_trade(&mut self, trade: Trade) {
+        self.data.trades.push(trade);
+
+        let (buy_vol, sell_vol) = match trade.side {
+            Side::Buy | Side::Bid => (Volume(trade.quantity.0), Volume(0.0)),
+            Side::Sell | Side::Ask => (Volume(0.0), Volume(trade.quantity.0)),
+        };
+
+        match self.config.basis {
+            ChartBasis::Time(tf) => {
+                let interval = tf.to_milliseconds();
+                if interval == 0 {
+                    return;
+                }
+                let bucket_time = (trade.time.to_millis() / interval) * interval;
+
+                if let Some(last_candle) = self.data.candles.last_mut() {
+                    if last_candle.time.to_millis() == bucket_time {
+                        last_candle.high = last_candle.high.max(trade.price);
+                        last_candle.low = last_candle.low.min(trade.price);
+                        last_candle.close = trade.price;
+                        last_candle.buy_volume = Volume(
+                            last_candle.buy_volume.0 + buy_vol.0,
+                        );
+                        last_candle.sell_volume = Volume(
+                            last_candle.sell_volume.0 + sell_vol.0,
+                        );
+                        return;
+                    }
+                }
+                // New candle period
+                self.data.candles.push(Candle {
+                    time: Timestamp::from_millis(bucket_time),
+                    open: trade.price,
+                    high: trade.price,
+                    low: trade.price,
+                    close: trade.price,
+                    buy_volume: buy_vol,
+                    sell_volume: sell_vol,
+                });
+            }
+            ChartBasis::Tick(count) => {
+                let count = count as usize;
+                if count == 0 {
+                    return;
+                }
+
+                // Count trades in current candle: total trades minus
+                // trades accounted for by previous completed candles
+                let num_candles = self.data.candles.len();
+                let num_trades = self.data.trades.len();
+                let completed_candles = if num_candles > 0 { num_candles - 1 } else { 0 };
+                let trades_in_current =
+                    num_trades.saturating_sub(completed_candles * count);
+
+                if let Some(last_candle) = self.data.candles.last_mut() {
+                    if trades_in_current <= count {
+                        last_candle.high = last_candle.high.max(trade.price);
+                        last_candle.low = last_candle.low.min(trade.price);
+                        last_candle.close = trade.price;
+                        last_candle.buy_volume = Volume(
+                            last_candle.buy_volume.0 + buy_vol.0,
+                        );
+                        last_candle.sell_volume = Volume(
+                            last_candle.sell_volume.0 + sell_vol.0,
+                        );
+                        return;
+                    }
+                }
+                // Start new tick candle
+                self.data.candles.push(Candle {
+                    time: trade.time,
+                    open: trade.price,
+                    high: trade.price,
+                    low: trade.price,
+                    close: trade.price,
+                    buy_volume: buy_vol,
+                    sell_volume: sell_vol,
+                });
+            }
+        }
     }
 }
 

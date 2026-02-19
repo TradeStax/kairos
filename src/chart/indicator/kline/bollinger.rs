@@ -1,9 +1,27 @@
 //! Bollinger Bands Indicator
 
-use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
+use crate::chart::{
+    Caches, Message, ViewState,
+    indicator::{
+        indicator_row,
+        kline::{KlineIndicatorImpl, OverlayLine},
+        plot::{PlotTooltip, line::LinePlot},
+    },
+};
 use data::{Candle, ChartBasis};
 use iced::widget::column;
 use std::{collections::BTreeMap, ops::RangeInclusive};
+
+/// Band colors
+const UPPER_COLOR: iced::Color = iced::Color {
+    r: 0.6, g: 0.6, b: 0.8, a: 0.7,
+};
+const MIDDLE_COLOR: iced::Color = iced::Color {
+    r: 0.5, g: 0.5, b: 0.7, a: 0.9,
+};
+const LOWER_COLOR: iced::Color = iced::Color {
+    r: 0.6, g: 0.6, b: 0.8, a: 0.7,
+};
 
 pub struct BollingerIndicator {
     upper_band: BTreeMap<u64, f32>,
@@ -14,7 +32,12 @@ pub struct BollingerIndicator {
 
 impl BollingerIndicator {
     pub fn new() -> Self {
-        Self { upper_band: BTreeMap::new(), middle_band: BTreeMap::new(), lower_band: BTreeMap::new(), cache: Caches::default() }
+        Self {
+            upper_band: BTreeMap::new(),
+            middle_band: BTreeMap::new(),
+            lower_band: BTreeMap::new(),
+            cache: Caches::default(),
+        }
     }
 
     fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
@@ -52,25 +75,63 @@ impl KlineIndicatorImpl for BollingerIndicator {
     fn clear_all_caches(&mut self) { self.cache.clear_all(); }
     fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
 
-    fn element<'a>(&'a self, chart: &'a ViewState, visible_range: RangeInclusive<u64>) -> iced::Element<'a, Message> {
-        let upper_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Upper: {:.2}", v));
-        let middle_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Mid: {:.2}", v));
-        let lower_tt = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("BB Lower: {:.2}", v));
+    fn element<'a>(
+        &'a self,
+        chart: &'a ViewState,
+        visible_range: RangeInclusive<u64>,
+    ) -> iced::Element<'a, Message> {
+        // Bollinger is an overlay indicator; fallback panel view.
+        let tooltip = |v: &f32, _n: Option<&f32>| {
+            PlotTooltip::new(format!("BB: {:.2}", v))
+        };
 
-        let upper_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(upper_tt);
-        let middle_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(middle_tt);
-        let lower_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.0).show_points(false).with_tooltip(lower_tt);
+        let upper_plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+        let middle_plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.0).show_points(false).with_tooltip(tooltip);
+        let lower_plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.0).show_points(false).with_tooltip(tooltip);
 
         column![
-            indicator_row(chart, &self.cache, upper_plot, &self.upper_band, visible_range.clone()),
-            indicator_row(chart, &self.cache, middle_plot, &self.middle_band, visible_range.clone()),
-            indicator_row(chart, &self.cache, lower_plot, &self.lower_band, visible_range)
-        ].into()
+            indicator_row(
+                chart, &self.cache, upper_plot,
+                &self.upper_band, visible_range.clone(),
+            ),
+            indicator_row(
+                chart, &self.cache, middle_plot,
+                &self.middle_band, visible_range.clone(),
+            ),
+            indicator_row(
+                chart, &self.cache, lower_plot,
+                &self.lower_band, visible_range,
+            )
+        ]
+        .into()
     }
 
     fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.calculate(candles, basis);
         self.clear_all_caches();
+    }
+
+    fn overlay_lines(&self) -> Vec<OverlayLine<'_>> {
+        vec![
+            OverlayLine {
+                data: &self.upper_band,
+                color: UPPER_COLOR,
+                stroke_width: 1.0,
+            },
+            OverlayLine {
+                data: &self.middle_band,
+                color: MIDDLE_COLOR,
+                stroke_width: 1.0,
+            },
+            OverlayLine {
+                data: &self.lower_band,
+                color: LOWER_COLOR,
+                stroke_width: 1.0,
+            },
+        ]
     }
 }
 

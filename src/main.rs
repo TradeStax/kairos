@@ -3,6 +3,7 @@
 mod app;
 mod audio;
 mod chart;
+mod component;
 mod layout;
 mod logger;
 mod modal;
@@ -21,8 +22,8 @@ fn main() {
         .settings(iced::Settings {
             antialiasing: true,
             fonts: vec![
-                Cow::Borrowed(style::AZERET_MONO_BYTES),
-                Cow::Borrowed(style::ICONS_BYTES),
+                Cow::Borrowed(component::primitives::AZERET_MONO_BYTES),
+                Cow::Borrowed(component::primitives::ICONS_BYTES),
             ],
             default_text_size: iced::Pixels(12.0),
             ..Default::default()

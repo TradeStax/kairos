@@ -5,7 +5,7 @@
 
 use crate::chart::{Chart, Interaction, Message, ViewState};
 use crate::chart::drawing;
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
 use super::{HeatmapChart, VisualConfig};
 use super::data::HeatmapData;
 use super::trades::{
@@ -154,6 +154,11 @@ impl canvas::Program<Message> for HeatmapChart {
                     (bounds.width / chart.scaling) * 0.1,
                     self.basis,
                 );
+            }
+
+            // Draw data gap markers
+            if !self.chart_data.gaps.is_empty() {
+                crate::chart::overlay::draw_gap_markers(frame, chart, &self.chart_data.gaps, &region);
             }
         });
 
@@ -331,7 +336,7 @@ fn draw_latest_orderbook(
             position: text_position,
             size: iced::Pixels(text_size),
             color: palette.background.base.text,
-            font: style::AZERET_MONO,
+            font: AZERET_MONO,
             ..canvas::Text::default()
         });
     }
@@ -480,7 +485,7 @@ fn draw_volume_indicator(
             position: text_position,
             size: text_size.into(),
             color: palette.background.base.text,
-            font: style::AZERET_MONO,
+            font: AZERET_MONO,
             ..canvas::Text::default()
         });
     }
@@ -650,7 +655,7 @@ pub fn draw_volume_profile(
             position: text_position,
             size: iced::Pixels(text_size),
             color: palette.background.base.text,
-            font: style::AZERET_MONO,
+            font: AZERET_MONO,
             ..canvas::Text::default()
         });
     }

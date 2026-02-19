@@ -12,7 +12,6 @@ pub mod indicator;
 pub mod overlay;
 pub mod perf;
 pub(crate) mod scale;
-pub mod study;
 
 // Re-export KlineChart for backwards compatibility
 
@@ -21,7 +20,7 @@ pub use core::{Caches, Chart, Interaction, PlotConstants, ViewState, canvas_inte
 
 use crate::style;
 use crate::widget::multi_split::MultiSplit;
-use crate::widget::tooltip;
+use crate::component::display::tooltip::tooltip;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
 
@@ -31,12 +30,14 @@ use iced::{
     widget::{button, center, column, container, mouse_area, row, rule, text},
 };
 
+use crate::style::tokens;
+
 /// Zoom sensitivity for scroll wheel operations
-const ZOOM_SENSITIVITY: f32 = 30.0;
+const ZOOM_SENSITIVITY: f32 = tokens::chart::ZOOM_SENSITIVITY;
 /// Exponential zoom base (ratio per unit)
-const ZOOM_BASE: f32 = 2.0;
+const ZOOM_BASE: f32 = tokens::chart::ZOOM_BASE;
 /// Text size for labels
-pub const TEXT_SIZE: f32 = 12.0;
+pub const TEXT_SIZE: f32 = tokens::text::BODY;
 
 /// Axis scale click target
 #[derive(Debug, Clone, Copy)]

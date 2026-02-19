@@ -4,7 +4,8 @@
 //! Refactored for futures historical/replay mode with clean domain types.
 
 use super::Message;
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
+use crate::style::{self, tokens};
 use data::panel::ladder::Config;
 use data::{DepthSnapshot, Side, Trade};
 use exchange::util::{Price as ExPrice, PriceStep};
@@ -16,8 +17,8 @@ use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-const TEXT_SIZE: f32 = 11.0;
-const ROW_HEIGHT: f32 = 16.0;
+const TEXT_SIZE: f32 = tokens::text::SMALL;
+const ROW_HEIGHT: f32 = tokens::layout::PANEL_ROW_HEIGHT;
 
 // Total width ratios must sum to 1.0
 /// Uses half of the width for each side of the order quantity columns
@@ -25,7 +26,7 @@ const ORDER_QTY_COLS_WIDTH: f32 = 0.60;
 /// Uses half of the width for each side of the trade quantity columns
 const TRADE_QTY_COLS_WIDTH: f32 = 0.20;
 
-const COL_PADDING: f32 = 4.0;
+const COL_PADDING: f32 = tokens::spacing::XS;
 /// Used for calculating layout with texts inside the price column
 const MONO_CHAR_ADVANCE: f32 = 0.62;
 /// Minimum padding on each side of the price text inside the price column
@@ -355,7 +356,7 @@ impl canvas::Program<Message> for Ladder {
                                     ),
                                     color: palette.secondary.strong.color,
                                     size: (TEXT_SIZE - 1.0).into(),
-                                    font: style::AZERET_MONO,
+                                    font: AZERET_MONO,
                                     align_x: Alignment::Center.into(),
                                     align_y: Alignment::Center.into(),
                                     ..Default::default()
@@ -735,7 +736,7 @@ impl Ladder {
             position: Point::new(x_anchor, y + ROW_HEIGHT / 2.0),
             color,
             size: TEXT_SIZE.into(),
-            font: style::AZERET_MONO,
+            font: AZERET_MONO,
             align_x: align.into(),
             align_y: Alignment::Center.into(),
             ..Default::default()

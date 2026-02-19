@@ -5,7 +5,8 @@
 
 use crate::chart::{Interaction, Message, ViewState};
 use data::ChartBasis;
-use crate::style::{self, dashed_line};
+use crate::component::primitives::AZERET_MONO;
+use crate::style::dashed_line;
 use data::util::{guesstimate_ticks, round_to_tick};
 
 use iced::widget::canvas::{self, Cache, Geometry, Path};
@@ -432,7 +433,7 @@ impl PlotTooltip {
             position: Point::new(text_x, 2.0),
             size: iced::Pixels(10.0),
             color: palette.background.base.text,
-            font: style::AZERET_MONO,
+            font: AZERET_MONO,
             align_x: align_x.into(),
             ..canvas::Text::default()
         });

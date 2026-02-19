@@ -1,6 +1,10 @@
+use crate::component::primitives::label::title;
 use crate::screen::dashboard::pane::{self, Message};
-use crate::style::{self, Icon, icon_text};
-use crate::widget::{column_drag, dragger_row};
+use crate::component::primitives::{Icon, icon_text};
+use crate::style;
+use crate::style::tokens;
+use crate::component::layout::dragger_row::dragger_row;
+use crate::component::layout::reorderable_list as column_drag;
 
 use data::chart::indicator::{Indicator, UiIndicator};
 use iced::{
@@ -56,14 +60,14 @@ where
     if reorderable {
         let mut draggable_column = column_drag::Column::new()
             .on_drag(move |event| Message::PaneEvent(pane, pane::Event::ReorderIndicator(event)))
-            .spacing(4);
+            .spacing(tokens::spacing::XS);
         for element in elements {
             draggable_column = draggable_column.push(element);
         }
         draggable_column.into()
     } else {
         iced::widget::Column::with_children(elements)
-            .spacing(4)
+            .spacing(tokens::spacing::XS)
             .into()
     }
 }
@@ -81,8 +85,52 @@ where
         .collect();
 
     iced::widget::Column::with_children(elements)
-        .spacing(4)
+        .spacing(tokens::spacing::XS)
         .into()
+}
+
+fn content_row<'a, I>(
+    pane: pane_grid::Pane,
+    selected: &[I],
+    allows_drag: bool,
+    all_indicators: Vec<I>,
+) -> Element<'a, Message>
+where
+    I: Indicator + Copy + Into<UiIndicator> + std::fmt::Display + PartialEq,
+{
+    let reorderable = allows_drag && selected.len() >= 2;
+
+    let selected_list = if !selected.is_empty() {
+        Some(selected_list(pane, selected, reorderable))
+    } else {
+        None
+    };
+
+    let available: Vec<I> = all_indicators
+        .into_iter()
+        .filter(|indicator| !selected.contains(indicator))
+        .collect();
+
+    let available_list = if !available.is_empty() {
+        Some(available_list(pane, &available))
+    } else {
+        None
+    };
+
+    let mut col = iced::widget::Column::new();
+    if let Some(sel) = selected_list {
+        col = col.push(sel);
+    }
+    if let Some(avail) = available_list {
+        col = col.push(avail);
+    }
+
+    column![
+        container(title("Indicators")).padding(padding::bottom(tokens::spacing::MD)),
+        col.spacing(tokens::spacing::XS)
+    ]
+    .spacing(tokens::spacing::XS)
+    .into()
 }
 
 pub fn content_row_kline<'a>(
@@ -90,40 +138,7 @@ pub fn content_row_kline<'a>(
     selected: &[data::KlineIndicator],
     allows_drag: bool,
 ) -> Element<'a, Message> {
-    let reorderable = allows_drag && selected.len() >= 2;
-
-    let selected_list = if !selected.is_empty() {
-        Some(selected_list(pane, selected, reorderable))
-    } else {
-        None
-    };
-
-    // Get all kline indicators
-    let available: Vec<data::KlineIndicator> = data::KlineIndicator::all_indicators()
-        .into_iter()
-        .filter(|indicator| !selected.contains(indicator))
-        .collect();
-
-    let available_list = if !available.is_empty() {
-        Some(available_list(pane, &available))
-    } else {
-        None
-    };
-
-    let mut col = iced::widget::Column::new();
-    if let Some(sel) = selected_list {
-        col = col.push(sel);
-    }
-    if let Some(avail) = available_list {
-        col = col.push(avail);
-    }
-
-    column![
-        container(text("Indicators").size(14)).padding(padding::bottom(8)),
-        col.spacing(4)
-    ]
-    .spacing(4)
-    .into()
+    content_row(pane, selected, allows_drag, data::KlineIndicator::all_indicators())
 }
 
 pub fn content_row_heatmap<'a>(
@@ -131,38 +146,5 @@ pub fn content_row_heatmap<'a>(
     selected: &[data::HeatmapIndicator],
     allows_drag: bool,
 ) -> Element<'a, Message> {
-    let reorderable = allows_drag && selected.len() >= 2;
-
-    let selected_list = if !selected.is_empty() {
-        Some(selected_list(pane, selected, reorderable))
-    } else {
-        None
-    };
-
-    // Get all heatmap indicators
-    let available: Vec<data::HeatmapIndicator> = data::HeatmapIndicator::all_indicators()
-        .into_iter()
-        .filter(|indicator| !selected.contains(indicator))
-        .collect();
-
-    let available_list = if !available.is_empty() {
-        Some(available_list(pane, &available))
-    } else {
-        None
-    };
-
-    let mut col = iced::widget::Column::new();
-    if let Some(sel) = selected_list {
-        col = col.push(sel);
-    }
-    if let Some(avail) = available_list {
-        col = col.push(avail);
-    }
-
-    column![
-        container(text("Indicators").size(14)).padding(padding::bottom(8)),
-        col.spacing(4)
-    ]
-    .spacing(4)
-    .into()
+    content_row(pane, selected, allows_drag, data::HeatmapIndicator::all_indicators())
 }

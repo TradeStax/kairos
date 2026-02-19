@@ -20,7 +20,10 @@ pub mod types;
 
 // Re-export commonly used types
 pub use aggregation::{AggregationError, aggregate_trades_to_candles, aggregate_trades_to_ticks};
-pub use chart::{ChartBasis, ChartConfig, ChartData, ChartType, DataSchema, LoadingStatus};
+pub use chart::{
+    ChartBasis, ChartConfig, ChartData, ChartType, DataGap, DataGapKind, DataSchema, DataSegment,
+    LoadingStatus, MergeResult,
+};
 pub use chart_ui_types::{
     Autoscale, ClusterKind, ClusterScaling, FootprintStudy, HeatmapIndicator, Indicator,
     KlineChartKind, KlineDataPoint, KlineIndicator, KlineTrades, NPoc, PointOfControl,
@@ -36,4 +39,3 @@ pub use options::{
     ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType,
 };
 pub use types::{DateRange, Price, Quantity, Side, TimeRange, Timestamp, Volume};
-

@@ -1,6 +1,6 @@
 use crate::chart::{comparison::ComparisonChart, heatmap::HeatmapChart, candlestick::KlineChart};
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
-use crate::widget::column_drag;
+use crate::component::layout::reorderable_list as column_drag;
 
 use data::{
     ContentKind, DrawingTool, FootprintStudy, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
@@ -351,6 +351,19 @@ impl Content {
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
             Content::Starter => true,
+        }
+    }
+
+    /// Clear chart/panel objects while keeping the content kind and settings.
+    /// Used when a feed disconnects to unload data without losing the pane layout.
+    pub fn clear_chart(&mut self) {
+        match self {
+            Content::Heatmap { chart, .. } => *chart = None,
+            Content::Kline { chart, .. } => *chart = None,
+            Content::TimeAndSales(panel) => *panel = None,
+            Content::Ladder(panel) => *panel = None,
+            Content::Comparison(chart) => *chart = None,
+            Content::Starter => {}
         }
     }
 

@@ -6,11 +6,13 @@
 use crate::{
     layout::SavedState,
     modal::drawing_tools::{self, DrawingToolsPanel, ToolCategory},
-    style::{self, Icon, icon_text},
-    widget::button_with_tooltip,
+    component::primitives::{Icon, icon_text},
+    style,
+    style::tokens,
+    component::display::tooltip::button_with_tooltip,
 };
 use iced::widget::tooltip::Position as TooltipPosition;
-use data::{sidebar, DrawingTool};
+use data::sidebar;
 
 use iced::{
     Alignment, Element, Length, Task,
@@ -106,11 +108,25 @@ impl Sidebar {
                 .map(Message::DrawingTools);
 
             container(tools_buttons)
-                .padding(padding::all(4))
+                .padding(padding::all(tokens::spacing::XS))
                 .style(style::drawing_tools_container)
         };
 
         // Bottom buttons
+        let replay_btn = {
+            let is_active = self.is_menu_active(sidebar::Menu::Replay);
+
+            button_with_tooltip(
+                icon_text(Icon::Replay, 14)
+                    .width(24)
+                    .align_x(Alignment::Center),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Replay)),
+                Some("Replay"),
+                tooltip_position,
+                move |theme, status| crate::style::button::transparent(theme, status, is_active),
+            )
+        };
+
         let audio_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Audio);
 
@@ -129,15 +145,15 @@ impl Sidebar {
             )
         };
 
-        let data_mgmt_button = {
-            let is_active = self.is_menu_active(sidebar::Menu::DataManagement);
+        let connections_button = {
+            let is_active = self.is_menu_active(sidebar::Menu::Connections);
 
             button_with_tooltip(
-                icon_text(Icon::Folder, 14)
+                icon_text(Icon::Link, 14)
                     .width(24)
                     .align_x(Alignment::Center),
-                Message::ToggleSidebarMenu(Some(sidebar::Menu::DataManagement)),
-                Some("Data Management"),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Connections)),
+                Some("Connections"),
                 tooltip_position,
                 move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
@@ -169,12 +185,13 @@ impl Sidebar {
             // Spacer to push bottom buttons down
             space::vertical().height(Length::Fill),
             // Bottom section
+            replay_btn,
             audio_btn,
-            data_mgmt_button,
+            connections_button,
             settings_modal_button,
         ]
-        .width(32)
-        .spacing(4)
+        .width(tokens::layout::SIDEBAR_WIDTH)
+        .spacing(tokens::spacing::XS)
         .align_x(Alignment::Center)
         .into()
     }
@@ -218,7 +235,8 @@ impl Sidebar {
                 .position(|c| *c == category)
                 .unwrap_or(0);
 
-            DRAWING_TOOLS_BASE_OFFSET + (category_index as f32 * TOOL_BUTTON_HEIGHT)
+            // Each button is approximately 32px tall with 2px spacing
+            base_offset + (category_index as f32 * tokens::layout::SIDEBAR_BUTTON_HEIGHT)
         } else {
             DRAWING_TOOLS_BASE_OFFSET
         }
@@ -244,13 +262,4 @@ impl Sidebar {
         self.state.date_range_preset
     }
 
-    #[allow(dead_code)]
-    pub fn active_drawing_tool(&self) -> DrawingTool {
-        self.drawing_tools.active_tool
-    }
-
-    #[allow(dead_code)]
-    pub fn set_drawing_tool(&mut self, tool: DrawingTool) {
-        self.drawing_tools.update(drawing_tools::Message::ToolSelected(tool));
-    }
 }

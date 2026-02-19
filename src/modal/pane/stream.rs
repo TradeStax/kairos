@@ -1,7 +1,7 @@
-use crate::{
-    style::{self, icon_text},
-    widget::numeric_input_box,
-};
+use crate::component::primitives::label::label_text;
+use crate::style::tokens;
+use crate::component::primitives::{Icon, icon_text};
+use crate::style;
 
 use data::ChartBasis;
 use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
@@ -247,7 +247,7 @@ impl Modifier {
         match self.view_mode {
             ViewMode::BasisSelection => {
                 let mut basis_selection_column =
-                    column![].padding(4).spacing(8).align_x(Horizontal::Center);
+                    column![].padding(tokens::spacing::XS).spacing(tokens::spacing::MD).align_x(Horizontal::Center);
 
                 let allows_tick_basis = match kind {
                     ModifierKind::Candlestick(_) | ModifierKind::Footprint(_) => true,
@@ -276,7 +276,7 @@ impl Modifier {
                                         row![
                                             content,
                                             iced::widget::space::horizontal(),
-                                            icon_text(style::Icon::Checkmark, 12)
+                                            icon_text(Icon::Checkmark, 12)
                                         ]
                                     } else {
                                         row![content]
@@ -332,13 +332,13 @@ impl Modifier {
                                     !is_timeframe_selected,
                                 ),
                             ]
-                            .spacing(4)
+                            .spacing(tokens::spacing::XS)
                         } else {
                             let text_content = match kind {
                                 ModifierKind::Comparison(_) => "Timeframe",
                                 _ => "Aggregation",
                             };
-                            row![text(text_content).size(13)]
+                            row![label_text(text_content)]
                         }
                     };
 
@@ -416,20 +416,31 @@ impl Modifier {
                             3,
                         );
 
-                        let custom_input = {
+                        let custom_input: Element<'_, Message> = {
                             let tick_count_to_submit = parsed_input
                                 .filter(|tc| *tc >= TICK_COUNT_MIN && *tc <= TICK_COUNT_MAX);
 
-                            numeric_input_box::<_, Message>(
-                                "Custom: ",
+                            let mut input = iced::widget::text_input(
                                 &format!("{}-{}", TICK_COUNT_MIN, TICK_COUNT_MAX),
                                 &raw_input_buf.to_display_string(),
-                                is_input_valid,
-                                Message::TickCountInputChanged,
-                                tick_count_to_submit
-                                    .map(|tc| Message::BasisSelected(ChartBasis::Tick(tc as u32))),
                             )
+                            .on_input(Message::TickCountInputChanged)
+                            .align_x(iced::Alignment::Center)
+                            .style(move |theme, status| {
+                                style::validated_text_input(theme, status, is_input_valid)
+                            });
+                            if let Some(tc) = tick_count_to_submit {
+                                input = input.on_submit(
+                                    Message::BasisSelected(ChartBasis::Tick(tc as u32)),
+                                );
+                            }
+
+                            row![label_text("Custom: "), input]
+                                .spacing(tokens::spacing::XS)
+                                .align_y(iced::Alignment::Center)
+                                .into()
                         };
+
                         basis_selection_column = basis_selection_column.push(custom_input);
                         basis_selection_column = basis_selection_column.push(tick_count_grid);
                     }
@@ -442,7 +453,7 @@ impl Modifier {
                     ),
                 ))
                 .max_width(240)
-                .padding(16)
+                .padding(tokens::spacing::XL)
                 .style(style::chart_modal)
                 .into()
             }
@@ -472,7 +483,7 @@ where
     T: Copy + PartialEq + ToString,
     FMsg: Fn(T) -> Message,
 {
-    let mut grid_column = column![].spacing(4);
+    let mut grid_column = column![].spacing(tokens::spacing::XS);
     let mut remaining_slice = items_source;
 
     while !remaining_slice.is_empty() {
@@ -490,7 +501,7 @@ where
         let (chunk, rest) = remaining_slice.split_at(take);
         remaining_slice = rest;
 
-        let mut button_row = row![].spacing(4);
+        let mut button_row = row![].spacing(tokens::spacing::XS);
 
         for &item_value in chunk {
             let is_selected = selected_value == Some(item_value);

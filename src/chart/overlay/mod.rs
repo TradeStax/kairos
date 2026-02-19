@@ -6,9 +6,12 @@
 //! - `LastPriceLine` - Horizontal line at last traded price
 
 mod crosshair;
+mod gaps;
+mod grid;
 mod last_price;
 mod ruler;
 
 pub use crosshair::draw_crosshair;
+pub use gaps::draw_gap_markers;
 pub use last_price::draw_last_price_line;
 pub use ruler::draw_ruler;

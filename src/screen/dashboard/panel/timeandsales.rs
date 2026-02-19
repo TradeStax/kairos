@@ -1,5 +1,6 @@
 use super::Message;
-use crate::style;
+use crate::component::primitives::AZERET_MONO;
+use crate::style::tokens;
 use data::config::theme::{darken, lighten};
 pub use data::panel::timeandsales::Config;
 use data::panel::timeandsales::{HistAgg, StackedBar, StackedBarRatio, TradeEntry};
@@ -11,10 +12,10 @@ use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
 use std::collections::VecDeque;
 use std::time::Instant;
 
-const TEXT_SIZE: iced::Pixels = iced::Pixels(11.0);
-const METRICS_HEIGHT_COMPACT: f32 = 8.0;
+const TEXT_SIZE: iced::Pixels = iced::Pixels(tokens::text::SMALL);
+const METRICS_HEIGHT_COMPACT: f32 = tokens::spacing::MD;
 const METRICS_HEIGHT_FULL: f32 = 18.0;
-const TRADE_ROW_HEIGHT: f32 = 14.0;
+const TRADE_ROW_HEIGHT: f32 = tokens::layout::PANEL_ROW_HEIGHT_SM;
 
 impl super::Panel for TimeAndSales {
     fn scroll(&mut self, delta: f32) {
@@ -381,7 +382,7 @@ impl canvas::Program<Message> for TimeAndSales {
                                 y: center_y,
                             },
                             size: TEXT_SIZE,
-                            font: style::AZERET_MONO,
+                            font: AZERET_MONO,
                             color: palette.success.weak.text,
                             align_x: Alignment::Start.into(),
                             align_y: Alignment::Center.into(),
@@ -402,7 +403,7 @@ impl canvas::Program<Message> for TimeAndSales {
                                 y: center_y,
                             },
                             size: TEXT_SIZE,
-                            font: style::AZERET_MONO,
+                            font: AZERET_MONO,
                             color: palette.danger.weak.text,
                             align_x: Alignment::End.into(),
                             align_y: Alignment::Center.into(),
@@ -434,7 +435,7 @@ impl canvas::Program<Message> for TimeAndSales {
                     content,
                     position,
                     size: TEXT_SIZE,
-                    font: style::AZERET_MONO,
+                    font: AZERET_MONO,
                     color,
                     align_x: align_x.into(),
                     ..Default::default()
@@ -564,8 +565,8 @@ impl canvas::Program<Message> for TimeAndSales {
                         x: frame.width() * 0.5,
                         y: pause_overlay_y + (pause_overlay_height / 2.0),
                     },
-                    size: 12.0.into(),
-                    font: style::AZERET_MONO,
+                    size: tokens::text::BODY.into(),
+                    font: AZERET_MONO,
                     color: palette.background.strong.text,
                     align_x: Alignment::Center.into(),
                     align_y: Alignment::Center.into(),

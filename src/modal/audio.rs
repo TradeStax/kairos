@@ -1,7 +1,10 @@
 use iced::widget::tooltip::Position as TooltipPosition;
 use crate::audio::{SoundCache, SoundType};
-use crate::style::{self, icon_text};
-use crate::widget::{labeled_slider, tooltip};
+use crate::component::primitives::label::title;
+use crate::component::primitives::{Icon, icon_text};
+use crate::style::{self, tokens};
+use crate::component::display::tooltip::tooltip;
+use crate::component::input::slider_field::labeled_slider;
 use data::audio::StreamCfg;
 use data::FuturesTicker;
 use exchange::adapter::StreamKind;
@@ -97,11 +100,11 @@ impl AudioStream {
                 )
             };
 
-            column![text("Sound").size(14), volume_slider,].spacing(8)
+            column![title("Sound"), volume_slider,].spacing(tokens::spacing::MD)
         };
 
         let audio_contents = {
-            let mut available_streams = column![].spacing(4);
+            let mut available_streams = column![].spacing(tokens::spacing::XS);
 
             if active_streams.is_empty() {
                 available_streams = available_streams.push(text("No trade streams found"));
@@ -122,7 +125,7 @@ impl AudioStream {
                 for (ticker_info, depth_aggr, _) in streams {
                     let ticker = ticker_info.ticker;
 
-                    let mut column = column![].padding(padding::left(4));
+                    let mut column = column![].padding(padding::left(tokens::spacing::XS));
 
                     let is_audio_enabled =
                         self.is_stream_audio_enabled(&StreamKind::DepthAndTrades {
@@ -138,14 +141,14 @@ impl AudioStream {
                     let mut stream_row = row![stream_checkbox, space::horizontal(),]
                         .height(36)
                         .align_y(iced::Alignment::Center)
-                        .padding(4)
-                        .spacing(4);
+                        .padding(tokens::spacing::XS)
+                        .spacing(tokens::spacing::XS);
 
                     let is_expanded = self.expanded_card.is_some_and(|tk| tk == ticker);
 
                     if is_audio_enabled {
                         stream_row = stream_row.push(tooltip(
-                            button(icon_text(style::Icon::Cog, 12))
+                            button(icon_text(Icon::Cog, 12))
                                 .on_press(Message::ToggleCard(ticker))
                                 .style(move |theme, status| {
                                     style::button::transparent(theme, status, is_expanded)
@@ -176,15 +179,15 @@ impl AudioStream {
                                         text(format!("Buy/sell trade count in buffer ≥ {}", v)),
                                         threshold_slider
                                     ]
-                                    .padding(8)
-                                    .spacing(4),
+                                    .padding(tokens::spacing::MD)
+                                    .spacing(tokens::spacing::XS),
                                 );
                             }
                             data::audio::Threshold::Qty(v) => {
                                 column = column.push(
                                     row![text(format!("Any trade's size in buffer ≥ {}", v))]
-                                        .padding(8)
-                                        .spacing(4),
+                                        .padding(tokens::spacing::MD)
+                                        .spacing(tokens::spacing::XS),
                                 );
                             }
                         }
@@ -195,12 +198,12 @@ impl AudioStream {
                 }
             }
 
-            column![text("Audio streams").size(14), available_streams,].spacing(8)
+            column![title("Audio streams"), available_streams,].spacing(tokens::spacing::MD)
         };
 
-        container(column![volume_container, audio_contents,].spacing(20))
-            .max_width(320)
-            .padding(24)
+        container(column![volume_container, audio_contents,].spacing(tokens::spacing::XXL))
+            .max_width(tokens::layout::AUDIO_MODAL_WIDTH)
+            .padding(tokens::spacing::XXL)
             .style(style::dashboard_modal)
             .into()
     }
@@ -288,9 +291,52 @@ impl AudioStream {
                     }
                 }
             }
-            data::audio::Threshold::Qty(_) => {
-                log::warn!("Qty threshold not yet implemented");
-                return Ok(());
+            data::audio::Threshold::Qty(v) => {
+                // Find the largest trade that exceeds the threshold
+                let mut max_buy_qty: f32 = 0.0;
+                let mut max_sell_qty: f32 = 0.0;
+
+                for trade in trades_buffer {
+                    if trade.qty >= v as f32 {
+                        match trade.side {
+                            exchange::TradeSide::Buy => {
+                                max_buy_qty = max_buy_qty.max(trade.qty);
+                            }
+                            exchange::TradeSide::Sell => {
+                                max_sell_qty = max_sell_qty.max(trade.qty);
+                            }
+                        }
+                    }
+                }
+
+                if max_buy_qty == 0.0 && max_sell_qty == 0.0 {
+                    return Ok(());
+                }
+
+                let hard_threshold = v * HARD_THRESHOLD;
+                let sound = |qty: f32, is_sell: bool| {
+                    if qty >= hard_threshold as f32 {
+                        if is_sell {
+                            SoundType::HardSell
+                        } else {
+                            SoundType::HardBuy
+                        }
+                    } else if is_sell {
+                        SoundType::Sell
+                    } else {
+                        SoundType::Buy
+                    }
+                };
+
+                if max_buy_qty > max_sell_qty {
+                    self.play(sound(max_buy_qty, false))?;
+                } else if max_sell_qty > max_buy_qty {
+                    self.play(sound(max_sell_qty, true))?;
+                } else {
+                    // Equal max quantities on both sides
+                    self.play(sound(max_buy_qty, false))?;
+                    self.play(sound(max_sell_qty, true))?;
+                }
             }
         }
 

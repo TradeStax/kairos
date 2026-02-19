@@ -38,6 +38,7 @@
 //! let service = MarketDataService::new(repo, depth_repo);
 //! ```
 
+pub mod composite;
 pub mod traits;
 
 // Re-export traits for convenience
@@ -46,3 +47,5 @@ pub use traits::{
     OptionSnapshotRepository, RepositoryError, RepositoryResult, RepositoryStats,
     TradeRepository,
 };
+
+pub use composite::{CompositeTradeRepository, FeedRepo};

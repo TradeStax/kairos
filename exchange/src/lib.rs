@@ -47,6 +47,9 @@ pub use adapter::Event;
 // Futures (Databento)
 pub use repository::{DatabentoDepthRepository, DatabentoTradeRepository};
 
+// Futures (Rithmic)
+pub use repository::{RithmicDepthRepository, RithmicTradeRepository};
+
 // Options (Massive)
 pub use repository::{
     MassiveChainRepository, MassiveContractRepository, MassiveSnapshotRepository,
@@ -56,6 +59,12 @@ pub use repository::{
 pub use adapter::massive::{
     HistoricalOptionsManager, MassiveConfig, MassiveError, MassiveResult,
 };
+
+// Re-export Rithmic adapter
+pub use adapter::rithmic::{
+    RithmicClient, RithmicConfig, RithmicError, RithmicStream,
+};
+pub use rithmic_rs::{self, RithmicEnv};
 
 // Re-export Databento Schema for UI access
 pub use databento::dbn::Schema as DatabentoSchema;

@@ -7,6 +7,7 @@ use crate::config::ScaleFactor;
 use crate::config::sidebar::Sidebar;
 use crate::config::theme::Theme;
 use crate::config::timezone::UserTimezone;
+use crate::feed::DataFeedManager;
 use super::downloaded_tickers::DownloadedTickersRegistry;
 use serde::{Deserialize, Serialize};
 
@@ -154,12 +155,16 @@ pub struct AppState {
 
     /// Registry of downloaded tickers with their date ranges
     pub downloaded_tickers: DownloadedTickersRegistry,
+
+    /// Data feed connections
+    #[serde(default)]
+    pub data_feeds: DataFeedManager,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             layout_manager: LayoutManager::default(),
             selected_theme: Theme::default(),
             custom_theme: None,
@@ -172,6 +177,7 @@ impl Default for AppState {
             databento_config: DatabentoConfig::default(),
             massive_config: MassiveConfigSettings::default(),
             downloaded_tickers: DownloadedTickersRegistry::default(),
+            data_feeds: DataFeedManager::default(),
         }
     }
 }
@@ -188,9 +194,10 @@ impl AppState {
         scale_factor: ScaleFactor,
         audio_cfg: AudioStream,
         downloaded_tickers: DownloadedTickersRegistry,
+        data_feeds: DataFeedManager,
     ) -> Self {
         Self {
-            version: 1,
+            version: 2,
             layout_manager,
             selected_theme,
             custom_theme,
@@ -199,10 +206,11 @@ impl AppState {
             sidebar,
             scale_factor,
             audio_cfg,
-            trade_fetch_enabled: false, // Default to false
+            trade_fetch_enabled: false,
             databento_config: DatabentoConfig::default(),
             massive_config: MassiveConfigSettings::default(),
             downloaded_tickers,
+            data_feeds,
         }
     }
 
@@ -252,7 +260,7 @@ mod tests {
     #[test]
     fn test_app_state_default() {
         let state = AppState::default();
-        assert_eq!(state.version, 1);
+        assert_eq!(state.version, 2);
         assert!(state.databento_config.cache_enabled);
         assert_eq!(state.databento_config.cache_max_days, 90);
         assert!(!state.databento_config.live_enabled);

@@ -29,6 +29,7 @@
 //! - **ReplayEngineService**: Replay historical data
 
 pub mod cache_manager;
+pub mod feed_merger;
 pub mod gex_calculator;
 pub mod market_data;
 pub mod options_data;
@@ -36,6 +37,7 @@ pub mod replay_engine;
 
 // Re-export for convenience
 pub use cache_manager::CacheManagerService;
+pub use feed_merger::merge_segments;
 pub use gex_calculator::GexCalculationService;
 pub use market_data::{MarketDataService, ServiceError, ServiceResult};
 pub use options_data::OptionsDataService;

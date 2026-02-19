@@ -26,9 +26,4 @@ impl<M> ConfirmDialog<M> {
             on_confirm_btn_text: None,
         }
     }
-
-    pub fn with_confirm_btn_text(mut self, on_confirm_btn_text: String) -> Self {
-        self.on_confirm_btn_text = Some(on_confirm_btn_text);
-        self
-    }
 }
