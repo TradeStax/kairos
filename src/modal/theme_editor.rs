@@ -193,7 +193,7 @@ impl ThemeEditor {
             ]
             .spacing(tokens::spacing::MD)
             .align_y(Alignment::Center),
-            color_picker(hsva_in, Message::Color),
+            color_picker(hsva_in, Message::Color, 280.0),
         ]
         .spacing(10);
 

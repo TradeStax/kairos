@@ -9,7 +9,6 @@ mod logger;
 mod modal;
 mod screen;
 mod style;
-mod widget;
 mod window;
 
 use app::Flowsurface;

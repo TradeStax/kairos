@@ -9,13 +9,13 @@
 /// Used cursor.position() with manual bounds checking instead of cursor.position_over(bounds) inside `decorate::update`,
 /// to support correct mouse interactions when it's inside a Scrollable widget and prevent being offsetted by scrolling.
 ///
-use iced::Length::{self, Fill, FillPortion};
+use iced::Length::{self, Fill};
 use iced::advanced::Layout;
 use iced::advanced::renderer::{Quad, Renderer as _};
-use iced::widget::{Container, Space, column, container, row};
+use iced::widget::{Container, Space, column, container};
 use iced::{Color, Element, Point, Rectangle, Renderer, Theme, advanced, border, mouse, touch};
 
-use crate::widget::decorate::decorate;
+use crate::component::layout::decorate::decorate;
 use palette::{Hsva, RgbHue};
 
 const HANDLE_RADIUS: f32 = 10.0;
@@ -24,31 +24,28 @@ const SLIDER_HEIGHT: f32 = 15.0;
 pub fn color_picker<'a, Message: 'a>(
     hsva: Hsva,
     on_hsva: impl Fn(Hsva) -> Message + Clone + 'a,
+    size: f32,
 ) -> Element<'a, Message> {
-    let color = data::config::theme::from_hsva(hsva);
-
+    let scale = size / 280.0;
+    let handle_radius = (HANDLE_RADIUS * scale).max(6.0);
+    let slider_height = (SLIDER_HEIGHT * scale).max(10.0);
     column![
-        row![
-            bordered(preview(color)).width(FillPortion(2)),
-            bordered(grid(
-                Component::Saturation,
-                Component::Value,
-                hsva,
-                on_hsva.clone(),
-                HANDLE_RADIUS,
-            ))
-            .width(FillPortion(8))
-        ]
-        .spacing(4),
+        bordered(grid(
+            Component::Saturation,
+            Component::Value,
+            hsva,
+            on_hsva.clone(),
+            handle_radius,
+        )),
         bordered(slider(
             Component::Hue,
             hsva,
             on_hsva,
-            SLIDER_HEIGHT,
-            HANDLE_RADIUS
+            slider_height,
+            handle_radius
         )),
     ]
-    .height(280)
+    .height(size)
     .spacing(4)
     .into()
 }
@@ -65,32 +62,6 @@ fn bordered<'a, Message: 'a>(element: impl Into<Element<'a, Message>>) -> Contai
             shadow: iced::Shadow::default(),
             snap: true,
         })
-}
-
-fn preview<'a, Message: 'a>(color: Color) -> Element<'a, Message> {
-    decorate(Space::new().width(Fill).height(Fill))
-        .draw(
-            move |_state: &(),
-                  _inner: &Element<'a, Message>,
-                  _tree: &iced::advanced::widget::Tree,
-                  renderer: &mut Renderer,
-                  _theme: &Theme,
-                  _style: &iced::advanced::renderer::Style,
-                  layout: Layout,
-                  _cursor: iced::advanced::mouse::Cursor,
-                  _viewport: &iced::Rectangle| {
-                renderer.fill_quad(
-                    Quad {
-                        bounds: layout.bounds(),
-                        border: iced::Border::default(),
-                        shadow: iced::Shadow::default(),
-                        snap: true,
-                    },
-                    color,
-                );
-            },
-        )
-        .into()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -414,12 +385,12 @@ fn picker_hsva<'a, Message: 'a>(
                         Quad {
                             bounds: handle,
                             border: border::rounded(handle.width / 2.0)
-                                .color(Color::BLACK)
-                                .width(1.0),
+                                .color(Color::WHITE)
+                                .width(2.0),
                             shadow: iced::Shadow::default(),
                             snap: true,
                         },
-                        Color::WHITE,
+                        data::config::theme::from_hsva(hsva),
                     );
                 });
             },

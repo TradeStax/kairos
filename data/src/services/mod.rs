@@ -41,4 +41,4 @@ pub use feed_merger::merge_segments;
 pub use gex_calculator::GexCalculationService;
 pub use market_data::{MarketDataService, ServiceError, ServiceResult};
 pub use options_data::OptionsDataService;
-pub use replay_engine::{ReplayEngine, ReplayEngineConfig, ReplayEvent};
+pub use replay_engine::{ReplayEngine, ReplayEngineConfig, ReplayEvent, VolumeBucket};

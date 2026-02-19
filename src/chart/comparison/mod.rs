@@ -3,12 +3,17 @@
 //! This module provides a chart that displays multiple futures contracts
 //! on a single synchronized chart with optional normalization.
 
+mod legend;
+mod line_widget;
+mod render;
+mod scene;
 mod series;
+pub(crate) mod types;
 
 pub use series::TickerSeriesEditor;
 
-use crate::widget::chart::comparison::{DEFAULT_ZOOM_POINTS, LineComparison, LineComparisonEvent};
-use crate::widget::chart::{Series, Zoom};
+use line_widget::{DEFAULT_ZOOM_POINTS, LineComparison, LineComparisonEvent};
+use types::{Series, Zoom};
 
 use data::{ChartBasis, ChartData, ComparisonConfig, Timeframe};
 use exchange::{FuturesTickerInfo, TickerInfo};

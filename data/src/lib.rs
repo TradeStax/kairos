@@ -26,7 +26,6 @@ pub mod repository; // Data access abstraction
 pub mod secrets; // Secure API key management
 pub mod services; // Business logic orchestration
 pub mod state; // State management with persistence
-pub mod tickers_table_config; // Tickers table configuration
 pub mod util; // Utilities
 
 // Module re-exports
@@ -34,7 +33,6 @@ pub use audio_config as audio;
 pub use log_config as log;
 pub use panel_config as panel;
 pub use state as layout;
-pub use tickers_table_config as tickers_table;
 
 // Re-export audio types
 pub use audio_config::{AudioStream, StreamCfg, Threshold};
@@ -44,12 +42,13 @@ pub use error_types::InternalError;
 
 // Re-export commonly used types for convenience
 pub use domain::{
-    Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, ClusterKind, ClusterScaling,
-    DataGap, DataGapKind, DataSchema, DataSegment, DateRange, DepthSnapshot, FootprintStudy,
-    FuturesTicker, FuturesTickerInfo, FuturesVenue, HeatmapIndicator, Indicator, KlineChartKind,
-    KlineDataPoint, KlineIndicator, KlineTrades, LoadingStatus, MergeResult, NPoc, PointOfControl,
-    Price, Quantity, Side, Timeframe, Timestamp, Trade, UiIndicator, ViewConfig, Volume,
-    aggregate_trades_to_candles, aggregate_trades_to_ticks,
+    Autoscale, CandlePosition, Candle, ChartBasis, ChartConfig, ChartData, ChartType,
+    ClusterScaling, DataGap, DataGapKind, DataSchema, DataSegment, DateRange, DepthSnapshot,
+    FootprintMode, FootprintStudyConfig, FootprintType, FuturesTicker, FuturesTickerInfo,
+    FuturesVenue, HeatmapIndicator, Indicator, KlineDataPoint, KlineIndicator, KlineTrades,
+    LoadingStatus, MergeResult, NPoc, PointOfControl, Price, Quantity, Side, Timeframe, Timestamp,
+    Trade, UiIndicator, ViewConfig, Volume, aggregate_trades_to_candles,
+    aggregate_trades_to_ticks,
 };
 
 pub use repository::{
@@ -60,9 +59,10 @@ pub use repository::{
 pub use services::{CacheManagerService, MarketDataService, ServiceError, merge_segments};
 
 pub use state::{
-    AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard, DownloadedTickersRegistry,
-    HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager, Layouts, LinkGroup, Pane,
-    Settings, StateVersion, TimeAndSalesConfig, VisualConfig, WindowSpec, load_state, save_state,
+    AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
+    DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
+    Layouts, LinkGroup, Pane, Settings, StateVersion, TimeAndSalesConfig, VisualConfig, WindowSpec,
+    load_state, save_state,
 };
 
 // Re-export config types
@@ -148,4 +148,14 @@ pub fn open_data_folder() -> Result<(), DataError> {
             pathbuf
         )))
     }
+}
+
+/// Safely lock a mutex and recover from poisoned locks
+///
+/// This is a utility function to handle mutex locks safely by recovering
+/// from poisoned locks using the `into_inner()` method.
+pub fn lock_or_recover<T>(
+    mutex: &std::sync::Arc<std::sync::Mutex<T>>,
+) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }

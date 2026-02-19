@@ -189,11 +189,13 @@ pub fn create_replay_engine(
 ) -> Option<Arc<std::sync::Mutex<data::services::ReplayEngine>>> {
     let result = market_data_result?;
 
-    // Convert concrete types to trait objects
-    let depth_repo_dyn: Option<Arc<dyn data::DepthRepository + Send + Sync>> =
-        Some(result.depth_repo.clone() as Arc<dyn data::DepthRepository + Send + Sync>);
+    // Replay uses trades only - depth data is too large to load historically
+    let config = data::services::ReplayEngineConfig {
+        load_depth: false,
+        ..Default::default()
+    };
 
     Some(Arc::new(std::sync::Mutex::new(
-        data::services::ReplayEngine::with_default_config(result.trade_repo.clone(), depth_repo_dyn)
+        data::services::ReplayEngine::new(config, result.trade_repo.clone(), None),
     )))
 }

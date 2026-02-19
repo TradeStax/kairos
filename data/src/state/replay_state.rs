@@ -337,10 +337,19 @@ impl ReplayData {
         }
     }
 
-    /// Get trades within a time window
+    /// Get trades within a time window (inclusive on both ends)
     pub fn trades_in_window(&self, start: u64, end: u64) -> Vec<Trade> {
         self.trades
             .range(start..=end)
+            .flat_map(|(_, trades)| trades.iter().cloned())
+            .collect()
+    }
+
+    /// Get trades with timestamp in (after, up_to] — exclusive start, inclusive end.
+    pub fn trades_after(&self, after: u64, up_to: u64) -> Vec<Trade> {
+        use std::ops::Bound;
+        self.trades
+            .range((Bound::Excluded(after), Bound::Included(up_to)))
             .flat_map(|(_, trades)| trades.iter().cloned())
             .collect()
     }

@@ -122,7 +122,10 @@ impl MarketDataService {
 
         // Update loading status: start downloading
         {
-            let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+            let mut status_map = self
+                .loading_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             log::debug!("Loading status lock acquired successfully");
             let date_range_days = effective_date_range.num_days() as usize;
             status_map.insert(
@@ -154,7 +157,10 @@ impl MarketDataService {
             Ok(trades) => trades,
             Err(e) => {
                 // Update status to error
-                let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+                let mut status_map = self
+                    .loading_status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Error {
@@ -177,7 +183,10 @@ impl MarketDataService {
 
         // Update status: now building chart (aggregating trades)
         {
-            let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+            let mut status_map = self
+                .loading_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Building {
@@ -192,7 +201,10 @@ impl MarketDataService {
             Ok(candles) => candles,
             Err(e) => {
                 // Update status to error
-                let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+                let mut status_map = self
+                    .loading_status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Error {
@@ -211,7 +223,10 @@ impl MarketDataService {
 
         // Update status: building candles complete
         {
-            let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+            let mut status_map = self
+                .loading_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             status_map.insert(
                 chart_key.clone(),
                 LoadingStatus::Building {
@@ -225,12 +240,19 @@ impl MarketDataService {
         let mut chart_data = ChartData::from_trades(trades, candles);
 
         if config.chart_type == crate::domain::ChartType::Heatmap {
-            log::info!("Heatmap chart detected - loading MBP-10 depth data for {} ({} to {})",
-                config.ticker, effective_date_range.start, effective_date_range.end);
+            log::info!(
+                "Heatmap chart detected - loading MBP-10 depth data for {} ({} to {})",
+                config.ticker,
+                effective_date_range.start,
+                effective_date_range.end
+            );
 
             // Update status: loading depth data
             {
-                let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+                let mut status_map = self
+                    .loading_status
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 status_map.insert(
                     chart_key.clone(),
                     LoadingStatus::Downloading {
@@ -243,18 +265,31 @@ impl MarketDataService {
             }
 
             let depth_start = std::time::Instant::now();
-            match self.depth_repo.get_depth(&config.ticker, &effective_date_range).await {
+            match self
+                .depth_repo
+                .get_depth(&config.ticker, &effective_date_range)
+                .await
+            {
                 Ok(depth_snapshots) => {
-                    log::info!("Loaded {} depth snapshots for heatmap in {:.2}s",
-                        depth_snapshots.len(), depth_start.elapsed().as_secs_f32());
+                    log::info!(
+                        "Loaded {} depth snapshots for heatmap in {:.2}s",
+                        depth_snapshots.len(),
+                        depth_start.elapsed().as_secs_f32()
+                    );
 
                     // Update status: processing depth data
                     {
-                        let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut status_map = self
+                            .loading_status
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
                         status_map.insert(
                             chart_key.clone(),
                             LoadingStatus::Building {
-                                operation: format!("Processing {} depth snapshots", depth_snapshots.len()),
+                                operation: format!(
+                                    "Processing {} depth snapshots",
+                                    depth_snapshots.len()
+                                ),
                                 progress: 0.9,
                             },
                         );
@@ -263,7 +298,10 @@ impl MarketDataService {
                     chart_data = chart_data.with_depth(depth_snapshots);
                 }
                 Err(e) => {
-                    log::warn!("Failed to load depth data for heatmap: {:?}. Chart will show trades only.", e);
+                    log::warn!(
+                        "Failed to load depth data for heatmap: {:?}. Chart will show trades only.",
+                        e
+                    );
                     // Don't fail the entire load - heatmap can still show trades
                 }
             }
@@ -271,7 +309,10 @@ impl MarketDataService {
 
         // Update status: ready
         {
-            let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+            let mut status_map = self
+                .loading_status
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             status_map.insert(chart_key.clone(), LoadingStatus::Ready);
         }
 
@@ -357,7 +398,10 @@ impl MarketDataService {
             config.ticker, config.basis, config.date_range
         );
 
-        let status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+        let status_map = self
+            .loading_status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         status_map
             .get(&chart_key)
             .cloned()
@@ -368,7 +412,10 @@ impl MarketDataService {
     ///
     /// Returns all ongoing operations across all charts.
     pub fn get_all_loading_statuses(&self) -> HashMap<String, LoadingStatus> {
-        let status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+        let status_map = self
+            .loading_status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         status_map.clone()
     }
 
@@ -376,7 +423,10 @@ impl MarketDataService {
     ///
     /// Removes Ready and Error statuses that are older than the specified duration.
     pub fn clear_old_statuses(&self, _older_than: std::time::Duration) {
-        let mut status_map = self.loading_status.lock().unwrap_or_else(|e| e.into_inner());
+        let mut status_map = self
+            .loading_status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         // Remove completed statuses
         // Note: Currently removes all completed statuses regardless of age
@@ -406,8 +456,13 @@ impl MarketDataService {
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> ServiceResult<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>)> {
-        log::info!("Estimating cost for {} ({}) from {} to {}",
-            ticker, schema_discriminant, date_range.start, date_range.end);
+        log::info!(
+            "Estimating cost for {} ({}) from {} to {}",
+            ticker,
+            schema_discriminant,
+            date_range.start,
+            date_range.end
+        );
 
         // Get cache coverage
         let coverage = self
@@ -415,8 +470,12 @@ impl MarketDataService {
             .check_cache_coverage_databento(ticker, schema_discriminant, date_range)
             .await?;
 
-        log::debug!("Cache coverage: {} cached, {} uncached out of {} total days",
-            coverage.cached_count, coverage.uncached_count, date_range.num_days());
+        log::debug!(
+            "Cache coverage: {} cached, {} uncached out of {} total days",
+            coverage.cached_count,
+            coverage.uncached_count,
+            date_range.num_days()
+        );
 
         let total_days = date_range.num_days() as usize;
         let cached_days = coverage.cached_count;
@@ -428,7 +487,11 @@ impl MarketDataService {
             .get_actual_cost_databento(ticker, schema_discriminant, date_range)
             .await?; // Propagate error instead of defaulting to $0
 
-        log::info!("Databento cost API: ${:.4} USD for full range ({} days)", full_range_cost, total_days);
+        log::info!(
+            "Databento cost API: ${:.4} USD for full range ({} days)",
+            full_range_cost,
+            total_days
+        );
 
         // Calculate ACTUAL download cost (only for uncached days)
         let actual_cost_usd = if total_days > 0 && uncached_days > 0 {
@@ -436,7 +499,12 @@ impl MarketDataService {
             let cost_per_day = full_range_cost / total_days as f64;
             // Actual cost = cost per day × uncached days
             let cost = cost_per_day * uncached_days as f64;
-            log::info!("Actual cost for {} uncached days: ${:.4} (${:.4}/day)", uncached_days, cost, cost_per_day);
+            log::info!(
+                "Actual cost for {} uncached days: ${:.4} (${:.4}/day)",
+                uncached_days,
+                cost,
+                cost_per_day
+            );
             cost
         } else {
             0.0 // All cached or no days
@@ -460,7 +528,14 @@ impl MarketDataService {
             format!("Gaps: {}", gap_strs.join(", "))
         };
 
-        Ok((total_days, cached_days, uncached_days, gaps_desc, actual_cost_usd, coverage.cached_dates))
+        Ok((
+            total_days,
+            cached_days,
+            uncached_days,
+            gaps_desc,
+            actual_cost_usd,
+            coverage.cached_dates,
+        ))
     }
 
     /// Download data to cache without loading into memory

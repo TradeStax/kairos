@@ -80,7 +80,9 @@ impl Dashboard {
                         ticker_info,
                     }),
                     Event::Notification(toast) => Task::done(Message::Notification(toast)),
-                    Event::EstimateDataCost { .. } | Event::DownloadData { .. } => {
+                    Event::EstimateDataCost { .. }
+                    | Event::DownloadData { .. }
+                    | Event::PaneClosed { .. } => {
                         // These shouldn't appear from set_content, but handle gracefully
                         Task::none()
                     }

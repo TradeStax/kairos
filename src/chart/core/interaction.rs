@@ -4,7 +4,7 @@
 
 use super::traits::Chart;
 use crate::chart::Message;
-use crate::widget::multi_split::DRAG_SIZE;
+use crate::component::layout::multi_split::DRAG_SIZE;
 use data::DrawingTool;
 use crate::style::tokens;
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};

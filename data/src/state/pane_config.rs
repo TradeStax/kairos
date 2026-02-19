@@ -7,22 +7,53 @@ use crate::domain::{ChartBasis, ChartType};
 use crate::panel::timeandsales::StackedBarRatio;
 
 /// Content kind for a pane
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentKind {
     Starter,
     HeatmapChart,
     CandlestickChart,
-    FootprintChart,
     TimeAndSales,
     Ladder,
     ComparisonChart,
+}
+
+// Custom Serialize that writes CandlestickChart as "CandlestickChart"
+impl Serialize for ContentKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ContentKind::Starter => serializer.serialize_str("Starter"),
+            ContentKind::HeatmapChart => serializer.serialize_str("HeatmapChart"),
+            ContentKind::CandlestickChart => serializer.serialize_str("CandlestickChart"),
+            ContentKind::TimeAndSales => serializer.serialize_str("TimeAndSales"),
+            ContentKind::Ladder => serializer.serialize_str("Ladder"),
+            ContentKind::ComparisonChart => serializer.serialize_str("ComparisonChart"),
+        }
+    }
+}
+
+// Custom Deserialize that maps "FootprintChart" -> CandlestickChart for backward compat
+impl<'de> Deserialize<'de> for ContentKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "Starter" => Ok(ContentKind::Starter),
+            "HeatmapChart" => Ok(ContentKind::HeatmapChart),
+            "CandlestickChart" | "FootprintChart" => Ok(ContentKind::CandlestickChart),
+            "TimeAndSales" => Ok(ContentKind::TimeAndSales),
+            "Ladder" => Ok(ContentKind::Ladder),
+            "ComparisonChart" => Ok(ContentKind::ComparisonChart),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["Starter", "HeatmapChart", "CandlestickChart", "TimeAndSales", "Ladder", "ComparisonChart"],
+            )),
+        }
+    }
 }
 
 impl ContentKind {
     pub const ALL: &'static [ContentKind] = &[
         ContentKind::HeatmapChart,
         ContentKind::CandlestickChart,
-        ContentKind::FootprintChart,
         ContentKind::TimeAndSales,
         ContentKind::Ladder,
         ContentKind::ComparisonChart,
@@ -32,8 +63,7 @@ impl ContentKind {
         match self {
             ContentKind::HeatmapChart => ChartType::Heatmap,
             ContentKind::CandlestickChart => ChartType::Candlestick,
-            ContentKind::FootprintChart => ChartType::Footprint,
-            ContentKind::TimeAndSales => ChartType::Candlestick, // Panels use candlestick data
+            ContentKind::TimeAndSales => ChartType::Candlestick,
             ContentKind::Ladder => ChartType::Candlestick,
             ContentKind::ComparisonChart => ChartType::Candlestick,
             ContentKind::Starter => ChartType::Candlestick,
@@ -47,7 +77,6 @@ impl std::fmt::Display for ContentKind {
             ContentKind::Starter => write!(f, "Starter"),
             ContentKind::HeatmapChart => write!(f, "Heatmap"),
             ContentKind::CandlestickChart => write!(f, "Candlestick"),
-            ContentKind::FootprintChart => write!(f, "Footprint"),
             ContentKind::TimeAndSales => write!(f, "Time & Sales"),
             ContentKind::Ladder => write!(f, "Ladder"),
             ContentKind::ComparisonChart => write!(f, "Comparison"),
@@ -205,20 +234,86 @@ impl Default for HeatmapConfig {
 
 use crate::domain::chart_ui_types::heatmap::CoalesceKind;
 
+/// Which candlestick color field is currently being edited in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CandleColorField {
+    BullBody,
+    BearBody,
+    BullWick,
+    BearWick,
+    BullBorder,
+    BearBorder,
+}
+
+/// Candlestick visual style configuration.
+///
+/// Each field is `Option<Color>` — `None` means "use theme palette default".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleStyle {
+    pub bull_body_color: Option<iced_core::Color>,
+    pub bear_body_color: Option<iced_core::Color>,
+    pub bull_wick_color: Option<iced_core::Color>,
+    pub bear_wick_color: Option<iced_core::Color>,
+    pub bull_border_color: Option<iced_core::Color>,
+    pub bear_border_color: Option<iced_core::Color>,
+}
+
+impl Default for CandleStyle {
+    fn default() -> Self {
+        Self {
+            bull_body_color: None,
+            bear_body_color: None,
+            bull_wick_color: None,
+            bear_wick_color: None,
+            bull_border_color: None,
+            bear_border_color: None,
+        }
+    }
+}
+
+impl CandleStyle {
+    /// Get the color for a given field.
+    pub fn get_color(&self, field: CandleColorField) -> Option<iced_core::Color> {
+        match field {
+            CandleColorField::BullBody => self.bull_body_color,
+            CandleColorField::BearBody => self.bear_body_color,
+            CandleColorField::BullWick => self.bull_wick_color,
+            CandleColorField::BearWick => self.bear_wick_color,
+            CandleColorField::BullBorder => self.bull_border_color,
+            CandleColorField::BearBorder => self.bear_border_color,
+        }
+    }
+
+    /// Set the color for a given field.
+    pub fn set_color(
+        &mut self,
+        field: CandleColorField,
+        color: Option<iced_core::Color>,
+    ) {
+        match field {
+            CandleColorField::BullBody => self.bull_body_color = color,
+            CandleColorField::BearBody => self.bear_body_color = color,
+            CandleColorField::BullWick => self.bull_wick_color = color,
+            CandleColorField::BearWick => self.bear_wick_color = color,
+            CandleColorField::BullBorder => self.bull_border_color = color,
+            CandleColorField::BearBorder => self.bear_border_color = color,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlineConfig {
     pub show_volume: bool,
     pub color_scheme: String,
-    /// Enable footprint caching (recommended for high-volume instruments)
-    #[serde(default = "default_true")]
-    pub enable_footprint_cache: bool,
-    /// Performance preset
+    /// Candlestick visual style
     #[serde(default)]
-    pub performance_preset: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
+    pub candle_style: CandleStyle,
+    /// Which color field is currently being edited (UI-only, not persisted)
+    #[serde(skip)]
+    pub editing_color: Option<CandleColorField>,
+    /// Active footprint study (None = standard candles only)
+    #[serde(default)]
+    pub footprint: Option<crate::domain::chart_ui_types::FootprintStudyConfig>,
 }
 
 impl Default for KlineConfig {
@@ -226,8 +321,9 @@ impl Default for KlineConfig {
         Self {
             show_volume: false,
             color_scheme: String::new(),
-            enable_footprint_cache: true,
-            performance_preset: None,
+            candle_style: CandleStyle::default(),
+            editing_color: None,
+            footprint: None,
         }
     }
 }

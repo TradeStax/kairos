@@ -473,15 +473,7 @@ impl CacheConfig {
                 }
         }
 
-        let total_bytes = dir_size(&self.directory)
-            .map_err(|e| {
-                Error::Config(format!(
-                    "Cannot read cache directory: {}",
-                    e
-                ))
-            })?;
-
-        Ok(total_bytes / 1_048_576) // Convert to MB
+        Ok(total_size / 1_048_576) // Convert to MB
     }
 }
 

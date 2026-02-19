@@ -22,7 +22,7 @@ impl State {
         let basis = self
             .settings
             .selected_basis
-            .unwrap_or(ChartBasis::Time(Timeframe::M15));
+            .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
         match &mut self.content {
             Content::Kline {
@@ -43,6 +43,12 @@ impl State {
                     new_chart
                         .drawings
                         .load_drawings(self.settings.drawings.clone());
+                }
+                // Apply saved candle style from visual config
+                if let Some(VisualConfig::Kline(ref kline_cfg)) =
+                    self.settings.visual_config
+                {
+                    new_chart.set_candle_style(kline_cfg.candle_style.clone());
                 }
                 *chart = Some(new_chart);
             }
@@ -153,7 +159,7 @@ impl State {
         let basis = self
             .settings
             .selected_basis
-            .unwrap_or(ChartBasis::Time(Timeframe::M15));
+            .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
         self.ticker_info = Some(ticker_info);
         self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
@@ -206,7 +212,33 @@ impl State {
         }
     }
 
+    /// Enter replay mode: back up current chart data and clear the chart.
+    pub fn enter_replay_mode(&mut self) {
+        if let Some(chart_data) = self.chart_data.clone() {
+            self.replay_backup = Some(chart_data);
+        }
+        // Clear the chart to build candles from scratch during replay
+        let empty = ChartData::from_trades(vec![], vec![]);
+        self.set_chart_data(empty);
+    }
+
+    /// Exit replay mode: restore the backed-up chart data.
+    pub fn exit_replay_mode(&mut self) {
+        if let Some(backup) = self.replay_backup.take() {
+            self.set_chart_data(backup);
+        }
+    }
+
+    /// Whether this pane is currently in replay mode.
+    pub fn is_replaying(&self) -> bool {
+        self.replay_backup.is_some()
+    }
+
     pub fn update_interval(&self) -> Option<u64> {
+        // Faster invalidation during replay for smoother updates
+        if self.replay_backup.is_some() {
+            return Some(200);
+        }
         match &self.content {
             Content::Kline { .. } | Content::Comparison(_) => Some(1000),
             Content::Heatmap { chart, .. } => {

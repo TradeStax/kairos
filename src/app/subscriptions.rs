@@ -2,7 +2,6 @@ use iced::{keyboard, Subscription};
 use futures::stream::StreamExt;
 
 use super::{ChartMessage, DownloadMessage, Message};
-use crate::screen::dashboard::tickers_table::TickersTable;
 use crate::window;
 
 
@@ -90,10 +89,27 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
     .flat_map(futures::stream::iter)
 }
 
+/// Replay drag tracking subscription
+/// Only active during drag operations on the floating replay panel
+fn replay_drag_subscription() -> Subscription<Message> {
+    iced::event::listen_with(|event, _status, _id| match event {
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(
+            Message::Replay(crate::modal::replay_manager::Message::DragMove(position)),
+        ),
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+            iced::mouse::Button::Left,
+        )) => Some(Message::Replay(
+            crate::modal::replay_manager::Message::DragEnd,
+        )),
+        _ => None,
+    })
+}
+
 /// Build the main application subscription
-pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message> {
+pub fn build_subscription(
+    replay_is_dragging: bool,
+) -> Subscription<Message> {
     let window_events = window::events().map(Message::WindowEvent);
-    let tickers_sub = tickers_table.subscription().map(Message::TickersTable);
 
     let tick = iced::time::every(std::time::Duration::from_millis(100)).map(Message::Tick);
 
@@ -121,8 +137,7 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
         }
     });
 
-    Subscription::batch(vec![
-        tickers_sub,
+    let mut subs = vec![
         window_events,
         tick,
         status_poll,
@@ -130,5 +145,11 @@ pub fn build_subscription(tickers_table: &TickersTable) -> Subscription<Message>
         rithmic_poll,
         replay_poll,
         hotkeys,
-    ])
+    ];
+
+    if replay_is_dragging {
+        subs.push(replay_drag_subscription());
+    }
+
+    Subscription::batch(subs)
 }

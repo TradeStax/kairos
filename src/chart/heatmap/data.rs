@@ -337,6 +337,15 @@ impl HeatmapData {
     }
 }
 
+impl HeatmapData {
+    /// Clear trade data while preserving depth runs.
+    /// Used during replay rebuild to reset trade-related state.
+    pub fn clear_trades(&mut self) {
+        self.trades_by_time.clear();
+        self.candle_time_map = None;
+    }
+}
+
 impl Default for HeatmapData {
     fn default() -> Self {
         Self::new()

@@ -4,7 +4,6 @@ pub mod pane;
 mod pane_management;
 pub mod panel;
 pub mod sidebar;
-pub mod tickers_table;
 mod update;
 mod view;
 
@@ -67,6 +66,12 @@ pub enum Message {
     DrawingToolSelected(data::DrawingTool),
     DrawingSnapToggled,
     ExchangeEvent(exchange::Event),
+    ReplayTrades(FuturesTickerInfo, Vec<data::Trade>),
+    ReplayRebuild(FuturesTickerInfo, Vec<data::Trade>),
+    ReplaySyncPane {
+        pane_id: uuid::Uuid,
+        trades: Vec<data::Trade>,
+    },
 }
 
 pub struct Dashboard {

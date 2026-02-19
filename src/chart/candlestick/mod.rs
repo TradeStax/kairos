@@ -4,18 +4,19 @@ mod render;
 
 use crate::chart::indicator::kline::KlineIndicatorImpl;
 use crate::chart::{Chart, Message, PlotConstants, ViewState, drawing::DrawingManager, indicator};
-use crate::modal::pane::settings::study;
 use data::util::count_decimals;
 use data::{
-    Autoscale, Candle, ChartBasis, ChartData, ClusterKind, ClusterScaling, FootprintStudy,
-    KlineChartKind, KlineIndicator, Price as DomainPrice, Side, Trade, ViewConfig,
+    Autoscale, Candle, ChartBasis, ChartData, ClusterScaling, FootprintStudyConfig, FootprintType,
+    KlineIndicator, Price as DomainPrice, Side, Trade, ViewConfig,
 };
+use data::state::pane_config::CandleStyle;
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 
 use iced::{Element, Vector};
 
 use enum_map::EnumMap;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -77,14 +78,11 @@ impl Chart for KlineChart {
 
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
-        let x_translation = match &self.kind {
-            KlineChartKind::Footprint { .. } => {
-                0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
-            }
-            KlineChartKind::Candles => {
-                0.5 * (chart.bounds.width / chart.scaling)
-                    - (8.0 * chart.cell_width / chart.scaling)
-            }
+        let x_translation = if self.footprint.is_some() {
+            0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
+        } else {
+            0.5 * (chart.bounds.width / chart.scaling)
+                - (8.0 * chart.cell_width / chart.scaling)
         };
         Vector::new(x_translation, chart.translation.y)
     }
@@ -104,52 +102,31 @@ impl Chart for KlineChart {
 
 impl PlotConstants for KlineChart {
     fn min_scaling(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 0.05,
-            KlineChartKind::Candles => 0.1,
-        }
+        if self.footprint.is_some() { 0.05 } else { 0.1 }
     }
 
     fn max_scaling(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 2.0,
-            KlineChartKind::Candles => 5.0,
-        }
+        if self.footprint.is_some() { 2.0 } else { 5.0 }
     }
 
     fn max_cell_width(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 500.0,
-            KlineChartKind::Candles => 100.0,
-        }
+        if self.footprint.is_some() { 500.0 } else { 100.0 }
     }
 
     fn min_cell_width(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 10.0,
-            KlineChartKind::Candles => 1.0,
-        }
+        if self.footprint.is_some() { 10.0 } else { 1.0 }
     }
 
     fn max_cell_height(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 100.0,
-            KlineChartKind::Candles => 200.0,
-        }
+        if self.footprint.is_some() { 100.0 } else { 200.0 }
     }
 
     fn min_cell_height(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 1.0,
-            KlineChartKind::Candles => 1.0,
-        }
+        1.0
     }
 
     fn default_cell_width(&self) -> f32 {
-        match self.kind {
-            KlineChartKind::Footprint { .. } => 80.0,
-            KlineChartKind::Candles => 4.0,
-        }
+        if self.footprint.is_some() { 80.0 } else { 4.0 }
     }
 }
 
@@ -159,16 +136,154 @@ pub struct KlineChart {
     basis: ChartBasis,
     ticker_info: FuturesTickerInfo,
     indicators: EnumMap<KlineIndicator, Option<Box<dyn KlineIndicatorImpl>>>,
-    pub(crate) kind: KlineChartKind,
-    study_configurator: study::Configurator<FootprintStudy>,
+    /// Active footprint study (None = standard candles)
+    pub footprint: Option<FootprintStudyConfig>,
     last_tick: Instant,
-    /// Cached footprints per candle (index -> footprint)
-    /// Invalidated on basis change or data update
-    footprint_cache: Option<Vec<BTreeMap<Price, TradeGroup>>>,
-    /// Cache revision for invalidation tracking
-    cache_revision: u64,
+    /// Footprint cache (wrapped in RefCell for interior mutability in draw())
+    footprint_cache: RefCell<FootprintCache>,
     /// Drawing manager for chart annotations
     pub drawings: DrawingManager,
+    /// Candlestick visual style
+    pub(crate) candle_style: CandleStyle,
+}
+
+/// Maximum total price levels stored across all cached footprints
+const MAX_TOTAL_PRICE_LEVELS: usize = 500_000;
+
+/// Footprint cache storing pre-computed trade groups per candle
+pub(crate) struct FootprintCache {
+    entries: Vec<Option<BTreeMap<Price, TradeGroup>>>,
+    total_levels: usize,
+    revision: u64,
+}
+
+impl FootprintCache {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            total_levels: 0,
+            revision: 0,
+        }
+    }
+
+    pub fn get(&self, candle_index: usize) -> Option<&BTreeMap<Price, TradeGroup>> {
+        self.entries.get(candle_index).and_then(|e| e.as_ref())
+    }
+
+    fn insert(&mut self, candle_index: usize, footprint: BTreeMap<Price, TradeGroup>) {
+        if candle_index >= self.entries.len() {
+            self.entries.resize_with(candle_index + 1, || None);
+        }
+        // Evict if over budget
+        while self.total_levels + footprint.len() > MAX_TOTAL_PRICE_LEVELS {
+            if !self.evict_oldest() {
+                break;
+            }
+        }
+        self.total_levels += footprint.len();
+        self.entries[candle_index] = Some(footprint);
+    }
+
+    /// Update the last candle's footprint incrementally with a new trade
+    fn update_last(&mut self, trade: &Trade, tick_size: PriceStep) {
+        if self.entries.is_empty() {
+            return;
+        }
+        let last_idx = self.entries.len() - 1;
+        let entry = self.entries[last_idx].get_or_insert_with(BTreeMap::new);
+        let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size);
+        let group = entry.entry(price_rounded).or_insert(TradeGroup {
+            buy_qty: 0.0,
+            sell_qty: 0.0,
+        });
+        match trade.side {
+            Side::Buy | Side::Bid => group.buy_qty += trade.quantity.0 as f32,
+            Side::Sell | Side::Ask => group.sell_qty += trade.quantity.0 as f32,
+        }
+        self.revision += 1;
+    }
+
+    /// Extend cache to accommodate a new candle
+    fn push_empty(&mut self) {
+        self.entries.push(None);
+    }
+
+    /// Ensure footprints are computed for the given range
+    fn ensure_range(
+        &mut self,
+        start: usize,
+        end: usize,
+        candles: &[Candle],
+        trades: &[Trade],
+        tick_size: PriceStep,
+        basis: &ChartBasis,
+    ) {
+        let candle_count = candles.len();
+        if candle_count == 0 {
+            return;
+        }
+        // Grow entries vector if needed
+        if self.entries.len() < candle_count {
+            self.entries.resize_with(candle_count, || None);
+        }
+        let end = end.min(candle_count);
+        let interval_ms = match basis {
+            ChartBasis::Time(tf) => tf.to_milliseconds(),
+            ChartBasis::Tick(_) => 1000,
+        };
+
+        for idx in start..end {
+            if self.entries[idx].is_some() {
+                continue;
+            }
+            let candle = &candles[idx];
+            let candle_start = candle.time.0;
+            let candle_end = if idx + 1 < candle_count {
+                candles[idx + 1].time.0
+            } else {
+                candle.time.0 + interval_ms
+            };
+
+            let start_trade = trades
+                .binary_search_by_key(&candle_start, |t| t.time.0)
+                .unwrap_or_else(|i| i);
+            let end_trade = trades[start_trade..]
+                .binary_search_by_key(&candle_end, |t| t.time.0)
+                .map(|i| start_trade + i)
+                .unwrap_or_else(|i| start_trade + i);
+
+            let mut trades_map = BTreeMap::new();
+            for trade in &trades[start_trade..end_trade] {
+                let price_rounded =
+                    domain_to_exchange_price(trade.price).round_to_step(tick_size);
+                let entry = trades_map.entry(price_rounded).or_insert(TradeGroup {
+                    buy_qty: 0.0,
+                    sell_qty: 0.0,
+                });
+                match trade.side {
+                    Side::Buy | Side::Bid => entry.buy_qty += trade.quantity.0 as f32,
+                    Side::Sell | Side::Ask => entry.sell_qty += trade.quantity.0 as f32,
+                }
+            }
+            self.insert(idx, trades_map);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.total_levels = 0;
+        self.revision += 1;
+    }
+
+    fn evict_oldest(&mut self) -> bool {
+        for entry in &mut self.entries {
+            if let Some(fp) = entry.take() {
+                self.total_levels = self.total_levels.saturating_sub(fp.len());
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl KlineChart {
@@ -179,16 +294,14 @@ impl KlineChart {
         ticker_info: FuturesTickerInfo,
         layout: ViewConfig,
         enabled_indicators: &[KlineIndicator],
-        kind: KlineChartKind,
+        footprint: Option<FootprintStudyConfig>,
     ) -> Self {
         let step = PriceStep::from_f32(ticker_info.tick_size);
+        let has_footprint = footprint.is_some();
 
         // Calculate price scale from candles
         let (scale_high, scale_low) = if !chart_data.candles.is_empty() {
-            let candle_count = match kind {
-                KlineChartKind::Footprint { .. } => 12,
-                KlineChartKind::Candles => 60,
-            };
+            let candle_count = if has_footprint { 12 } else { 60 };
             let end_idx = chart_data.candles.len();
             let start_idx = end_idx.saturating_sub(candle_count);
 
@@ -224,13 +337,11 @@ impl KlineChart {
             .unwrap_or(1)
             .max(1) as f32;
 
-        let cell_width = match kind {
-            KlineChartKind::Footprint { .. } => 80.0,
-            KlineChartKind::Candles => 4.0,
-        };
-        let cell_height = match kind {
-            KlineChartKind::Footprint { .. } => 800.0 / y_ticks,
-            KlineChartKind::Candles => 200.0 / y_ticks,
+        let cell_width = if has_footprint { 80.0 } else { 4.0 };
+        let cell_height = if has_footprint {
+            800.0 / y_ticks
+        } else {
+            200.0 / y_ticks
         };
 
         let mut chart = ViewState::new(
@@ -248,14 +359,11 @@ impl KlineChart {
         chart.base_price_y = base_price_y;
         chart.latest_x = latest_x;
 
-        let x_translation = match &kind {
-            KlineChartKind::Footprint { .. } => {
-                0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
-            }
-            KlineChartKind::Candles => {
-                0.5 * (chart.bounds.width / chart.scaling)
-                    - (8.0 * chart.cell_width / chart.scaling)
-            }
+        let x_translation = if has_footprint {
+            0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
+        } else {
+            0.5 * (chart.bounds.width / chart.scaling)
+                - (8.0 * chart.cell_width / chart.scaling)
         };
         chart.translation.x = x_translation;
 
@@ -273,12 +381,11 @@ impl KlineChart {
             basis,
             ticker_info,
             indicators,
-            kind,
-            study_configurator: study::Configurator::new(),
+            footprint,
             last_tick: Instant::now(),
-            footprint_cache: None, // Lazy initialization on first use
-            cache_revision: 0,
+            footprint_cache: RefCell::new(FootprintCache::new()),
             drawings: DrawingManager::new(),
+            candle_style: CandleStyle::default(),
         }
     }
 
@@ -311,10 +418,7 @@ impl KlineChart {
         // Recalculate price scales
         let step = PriceStep::from_f32(ticker_info.tick_size);
         let (scale_high, scale_low) = if !self.chart_data.candles.is_empty() {
-            let candle_count = match self.kind {
-                KlineChartKind::Footprint { .. } => 12,
-                KlineChartKind::Candles => 60,
-            };
+            let candle_count = if self.footprint.is_some() { 12 } else { 60 };
             let end_idx = self.chart_data.candles.len();
             let start_idx = end_idx.saturating_sub(candle_count);
 
@@ -342,9 +446,10 @@ impl KlineChart {
             .unwrap_or(1)
             .max(1) as f32;
 
-        let cell_height = match self.kind {
-            KlineChartKind::Footprint { .. } => 800.0 / y_ticks,
-            KlineChartKind::Candles => 200.0 / y_ticks,
+        let cell_height = if self.footprint.is_some() {
+            800.0 / y_ticks
+        } else {
+            200.0 / y_ticks
         };
 
         self.chart.cell_height = cell_height;
@@ -371,8 +476,14 @@ impl KlineChart {
         self.invalidate();
     }
 
-    pub fn kind(&self) -> &KlineChartKind {
-        &self.kind
+    pub fn footprint_config(&self) -> Option<&FootprintStudyConfig> {
+        self.footprint.as_ref()
+    }
+
+    pub fn set_footprint(&mut self, config: Option<FootprintStudyConfig>) {
+        self.footprint = config;
+        self.invalidate_footprint_cache();
+        self.invalidate();
     }
 
     pub fn basis(&self) -> ChartBasis {
@@ -383,64 +494,17 @@ impl KlineChart {
         self.chart.tick_size.to_f32_lossy()
     }
 
-    pub fn study_configurator(&self) -> &study::Configurator<FootprintStudy> {
-        &self.study_configurator
+    pub fn candle_style(&self) -> &CandleStyle {
+        &self.candle_style
     }
 
-    pub fn update_study_configurator(&mut self, message: study::Message<FootprintStudy>) {
-        let KlineChartKind::Footprint {
-            ref mut studies, ..
-        } = self.kind
-        else {
-            return;
-        };
-
-        match self.study_configurator.update(message) {
-            Some(study::Action::ToggleStudy(study, is_selected)) => {
-                if is_selected {
-                    let already_exists = studies.iter().any(|s| s.is_same_type(&study));
-                    if !already_exists {
-                        studies.push(study);
-                    }
-                } else {
-                    studies.retain(|s| !s.is_same_type(&study));
-                }
-            }
-            Some(study::Action::ConfigureStudy(study)) => {
-                if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
-                    *existing_study = study;
-                }
-            }
-            None => {}
-        }
-
+    pub fn set_candle_style(&mut self, style: CandleStyle) {
+        self.candle_style = style;
         self.invalidate();
     }
 
     pub fn chart_layout(&self) -> ViewConfig {
         self.chart.layout()
-    }
-
-    pub fn set_cluster_kind(&mut self, new_kind: ClusterKind) {
-        if let KlineChartKind::Footprint {
-            ref mut clusters, ..
-        } = self.kind
-        {
-            *clusters = new_kind;
-        }
-
-        self.invalidate();
-    }
-
-    pub fn set_cluster_scaling(&mut self, new_scaling: ClusterScaling) {
-        if let KlineChartKind::Footprint {
-            ref mut scaling, ..
-        } = self.kind
-        {
-            *scaling = new_scaling;
-        }
-
-        self.invalidate();
     }
 
     pub fn change_tick_size(&mut self, new_tick_size: f32) {
@@ -460,24 +524,6 @@ impl KlineChart {
 
         // Invalidate footprint cache since tick size changed
         self.invalidate_footprint_cache();
-
-        self.invalidate();
-    }
-
-    pub fn studies(&self) -> Option<Vec<FootprintStudy>> {
-        match &self.kind {
-            KlineChartKind::Footprint { studies, .. } => Some(studies.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn set_studies(&mut self, new_studies: Vec<FootprintStudy>) {
-        if let KlineChartKind::Footprint {
-            ref mut studies, ..
-        } = self.kind
-        {
-            *studies = new_studies;
-        }
 
         self.invalidate();
     }
@@ -656,7 +702,7 @@ impl KlineChart {
         // Retrieve from cache
         self.footprint_cache
             .as_ref()
-            .and_then(|cache| cache.get(candle_index).cloned())
+            .and_then(|cache: &Vec<BTreeMap<Price, TradeGroup>>| cache.get(candle_index).cloned())
             .or_else(|| {
                 // Fallback: build on-demand if cache miss
                 if candle_index < self.chart_data.candles.len() {
@@ -850,6 +896,134 @@ impl KlineChart {
         }
 
         self.last_tick = Instant::now();
+    }
+
+    /// Rebuild the chart from scratch with the given trades.
+    ///
+    /// Clears all existing trades and candles, then replays the
+    /// trades through `append_trade`. Used during replay seek to
+    /// ensure the chart exactly represents `[start, position]`.
+    pub fn rebuild_from_trades(&mut self, trades: &[Trade]) {
+        self.chart_data.trades.clear();
+        self.chart_data.candles.clear();
+        self.invalidate_footprint_cache();
+
+        for trade in trades {
+            self.append_trade(trade);
+        }
+
+        // Rebuild indicators from the new candles
+        self.indicators
+            .values_mut()
+            .filter_map(Option::as_mut)
+            .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles, self.basis));
+
+        self.invalidate();
+    }
+
+    /// Append a single trade during replay.
+    ///
+    /// Pushes the trade to internal `chart_data`, updates candles
+    /// (or creates new ones), updates `latest_x` for autoscroll,
+    /// and invalidates the footprint cache.
+    pub fn append_trade(&mut self, trade: &Trade) {
+        self.chart_data.trades.push(*trade);
+
+        let (buy_vol, sell_vol) = match trade.side {
+            Side::Buy | Side::Bid => {
+                (data::Volume(trade.quantity.0), data::Volume(0.0))
+            }
+            Side::Sell | Side::Ask => {
+                (data::Volume(0.0), data::Volume(trade.quantity.0))
+            }
+        };
+
+        match self.basis {
+            ChartBasis::Time(tf) => {
+                let interval = tf.to_milliseconds();
+                if interval == 0 {
+                    return;
+                }
+                let bucket_time = (trade.time.to_millis() / interval) * interval;
+
+                if let Some(last) = self.chart_data.candles.last_mut() {
+                    if last.time.0 == bucket_time {
+                        last.high = last.high.max(trade.price);
+                        last.low = last.low.min(trade.price);
+                        last.close = trade.price;
+                        last.buy_volume = data::Volume(
+                            last.buy_volume.0 + buy_vol.0,
+                        );
+                        last.sell_volume = data::Volume(
+                            last.sell_volume.0 + sell_vol.0,
+                        );
+                        self.chart.latest_x = last.time.0;
+                        self.invalidate_footprint_cache();
+                        return;
+                    }
+                }
+                // New candle period
+                self.chart_data.candles.push(Candle {
+                    time: data::Timestamp::from_millis(bucket_time),
+                    open: trade.price,
+                    high: trade.price,
+                    low: trade.price,
+                    close: trade.price,
+                    buy_volume: buy_vol,
+                    sell_volume: sell_vol,
+                });
+            }
+            ChartBasis::Tick(count) => {
+                let count = count as usize;
+                if count == 0 {
+                    return;
+                }
+                let num_candles = self.chart_data.candles.len();
+                let num_trades = self.chart_data.trades.len();
+                let completed = if num_candles > 0 {
+                    num_candles - 1
+                } else {
+                    0
+                };
+                let trades_in_current =
+                    num_trades.saturating_sub(completed * count);
+
+                if let Some(last) = self.chart_data.candles.last_mut() {
+                    if trades_in_current <= count {
+                        last.high = last.high.max(trade.price);
+                        last.low = last.low.min(trade.price);
+                        last.close = trade.price;
+                        last.buy_volume = data::Volume(
+                            last.buy_volume.0 + buy_vol.0,
+                        );
+                        last.sell_volume = data::Volume(
+                            last.sell_volume.0 + sell_vol.0,
+                        );
+                        self.chart.latest_x = last.time.0;
+                        self.invalidate_footprint_cache();
+                        return;
+                    }
+                }
+                // New tick candle
+                self.chart_data.candles.push(Candle {
+                    time: trade.time,
+                    open: trade.price,
+                    high: trade.price,
+                    low: trade.price,
+                    close: trade.price,
+                    buy_volume: buy_vol,
+                    sell_volume: sell_vol,
+                });
+            }
+        }
+
+        self.chart.latest_x = self
+            .chart_data
+            .candles
+            .last()
+            .map(|c| c.time.0)
+            .unwrap_or(0);
+        self.invalidate_footprint_cache();
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {

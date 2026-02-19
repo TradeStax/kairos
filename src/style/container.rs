@@ -217,6 +217,73 @@ pub fn tooltip(theme: &Theme) -> Style {
     }
 }
 
+// ── Floating panels ────────────────────────────────────────────────
+
+pub fn floating_panel(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: Some(palette.background.base.text),
+        background: Some(palette.background.weakest.color.into()),
+        border: Border {
+            width: tokens::border::THIN,
+            color: if palette.is_dark {
+                palette
+                    .background
+                    .weak
+                    .color
+                    .scale_alpha(tokens::alpha::MEDIUM)
+            } else {
+                palette
+                    .background
+                    .strong
+                    .color
+                    .scale_alpha(tokens::alpha::MEDIUM)
+            },
+            radius: tokens::radius::MD.into(),
+        },
+        shadow: Shadow {
+            offset: iced::Vector { x: 0.0, y: 2.0 },
+            blur_radius: tokens::shadow::XL,
+            color: Color::BLACK.scale_alpha(if palette.is_dark {
+                tokens::alpha::HEAVY
+            } else {
+                tokens::alpha::LIGHT
+            }),
+        },
+        snap: true,
+    }
+}
+
+pub fn floating_panel_header(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        background: {
+            if palette.is_dark {
+                Some(
+                    palette
+                        .background
+                        .weak
+                        .color
+                        .scale_alpha(tokens::alpha::FAINT)
+                        .into(),
+                )
+            } else {
+                Some(
+                    palette
+                        .background
+                        .strong
+                        .color
+                        .scale_alpha(tokens::alpha::FAINT)
+                        .into(),
+                )
+            }
+        },
+        ..Default::default()
+    }
+}
+
 // ── Domain-specific ─────────────────────────────────────────────────
 
 pub fn drawing_tools_container(theme: &Theme) -> Style {

@@ -8,16 +8,14 @@ use crate::component::display::toast::{self, Toast};
 use crate::component::display::tooltip::tooltip;
 use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
 use crate::modal::{dashboard_modal, main_dialog_modal};
-use crate::screen::dashboard::{
-    self, Dashboard,
-    tickers_table::{self, TickersTable},
-};
+use crate::screen::dashboard::{self, Dashboard};
 use crate::style::tokens;
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
 
 use data::FeedId;
+use exchange::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
 use iced::{
     Alignment, Element, Subscription, Task, padding,
     widget::{
@@ -25,6 +23,7 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
+use rustc_hash::FxHashMap;
 use std::{collections::HashMap, sync::OnceLock, vec};
 
 // Global download progress state (shared between async tasks and subscriptions)
@@ -69,7 +68,7 @@ pub fn get_rithmic_service_staging()
 pub struct Flowsurface {
     pub(crate) main_window: window::Window,
     pub(crate) sidebar: dashboard::Sidebar,
-    pub(crate) tickers_table: TickersTable,
+    pub(crate) tickers_info: FxHashMap<FuturesTicker, FuturesTickerInfo>,
     pub(crate) layout_manager: LayoutManager,
     pub(crate) theme_editor: ThemeEditor,
     pub(crate) audio_stream: AudioStream,
@@ -173,7 +172,6 @@ pub enum DownloadMessage {
 #[derive(Debug, Clone)]
 pub enum Message {
     Sidebar(dashboard::sidebar::Message),
-    TickersTable(tickers_table::Message),
     Dashboard {
         /// If `None`, the active layout is used for the event.
         layout_id: Option<uuid::Uuid>,
@@ -264,11 +262,9 @@ impl Flowsurface {
             window::open(config)
         };
 
-        // Create tickers table at app level (shared by pane dropdowns)
-        let (tickers_table, _initial_fetch) = TickersTable::new();
-
-        // Ticker list starts empty - tickers only appear after the user
+        // Ticker info starts empty - tickers only appear after the user
         // connects to a data feed via the connections menu.
+        let tickers_info = FxHashMap::default();
         log::info!("Ticker list empty until a data feed is connected");
 
         let sidebar = dashboard::Sidebar::new(&saved_state);
@@ -285,7 +281,7 @@ impl Flowsurface {
             historical_download_id: None,
             data_feed_manager,
             sidebar,
-            tickers_table,
+            tickers_info,
             confirm_dialog: None,
             rithmic_client: None,
             rithmic_trade_repo: None,
@@ -354,7 +350,8 @@ impl Flowsurface {
                     .into_iter()
                     .collect();
                 if !ticker_symbols.is_empty() {
-                    state.tickers_table.set_cached_filter(ticker_symbols);
+                    state.tickers_info =
+                        build_tickers_info(ticker_symbols);
                 }
             }
 
@@ -382,14 +379,16 @@ impl Flowsurface {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        subscriptions::build_subscription(&self.tickers_table)
+        subscriptions::build_subscription(
+            self.replay_manager.is_dragging,
+        )
     }
 
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
         let dashboard = self.active_dashboard();
         let sidebar_pos = self.sidebar.position();
 
-        let tickers_table = &self.tickers_table;
+        let tickers_info = &self.tickers_info;
 
         let content = if id == self.main_window.id {
             let sidebar_view = self
@@ -398,7 +397,7 @@ impl Flowsurface {
                 .map(Message::Sidebar);
 
             let dashboard_view = dashboard
-                .view(&self.main_window, tickers_table, self.timezone)
+                .view(&self.main_window, tickers_info, self.timezone)
                 .map(move |msg| Message::Dashboard {
                     layout_id: None,
                     event: msg,
@@ -444,7 +443,7 @@ impl Flowsurface {
         } else {
             container(
                 dashboard
-                    .view_window(id, &self.main_window, tickers_table, self.timezone)
+                    .view_window(id, &self.main_window, tickers_info, self.timezone)
                     .map(move |msg| Message::Dashboard {
                         layout_id: None,
                         event: msg,
@@ -453,6 +452,28 @@ impl Flowsurface {
             .padding(padding::top(style::TITLE_PADDING_TOP))
             .into()
         };
+
+        // Overlay the floating replay controller when replay is active
+        // and controller is visible
+        let content =
+            if self.replay_manager.data_loaded && self.replay_manager.controller_visible {
+                use iced::widget::stack;
+                let pos = self.replay_manager.panel_position;
+                let controller = self
+                    .replay_manager
+                    .view_floating_controller(self.timezone)
+                    .map(Message::Replay);
+                let overlay = container(controller).padding(iced::Padding {
+                    top: pos.y,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: pos.x,
+                });
+
+                stack![content, overlay].into()
+            } else {
+                content
+            };
 
         toast::Manager::new(
             content,
@@ -801,17 +822,21 @@ impl Flowsurface {
             sidebar::Menu::Replay => {
                 let (align_x, padding) = match sidebar_pos {
                     sidebar::Position::Left => {
-                        (Alignment::Start, padding::left(44).bottom(100))
+                        (Alignment::Start, padding::left(44).bottom(120))
                     }
                     sidebar::Position::Right => {
-                        (Alignment::End, padding::right(44).bottom(100))
+                        (Alignment::End, padding::right(44).bottom(120))
                     }
                 };
 
                 dashboard_modal(
                     base,
-                    self.replay_manager.view().map(Message::Replay),
-                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    self.replay_manager
+                        .view_setup_modal(self.timezone)
+                        .map(Message::Replay),
+                    Message::Sidebar(
+                        dashboard::sidebar::Message::ToggleSidebarMenu(None),
+                    ),
                     padding,
                     Alignment::End,
                     align_x,
@@ -836,4 +861,59 @@ impl Flowsurface {
             }
         }
     }
+}
+
+/// CME Futures Products - Lookup table for ticker info (tick sizes, etc.)
+pub(crate) const FUTURES_PRODUCTS: &[(&str, &str, f32, f32, f32)] = &[
+    ("ES.c.0", "E-mini S&P 500", 0.25, 1.0, 50.0),
+    ("NQ.c.0", "E-mini Nasdaq-100", 0.25, 1.0, 20.0),
+    ("YM.c.0", "E-mini Dow", 1.0, 1.0, 5.0),
+    ("RTY.c.0", "E-mini Russell 2000", 0.1, 1.0, 50.0),
+    ("CL.c.0", "Crude Oil", 0.01, 1.0, 1000.0),
+    ("GC.c.0", "Gold", 0.10, 1.0, 100.0),
+    ("SI.c.0", "Silver", 0.005, 1.0, 5000.0),
+    ("ZN.c.0", "10-Year T-Note", 0.015625, 1.0, 1000.0),
+    ("ZB.c.0", "30-Year T-Bond", 0.03125, 1.0, 1000.0),
+    ("ZF.c.0", "5-Year T-Note", 0.0078125, 1.0, 1000.0),
+    ("NG.c.0", "Natural Gas", 0.001, 1.0, 10000.0),
+    ("HG.c.0", "Copper", 0.0005, 1.0, 25000.0),
+];
+
+/// Rebuild the tickers_info map from a set of available symbols.
+pub(crate) fn build_tickers_info(
+    available_symbols: std::collections::HashSet<String>,
+) -> FxHashMap<FuturesTicker, FuturesTickerInfo> {
+    log::info!(
+        "Ticker list updated: {} tickers available",
+        available_symbols.len()
+    );
+
+    let venue = FuturesVenue::CMEGlobex;
+    let mut info = FxHashMap::default();
+
+    for (symbol, product_name, tick_size, min_qty, contract_size)
+        in FUTURES_PRODUCTS
+    {
+        if !available_symbols.contains(*symbol) {
+            continue;
+        }
+
+        let ticker = FuturesTicker::new_with_display(
+            symbol,
+            venue,
+            Some(symbol.split('.').next().unwrap()),
+            Some(product_name),
+        );
+
+        let ticker_info = FuturesTickerInfo::new(
+            ticker,
+            *tick_size,
+            *min_qty,
+            *contract_size,
+        );
+
+        info.insert(ticker, ticker_info);
+    }
+
+    info
 }

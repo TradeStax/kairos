@@ -12,17 +12,19 @@ use crate::{
     component::primitives::{exchange_icon, icon_text, label::*},
     component::input::link_group_button::link_group_button,
     modal::{self, pane::Modal},
-    screen::dashboard::{panel, tickers_table::TickersTable},
+    screen::dashboard::panel,
     style::{self, palette, tokens},
     window::{self, Window},
 };
 use data::{ContentKind, UserTimezone};
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element, Length, Renderer, Theme,
     alignment::Vertical,
     padding,
     widget::{button, center, column, container, pane_grid, row, text},
 };
+use rustc_hash::FxHashMap;
 
 use super::{Content, Event, Message, State};
 
@@ -36,7 +38,7 @@ impl State {
         window: window::Id,
         main_window: &'a Window,
         timezone: UserTimezone,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
         let mut stream_info_element = if Content::Starter == self.content {
             row![]
@@ -160,7 +162,7 @@ impl State {
         };
 
         let body = match &self.content {
-            Content::Starter => self.view_starter_body(id, compact_controls, tickers_table),
+            Content::Starter => self.view_starter_body(id, compact_controls, tickers_info),
             Content::Comparison(chart) => {
                 let (body, extras) = self.view_comparison_body(
                     id,
@@ -169,7 +171,7 @@ impl State {
                     compact_controls,
                     uninitialized_base,
                     timezone,
-                    tickers_table,
+                    tickers_info,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);
@@ -192,7 +194,7 @@ impl State {
                         compact_controls,
                         settings_modal,
                         None,
-                        tickers_table,
+                        tickers_info,
                     )
                 } else {
                     let base = uninitialized_base(ContentKind::TimeAndSales);
@@ -203,7 +205,7 @@ impl State {
                         compact_controls,
                         || column![].into(),
                         None,
-                        tickers_table,
+                        tickers_info,
                     )
                 }
             }
@@ -234,7 +236,7 @@ impl State {
                         compact_controls,
                         settings_modal,
                         None,
-                        tickers_table,
+                        tickers_info,
                     )
                 } else {
                     let base = uninitialized_base(ContentKind::Ladder);
@@ -245,14 +247,14 @@ impl State {
                         compact_controls,
                         || column![].into(),
                         None,
-                        tickers_table,
+                        tickers_info,
                     )
                 }
             }
             Content::Heatmap {
                 chart,
                 indicators,
-                studies,
+                studies: _,
                 ..
             } => {
                 let (body, extras) = self.view_heatmap_body(
@@ -263,7 +265,7 @@ impl State {
                     compact_controls,
                     uninitialized_base,
                     timezone,
-                    tickers_table,
+                    tickers_info,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);
@@ -285,7 +287,7 @@ impl State {
                     compact_controls,
                     uninitialized_base,
                     timezone,
-                    tickers_table,
+                    tickers_info,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);

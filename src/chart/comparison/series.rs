@@ -4,7 +4,7 @@
 //! such as color and custom label names.
 
 use crate::style;
-use crate::widget::chart::Series;
+use super::types::Series;
 use crate::component::input::color_picker::color_picker;
 use exchange::FuturesTickerInfo;
 use iced::widget::{button, column, container, row, text};
@@ -110,7 +110,7 @@ impl TickerSeriesEditor {
                 let hsva_in = self
                     .editing_color
                     .unwrap_or_else(|| data::config::theme::to_hsva(applied));
-                inner_col = inner_col.push(color_picker(hsva_in, Message::ColorChangedHsva));
+                inner_col = inner_col.push(color_picker(hsva_in, Message::ColorChangedHsva, 280.0));
 
                 let label_name = self
                     .editing_name

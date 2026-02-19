@@ -20,3 +20,16 @@ pub use massive_contracts::MassiveContractRepository;
 pub use massive_snapshots::MassiveSnapshotRepository;
 pub use rithmic_depth::RithmicDepthRepository;
 pub use rithmic_trades::RithmicTradeRepository;
+
+use crate::adapter::massive::MassiveError;
+use flowsurface_data::repository::RepositoryError;
+
+/// Convert a MassiveError into a RepositoryError
+fn convert_massive_error(e: MassiveError) -> RepositoryError {
+    match e {
+        MassiveError::SymbolNotFound(s) => RepositoryError::NotFound(s),
+        MassiveError::RateLimit(s) => RepositoryError::RateLimit(s),
+        MassiveError::Cache(s) => RepositoryError::Cache(s),
+        other => RepositoryError::Remote(other.to_string()),
+    }
+}

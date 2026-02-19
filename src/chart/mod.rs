@@ -12,6 +12,7 @@ pub mod indicator;
 pub mod overlay;
 pub mod perf;
 pub(crate) mod scale;
+pub(crate) mod study;
 
 // Re-export KlineChart for backwards compatibility
 
@@ -19,7 +20,7 @@ pub(crate) mod scale;
 pub use core::{Caches, Chart, Interaction, PlotConstants, ViewState, canvas_interaction};
 
 use crate::style;
-use crate::widget::multi_split::MultiSplit;
+use crate::component::layout::multi_split::MultiSplit;
 use crate::component::display::tooltip::tooltip;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};

@@ -3,7 +3,7 @@ use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales
 use crate::component::layout::reorderable_list as column_drag;
 
 use data::{
-    ContentKind, DrawingTool, FootprintStudy, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
+    ContentKind, DrawingTool, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
     ViewConfig, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
@@ -23,7 +23,6 @@ pub enum Content {
         chart: Option<KlineChart>,
         indicators: Vec<KlineIndicator>,
         layout: ViewConfig,
-        kind: data::KlineChartKind,
     },
     TimeAndSales(Option<TimeAndSales>),
     Ladder(Option<Ladder>),
@@ -53,20 +52,6 @@ impl Content {
                 layout: ViewConfig {
                     splits: vec![0.8],
                     autoscale: Some(data::Autoscale::FitAll),
-                },
-                kind: data::KlineChartKind::Candles,
-            },
-            ContentKind::FootprintChart => Content::Kline {
-                chart: None,
-                indicators: vec![KlineIndicator::Volume],
-                layout: ViewConfig {
-                    splits: vec![0.8],
-                    autoscale: Some(data::Autoscale::FitAll),
-                },
-                kind: data::KlineChartKind::Footprint {
-                    clusters: data::ClusterKind::default(),
-                    scaling: data::ClusterScaling::default(),
-                    studies: vec![],
                 },
             },
             ContentKind::TimeAndSales => {
@@ -105,20 +90,6 @@ impl Content {
             ContentKind::CandlestickChart => Content::Kline {
                 chart: None,
                 indicators: vec![KlineIndicator::Volume],
-                kind: data::KlineChartKind::Candles,
-                layout: ViewConfig {
-                    splits: vec![],
-                    autoscale: Some(data::Autoscale::FitAll),
-                },
-            },
-            ContentKind::FootprintChart => Content::Kline {
-                chart: None,
-                indicators: vec![KlineIndicator::Volume],
-                kind: data::KlineChartKind::Footprint {
-                    clusters: data::ClusterKind::default(),
-                    scaling: data::ClusterScaling::default(),
-                    studies: vec![],
-                },
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
@@ -150,9 +121,11 @@ impl Content {
         }
     }
 
-    pub fn chart_kind(&self) -> Option<data::KlineChartKind> {
+    pub fn footprint_config(&self) -> Option<data::FootprintStudyConfig> {
         match self {
-            Content::Kline { chart, .. } => Some(chart.as_ref()?.kind().clone()),
+            Content::Kline { chart, .. } => {
+                chart.as_ref()?.footprint_config().cloned()
+            }
             _ => None,
         }
     }
@@ -229,9 +202,8 @@ impl Content {
                 };
                 c.set_visual_config(visual);
             }
-            (Content::Kline { .. }, VisualConfig::Kline(_cfg)) => {
-                // KlineChart doesn't expose set_visual_config
-                // Future: implement if needed
+            (Content::Kline { chart: Some(c), .. }, VisualConfig::Kline(cfg)) => {
+                c.set_candle_style(cfg.candle_style);
             }
             (Content::TimeAndSales(Some(panel)), VisualConfig::TimeAndSales(cfg)) => {
                 // Convert state config to panel config
@@ -277,16 +249,11 @@ impl Content {
         }
     }
 
-    pub fn footprint_studies(&self) -> Option<Vec<FootprintStudy>> {
-        match &self {
-            Content::Kline { kind, .. } => {
-                if let data::KlineChartKind::Footprint { studies, .. } = kind {
-                    Some(studies.clone())
-                } else {
-                    None
-                }
+    pub fn set_footprint_config(&mut self, config: Option<data::FootprintStudyConfig>) {
+        if let Content::Kline { chart, .. } = self {
+            if let Some(c) = chart {
+                c.set_footprint(config);
             }
-            _ => None,
         }
     }
 
@@ -315,27 +282,10 @@ impl Content {
         }
     }
 
-    pub fn update_footprint_studies(&mut self, studies: Vec<FootprintStudy>) {
-        if let Content::Kline { chart, kind, .. } = self {
-            if let Some(c) = chart {
-                c.set_studies(studies.clone());
-            }
-            if let data::KlineChartKind::Footprint {
-                studies: k_studies, ..
-            } = kind
-            {
-                *k_studies = studies;
-            }
-        }
-    }
-
     pub fn kind(&self) -> ContentKind {
         match self {
             Content::Heatmap { .. } => ContentKind::HeatmapChart,
-            Content::Kline { kind, .. } => match kind {
-                data::KlineChartKind::Footprint { .. } => ContentKind::FootprintChart,
-                data::KlineChartKind::Candles => ContentKind::CandlestickChart,
-            },
+            Content::Kline { .. } => ContentKind::CandlestickChart,
             Content::TimeAndSales(_) => ContentKind::TimeAndSales,
             Content::Ladder(_) => ContentKind::Ladder,
             Content::Comparison(_) => ContentKind::ComparisonChart,
@@ -351,6 +301,24 @@ impl Content {
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
             Content::Starter => true,
+        }
+    }
+
+    /// Append a single trade to the active chart (used by replay).
+    pub fn append_trade(&mut self, trade: &data::Trade) {
+        match self {
+            Content::Kline { chart: Some(c), .. } => c.append_trade(trade),
+            Content::Heatmap { chart: Some(c), .. } => c.append_trade(trade),
+            _ => {}
+        }
+    }
+
+    /// Rebuild the chart from scratch with the given trades (used by replay seek).
+    pub fn rebuild_from_trades(&mut self, trades: &[data::Trade]) {
+        match self {
+            Content::Kline { chart: Some(c), .. } => c.rebuild_from_trades(trades),
+            Content::Heatmap { chart: Some(c), .. } => c.rebuild_from_trades(trades),
+            _ => {}
         }
     }
 

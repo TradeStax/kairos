@@ -1,10 +1,12 @@
 use crate::{
     chart,
     modal::{self, ModifierKind, pane::Modal},
-    screen::dashboard::{pane::view::CompactControls, tickers_table::TickersTable},
+    screen::dashboard::pane::view::CompactControls,
 };
 use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{Element, widget::column};
+use rustc_hash::FxHashMap;
 
 use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
@@ -24,7 +26,7 @@ impl State {
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
     ) -> (Element<'a, Message>, Vec<Element<'a, Message>>) {
         let mut extra = Vec::new();
 
@@ -97,7 +99,7 @@ impl State {
                 compact_controls,
                 settings_modal,
                 None,
-                tickers_table,
+                tickers_info,
             );
             (body, extra)
         } else {
@@ -109,7 +111,7 @@ impl State {
                 compact_controls,
                 || column![].into(),
                 None,
-                tickers_table,
+                tickers_info,
             );
             (body, extra)
         }

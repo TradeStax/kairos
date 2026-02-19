@@ -69,6 +69,8 @@ pub struct State {
     pub link_group: Option<LinkGroup>,
     /// Tracks which feed provided this pane's data (set when chart data loads)
     pub feed_id: Option<data::FeedId>,
+    /// Backup of chart data before replay (restored on stop)
+    pub replay_backup: Option<ChartData>,
 }
 
 impl State {
@@ -113,6 +115,7 @@ impl Default for State {
             chart_data: None,
             link_group: None,
             feed_id: None,
+            replay_backup: None,
         }
     }
 }

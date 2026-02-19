@@ -1,7 +1,7 @@
 //! Icon button with optional tooltip.
 
 use iced::widget::{button, container, text, tooltip};
-use iced::{Element, Length, Padding, Theme};
+use iced::{Alignment, Element, Length, Padding, Theme};
 
 use crate::style;
 use crate::style::tokens;
@@ -93,9 +93,21 @@ impl<'a, Message> IconButtonBuilder<'a, Message> {
     where
         Message: Clone + 'a,
     {
-        let icon_content = text(char::from(self.icon).to_string())
-            .font(ICONS_FONT)
-            .size(iced::Pixels(self.size.into()));
+        let icon_text = if self.icon.uses_default_font() {
+            text(char::from(self.icon).to_string())
+                .size(iced::Pixels(self.size.into()))
+        } else {
+            text(char::from(self.icon).to_string())
+                .font(ICONS_FONT)
+                .size(iced::Pixels(self.size.into()))
+        };
+
+        let sz = Length::Fixed(self.size as f32);
+        let icon_content = container(icon_text)
+            .width(sz)
+            .height(sz)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
 
         let is_active = self.is_active;
         let mut btn = button(icon_content).padding(self.padding);

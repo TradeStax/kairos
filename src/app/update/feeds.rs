@@ -99,7 +99,7 @@ impl Flowsurface {
             .list_tickers()
             .into_iter()
             .collect();
-        self.tickers_table.set_cached_filter(ticker_symbols);
+        self.tickers_info = super::super::build_tickers_info(ticker_symbols);
         log::info!("Databento feed connected - restored ticker list");
 
         // Re-affiliate disconnected panes and reload any in error state

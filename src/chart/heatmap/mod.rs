@@ -382,6 +382,53 @@ impl HeatmapChart {
         self.invalidate(Some(Instant::now()));
     }
 
+    /// Rebuild the chart from scratch with the given trades.
+    ///
+    /// Clears all existing trades and heatmap trade data, then
+    /// replays the trades. Used during replay seek to ensure
+    /// the chart exactly represents `[start, position]`.
+    pub fn rebuild_from_trades(&mut self, trades: &[DomainTrade]) {
+        self.chart_data.trades.clear();
+        self.heatmap_data.clear_trades();
+
+        let tick_size = DataPrice::from_f32(self.ticker_info.tick_size);
+        for trade in trades {
+            self.chart_data.trades.push(*trade);
+            self.heatmap_data.add_trade(trade, self.basis, tick_size);
+        }
+
+        // Update latest X and base price from last trade
+        if let Some(last) = trades.last() {
+            self.chart.latest_x = last.time.to_millis();
+            self.chart.base_price_y =
+                exchange::util::Price::from_units(last.price.to_units());
+            self.chart.last_price = Some(PriceInfoLabel::Neutral(
+                exchange::util::Price::from_units(last.price.to_units()),
+            ));
+        }
+
+        self.invalidate(Some(Instant::now()));
+    }
+
+    /// Append a single trade during replay.
+    ///
+    /// Pushes the trade to internal `chart_data`, updates the
+    /// heatmap data structures, and invalidates rendering caches.
+    pub fn append_trade(&mut self, trade: &DomainTrade) {
+        let tick_size = DataPrice::from_f32(self.ticker_info.tick_size);
+
+        self.chart_data.trades.push(*trade);
+        self.heatmap_data.add_trade(trade, self.basis, tick_size);
+
+        // Update latest X and base price
+        self.chart.latest_x = trade.time.to_millis();
+        self.chart.base_price_y =
+            exchange::util::Price::from_units(trade.price.to_units());
+        self.chart.last_price = Some(PriceInfoLabel::Neutral(
+            exchange::util::Price::from_units(trade.price.to_units()),
+        ));
+    }
+
     /// Get current visual configuration
     pub fn visual_config(&self) -> VisualConfig {
         self.visual_config

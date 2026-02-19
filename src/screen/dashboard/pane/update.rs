@@ -261,7 +261,7 @@ impl State {
                                 .settings
                                 .selected_basis
                                 .unwrap_or(ChartBasis::Time(
-                                    Timeframe::M15,
+                                    Timeframe::M5,
                                 ));
 
                             let date_range = DateRange::new(

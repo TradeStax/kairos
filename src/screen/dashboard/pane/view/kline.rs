@@ -1,14 +1,16 @@
 use crate::{
     chart,
     modal::{self, ModifierKind, pane::Modal},
-    screen::dashboard::{pane::view::CompactControls, tickers_table::TickersTable},
+    screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
 use data::{ChartBasis, ContentKind, KlineIndicator, Timeframe, UserTimezone};
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element,
     widget::{column, row},
 };
+use rustc_hash::FxHashMap;
 
 use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
@@ -29,7 +31,7 @@ impl State {
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
     ) -> (Element<'a, Message>, Vec<Element<'a, Message>>) {
         let mut extra = Vec::new();
 
@@ -52,7 +54,7 @@ impl State {
                     let selected_basis = self
                         .settings
                         .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M15));
+                        .unwrap_or(ChartBasis::Time(Timeframe::M5));
                     let kind = ModifierKind::Candlestick(selected_basis);
 
                     let modifiers: Element<'a, Message> =
@@ -67,8 +69,16 @@ impl State {
             let base = chart::view(chart, indicators, timezone)
                 .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
             let settings_modal = || {
-                // KlineChart doesn't expose visual config - use default
-                let cfg = data::state::pane_config::KlineConfig::default();
+                // Read candle style from the chart's current config
+                let cfg = if let Some(data::VisualConfig::Kline(ref saved)) =
+                    self.settings.visual_config
+                {
+                    saved.clone()
+                } else {
+                    let mut default = data::state::pane_config::KlineConfig::default();
+                    default.candle_style = chart.candle_style().clone();
+                    default
+                };
                 modal::pane::settings::kline_cfg_view(
                     cfg,
                     chart.study_configurator(),
@@ -93,7 +103,7 @@ impl State {
                 compact_controls,
                 settings_modal,
                 None,
-                tickers_table,
+                tickers_info,
             );
             (body, extra)
         } else {
@@ -109,7 +119,7 @@ impl State {
                 compact_controls,
                 || column![].into(),
                 None,
-                tickers_table,
+                tickers_info,
             );
             (body, extra)
         }

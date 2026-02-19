@@ -3,14 +3,14 @@ use super::helpers::link_group_modal;
 use crate::{
     component::display::toast,
     modal::{self, pane::Modal},
-    screen::dashboard::tickers_table::TickersTable,
     style::{self, tokens},
 };
-use exchange::FuturesTickerInfo;
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element, padding,
     widget::{column, container, pane_grid},
 };
+use rustc_hash::FxHashMap;
 
 /// Alias for the optional compact-controls overlay element.
 pub(crate) type CompactControls<'a> = Option<Element<'a, Message>>;
@@ -24,7 +24,7 @@ impl State {
         compact_controls: Option<Element<'a, Message>>,
         settings_modal: F,
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
     ) -> Element<'a, Message>
     where
         F: FnOnce() -> Element<'a, Message>,
@@ -61,7 +61,7 @@ impl State {
             ),
             Some(Modal::MiniTickersList(panel)) => {
                 let mini_list = panel
-                    .view(tickers_table, selected_tickers, self.ticker_info)
+                    .view(tickers_info, selected_tickers, self.ticker_info)
                     .map(move |msg| {
                         Message::PaneEvent(pane, Event::MiniTickersListInteraction(msg))
                     });
@@ -70,7 +70,10 @@ impl State {
                     .max_width(260)
                     .max_height(480)
                     .clip(true)
-                    .padding(tokens::spacing::XL)
+                    .padding(padding::top(tokens::spacing::MD)
+                        .left(tokens::spacing::XL)
+                        .right(tokens::spacing::XL)
+                        .bottom(tokens::spacing::MD))
                     .style(style::chart_modal)
                     .into();
 

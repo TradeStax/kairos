@@ -31,105 +31,112 @@ pub enum Autoscale {
     Disabled,
 }
 
-/// Kline chart kinds
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
-pub enum KlineChartKind {
+/// Display mode for footprint studies
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FootprintMode {
+    /// Grid cells with values at each price level
+    Box,
+    /// Horizontal bars extending from candle
     #[default]
-    Candles,
-    Footprint {
-        clusters: ClusterKind,
-        scaling: ClusterScaling,
-        studies: Vec<FootprintStudy>,
-    },
+    Profile,
 }
 
-
-impl KlineChartKind {
-    pub fn min_scaling(&self) -> f32 {
+impl std::fmt::Display for FootprintMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KlineChartKind::Candles => 0.25,
-            KlineChartKind::Footprint { .. } => 0.1,
-        }
-    }
-
-    pub fn max_scaling(&self) -> f32 {
-        match self {
-            KlineChartKind::Candles => 8.0,
-            KlineChartKind::Footprint { .. } => 4.0,
-        }
-    }
-
-    pub fn max_cell_width(&self) -> f32 {
-        match self {
-            KlineChartKind::Candles => 50.0,
-            KlineChartKind::Footprint { .. } => 200.0,
-        }
-    }
-
-    pub fn min_cell_width(&self) -> f32 {
-        match self {
-            KlineChartKind::Candles => 1.0,
-            KlineChartKind::Footprint { .. } => 20.0,
-        }
-    }
-
-    pub fn max_cell_height(&self) -> f32 {
-        300.0 // Increased from 200.0 to allow more zoom in
-    }
-
-    pub fn min_cell_height(&self) -> f32 {
-        0.1 // CRITICAL: Was 1.0, now 0.1 for truly infinite Y-axis zoom like X-axis
-             // With initial cell_height ~4.0, this gives 40x zoom range (vs only 4x before)
-             // At 0.1px/tick, 800px screen = 8000 price points visible (plenty for NQ!)
-    }
-
-    pub fn default_cell_width(&self) -> f32 {
-        match self {
-            KlineChartKind::Candles => 4.0,
-            KlineChartKind::Footprint { .. } => 80.0,
+            FootprintMode::Box => write!(f, "Box"),
+            FootprintMode::Profile => write!(f, "Profile"),
         }
     }
 }
 
-/// Cluster kind for footprint charts
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
-pub enum ClusterKind {
+/// Data type shown in the footprint study
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FootprintType {
+    /// Total volume (buy + sell) at each price level
     #[default]
-    Delta,
     Volume,
-    Trades,
-    // Volume profile variants
-    VolumeProfile,
-    DeltaProfile,
-    BidAsk,
+    /// Separate ask and bid volumes on each side
+    BidAskSplit,
+    /// Buy - Sell difference per price level
+    Delta,
+    /// Combined: total volume as bar size + delta as adjacent colored sub-bars
+    DeltaAndVolume,
 }
 
-impl ClusterKind {
-    pub const ALL: &'static [ClusterKind] = &[
-        ClusterKind::Delta,
-        ClusterKind::Volume,
-        ClusterKind::Trades,
-        ClusterKind::VolumeProfile,
-        ClusterKind::DeltaProfile,
-        ClusterKind::BidAsk,
+impl FootprintType {
+    pub const ALL: &'static [FootprintType] = &[
+        FootprintType::Volume,
+        FootprintType::BidAskSplit,
+        FootprintType::Delta,
+        FootprintType::DeltaAndVolume,
     ];
 }
 
-impl std::fmt::Display for ClusterKind {
+impl std::fmt::Display for FootprintType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClusterKind::Delta => write!(f, "Delta"),
-            ClusterKind::Volume => write!(f, "Volume"),
-            ClusterKind::Trades => write!(f, "Trades"),
-            ClusterKind::VolumeProfile => write!(f, "Volume Profile"),
-            ClusterKind::DeltaProfile => write!(f, "Delta Profile"),
-            ClusterKind::BidAsk => write!(f, "Bid/Ask"),
+            FootprintType::Volume => write!(f, "Volume"),
+            FootprintType::BidAskSplit => write!(f, "Bid/Ask Split"),
+            FootprintType::Delta => write!(f, "Delta"),
+            FootprintType::DeltaAndVolume => write!(f, "Delta + Volume"),
         }
     }
 }
 
+/// Candle position relative to the study bars
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum CandlePosition {
+    /// No candle drawn, study bars only
+    None,
+    /// Candle on left, bars extend right
+    #[default]
+    Left,
+    /// Candle centered, bars on both sides
+    Center,
+    /// Candle on right, bars extend left
+    Right,
+}
+
+impl CandlePosition {
+    pub const ALL: &'static [CandlePosition] = &[
+        CandlePosition::None,
+        CandlePosition::Left,
+        CandlePosition::Center,
+        CandlePosition::Right,
+    ];
+}
+
+impl std::fmt::Display for CandlePosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CandlePosition::None => write!(f, "None"),
+            CandlePosition::Left => write!(f, "Left"),
+            CandlePosition::Center => write!(f, "Center"),
+            CandlePosition::Right => write!(f, "Right"),
+        }
+    }
+}
+
+/// Active footprint study configuration (None = standard candles)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FootprintStudyConfig {
+    pub mode: FootprintMode,
+    pub study_type: FootprintType,
+    pub scaling: ClusterScaling,
+    pub candle_position: CandlePosition,
+}
+
+impl Default for FootprintStudyConfig {
+    fn default() -> Self {
+        Self {
+            mode: FootprintMode::Profile,
+            study_type: FootprintType::Volume,
+            scaling: ClusterScaling::Sqrt,
+            candle_position: CandlePosition::Left,
+        }
+    }
+}
 
 /// Cluster scaling for footprint charts
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -172,47 +179,6 @@ impl std::fmt::Display for ClusterScaling {
     }
 }
 
-
-/// Footprint study types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FootprintStudy {
-    Imbalance {
-        threshold: u8,
-        ignore_zeros: bool,
-        color_scale: bool,
-    },
-    NPoC { lookback: usize },
-    PointOfControl,
-    ValueArea,
-}
-
-impl FootprintStudy {
-    pub const ALL: &'static [FootprintStudy] = &[
-        FootprintStudy::Imbalance {
-            threshold: 70,
-            ignore_zeros: false,
-            color_scale: true,
-        },
-        FootprintStudy::NPoC { lookback: 100 },
-        FootprintStudy::PointOfControl,
-        FootprintStudy::ValueArea,
-    ];
-
-    pub fn is_same_type(&self, other: &Self) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(other)
-    }
-}
-
-impl std::fmt::Display for FootprintStudy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FootprintStudy::Imbalance { threshold, .. } => write!(f, "Imbalance ({}%)", threshold),
-            FootprintStudy::NPoC { lookback } => write!(f, "NPoC ({})", lookback),
-            FootprintStudy::PointOfControl => write!(f, "Point of Control"),
-            FootprintStudy::ValueArea => write!(f, "Value Area"),
-        }
-    }
-}
 
 /// Kline data point (candle with metadata)
 #[derive(Debug, Clone)]
@@ -494,8 +460,8 @@ pub mod heatmap {
 /// Kline-specific types
 pub mod kline {
     pub use super::{
-        ClusterKind, ClusterScaling, FootprintStudy, KlineDataPoint, KlineTrades, NPoc,
-        PointOfControl,
+        CandlePosition, ClusterScaling, FootprintMode, FootprintStudyConfig, FootprintType,
+        KlineDataPoint, KlineTrades, NPoc, PointOfControl,
     };
 
     // Re-export KlineConfig for UI

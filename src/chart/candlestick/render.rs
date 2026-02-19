@@ -15,6 +15,10 @@ use super::candle::draw_candle;
 use super::footprint::{ContentGaps, draw_all_npocs, draw_clusters, effective_cluster_qty, should_show_text};
 use super::KlineChart;
 
+const MAX_TEXT_SIZE: f32 = 14.0;
+const TEXT_SIZE_PADDING: f32 = 2.0;
+const FOOTPRINT_CANDLE_WIDTH_RATIO: f32 = 0.8;
+
 impl canvas::Program<Message> for KlineChart {
     type State = Interaction;
 
@@ -193,6 +197,7 @@ impl canvas::Program<Message> for KlineChart {
                         ChartBasis::Time(tf) => tf.to_milliseconds(),
                         ChartBasis::Tick(_) => 1000,
                     };
+                    let style = &self.candle_style;
 
                     render_candles(
                         &self.chart_data.candles,
@@ -210,6 +215,7 @@ impl canvas::Program<Message> for KlineChart {
                                 price_to_y,
                                 candle_width,
                                 palette,
+                                style,
                                 x_position,
                                 candle,
                             );

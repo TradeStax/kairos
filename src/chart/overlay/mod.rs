@@ -7,7 +7,6 @@
 
 mod crosshair;
 mod gaps;
-mod grid;
 mod last_price;
 mod ruler;
 

@@ -173,9 +173,6 @@ impl Flowsurface {
             Message::Sidebar(message) => {
                 return self.handle_sidebar(message);
             }
-            Message::TickersTable(msg) => {
-                return self.handle_tickers_table(msg);
-            }
         }
         Task::none()
     }

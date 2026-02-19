@@ -1,14 +1,16 @@
 use crate::{
     component,
     component::primitives::label::*,
-    screen::dashboard::{pane::view::CompactControls, tickers_table::TickersTable},
+    screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
 use data::ContentKind;
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element,
     widget::{center, column, pick_list},
 };
+use rustc_hash::FxHashMap;
 
 use super::super::{Event, Message, State};
 
@@ -18,7 +20,7 @@ impl State {
         &'a self,
         id: iced::widget::pane_grid::Pane,
         compact_controls: CompactControls<'a>,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
     ) -> Element<'a, Message> {
         let content_picklist =
             pick_list(ContentKind::ALL, Some(ContentKind::Starter), move |kind| {
@@ -44,7 +46,7 @@ impl State {
             compact_controls,
             || column![].into(),
             None,
-            tickers_table,
+            tickers_info,
         )
     }
 }

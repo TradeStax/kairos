@@ -48,6 +48,61 @@ impl UserTimezone {
         }
     }
 
+    /// Formats a millisecond timestamp for replay display (HH:MM:SS in user tz)
+    pub fn format_replay_timestamp(&self, timestamp_millis: i64) -> String {
+        if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
+            match self {
+                UserTimezone::Local => datetime
+                    .with_timezone(&chrono::Local)
+                    .format("%H:%M:%S")
+                    .to_string(),
+                UserTimezone::Utc => datetime
+                    .with_timezone(&chrono::Utc)
+                    .format("%H:%M:%S")
+                    .to_string(),
+            }
+        } else {
+            "--:--:--".to_string()
+        }
+    }
+
+    /// Formats a millisecond timestamp for replay tooltip (MM/DD HH:MM:SS in user tz)
+    pub fn format_replay_tooltip(&self, timestamp_millis: i64) -> String {
+        if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
+            match self {
+                UserTimezone::Local => datetime
+                    .with_timezone(&chrono::Local)
+                    .format("%m/%d %H:%M:%S")
+                    .to_string(),
+                UserTimezone::Utc => datetime
+                    .with_timezone(&chrono::Utc)
+                    .format("%m/%d %H:%M:%S")
+                    .to_string(),
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    /// Converts a NaiveDateTime (interpreted in user's timezone) to UTC millis.
+    pub fn naive_to_utc_millis(&self, dt: chrono::NaiveDateTime) -> i64 {
+        match self {
+            UserTimezone::Utc => dt.and_utc().timestamp_millis(),
+            UserTimezone::Local => {
+                use chrono::TimeZone;
+                match chrono::Local.from_local_datetime(&dt) {
+                    chrono::LocalResult::Single(local_dt) => {
+                        local_dt.with_timezone(&chrono::Utc).timestamp_millis()
+                    }
+                    chrono::LocalResult::Ambiguous(earliest, _) => {
+                        earliest.with_timezone(&chrono::Utc).timestamp_millis()
+                    }
+                    chrono::LocalResult::None => dt.and_utc().timestamp_millis(),
+                }
+            }
+        }
+    }
+
     /// Formats a `DateTime` with detailed format for crosshair display
     pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, interval: u64) -> String {
         if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {

@@ -189,15 +189,9 @@ mod tests {
 
     #[test]
     fn test_extract_underlying() {
-        assert_eq!(
-            extract_underlying("O:AAPL240119C00150000").unwrap(),
-            "AAPL"
-        );
+        assert_eq!(extract_underlying("O:AAPL240119C00150000").unwrap(), "AAPL");
         assert_eq!(extract_underlying("O:SPY240119P00450000").unwrap(), "SPY");
-        assert_eq!(
-            extract_underlying("O:TSLA240315C00200000").unwrap(),
-            "TSLA"
-        );
+        assert_eq!(extract_underlying("O:TSLA240315C00200000").unwrap(), "TSLA");
 
         assert!(extract_underlying("AAPL240119C00150000").is_err());
         assert!(extract_underlying("O:").is_err());

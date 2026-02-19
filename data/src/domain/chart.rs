@@ -70,17 +70,15 @@ impl From<Timeframe> for ChartBasis {
     }
 }
 
-/// Chart type (candlestick, footprint, heatmap)
+/// Chart type (candlestick, heatmap, etc.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartType {
-    /// Standard candlestick chart
+    /// Standard candlestick chart (also hosts footprint studies)
     Candlestick,
     /// Line chart
     Line,
     /// Heikin-Ashi candlestick chart
     HeikinAshi,
-    /// Footprint chart (trade clusters)
-    Footprint,
     /// Heatmap (orderbook visualization)
     Heatmap,
 }
@@ -91,7 +89,6 @@ impl std::fmt::Display for ChartType {
             ChartType::Candlestick => write!(f, "Candlestick"),
             ChartType::Line => write!(f, "Line"),
             ChartType::HeikinAshi => write!(f, "Heikin-Ashi"),
-            ChartType::Footprint => write!(f, "Footprint"),
             ChartType::Heatmap => write!(f, "Heatmap"),
         }
     }

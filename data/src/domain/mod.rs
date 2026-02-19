@@ -25,9 +25,9 @@ pub use chart::{
     LoadingStatus, MergeResult,
 };
 pub use chart_ui_types::{
-    Autoscale, ClusterKind, ClusterScaling, FootprintStudy, HeatmapIndicator, Indicator,
-    KlineChartKind, KlineDataPoint, KlineIndicator, KlineTrades, NPoc, PointOfControl,
-    UiIndicator, ViewConfig,
+    Autoscale, CandlePosition, ClusterScaling, FootprintMode, FootprintStudyConfig, FootprintType,
+    HeatmapIndicator, Indicator, KlineDataPoint, KlineIndicator, KlineTrades, NPoc,
+    PointOfControl, UiIndicator, ViewConfig,
 };
 pub use entities::{Candle, DepthSnapshot, MarketData, Trade};
 pub use futures::{

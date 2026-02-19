@@ -1,16 +1,17 @@
 use super::{pane, Dashboard, Message};
 use crate::{
-    screen::dashboard::tickers_table::TickersTable,
     style::{self, tokens},
     window::{self, Window},
 };
 use data::UserTimezone;
+use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element, Length, Task,
     widget::{
         PaneGrid, center, container,
     },
 };
+use rustc_hash::FxHashMap;
 
 impl Dashboard {
     pub fn load_layout(&mut self, _main_window: window::Id) -> Task<Message> {
@@ -50,7 +51,7 @@ impl Dashboard {
     pub fn view<'a>(
         &'a self,
         main_window: &'a Window,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         timezone: UserTimezone,
     ) -> Element<'a, Message> {
         let pane_grid: Element<_> = PaneGrid::new(&self.panes, |id, pane, maximized| {
@@ -63,7 +64,7 @@ impl Dashboard {
                 main_window.id,
                 main_window,
                 timezone,
-                tickers_table,
+                tickers_info,
             )
         })
         .min_size(240)
@@ -81,7 +82,7 @@ impl Dashboard {
         &'a self,
         window: window::Id,
         main_window: &'a Window,
-        tickers_table: &'a TickersTable,
+        tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         timezone: UserTimezone,
     ) -> Element<'a, Message> {
         if let Some((state, _)) = self.popout.get(&window) {
@@ -96,7 +97,7 @@ impl Dashboard {
                         window,
                         main_window,
                         timezone,
-                        tickers_table,
+                        tickers_info,
                     )
                 })
                 .on_click(pane::Message::PaneClicked),

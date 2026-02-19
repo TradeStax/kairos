@@ -1,6 +1,6 @@
 use iced::Task;
 
-use crate::component::display::toast::{Notification, Toast};
+use crate::component::display::toast::Toast;
 use crate::screen::dashboard;
 use data::LoadingStatus;
 
@@ -104,13 +104,18 @@ impl Flowsurface {
                     chart_data.candles.len()
                 );
 
-                Task::done(Message::Dashboard {
+                let load_task = Task::done(Message::Dashboard {
                     layout_id: Some(layout_id),
                     event: dashboard::Message::ChartDataLoaded {
                         pane_id,
                         chart_data,
                     },
-                })
+                });
+
+                // Check if replay is active and this pane's ticker matches
+                let replay_sync_task = self.maybe_sync_pane_to_replay(layout_id, pane_id);
+
+                Task::batch([load_task, replay_sync_task])
             }
             Err(e) => {
                 log::error!("Failed to load chart data for pane {}: {}", pane_id, e);
@@ -126,6 +131,80 @@ impl Flowsurface {
                 })
             }
         }
+    }
+
+    /// If a replay is active and the pane's ticker matches, spawn a task to
+    /// fetch trades up to the current position and sync the pane into replay.
+    fn maybe_sync_pane_to_replay(
+        &self,
+        layout_id: uuid::Uuid,
+        pane_id: uuid::Uuid,
+    ) -> Task<Message> {
+        if !self.replay_manager.data_loaded {
+            return Task::none();
+        }
+
+        let Some(ref stream) = self.replay_manager.selected_stream else {
+            return Task::none();
+        };
+        let replay_ticker = stream.ticker_info.ticker;
+
+        // Find the pane in the layout and check its ticker
+        let Some(layout) = self.layout_manager.get(layout_id) else {
+            return Task::none();
+        };
+
+        let pane_state = layout
+            .dashboard
+            .panes
+            .iter()
+            .map(|(_, state)| state)
+            .chain(
+                layout
+                    .dashboard
+                    .popout
+                    .values()
+                    .flat_map(|(panes, _)| panes.iter().map(|(_, s)| s)),
+            )
+            .find(|state| state.unique_id() == pane_id);
+
+        let Some(pane_state) = pane_state else {
+            return Task::none();
+        };
+
+        let ticker_matches = pane_state
+            .ticker_info
+            .map_or(false, |ti| ti.ticker == replay_ticker);
+
+        if !ticker_matches || pane_state.is_replaying() {
+            return Task::none();
+        }
+
+        let Some(engine) = self.replay_engine.clone() else {
+            return Task::none();
+        };
+
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let guard = engine.lock().unwrap_or_else(|e| e.into_inner());
+                    tokio::runtime::Handle::current().block_on(guard.get_rebuild_trades())
+                })
+                .await
+                .ok()
+                .flatten()
+            },
+            move |trades| {
+                if let Some(trades) = trades {
+                    Message::Dashboard {
+                        layout_id: Some(layout_id),
+                        event: dashboard::Message::ReplaySyncPane { pane_id, trades },
+                    }
+                } else {
+                    Message::Tick(std::time::Instant::now())
+                }
+            },
+        )
     }
 
     pub(crate) fn handle_update_loading_status(&mut self) -> Task<Message> {

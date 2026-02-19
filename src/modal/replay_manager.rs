@@ -1,19 +1,25 @@
-//! Replay Manager Panel
+//! Replay Manager
 //!
-//! Sidebar popover for selecting a data stream, configuring start time,
-//! and controlling historical playback (play/pause/stop, speed, seek).
+//! Two-component replay UI:
+//! 1. **Setup modal** – sidebar popover for stream/date selection and replay lifecycle
+//! 2. **Floating controller** – compact draggable playback panel with volume trackbar
 
+use crate::component::display::progress_bar::ProgressBarBuilder;
 use crate::component::display::status_dot::status_badge;
 use crate::component::input::dropdown::DropdownBuilder;
 use crate::component::input::text_field::TextFieldBuilder;
-use crate::component::primitives::label::{heading, mono, small};
-use crate::component::primitives::{Icon, icon_text};
+use crate::component::primitives::Icon;
+use crate::component::primitives::icon_button::toolbar_icon;
+use crate::component::primitives::label::{mono, small, title};
 use crate::style::{self, palette, tokens};
-use data::feed::{DataFeedManager, FeedId, FeedProvider};
-use data::state::replay_state::{PlaybackStatus, SpeedPreset};
+use crate::component::input::volume_trackbar::volume_trackbar;
 use data::domain::TimeRange;
-use data::{DateRange, FuturesTicker, FuturesTickerInfo};
-use iced::widget::{button, column, container, row, rule, slider, space, text};
+use data::feed::{DataFeedManager, FeedId, FeedProvider};
+use data::services::VolumeBucket;
+use data::state::replay_state::{PlaybackStatus, SpeedPreset};
+use data::{DateRange, FuturesTicker, FuturesTickerInfo, UserTimezone};
+use iced::mouse;
+use iced::widget::{button, column, container, mouse_area, pick_list, row, space, text};
 use iced::{Alignment, Element, Length};
 
 /// Entry representing a connected data stream available for replay.
@@ -35,20 +41,31 @@ impl std::fmt::Display for StreamEntry {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    // Setup messages
     SelectStream(StreamEntry),
     SetStartDate(String),
     SetStartTime(String),
     LoadData,
+    // Playback control
     Play,
     Pause,
-    Stop,
     SetSpeed(SpeedPreset),
     Seek(f32),
     JumpForward,
     JumpBackward,
+    // Lifecycle
+    EndReplay,
+    OpenController,
+    CloseController,
+    // Volume histogram
+    VolumeHistogramReady(Vec<VolumeBucket>),
+    // Drag (floating controller)
+    DragStart,
+    DragMove(iced::Point),
+    DragEnd,
 }
 
-/// Replay manager state for the sidebar panel.
+/// Replay manager state.
 pub struct ReplayManager {
     // Feed/stream selection
     pub selected_stream: Option<StreamEntry>,
@@ -71,6 +88,15 @@ pub struct ReplayManager {
     pub depth_count: usize,
     pub data_loaded: bool,
     pub error: Option<String>,
+
+    // Volume histogram for the trackbar
+    pub volume_buckets: Vec<VolumeBucket>,
+
+    // Floating controller state
+    pub controller_visible: bool,
+    pub panel_position: iced::Point,
+    pub is_dragging: bool,
+    drag_offset: iced::Vector,
 }
 
 impl ReplayManager {
@@ -90,6 +116,11 @@ impl ReplayManager {
             depth_count: 0,
             data_loaded: false,
             error: None,
+            volume_buckets: Vec::new(),
+            controller_visible: false,
+            panel_position: iced::Point::new(100.0, 100.0),
+            is_dragging: false,
+            drag_offset: iced::Vector::new(0.0, 0.0),
         }
     }
 
@@ -108,8 +139,7 @@ impl ReplayManager {
             .filter(|f| f.status.is_connected())
         {
             for ticker_str in downloaded_tickers.list_tickers() {
-                if let Some(range) = downloaded_tickers.get_range_by_ticker_str(&ticker_str)
-                {
+                if let Some(range) = downloaded_tickers.get_range_by_ticker_str(&ticker_str) {
                     if let Some(info) = ticker_infos.get(&ticker_str) {
                         let label = format!(
                             "{} {} {}-{}",
@@ -139,12 +169,10 @@ impl ReplayManager {
         }
     }
 
-    /// Update state from a panel message. Returns true if an engine action
-    /// needs to be dispatched by the caller.
+    /// Update state from a panel message.
     pub fn update(&mut self, message: Message) {
         match message {
             Message::SelectStream(entry) => {
-                // Set default start date from stream's date range
                 self.start_date = entry.date_range.start.format("%Y-%m-%d").to_string();
                 self.selected_stream = Some(entry);
                 self.error = None;
@@ -161,60 +189,106 @@ impl ReplayManager {
             Message::Seek(progress) => {
                 self.progress = progress;
             }
+            Message::OpenController => {
+                self.controller_visible = true;
+            }
+            Message::CloseController => {
+                self.controller_visible = false;
+            }
+            Message::VolumeHistogramReady(buckets) => {
+                self.volume_buckets = buckets;
+            }
+            Message::DragStart => {
+                self.is_dragging = true;
+                self.drag_offset = iced::Vector::ZERO;
+            }
+            Message::DragMove(cursor_pos) => {
+                if self.is_dragging {
+                    if self.drag_offset == iced::Vector::ZERO {
+                        self.drag_offset = iced::Vector::new(
+                            cursor_pos.x - self.panel_position.x,
+                            cursor_pos.y - self.panel_position.y,
+                        );
+                    }
+                    self.panel_position = iced::Point::new(
+                        (cursor_pos.x - self.drag_offset.x).max(0.0),
+                        (cursor_pos.y - self.drag_offset.y).max(0.0),
+                    );
+                }
+            }
+            Message::DragEnd => {
+                self.is_dragging = false;
+            }
+            // Handled by app-level replay handler
             Message::LoadData
             | Message::Play
             | Message::Pause
-            | Message::Stop
+            | Message::EndReplay
             | Message::JumpForward
-            | Message::JumpBackward => {
-                // These are handled by the app-level replay handler
-            }
+            | Message::JumpBackward => {}
         }
     }
 
-    /// Validate the start date string.
+    // ── Helpers ────────────────────────────────────────────────────────
+
     fn is_date_valid(&self) -> bool {
         chrono::NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d").is_ok()
     }
 
-    /// Validate the start time string.
     fn is_time_valid(&self) -> bool {
         chrono::NaiveTime::parse_from_str(&self.start_time, "%H:%M:%S").is_ok()
     }
 
-    /// Format the current position as a timestamp string.
-    fn format_position(&self) -> String {
+    fn format_position(&self, timezone: UserTimezone) -> String {
+        if self.position > 0 {
+            return timezone.format_replay_timestamp(self.position as i64);
+        }
         if let Some(ref range) = self.time_range {
-            let elapsed_ms = self.position.saturating_sub(range.start.to_millis());
-            let elapsed_secs = elapsed_ms / 1000;
-            let h = elapsed_secs / 3600;
-            let m = (elapsed_secs % 3600) / 60;
-            let s = elapsed_secs % 60;
-            format!("{:02}:{:02}:{:02}", h, m, s)
+            return timezone.format_replay_timestamp(range.start.to_millis() as i64);
+        }
+        "--:--:--".to_string()
+    }
+
+    fn format_end_time(&self, timezone: UserTimezone) -> String {
+        if let Some(ref range) = self.time_range {
+            timezone.format_replay_timestamp(range.end.to_millis() as i64)
         } else {
-            "00:00:00".to_string()
+            "--:--:--".to_string()
         }
     }
 
-    /// Format the total duration.
-    fn format_duration(&self) -> String {
-        if let Some(ref range) = self.time_range {
-            let total_ms =
-                range.end.to_millis().saturating_sub(range.start.to_millis());
-            let total_secs = total_ms / 1000;
-            let h = total_secs / 3600;
-            let m = (total_secs % 3600) / 60;
-            let s = total_secs % 60;
-            format!("{:02}:{:02}:{:02}", h, m, s)
+    fn format_trade_count(&self) -> String {
+        if self.trade_count > 1_000_000 {
+            format!("{:.1}M trades", self.trade_count as f64 / 1_000_000.0)
+        } else if self.trade_count > 1_000 {
+            format!("{:.1}K trades", self.trade_count as f64 / 1_000.0)
         } else {
-            "00:00:00".to_string()
+            format!("{} trades", self.trade_count)
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let mut content = column![heading("Replay"),].spacing(tokens::spacing::MD);
+    // ── Sidebar Setup Modal ───────────────────────────────────────────
 
-        // Stream selection dropdown
+    /// Sidebar popover content: setup form or active-replay controls.
+    pub fn view_setup_modal(&self, _timezone: UserTimezone) -> Element<'_, Message> {
+        let content = if self.data_loaded {
+            self.view_setup_active()
+        } else {
+            self.view_setup_form()
+        };
+
+        container(content)
+            .width(Length::Fixed(280.0))
+            .padding(tokens::spacing::LG)
+            .style(style::dashboard_modal)
+            .into()
+    }
+
+    /// Setup form: stream dropdown, date/time, start button.
+    fn view_setup_form(&self) -> iced::widget::Column<'_, Message> {
+        let mut col = column![title("Replay")].spacing(tokens::spacing::MD);
+
+        // Stream dropdown
         let stream_dropdown = DropdownBuilder::new(
             "Data Source",
             &self.available_streams,
@@ -223,12 +297,11 @@ impl ReplayManager {
         )
         .placeholder("Select a stream...")
         .width(Length::Fill);
+        col = col.push(stream_dropdown);
 
-        content = content.push(stream_dropdown);
-
-        // Date/time inputs
+        // Date/time row
         let date_field = TextFieldBuilder::new(
-            "Start Date",
+            "Date",
             "YYYY-MM-DD",
             &self.start_date,
             Message::SetStartDate,
@@ -236,16 +309,12 @@ impl ReplayManager {
         .validate(self.start_date.is_empty() || self.is_date_valid())
         .width(Length::FillPortion(1));
 
-        let time_field = TextFieldBuilder::new(
-            "Start Time",
-            "HH:MM:SS",
-            &self.start_time,
-            Message::SetStartTime,
-        )
-        .validate(self.start_time.is_empty() || self.is_time_valid())
-        .width(Length::FillPortion(1));
+        let time_field =
+            TextFieldBuilder::new("Time", "HH:MM:SS", &self.start_time, Message::SetStartTime)
+                .validate(self.start_time.is_empty() || self.is_time_valid())
+                .width(Length::FillPortion(1));
 
-        content = content.push(
+        col = col.push(
             row![
                 Element::<Message>::from(date_field),
                 Element::<Message>::from(time_field),
@@ -253,54 +322,50 @@ impl ReplayManager {
             .spacing(tokens::spacing::MD),
         );
 
-        // Load & Play button (or loading indicator)
+        // Loading progress or start button
         if let Some((progress, ref msg)) = self.loading_progress {
-            let progress_text = small(format!("{} ({:.0}%)", msg, progress * 100.0));
-            content = content.push(progress_text);
-        } else if !self.data_loaded {
+            let bar: Element<'_, Message> = ProgressBarBuilder::new(progress, 1.0)
+                .label(msg)
+                .show_percentage(true)
+                .girth(4.0)
+                .into();
+            col = col.push(bar);
+        } else {
             let can_load = self.selected_stream.is_some()
                 && (self.start_date.is_empty() || self.is_date_valid());
 
-            let mut load_btn = button(
-                text("Load & Play")
-                    .size(tokens::text::BODY)
-                    .align_x(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .padding([tokens::spacing::SM, tokens::spacing::MD]);
+            let btn_content = text("Start Replay")
+                .size(tokens::text::BODY)
+                .align_x(Alignment::Center);
+
+            let mut load_btn = button(btn_content)
+                .width(Length::Fill)
+                .padding([tokens::spacing::SM, tokens::spacing::MD])
+                .style(style::button::primary);
 
             if can_load {
                 load_btn = load_btn.on_press(Message::LoadData);
             }
 
-            content = content.push(load_btn);
+            col = col.push(load_btn);
         }
 
-        // Error display
+        // Error
         if let Some(ref err) = self.error {
-            content = content.push(
-                small(err.as_str()).color(palette::error_color()),
-            );
+            col = col.push(small(err.as_str()).color(palette::error_color()));
         }
 
-        // Playback controls (visible when data is loaded)
-        if self.data_loaded {
-            content = content.push(rule::horizontal(1).style(style::split_ruler));
-            content = content.push(self.view_playback_controls());
-        }
-
-        container(content)
-            .max_width(280.0)
-            .padding(tokens::spacing::XL)
-            .style(style::dashboard_modal)
-            .into()
+        col
     }
 
-    fn view_playback_controls(&self) -> Element<'_, Message> {
-        // Status + info row
+    /// Active replay state: disabled info, End Replay + Open Controller buttons.
+    fn view_setup_active(&self) -> iced::widget::Column<'_, Message> {
+        let mut col = column![title("Replay")].spacing(tokens::spacing::MD);
+
+        // Status row
         let status_color = match self.playback_status {
             PlaybackStatus::Playing => palette::success_color(),
-            PlaybackStatus::Paused => palette::info_color(),
+            PlaybackStatus::Paused => palette::warning_color(),
             PlaybackStatus::Stopped => palette::neutral_color(),
         };
         let status_label = match self.playback_status {
@@ -309,117 +374,162 @@ impl ReplayManager {
             PlaybackStatus::Stopped => "Stopped",
         };
 
-        let ticker_label = self
-            .selected_stream
-            .as_ref()
-            .map(|s| s.ticker.to_string())
-            .unwrap_or_default();
-
-        let trade_label = if self.trade_count > 1_000_000 {
-            format!("{:.1}M trades", self.trade_count as f64 / 1_000_000.0)
-        } else if self.trade_count > 1_000 {
-            format!("{:.1}K trades", self.trade_count as f64 / 1_000.0)
-        } else {
-            format!("{} trades", self.trade_count)
+        let info_text = {
+            let ticker = self
+                .selected_stream
+                .as_ref()
+                .map(|s| s.ticker.to_string())
+                .unwrap_or_default();
+            small(format!("{} · {}", ticker, self.format_trade_count()))
         };
 
-        let status_row = row![
-            status_badge(status_color, status_label),
+        col = col.push(
+            row![
+                status_badge(status_color, status_label),
+                space::horizontal().width(Length::Fill),
+                info_text,
+            ]
+            .align_y(Alignment::Center),
+        );
+
+        // Stream info (disabled appearance)
+        if let Some(ref stream) = self.selected_stream {
+            col = col.push(small(stream.label.as_str()).color(palette::neutral_color()));
+        }
+
+        // Button row: End Replay (danger, fill) + Open Controller (icon)
+        let end_btn = button(
+            text("End Replay")
+                .size(tokens::text::BODY)
+                .align_x(Alignment::Center),
+        )
+        .width(Length::Fill)
+        .padding([tokens::spacing::SM, tokens::spacing::MD])
+        .style(style::button::danger)
+        .on_press(Message::EndReplay);
+
+        let mut controller_btn = toolbar_icon(Icon::Replay, Message::OpenController)
+            .tooltip("Open Controller")
+            .padding(tokens::spacing::SM);
+
+        if self.controller_visible {
+            controller_btn = controller_btn
+                .style(move |theme, status| style::button::transparent(theme, status, true));
+        }
+
+        col = col.push(
+            row![end_btn, Element::<Message>::from(controller_btn)]
+                .spacing(tokens::spacing::MD)
+                .align_y(Alignment::Center),
+        );
+
+        col
+    }
+
+    // ── Floating Controller ───────────────────────────────────────────
+
+    /// Compact floating controller with volume trackbar.
+    pub fn view_floating_controller(&self, timezone: UserTimezone) -> Element<'_, Message> {
+        // Title bar: info + close button, draggable
+        let info_label = {
+            let ticker = self
+                .selected_stream
+                .as_ref()
+                .map(|s| s.ticker.to_string())
+                .unwrap_or_default();
+            small(format!("{} · {}", ticker, self.format_trade_count()))
+        };
+
+        let close_btn = button(text("\u{00D7}").size(tokens::text::TITLE))
+            .on_press(Message::CloseController)
+            .style(|theme, status| style::button::transparent(theme, status, false))
+            .padding([0.0, tokens::spacing::XS]);
+
+        let title_row = row![
+            info_label,
             space::horizontal().width(Length::Fill),
-            small(format!("{} · {}", ticker_label, trade_label)),
+            close_btn,
         ]
         .align_y(Alignment::Center);
 
-        // Transport controls row
-        let backward_btn = button(
-            icon_text(Icon::SkipBackward, 12)
-                .width(20)
-                .align_x(Alignment::Center),
+        let title_bar = mouse_area(
+            container(title_row)
+                .width(Length::Fill)
+                .padding([tokens::spacing::XS, tokens::spacing::MD])
+                .style(style::floating_panel_header),
         )
-        .on_press(Message::JumpBackward)
-        .padding(tokens::spacing::XS)
-        .style(|theme, status| style::button::transparent(theme, status, false));
+        .on_press(Message::DragStart)
+        .interaction(mouse::Interaction::Grab);
 
-        let play_pause_btn = match self.playback_status {
-            PlaybackStatus::Playing => button(
-                icon_text(Icon::Pause, 12)
-                    .width(20)
-                    .align_x(Alignment::Center),
-            )
-            .on_press(Message::Pause)
-            .padding(tokens::spacing::XS)
-            .style(|theme, status| style::button::transparent(theme, status, false)),
-            _ => button(
-                icon_text(Icon::Play, 12)
-                    .width(20)
-                    .align_x(Alignment::Center),
-            )
-            .on_press(Message::Play)
-            .padding(tokens::spacing::XS)
-            .style(|theme, status| style::button::transparent(theme, status, false)),
+        // Play/pause button: circular style
+        let play_pause: Element<'_, Message> = match self.playback_status {
+            PlaybackStatus::Playing => toolbar_icon(Icon::Pause, Message::Pause)
+                .size(12)
+                .style(|theme, status| {
+                    let mut s = style::button::transparent(theme, status, false);
+                    s.border.radius = tokens::radius::ROUND.into();
+                    s
+                })
+                .tooltip("Pause")
+                .into(),
+            _ => toolbar_icon(Icon::Play, Message::Play)
+                .size(12)
+                .style(|theme, status| {
+                    let mut s = style::button::transparent(theme, status, false);
+                    s.border.radius = tokens::radius::ROUND.into();
+                    s
+                })
+                .tooltip("Play")
+                .into(),
         };
 
-        let stop_btn = button(
-            icon_text(Icon::Stop, 12)
-                .width(20)
-                .align_x(Alignment::Center),
-        )
-        .on_press(Message::Stop)
-        .padding(tokens::spacing::XS)
-        .style(|theme, status| style::button::transparent(theme, status, false));
+        // Volume trackbar
+        let trackbar = volume_trackbar(
+            &self.volume_buckets,
+            self.progress,
+            self.time_range.as_ref(),
+            timezone,
+            Message::Seek,
+        );
 
-        let forward_btn = button(
-            icon_text(Icon::SkipForward, 12)
-                .width(20)
-                .align_x(Alignment::Center),
-        )
-        .on_press(Message::JumpForward)
-        .padding(tokens::spacing::XS)
-        .style(|theme, status| style::button::transparent(theme, status, false));
+        let main_row = row![play_pause, trackbar]
+            .spacing(tokens::spacing::SM)
+            .align_y(Alignment::Center);
 
-        // Speed selector
-        let speeds: Vec<SpeedPreset> = SpeedPreset::all_presets();
-        let speed_picker = iced::widget::pick_list(
-            speeds,
+        // Footer: position, speed, duration
+        let speed_picker = pick_list(
+            &[
+                SpeedPreset::Quarter,
+                SpeedPreset::Half,
+                SpeedPreset::Normal,
+                SpeedPreset::Double,
+                SpeedPreset::Five,
+                SpeedPreset::Ten,
+            ][..],
             Some(self.speed),
             Message::SetSpeed,
         )
-        .text_size(tokens::text::SMALL);
+        .text_size(tokens::text::TINY)
+        .padding([tokens::spacing::XXS, tokens::spacing::XS]);
 
-        let transport_row = row![
-            backward_btn,
-            play_pause_btn,
-            stop_btn,
-            forward_btn,
+        let footer = row![
+            mono(self.format_position(timezone)),
             space::horizontal().width(Length::Fill),
             speed_picker,
-        ]
-        .spacing(tokens::spacing::XS)
-        .align_y(Alignment::Center);
-
-        // Seek slider
-        let seek_slider = slider(0.0..=1.0, self.progress, Message::Seek).step(0.001);
-
-        // Position / Duration
-        let position_text = row![
-            mono(self.format_position()),
-            small(" / "),
-            mono(self.format_duration()),
+            space::horizontal().width(Length::Fill),
+            mono(self.format_end_time(timezone)),
         ]
         .align_y(Alignment::Center);
 
-        // Progress percentage
-        let progress_pct = small(format!("{:.0}%", self.progress * 100.0));
+        let body = column![main_row, footer]
+            .spacing(tokens::spacing::XS)
+            .padding([tokens::spacing::XS, tokens::spacing::MD]);
 
-        let seek_row = row![
-            seek_slider,
-            progress_pct,
-        ]
-        .spacing(tokens::spacing::SM)
-        .align_y(Alignment::Center);
+        let content = column![title_bar, body];
 
-        column![status_row, transport_row, seek_row, position_text,]
-            .spacing(tokens::spacing::MD)
+        container(content)
+            .width(Length::Fixed(450.0))
+            .style(style::floating_panel)
             .into()
     }
 }

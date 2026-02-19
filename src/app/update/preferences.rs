@@ -2,7 +2,6 @@ use iced::Task;
 
 use crate::component::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use crate::screen::dashboard::tickers_table;
 
 use super::super::{DownloadMessage, Flowsurface, Message, services};
 
@@ -183,7 +182,9 @@ impl Flowsurface {
         // Refresh available streams when opening Replay menu
         if matches!(
             &message,
-            dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::Replay))
+            dashboard::sidebar::Message::ToggleSidebarMenu(
+                Some(data::sidebar::Menu::Replay)
+            )
         ) {
             let feed_manager = self
                 .data_feed_manager
@@ -194,9 +195,8 @@ impl Flowsurface {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
 
-            // Build ticker info map from the tickers table (has full specs)
             let mut ticker_infos = std::collections::HashMap::new();
-            for (ticker, info) in &self.tickers_table.tickers_info {
+            for (ticker, info) in &self.tickers_info {
                 ticker_infos.insert(ticker.to_string(), *info);
             }
 
@@ -231,17 +231,4 @@ impl Flowsurface {
         task.map(Message::Sidebar)
     }
 
-    pub(crate) fn handle_tickers_table(&mut self, msg: tickers_table::Message) -> Task<Message> {
-        let action = self.tickers_table.update(msg);
-
-        match action {
-            Some(tickers_table::Action::ErrorOccurred(err)) => {
-                self.notifications.push(Toast::error(err.to_string()));
-            }
-            // TickerSelected is handled by pane modals directly
-            Some(tickers_table::Action::TickerSelected(_, _)) => {}
-            None => {}
-        }
-        Task::none()
-    }
 }

@@ -67,6 +67,13 @@ pub enum Icon {
     Replay,
 }
 
+impl Icon {
+    /// Whether this icon uses the default system font instead of the custom icon font.
+    pub fn uses_default_font(self) -> bool {
+        false
+    }
+}
+
 impl From<Icon> for char {
     fn from(icon: Icon) -> Self {
         match icon {
@@ -111,8 +118,7 @@ impl From<Icon> for char {
             Icon::ExpandRight => '\u{E808}', // Right arrow/caret
             Icon::SnapOn => '\u{E807}',      // Link icon for snap on
             Icon::SnapOff => '\u{E801}',     // Unlocked for snap off
-            // Replay controls - using codepoints from icon font
-            // Replace with actual glyphs when available
+            // Replay controls - custom icon font glyphs
             Icon::Play => '\u{E818}',
             Icon::Pause => '\u{E819}',
             Icon::Stop => '\u{E81A}',
@@ -124,9 +130,15 @@ impl From<Icon> for char {
 }
 
 pub fn icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
-    iced::widget::text(char::from(icon).to_string())
-        .font(ICONS_FONT)
-        .size(iced::Pixels(size.into()))
+    if icon.uses_default_font() {
+        // Unicode transport symbols render in the default font
+        iced::widget::text(char::from(icon).to_string())
+            .size(iced::Pixels(size.into()))
+    } else {
+        iced::widget::text(char::from(icon).to_string())
+            .font(ICONS_FONT)
+            .size(iced::Pixels(size.into()))
+    }
 }
 
 pub fn exchange_icon(venue: FuturesVenue) -> Icon {

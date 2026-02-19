@@ -6,12 +6,19 @@
 use crate::domain::aggregation::{aggregate_trades_to_candles, aggregate_trades_to_ticks};
 use crate::domain::chart::ChartBasis;
 use crate::domain::futures::{FuturesTicker, FuturesTickerInfo};
-use crate::domain::{Candle, DateRange, DepthSnapshot, Price, TimeRange, Trade};
+use crate::domain::{Candle, DateRange, DepthSnapshot, Price, Side, TimeRange, Trade};
 use crate::repository::{DepthRepository, TradeRepository};
 use crate::state::replay_state::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
+
+/// A single time bucket of aggregated volume for the trackbar histogram.
+#[derive(Debug, Clone, Default)]
+pub struct VolumeBucket {
+    pub buy_volume: f32,
+    pub sell_volume: f32,
+}
 
 /// Events emitted by the replay engine
 #[derive(Debug, Clone)]
@@ -57,6 +64,10 @@ pub enum ReplayEvent {
 
     /// Seek completed
     SeekCompleted { timestamp: u64, progress: f32 },
+
+    /// Full chart rebuild — contains ALL trades from [start, current_position].
+    /// The UI should clear the chart and rebuild from these trades.
+    ChartRebuild { trades: Vec<Trade> },
 
     /// Speed changed
     SpeedChanged(SpeedPreset),
@@ -384,6 +395,17 @@ impl ReplayEngine {
             return Err(error);
         }
 
+        // Emit ChartRebuild with all trades from [start, current_position]
+        {
+            let state = self.state.read().await;
+            let start = state.time_range.start.to_millis();
+            let position = state.position;
+            if let Some(replay_data) = &*self.data.read().await {
+                let trades = replay_data.trades_in_window(start, position);
+                self.emit_event(ReplayEvent::ChartRebuild { trades });
+            }
+        }
+
         // Update status
         {
             let mut state = self.state.write().await;
@@ -434,11 +456,17 @@ impl ReplayEngine {
 
     /// Seek to position
     pub async fn seek(&mut self, timestamp: u64) -> Result<(), String> {
-        let (start, end) = {
+        // Abort current playback task
+        if let Some(handle) = self.playback_handle.take() {
+            handle.abort();
+        }
+
+        let (start, end, was_playing) = {
             let state = self.state.read().await;
             (
                 state.time_range.start.to_millis(),
                 state.time_range.end.to_millis(),
+                state.status == PlaybackStatus::Playing,
             )
         };
 
@@ -447,6 +475,12 @@ impl ReplayEngine {
         {
             let mut state = self.state.write().await;
             state.position = clamped;
+        }
+
+        // Emit ChartRebuild with all trades from [start, new_position]
+        if let Some(replay_data) = &*self.data.read().await {
+            let trades = replay_data.trades_in_window(start, clamped);
+            self.emit_event(ReplayEvent::ChartRebuild { trades });
         }
 
         let progress = {
@@ -463,6 +497,11 @@ impl ReplayEngine {
             timestamp: clamped,
             progress,
         });
+
+        // Restart playback task if was playing
+        if was_playing {
+            self.start_playback_task();
+        }
 
         Ok(())
     }
@@ -532,9 +571,10 @@ impl ReplayEngine {
                     (old_pos, state.position, state.time_range)
                 };
 
-                // Get data for the time window
+                // Get data for the time window (exclusive start to avoid
+                // double-counting trades already covered by ChartRebuild)
                 if let Some(replay_data) = &*data.read().await {
-                    let trades = replay_data.trades_in_window(old_position, new_position);
+                    let trades = replay_data.trades_after(old_position, new_position);
                     let depth = replay_data.depth_at(new_position);
 
                     if !trades.is_empty() || depth.is_some() {
@@ -627,6 +667,20 @@ impl ReplayEngine {
         }
     }
 
+    /// Get all trades from [start, current_position] for syncing a new pane.
+    /// Returns None if no data is loaded.
+    pub async fn get_rebuild_trades(&self) -> Option<Vec<Trade>> {
+        let state = self.state.read().await;
+        if !state.is_loaded {
+            return None;
+        }
+        let start = state.time_range.start.to_millis();
+        let position = state.position;
+        drop(state);
+        let data = self.data.read().await;
+        data.as_ref().map(|d| d.trades_in_window(start, position))
+    }
+
     /// Get trades for a time window
     pub async fn get_trades(&self, start: u64, end: u64) -> Vec<Trade> {
         if let Some(data) = &*self.data.read().await {
@@ -665,6 +719,46 @@ impl ReplayEngine {
             trades: 0,
             depth_snapshots: 0,
         });
+    }
+
+    /// Compute a volume histogram from loaded trade data.
+    /// Divides the time range into `num_buckets` equal slices and
+    /// sums buy/sell volume in each.
+    pub async fn compute_volume_histogram(
+        &self,
+        num_buckets: usize,
+    ) -> Vec<VolumeBucket> {
+        let num_buckets = num_buckets.max(1);
+        let data_guard = self.data.read().await;
+        let Some(data) = data_guard.as_ref() else {
+            return vec![VolumeBucket::default(); num_buckets];
+        };
+
+        let start = data.time_range.start.to_millis();
+        let end = data.time_range.end.to_millis();
+        if end <= start {
+            return vec![VolumeBucket::default(); num_buckets];
+        }
+
+        let bucket_width = (end - start) as f64 / num_buckets as f64;
+        let mut buckets = vec![VolumeBucket::default(); num_buckets];
+
+        for (&ts, trades) in &data.trades {
+            let idx = ((ts - start) as f64 / bucket_width) as usize;
+            let idx = idx.min(num_buckets - 1);
+            for trade in trades {
+                match trade.side {
+                    Side::Buy | Side::Bid => {
+                        buckets[idx].buy_volume += trade.quantity.0 as f32;
+                    }
+                    Side::Sell | Side::Ask => {
+                        buckets[idx].sell_volume += trade.quantity.0 as f32;
+                    }
+                }
+            }
+        }
+
+        buckets
     }
 
     /// Memory usage estimate
@@ -778,7 +872,7 @@ mod tests {
     #[tokio::test]
     async fn test_enhanced_replay_engine() {
         let mock_repo = Arc::new(MockTradeRepository);
-        let engine = ReplayEngine::with_default_config(mock_repo, None);
+        let mut engine = ReplayEngine::with_default_config(mock_repo, None);
 
         // Test that engine starts in stopped state with no data loaded
         let state = engine.state().await;

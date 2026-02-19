@@ -123,7 +123,9 @@ impl Sidebar {
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::Replay)),
                 Some("Replay"),
                 tooltip_position,
-                move |theme, status| crate::style::button::transparent(theme, status, is_active),
+                move |theme, status| {
+                    crate::style::button::transparent(theme, status, is_active)
+                },
             )
         };
 
@@ -236,7 +238,7 @@ impl Sidebar {
                 .unwrap_or(0);
 
             // Each button is approximately 32px tall with 2px spacing
-            base_offset + (category_index as f32 * tokens::layout::SIDEBAR_BUTTON_HEIGHT)
+            DRAWING_TOOLS_BASE_OFFSET + (category_index as f32 * TOOL_BUTTON_HEIGHT)
         } else {
             DRAWING_TOOLS_BASE_OFFSET
         }

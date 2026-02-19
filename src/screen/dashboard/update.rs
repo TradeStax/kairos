@@ -375,6 +375,56 @@ impl Dashboard {
                     state.content.toggle_drawing_snap();
                 }
             }
+            Message::ReplayTrades(ticker_info, trades) => {
+                for (_, state) in self.panes.iter_mut() {
+                    if let Some(ti) = state.ticker_info {
+                        if ti.ticker == ticker_info.ticker && state.is_replaying() {
+                            for trade in &trades {
+                                state.content.append_trade(trade);
+                            }
+                        }
+                    }
+                }
+                // Also route to popout windows
+                for (_, (popout_panes, _)) in self.popout.iter_mut() {
+                    for (_, state) in popout_panes.iter_mut() {
+                        if let Some(ti) = state.ticker_info {
+                            if ti.ticker == ticker_info.ticker && state.is_replaying() {
+                                for trade in &trades {
+                                    state.content.append_trade(trade);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Message::ReplayRebuild(ticker_info, trades) => {
+                for (_, state) in self.panes.iter_mut() {
+                    if let Some(ti) = state.ticker_info {
+                        if ti.ticker == ticker_info.ticker && state.is_replaying() {
+                            state.content.rebuild_from_trades(&trades);
+                        }
+                    }
+                }
+                // Also route to popout windows
+                for (_, (popout_panes, _)) in self.popout.iter_mut() {
+                    for (_, state) in popout_panes.iter_mut() {
+                        if let Some(ti) = state.ticker_info {
+                            if ti.ticker == ticker_info.ticker && state.is_replaying() {
+                                state.content.rebuild_from_trades(&trades);
+                            }
+                        }
+                    }
+                }
+            }
+            Message::ReplaySyncPane { pane_id, trades } => {
+                if let Some(pane_state) =
+                    self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
+                {
+                    pane_state.enter_replay_mode();
+                    pane_state.content.rebuild_from_trades(&trades);
+                }
+            }
             Message::ExchangeEvent(event) => {
                 // Forward live streaming events to chart panes
                 log::trace!("Dashboard received exchange event");

@@ -249,7 +249,7 @@ impl Flowsurface {
                     .list_tickers()
                     .into_iter()
                     .collect();
-                self.tickers_table.set_cached_filter(ticker_symbols);
+                self.tickers_info = super::super::build_tickers_info(ticker_symbols);
                 log::info!(
                     "Updated ticker list with {} tickers",
                     self.downloaded_tickers.lock().unwrap().count()
@@ -464,7 +464,7 @@ impl Flowsurface {
                     .list_tickers()
                     .into_iter()
                     .collect();
-                self.tickers_table.set_cached_filter(ticker_symbols);
+                self.tickers_info = super::super::build_tickers_info(ticker_symbols);
 
                 // Create the dataset feed
                 if let Some(modal) = &self.historical_download_modal {

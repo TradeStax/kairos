@@ -124,6 +124,7 @@ impl Flowsurface {
                     schema,
                     date_range,
                 })),
+                Some(dashboard::Event::PaneClosed { .. }) => Task::none(),
                 None => Task::none(),
             };
 
