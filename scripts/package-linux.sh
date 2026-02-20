@@ -1,6 +1,6 @@
 #!/bin/bash
 ARCH=${2:-x86_64}  # if first arg is "package" then $2 holds arch
-TARGET="flowsurface"
+TARGET="kairos"
 PROFILE="release"
 RELEASE_DIR="target/$PROFILE"
 ARCHIVE_DIR="$RELEASE_DIR/archive"

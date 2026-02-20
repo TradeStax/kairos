@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Flowsurface is a native desktop charting platform for futures markets built with Rust and Iced (v0.14). Provides real-time and historical market data visualization: candlestick/footprint charts, heatmaps, order flow analysis, comparison charts, and options data. Supports multi-window layouts with popout panes.
+Kairos is a native desktop charting platform for futures markets built with Rust and Iced (v0.14). Provides real-time and historical market data visualization: candlestick/footprint charts, heatmaps, order flow analysis, comparison charts, and options data. Supports multi-window layouts with popout panes.
 
 ## Build & Test
 
@@ -9,9 +9,9 @@ cargo build                          # Dev build
 cargo build --release                # Release build
 cargo run --release                  # Run app
 cargo test                           # All tests
-cargo test --package flowsurface-data
-cargo test --package flowsurface-exchange
-cargo test --package flowsurface-study
+cargo test --package kairos-data
+cargo test --package kairos-exchange
+cargo test --package kairos-study
 cargo clippy                         # Lint
 cargo fmt --check                    # Format check
 ```
@@ -21,7 +21,7 @@ cargo fmt --check                    # Format check
 ```bash
 DATABENTO_API_KEY=your_key           # Required for historical futures data
 MASSIVE_API_KEY=your_polygon_key     # Optional for options data
-RUST_LOG=flowsurface_data=debug      # Logging level
+RUST_LOG=kairos_data=debug      # Logging level
 ```
 
 Rithmic credentials are managed via `keyring` (OS credential store), configured through the UI.
@@ -31,8 +31,13 @@ Rithmic credentials are managed via `keyring` (OS credential store), configured 
 Four workspace crates (Rust edition 2024):
 
 ```
-src/                    # Application layer — flowsurface (Iced GUI)
-├── app/               # Flowsurface struct, Message enum, update routing, services
+src/                    # Application layer — kairos (Iced GUI)
+├── app/               # Kairos struct, message enums, update routing, services
+│   ├── globals.rs     # OnceLock statics: DOWNLOAD_PROGRESS, RITHMIC_EVENTS, REPLAY_EVENTS
+│   ├── messages.rs    # Message, ChartMessage, DownloadMessage, OptionsMessage
+│   ├── view.rs        # Kairos::view() — top-level view dispatch
+│   ├── sidebar_view.rs # view_with_modal() — sidebar modal rendering
+│   ├── ticker_registry.rs # build_tickers_info(), futures product list
 │   └── update/        # Message handlers: chart, download, feeds, navigation, options, preferences, replay
 ├── screen/dashboard/  # Main dashboard: pane grid, sidebar, panels (ladder, time&sales)
 │   ├── pane/          # Pane state, content types, lifecycle, view rendering
@@ -44,8 +49,6 @@ src/                    # Application layer — flowsurface (Iced GUI)
 │   ├── candlestick/   # KlineChart — OHLC + footprint rendering
 │   ├── heatmap/       # HeatmapChart — order flow depth heatmap
 │   ├── comparison/    # ComparisonChart — multi-series overlay
-│   ├── indicator/     # Built-in kline indicators (SMA, EMA, RSI, MACD, Bollinger, etc.)
-│   ├── study/         # Legacy studies (POC, value area, volume profile, imbalance)
 │   ├── study_renderer/ # Renders StudyOutput primitives to canvas (line, band, bar, histogram, profile)
 │   ├── overlay/       # Crosshair, ruler, last price, gap markers
 │   ├── drawing/       # Drawing tools (lines, boxes) with persistence
@@ -68,20 +71,22 @@ src/                    # Application layer — flowsurface (Iced GUI)
 │   ├── replay/        # Replay playback controller
 │   └── theme/         # Theme editor
 ├── style/             # Theming: tokens, palette, button/container/canvas/widget styles
+├── platform.rs        # data_path(), open_data_folder() — platform I/O (not in data crate)
+├── secrets.rs         # SecretsManager — API key storage via OS keyring (not in data crate)
 ├── layout.rs          # Layout & Dashboard serialization, LayoutId
 ├── window.rs          # Multi-window management, WindowSpec, popout support
 ├── error.rs           # InternalError (Chart, Data, Rendering variants)
 └── logger.rs          # Async file logging with rotation (50MB max)
 
-data/                   # Data layer — flowsurface-data (pure business logic, no I/O)
+data/                   # Data layer — kairos-data (pure business logic, no I/O)
 ├── domain/            # Core types: Price, Trade, Candle, DepthSnapshot, Options, Futures
 │   ├── error.rs       # ErrorSeverity enum, AppError trait (user_message, is_retriable, severity)
 │   ├── types.rs       # Value objects: Price (i64, 10^-8 precision), Volume, Timestamp, Side
 │   ├── entities.rs    # Trade, Candle, DepthSnapshot, MarketData
-│   ├── chart.rs       # ChartConfig, ChartData, ChartBasis, ChartType, LoadingStatus
+│   ├── chart/         # ChartConfig, ChartData, ChartBasis, ChartType, LoadingStatus (split module)
 │   ├── futures.rs     # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
 │   ├── options.rs     # OptionContract, OptionChain, OptionSnapshot
-│   ├── panel.rs       # Panel types: depth grouping, trade aggregation, chase tracking
+│   ├── panel/         # Panel types: depth grouping, trade aggregation, chase tracking
 │   └── aggregation.rs # Trade-to-candle aggregation logic
 ├── repository/        # Async trait definitions: TradeRepository, DepthRepository, Option*Repository
 ├── services/          # MarketDataService, OptionsDataService, GexCalculationService, ReplayEngine, FeedMerger, CacheManager
@@ -92,14 +97,14 @@ data/                   # Data layer — flowsurface-data (pure business logic, 
 │   ├── pane.rs        # Pane configuration (serializable)
 │   ├── registry.rs    # DownloadedTickersRegistry — tracks downloaded ticker date ranges
 │   ├── replay.rs      # ReplayState, PlaybackStatus, SpeedPreset
-│   └── persistence.rs # Versioned serialization & migrations
-├── config/            # Theme, timezone, sidebar, panel configuration
+│   └── persistence.rs # Versioned serialization & migrations (load/save take base_dir from caller)
+├── config/            # Theme, timezone, sidebar, panel configuration; config/secrets: ApiProvider, ApiKeyStatus (domain only)
 ├── feed/              # DataFeedManager, FeedConfig, FeedKind (Databento/Rithmic)
-├── drawing/           # Drawing entity types
-├── secrets/           # SecretsManager — API key storage via OS keyring
+├── drawing/           # Drawing entity types (SerializableColor etc.)
+├── error.rs           # DataError
 └── util/              # Formatting, time, math, logging helpers
 
-exchange/               # Exchange layer — flowsurface-exchange (adapters & repository impls)
+exchange/               # Exchange layer — kairos-exchange (adapters & repository impls)
 ├── adapter/
 │   ├── databento/     # CME Globex historical futures — Databento API (.dbn.zst cache)
 │   ├── rithmic/       # CME Globex real-time streaming — Rithmic (rithmic-rs)
@@ -113,7 +118,7 @@ exchange/               # Exchange layer — flowsurface-exchange (adapters & re
 │   └── massive/       # MassiveChainRepository, MassiveContractRepository, MassiveSnapshotRepository
 └── error.rs           # Error enum with UserFacingError trait
 
-study/                  # Study layer — flowsurface-study (technical analysis library)
+study/                  # Study layer — kairos-study (technical analysis library)
 ├── traits.rs          # Study trait, StudyCategory, StudyPlacement, StudyInput
 ├── output.rs          # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Clusters
 ├── config.rs          # ParameterDef, ParameterValue, StudyConfig
@@ -127,7 +132,7 @@ study/                  # Study layer — flowsurface-study (technical analysis 
 
 ## Key Patterns
 
-**Elm Architecture (Iced)**: `Flowsurface` struct implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` → `dashboard::Message` → `pane::Message` → `chart::Message`.
+**Elm Architecture (Iced)**: `Kairos` struct implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` → `dashboard::Message` → `pane::Message` → `chart::Message`.
 
 **Hierarchical Message Routing**: Each layer handles its own message domain. `src/app/update/` splits handlers by concern (chart, download, feeds, navigation, options, preferences, replay).
 
@@ -143,7 +148,7 @@ study/                  # Study layer — flowsurface-study (technical analysis 
 
 **Stream Subscriptions**: Two-tier model — `PersistStreamKind` (serializable config) → resolved at runtime to `StreamKind` (with full `FuturesTickerInfo`). `UniqueStreams` deduplicates across panes.
 
-**Global Event Staging**: Three `OnceLock<Arc<Mutex<>>>` globals in `src/app/mod.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
+**Global Event Staging**: `OnceLock<Arc<Mutex<>>>` globals in `src/app/globals.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
 
 **Error Hierarchy**: All error types implement `user_message()`, `is_retriable()`, `severity()` via `AppError` trait (data layer) and `UserFacingError` trait (exchange layer). Use `thiserror` for derivation.
 

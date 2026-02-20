@@ -1,5 +1,5 @@
 #!/bin/bash
-TARGET="flowsurface"
+TARGET="kairos"
 VERSION=$(grep '^version = ' Cargo.toml | cut -d'"' -f2)
 ARCH=${1:-universal} # x86_64 | aarch64 | universal
 RELEASE_DIR="target/release"
