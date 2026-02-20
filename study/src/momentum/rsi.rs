@@ -165,7 +165,7 @@ impl Study for RsiStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 14) as usize;
         let color = self.config.get_color(
             "color",
@@ -181,7 +181,7 @@ impl Study for RsiStudy {
         // Need at least period + 1 candles to compute one RSI value
         if candles.len() < period + 1 {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let closes: Vec<f64> = candles.iter().map(|c| c.close.to_f64()).collect();
@@ -209,7 +209,7 @@ impl Study for RsiStudy {
             100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
         };
         points.push((
-            candle_key(&candles[period], period, &input.basis),
+            candle_key(&candles[period], period, candles.len(), &input.basis),
             rsi as f32,
         ));
 
@@ -230,7 +230,7 @@ impl Study for RsiStudy {
             } else {
                 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
             };
-            points.push((candle_key(&candles[i], i, &input.basis), rsi as f32));
+            points.push((candle_key(&candles[i], i, candles.len(), &input.basis), rsi as f32));
         }
 
         self.output = StudyOutput::Lines(vec![LineSeries {
@@ -240,6 +240,7 @@ impl Study for RsiStudy {
             style: LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -289,7 +290,7 @@ mod tests {
     fn test_empty_candles() {
         let mut study = RsiStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -298,7 +299,7 @@ mod tests {
         let mut study = RsiStudy::new();
         let candles: Vec<Candle> = (0..10).map(|i| make_candle(i * 60000, 100.0)).collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -317,14 +318,13 @@ mod tests {
             make_candle(4000, 40.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines[0].points.len(), 1);
-            assert!((lines[0].points[0].1 - 100.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines[0].points.len(), 1);
+        assert!((lines[0].points[0].1 - 100.0).abs() < 0.01);
     }
 
     #[test]
@@ -342,14 +342,13 @@ mod tests {
             make_candle(4000, 10.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines[0].points.len(), 1);
-            assert!(lines[0].points[0].1.abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines[0].points.len(), 1);
+        assert!(lines[0].points[0].1.abs() < 0.01);
     }
 
     #[test]
@@ -368,14 +367,13 @@ mod tests {
             make_candle(6000, 44.25),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            for point in &lines[0].points {
-                assert!(point.1 >= 0.0 && point.1 <= 100.0);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        for point in &lines[0].points {
+            assert!(point.1 >= 0.0 && point.1 <= 100.0);
         }
     }
 

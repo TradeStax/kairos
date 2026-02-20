@@ -1,0 +1,31 @@
+//! Data directory path resolution for script cache and user scripts.
+//!
+//! Uses the same convention as the main app: KAIROS_DATA_PATH env, or
+//! platform data dir under "kairos".
+
+use std::path::PathBuf;
+
+/// Returns the base data directory, then joins path_name if given.
+///
+/// Respects KAIROS_DATA_PATH; falls back to FLOWSURFACE_DATA_PATH (deprecated)
+/// or platform data dir via dirs_next.
+pub fn data_path(path_name: Option<&str>) -> PathBuf {
+    let base = if let Ok(path) = std::env::var("KAIROS_DATA_PATH") {
+        PathBuf::from(path)
+    } else if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
+        log::warn!(
+            "FLOWSURFACE_DATA_PATH is deprecated, use KAIROS_DATA_PATH instead"
+        );
+        PathBuf::from(path)
+    } else {
+        let data_dir = dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        data_dir.join("kairos")
+    };
+
+    if let Some(name) = path_name {
+        base.join(name)
+    } else {
+        base
+    }
+}
+

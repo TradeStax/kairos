@@ -162,7 +162,7 @@ impl Study for ImbalanceStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let threshold = self.config.get_float("threshold", DEFAULT_THRESHOLD) as f32;
         let buy_color = self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
         let sell_color = self.config.get_color("sell_color", DEFAULT_SELL_COLOR);
@@ -170,13 +170,13 @@ impl Study for ImbalanceStudy {
 
         if input.candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let step = input.tick_size.units();
         if step <= 0 {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // Build a buy/sell volume profile from candle data
@@ -251,6 +251,7 @@ impl Study for ImbalanceStudy {
         } else {
             self.output = StudyOutput::Levels(levels);
         }
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -339,7 +340,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         // The output should be Levels or Empty depending on threshold
         match &study.output {
@@ -349,7 +350,11 @@ mod tests {
             StudyOutput::Empty => {
                 // Also acceptable if volumes don't meet threshold
             }
-            other => panic!("Expected Levels or Empty, got {:?}", other),
+            other => assert!(
+                matches!(other, StudyOutput::Levels(_) | StudyOutput::Empty),
+                "Expected Levels or Empty, got {:?}",
+                other
+            ),
         }
     }
 
@@ -366,7 +371,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 }

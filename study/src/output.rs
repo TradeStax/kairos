@@ -45,8 +45,8 @@ pub enum StudyOutput {
 pub struct TradeMarker {
     /// X position: timestamp_ms (time-based) or candle index (tick-based)
     pub time: u64,
-    /// Y position: VWAP price
-    pub price: f64,
+    /// Y position: VWAP in domain Price units (10^-8)
+    pub price: i64,
     /// Total contracts (for sizing)
     pub contracts: f64,
     /// Trade side
@@ -55,6 +55,20 @@ pub struct TradeMarker {
     pub color: SerializableColor,
     /// Contract count text (None if show_labels=false)
     pub label: Option<String>,
+    /// Debug info for trade aggregation inspection
+    pub debug: Option<TradeMarkerDebug>,
+}
+
+/// Debug information for a trade marker's aggregation.
+#[derive(Debug, Clone)]
+pub struct TradeMarkerDebug {
+    pub fill_count: u32,
+    pub first_fill_time: u64,
+    pub last_fill_time: u64,
+    pub price_min_units: i64,
+    pub price_max_units: i64,
+    pub vwap_numerator: f64,
+    pub vwap_denominator: f64,
 }
 
 /// A series of connected line points.

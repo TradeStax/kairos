@@ -116,7 +116,7 @@ impl Study for VolumeStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let up_color = self.config.get_color("up_color", DEFAULT_UP_COLOR);
         let down_color = self.config.get_color("down_color", DEFAULT_DOWN_COLOR);
         let opacity = self.config.get_float("opacity", DEFAULT_OPACITY) as f32;
@@ -145,6 +145,7 @@ impl Study for VolumeStudy {
             label: "Volume".to_string(),
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -200,7 +201,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Bars(series) => {
@@ -214,7 +215,7 @@ mod tests {
                 // Bearish bar should be red-ish
                 assert!(series[0].points[1].color.r > series[0].points[1].color.g);
             }
-            _ => panic!("Expected Bars output"),
+            other => assert!(matches!(other, StudyOutput::Bars(_)), "Expected Bars output"),
         }
     }
 
@@ -231,13 +232,13 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Bars(series) => {
                 assert_eq!(series[0].points.len(), 0);
             }
-            _ => panic!("Expected Bars output"),
+            other => assert!(matches!(other, StudyOutput::Bars(_)), "Expected Bars output"),
         }
     }
 
@@ -254,7 +255,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(!matches!(study.output(), StudyOutput::Empty));
 
         study.reset();

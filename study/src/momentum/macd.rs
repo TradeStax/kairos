@@ -219,7 +219,7 @@ impl Study for MacdStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let fast_period = self.config.get_int("fast_period", 12) as usize;
         let slow_period = self.config.get_int("slow_period", 26) as usize;
         let signal_period = self.config.get_int("signal_period", 9) as usize;
@@ -263,7 +263,7 @@ impl Study for MacdStudy {
         let max_period = fast_period.max(slow_period);
         if candles.len() < max_period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let closes: Vec<f64> = candles.iter().map(|c| c.close.to_f64()).collect();
@@ -283,7 +283,7 @@ impl Study for MacdStudy {
             .min(slow_ema.len());
         if macd_len == 0 {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let macd_values: Vec<f64> = (0..macd_len)
@@ -294,7 +294,7 @@ impl Study for MacdStudy {
         let signal_ema = compute_ema(&macd_values, signal_period);
         if signal_ema.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // The signal line starts at (signal_period - 1) within macd_values
@@ -314,7 +314,7 @@ impl Study for MacdStudy {
             if candle_idx >= candles.len() {
                 break;
             }
-            let key = candle_key(&candles[candle_idx], candle_idx, &input.basis);
+            let key = candle_key(&candles[candle_idx], candle_idx, candles.len(), &input.basis);
             let macd_val = macd_values[signal_start_in_macd + i];
             let hist_val = macd_val - sig;
 
@@ -348,6 +348,7 @@ impl Study for MacdStudy {
                 points: signal_points,
             },
         ]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -399,7 +400,7 @@ mod tests {
     fn test_empty_candles() {
         let mut study = MacdStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -408,7 +409,7 @@ mod tests {
         let mut study = MacdStudy::new();
         let candles: Vec<Candle> = (0..20).map(|i| make_candle(i * 60000, 100.0)).collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -428,16 +429,15 @@ mod tests {
         // With constant prices, MACD should be ~0
         let candles: Vec<Candle> = (0..20).map(|i| make_candle(i * 60000, 100.0)).collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 2);
-            // MACD line should be near 0 for constant prices
-            for point in &lines[0].points {
-                assert!(point.1.abs() < 0.01, "MACD should be ~0, got {}", point.1);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 2);
+        // MACD line should be near 0 for constant prices
+        for point in &lines[0].points {
+            assert!(point.1.abs() < 0.01, "MACD should be ~0, got {}", point.1);
         }
     }
 
@@ -459,16 +459,15 @@ mod tests {
             .map(|i| make_candle(i * 60000, 100.0 + i as f32 * 10.0))
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 2);
-            // In a strong uptrend, MACD should be positive
-            for point in &lines[0].points {
-                assert!(point.1 > 0.0, "MACD should be positive in uptrend");
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 2);
+        // In a strong uptrend, MACD should be positive
+        for point in &lines[0].points {
+            assert!(point.1 > 0.0, "MACD should be positive in uptrend");
         }
     }
 

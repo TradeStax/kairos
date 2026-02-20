@@ -116,7 +116,7 @@ impl Study for DeltaStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let pos_color = self.config.get_color("positive_color", DEFAULT_POS_COLOR);
         let neg_color = self.config.get_color("negative_color", DEFAULT_NEG_COLOR);
         let opacity = self.config.get_float("opacity", DEFAULT_OPACITY) as f32;
@@ -145,6 +145,7 @@ impl Study for DeltaStudy {
             label: "Delta".to_string(),
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -198,7 +199,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Bars(series) => {
@@ -213,7 +214,7 @@ mod tests {
                 // Negative delta should be red-ish
                 assert!(pts[1].color.r > pts[1].color.g);
             }
-            _ => panic!("Expected Bars output"),
+            other => assert!(matches!(other, StudyOutput::Bars(_)), "Expected Bars output"),
         }
     }
 
@@ -230,13 +231,13 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Bars(series) => {
                 assert_eq!(series[0].points.len(), 0);
             }
-            _ => panic!("Expected Bars output"),
+            other => assert!(matches!(other, StudyOutput::Bars(_)), "Expected Bars output"),
         }
     }
 }

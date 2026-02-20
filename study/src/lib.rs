@@ -1,6 +1,6 @@
-//! Flowsurface Study Crate
+//! Kairos Study Crate
 //!
-//! Technical studies and indicators for Flowsurface charts.
+//! Technical studies and indicators for Kairos charts.
 //! Provides a trait-based system for computing and outputting
 //! study data as abstract render primitives.
 

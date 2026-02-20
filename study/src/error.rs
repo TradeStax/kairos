@@ -10,4 +10,7 @@ pub enum StudyError {
 
     #[error("unknown study: {0}")]
     UnknownStudy(String),
+
+    #[error("compute error: {0}")]
+    Compute(String),
 }

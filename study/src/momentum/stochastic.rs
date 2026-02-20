@@ -157,7 +157,7 @@ impl Study for StochasticStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let k_period = self.config.get_int("k_period", 14) as usize;
         let d_period = self.config.get_int("d_period", 3) as usize;
         let smooth = self.config.get_int("smooth", 3) as usize;
@@ -167,7 +167,7 @@ impl Study for StochasticStudy {
         let candles = input.candles;
         if candles.len() < k_period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // Step 1: Compute raw %K (fast stochastic)
@@ -202,7 +202,7 @@ impl Study for StochasticStudy {
 
         if smoothed_k.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // Step 3: %D = SMA of smoothed %K
@@ -210,7 +210,7 @@ impl Study for StochasticStudy {
 
         if d_values.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // Build points for %K (aligned with %D)
@@ -229,7 +229,7 @@ impl Study for StochasticStudy {
             if candle_idx >= candles.len() {
                 break;
             }
-            let key = candle_key(&candles[candle_idx], candle_idx, &input.basis);
+            let key = candle_key(&candles[candle_idx], candle_idx, candles.len(), &input.basis);
             let k_val = smoothed_k[k_start_in_smoothed + j];
             k_points.push((key, k_val as f32));
             d_points.push((key, *d_val as f32));
@@ -251,6 +251,7 @@ impl Study for StochasticStudy {
                 points: d_points,
             },
         ]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -302,7 +303,7 @@ mod tests {
     fn test_stochastic_empty() {
         let mut study = StochasticStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -314,7 +315,7 @@ mod tests {
             .map(|i| make_candle(i as u64 * 60000, 105.0, 95.0, 100.0))
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -339,18 +340,17 @@ mod tests {
             })
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 2);
-            assert_eq!(lines[0].label, "%K");
-            assert_eq!(lines[1].label, "%D");
-            // In an uptrend, %K should be high (near 100)
-            for pt in &lines[0].points {
-                assert!(pt.1 > 50.0, "Expected %K > 50 in uptrend, got {}", pt.1);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].label, "%K");
+        assert_eq!(lines[1].label, "%D");
+        // In an uptrend, %K should be high (near 100)
+        for pt in &lines[0].points {
+            assert!(pt.1 > 50.0, "Expected %K > 50 in uptrend, got {}", pt.1);
         }
     }
 
@@ -372,21 +372,20 @@ mod tests {
             .map(|i| make_candle(i as u64 * 60000, 105.0, 95.0, 100.0))
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 2);
-            // With identical highs and lows, raw %K should be 50
-            // (close - low) / (high - low) = (100-95)/(105-95) = 0.5 * 100 = 50
-            for pt in &lines[0].points {
-                assert!(
-                    (pt.1 - 50.0).abs() < 0.1,
-                    "Expected %K ~ 50.0, got {}",
-                    pt.1
-                );
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 2);
+        // With identical highs and lows, raw %K should be 50
+        // (close - low) / (high - low) = (100-95)/(105-95) = 0.5 * 100 = 50
+        for pt in &lines[0].points {
+            assert!(
+                (pt.1 - 50.0).abs() < 0.1,
+                "Expected %K ~ 50.0, got {}",
+                pt.1
+            );
         }
     }
 
@@ -410,18 +409,17 @@ mod tests {
             })
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 2);
-            // %K and %D should have the same number of points
-            assert_eq!(lines[0].points.len(), lines[1].points.len());
-            // And the x-values should match
-            for (k, d) in lines[0].points.iter().zip(lines[1].points.iter()) {
-                assert_eq!(k.0, d.0);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 2);
+        // %K and %D should have the same number of points
+        assert_eq!(lines[0].points.len(), lines[1].points.len());
+        // And the x-values should match
+        for (k, d) in lines[0].points.iter().zip(lines[1].points.iter()) {
+            assert_eq!(k.0, d.0);
         }
     }
 }

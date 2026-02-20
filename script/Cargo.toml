@@ -1,6 +1,6 @@
 [package]
-name = "kairos-study"
-description = "Technical studies and indicators for Kairos charts"
+name = "kairos-script"
+description = "JavaScript scripting engine for Kairos indicators"
 version = "0.1.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
@@ -9,6 +9,9 @@ homepage.workspace = true
 
 [dependencies]
 data = { version = "0.1.0", path = "../data", package = "kairos-data" }
+study = { version = "0.1.0", path = "../study", package = "kairos-study" }
+dirs-next = "2.0"
+rquickjs = { version = "0.10", features = ["classes", "properties", "parallel", "loader", "macro"] }
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true

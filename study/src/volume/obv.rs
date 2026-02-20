@@ -96,21 +96,21 @@ impl Study for ObvStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
 
         let candles = input.candles;
         if candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let mut obv: f64 = 0.0;
         let mut points = Vec::with_capacity(candles.len());
 
         // First candle: OBV starts at 0
-        let key = candle_key(&candles[0], 0, &input.basis);
+        let key = candle_key(&candles[0], 0, candles.len(), &input.basis);
         points.push((key, obv as f32));
 
         for i in 1..candles.len() {
@@ -125,7 +125,7 @@ impl Study for ObvStudy {
             }
             // If equal, OBV unchanged
 
-            let key = candle_key(&candles[i], i, &input.basis);
+            let key = candle_key(&candles[i], i, candles.len(), &input.basis);
             points.push((key, obv as f32));
         }
 
@@ -136,6 +136,7 @@ impl Study for ObvStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -186,7 +187,7 @@ mod tests {
     fn test_obv_empty() {
         let mut study = ObvStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -195,14 +196,13 @@ mod tests {
         let mut study = ObvStudy::new();
         let candles = vec![make_candle(1000, 100.0, 50.0, 50.0)];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines[0].points.len(), 1);
-            assert!((lines[0].points[0].1).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines[0].points.len(), 1);
+        assert!((lines[0].points[0].1).abs() < 0.01);
     }
 
     #[test]
@@ -216,19 +216,18 @@ mod tests {
             make_candle(5000, 110.0, 70.0, 30.0), // close up, vol=100 => OBV = +120
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            let pts = &lines[0].points;
-            assert_eq!(pts.len(), 5);
-            assert!((pts[0].1 - 0.0).abs() < 0.01);
-            assert!((pts[1].1 - 100.0).abs() < 0.01);
-            assert!((pts[2].1 - 20.0).abs() < 0.01);
-            assert!((pts[3].1 - 20.0).abs() < 0.01); // unchanged
-            assert!((pts[4].1 - 120.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 5);
+        assert!((pts[0].1 - 0.0).abs() < 0.01);
+        assert!((pts[1].1 - 100.0).abs() < 0.01);
+        assert!((pts[2].1 - 20.0).abs() < 0.01);
+        assert!((pts[3].1 - 20.0).abs() < 0.01); // unchanged
+        assert!((pts[4].1 - 120.0).abs() < 0.01);
     }
 
     #[test]
@@ -240,15 +239,14 @@ mod tests {
             make_candle(3000, 90.0, 30.0, 70.0), // down, vol=100 => -200
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            let pts = &lines[0].points;
-            assert!((pts[0].1).abs() < 0.01);
-            assert!((pts[1].1 - (-100.0)).abs() < 0.01);
-            assert!((pts[2].1 - (-200.0)).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let pts = &lines[0].points;
+        assert!((pts[0].1).abs() < 0.01);
+        assert!((pts[1].1 - (-100.0)).abs() < 0.01);
+        assert!((pts[2].1 - (-200.0)).abs() < 0.01);
     }
 }

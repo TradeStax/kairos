@@ -151,14 +151,14 @@ impl Study for PocStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let lookback = self.config.get_int("lookback", DEFAULT_LOOKBACK) as usize;
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", DEFAULT_WIDTH) as f32;
 
         if input.candles.len() < lookback {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let mut points = Vec::with_capacity(input.candles.len());
@@ -178,6 +178,7 @@ impl Study for PocStudy {
             style: LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -236,7 +237,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Lines(lines) => {
@@ -248,7 +249,7 @@ mod tests {
                     assert!(*price >= 99.0 && *price <= 105.0);
                 }
             }
-            _ => panic!("Expected Lines output"),
+            other => assert!(matches!(other, StudyOutput::Lines(_)), "Expected Lines output"),
         }
     }
 
@@ -265,7 +266,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 }

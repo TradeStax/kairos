@@ -95,10 +95,19 @@ pub(crate) fn source_value(candle: &data::Candle, source: &str) -> f32 {
 }
 
 /// Get the x-key for a candle based on chart basis.
-pub(crate) fn candle_key(candle: &data::Candle, index: usize, basis: &ChartBasis) -> u64 {
+///
+/// For Time basis, returns the candle timestamp.
+/// For Tick basis, returns the reverse index (0 = newest candle)
+/// to match the chart rendering coordinate system.
+pub(crate) fn candle_key(
+    candle: &data::Candle,
+    index: usize,
+    total_candles: usize,
+    basis: &ChartBasis,
+) -> u64 {
     match basis {
         ChartBasis::Time(_) => candle.time.0,
-        ChartBasis::Tick(_) => index as u64,
+        ChartBasis::Tick(_) => (total_candles.saturating_sub(1).saturating_sub(index)) as u64,
     }
 }
 
@@ -193,7 +202,7 @@ impl Study for SmaStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 20) as usize;
         let color = self.config.get_color(
             "color",
@@ -210,10 +219,11 @@ impl Study for SmaStudy {
         let candles = input.candles;
         if candles.len() < period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
-        let mut points = Vec::with_capacity(candles.len() - period + 1);
+        let total = candles.len();
+        let mut points = Vec::with_capacity(total - period + 1);
 
         // Calculate initial sum
         let mut sum: f64 = 0.0;
@@ -221,16 +231,16 @@ impl Study for SmaStudy {
             sum += source_value(candle, &source) as f64;
         }
         points.push((
-            candle_key(&candles[period - 1], period - 1, &input.basis),
+            candle_key(&candles[period - 1], period - 1, total, &input.basis),
             (sum / period as f64) as f32,
         ));
 
         // Sliding window
-        for i in period..candles.len() {
+        for i in period..total {
             sum += source_value(&candles[i], &source) as f64;
             sum -= source_value(&candles[i - period], &source) as f64;
             points.push((
-                candle_key(&candles[i], i, &input.basis),
+                candle_key(&candles[i], i, total, &input.basis),
                 (sum / period as f64) as f32,
             ));
         }
@@ -242,6 +252,7 @@ impl Study for SmaStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -291,7 +302,7 @@ mod tests {
     fn test_empty_candles() {
         let mut study = SmaStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -301,7 +312,7 @@ mod tests {
         // Default period is 20, so 5 candles is insufficient
         let candles: Vec<Candle> = (0..5).map(|i| make_candle(i * 60000, 100.0)).collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -320,21 +331,20 @@ mod tests {
             make_candle(5000, 50.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            let points = &lines[0].points;
-            assert_eq!(points.len(), 3);
-            // SMA(3) of [10, 20, 30] = 20.0
-            assert!((points[0].1 - 20.0).abs() < 0.01);
-            // SMA(3) of [20, 30, 40] = 30.0
-            assert!((points[1].1 - 30.0).abs() < 0.01);
-            // SMA(3) of [30, 40, 50] = 40.0
-            assert!((points[2].1 - 40.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        let points = &lines[0].points;
+        assert_eq!(points.len(), 3);
+        // SMA(3) of [10, 20, 30] = 20.0
+        assert!((points[0].1 - 20.0).abs() < 0.01);
+        // SMA(3) of [20, 30, 40] = 30.0
+        assert!((points[1].1 - 30.0).abs() < 0.01);
+        // SMA(3) of [30, 40, 50] = 40.0
+        assert!((points[2].1 - 40.0).abs() < 0.01);
     }
 
     #[test]

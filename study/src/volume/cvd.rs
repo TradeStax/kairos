@@ -130,7 +130,7 @@ impl Study for CvdStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
         let reset_period = self.config.get_choice("reset_period", "None").to_string();
@@ -138,7 +138,7 @@ impl Study for CvdStudy {
         let candles = input.candles;
         if candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let mut cum_delta: f64 = 0.0;
@@ -157,7 +157,7 @@ impl Study for CvdStudy {
             let delta = candle.volume_delta();
             cum_delta += delta;
 
-            let key = candle_key(candle, i, &input.basis);
+            let key = candle_key(candle, i, candles.len(), &input.basis);
             points.push((key, cum_delta as f32));
         }
 
@@ -168,6 +168,7 @@ impl Study for CvdStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -218,7 +219,7 @@ mod tests {
     fn test_cvd_empty() {
         let mut study = CvdStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -231,18 +232,17 @@ mod tests {
             make_candle(3000, 200.0, 150.0), // delta = +50
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            let pts = &lines[0].points;
-            assert_eq!(pts.len(), 3);
-            assert!((pts[0].1 - 100.0).abs() < 1.0);
-            assert!((pts[1].1 - (-50.0)).abs() < 1.0);
-            assert!((pts[2].1 - 0.0).abs() < 1.0);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 3);
+        assert!((pts[0].1 - 100.0).abs() < 1.0);
+        assert!((pts[1].1 - (-50.0)).abs() < 1.0);
+        assert!((pts[2].1 - 0.0).abs() < 1.0);
     }
 
     #[test]
@@ -263,18 +263,17 @@ mod tests {
             make_candle(day2_start, 100.0, 300.0),          // -200, reset => -200
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            let pts = &lines[0].points;
-            assert_eq!(pts.len(), 3);
-            assert!((pts[0].1 - 100.0).abs() < 1.0);
-            assert!((pts[1].1 - 200.0).abs() < 1.0);
-            // Day boundary reset, so cumulative starts fresh
-            assert!((pts[2].1 - (-200.0)).abs() < 1.0);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 3);
+        assert!((pts[0].1 - 100.0).abs() < 1.0);
+        assert!((pts[1].1 - 200.0).abs() < 1.0);
+        // Day boundary reset, so cumulative starts fresh
+        assert!((pts[2].1 - (-200.0)).abs() < 1.0);
     }
 
     #[test]
@@ -289,15 +288,14 @@ mod tests {
             make_candle(day2_start, 100.0, 300.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            let pts = &lines[0].points;
-            // No reset, so cumulative continues
-            assert!((pts[0].1 - 100.0).abs() < 1.0);
-            assert!((pts[1].1 - (-100.0)).abs() < 1.0);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let pts = &lines[0].points;
+        // No reset, so cumulative continues
+        assert!((pts[0].1 - 100.0).abs() < 1.0);
+        assert!((pts[1].1 - (-100.0)).abs() < 1.0);
     }
 }

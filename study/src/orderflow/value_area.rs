@@ -216,7 +216,7 @@ impl Study for ValueAreaStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let percentage = self.config.get_float("percentage", DEFAULT_PERCENTAGE);
         let vah_color = self.config.get_color("vah_color", DEFAULT_VAH_COLOR);
         let val_color = self.config.get_color("val_color", DEFAULT_VAL_COLOR);
@@ -224,7 +224,7 @@ impl Study for ValueAreaStudy {
 
         if input.candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         match compute_value_area(input.candles, input.tick_size, percentage) {
@@ -260,6 +260,7 @@ impl Study for ValueAreaStudy {
                 self.output = StudyOutput::Empty;
             }
         }
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -321,7 +322,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Band {
@@ -339,7 +340,7 @@ mod tests {
                 let val = lower.points[0].1;
                 assert!(vah >= val);
             }
-            _ => panic!("Expected Band output"),
+            other => assert!(matches!(other, StudyOutput::Band { .. }), "Expected Band output"),
         }
     }
 
@@ -356,7 +357,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 

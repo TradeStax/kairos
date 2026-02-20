@@ -141,7 +141,7 @@ impl Study for AtrStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 14) as usize;
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
@@ -149,7 +149,7 @@ impl Study for AtrStudy {
         let candles = input.candles;
         if candles.len() < 2 {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         // Calculate True Range for each candle (starting from index 1)
@@ -167,7 +167,7 @@ impl Study for AtrStudy {
 
         if tr_values.len() < period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let mut points = Vec::with_capacity(tr_values.len() - period + 1);
@@ -178,7 +178,7 @@ impl Study for AtrStudy {
         // starts at index 1)
         let candle_idx = period;
         points.push((
-            candle_key(&candles[candle_idx], candle_idx, &input.basis),
+            candle_key(&candles[candle_idx], candle_idx, candles.len(), &input.basis),
             atr as f32,
         ));
 
@@ -187,7 +187,7 @@ impl Study for AtrStudy {
             atr = (atr * (period as f64 - 1.0) + tr) / period as f64;
             let candle_idx = i + 1; // offset by 1 since TR starts at index 1
             points.push((
-                candle_key(&candles[candle_idx], candle_idx, &input.basis),
+                candle_key(&candles[candle_idx], candle_idx, candles.len(), &input.basis),
                 atr as f32,
             ));
         }
@@ -199,6 +199,7 @@ impl Study for AtrStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -248,7 +249,7 @@ mod tests {
     fn test_atr_empty() {
         let mut study = AtrStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -260,7 +261,7 @@ mod tests {
             .map(|i| make_candle(i * 60000, 100.0, 102.0, 98.0, 101.0))
             .collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -280,21 +281,20 @@ mod tests {
             make_candle(5000, 112.0, 118.0, 108.0, 116.0), // TR = max(10, |118-112|, |108-112|) = 10
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            let pts = &lines[0].points;
-            assert_eq!(pts.len(), 2);
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 2);
 
-            // Initial ATR(3) = avg of first 3 TRs = (10+10+12)/3 = 10.667
-            assert!((pts[0].1 - 10.667).abs() < 0.01);
+        // Initial ATR(3) = avg of first 3 TRs = (10+10+12)/3 = 10.667
+        assert!((pts[0].1 - 10.667).abs() < 0.01);
 
-            // Wilder: ATR = (10.667 * 2 + 10) / 3 = 31.333/3 = 10.444
-            assert!((pts[1].1 - 10.444).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        // Wilder: ATR = (10.667 * 2 + 10) / 3 = 31.333/3 = 10.444
+        assert!((pts[1].1 - 10.444).abs() < 0.01);
     }
 
     #[test]
@@ -312,16 +312,15 @@ mod tests {
             make_candle(4000, 100.0, 105.0, 95.0, 100.0), // TR = 10
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            let pts = &lines[0].points;
-            // All ATR values should be 10.0
-            for pt in pts {
-                assert!((pt.1 - 10.0).abs() < 0.01);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let pts = &lines[0].points;
+        // All ATR values should be 10.0
+        for pt in pts {
+            assert!((pt.1 - 10.0).abs() < 0.01);
         }
     }
 

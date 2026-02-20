@@ -189,7 +189,7 @@ impl Study for BollingerStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 20) as usize;
         let std_mult = self.config.get_float("std_dev", 2.0);
         let upper_color = self.config.get_color(
@@ -224,7 +224,7 @@ impl Study for BollingerStudy {
         let candles = input.candles;
         if candles.len() < period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let count = candles.len() - period + 1;
@@ -247,7 +247,7 @@ impl Study for BollingerStudy {
             let variance = window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / period as f64;
             let stddev = variance.sqrt();
 
-            let key = candle_key(&candles[i], i, &input.basis);
+            let key = candle_key(&candles[i], i, candles.len(), &input.basis);
             let upper = (mean + std_mult * stddev) as f32;
             let lower = (mean - std_mult * stddev) as f32;
             let mid = mean as f32;
@@ -281,6 +281,7 @@ impl Study for BollingerStudy {
             },
             fill_opacity,
         };
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -330,7 +331,7 @@ mod tests {
     fn test_empty_candles() {
         let mut study = BollingerStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -351,25 +352,26 @@ mod tests {
             make_candle(3000, 100.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Band {
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Band { .. }), "expected Band output");
+        let StudyOutput::Band {
             upper,
             middle,
             lower,
             ..
-        } = study.output()
-        {
-            assert_eq!(upper.points.len(), 1);
-            assert_eq!(lower.points.len(), 1);
-            let mid = middle.as_ref().unwrap();
-            // All same price: mean = 100, stddev = 0
-            assert!((mid.points[0].1 - 100.0).abs() < 0.01);
-            assert!((upper.points[0].1 - 100.0).abs() < 0.01);
-            assert!((lower.points[0].1 - 100.0).abs() < 0.01);
-        } else {
-            panic!("expected Band output");
-        }
+        } = output
+        else {
+            unreachable!()
+        };
+        assert_eq!(upper.points.len(), 1);
+        assert_eq!(lower.points.len(), 1);
+        let mid = middle.as_ref().unwrap();
+        // All same price: mean = 100, stddev = 0
+        assert!((mid.points[0].1 - 100.0).abs() < 0.01);
+        assert!((upper.points[0].1 - 100.0).abs() < 0.01);
+        assert!((lower.points[0].1 - 100.0).abs() < 0.01);
     }
 
     #[test]
@@ -388,24 +390,25 @@ mod tests {
             make_candle(3000, 30.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Band {
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Band { .. }), "expected Band output");
+        let StudyOutput::Band {
             upper,
             middle,
             lower,
             ..
-        } = study.output()
-        {
-            let mid = middle.as_ref().unwrap();
-            // mean = 20.0, variance = ((10-20)^2 + (20-20)^2 + (30-20)^2) / 3
-            //       = (100 + 0 + 100) / 3 = 66.67, stddev ~ 8.165
-            assert!((mid.points[0].1 - 20.0).abs() < 0.1);
-            assert!(upper.points[0].1 > 35.0); // 20 + 2*8.165 ~ 36.33
-            assert!(lower.points[0].1 < 5.0); // 20 - 2*8.165 ~ 3.67
-        } else {
-            panic!("expected Band output");
-        }
+        } = output
+        else {
+            unreachable!()
+        };
+        let mid = middle.as_ref().unwrap();
+        // mean = 20.0, variance = ((10-20)^2 + (20-20)^2 + (30-20)^2) / 3
+        //       = (100 + 0 + 100) / 3 = 66.67, stddev ~ 8.165
+        assert!((mid.points[0].1 - 20.0).abs() < 0.1);
+        assert!(upper.points[0].1 > 35.0); // 20 + 2*8.165 ~ 36.33
+        assert!(lower.points[0].1 < 5.0); // 20 - 2*8.165 ~ 3.67
     }
 
     #[test]

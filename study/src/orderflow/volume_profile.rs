@@ -238,17 +238,17 @@ impl Study for VolumeProfileStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         if input.candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let levels = build_profile_from_candles(input.candles, input.tick_size);
 
         if levels.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let poc = find_poc_index(&levels);
@@ -260,6 +260,7 @@ impl Study for VolumeProfileStudy {
             poc,
             value_area,
         });
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -405,14 +406,14 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         match &study.output {
             StudyOutput::Profile(data) => {
                 assert!(!data.levels.is_empty());
                 assert!(data.poc.is_some());
             }
-            _ => panic!("Expected Profile output"),
+            other => assert!(matches!(other, StudyOutput::Profile(_)), "Expected Profile output"),
         }
     }
 
@@ -429,7 +430,7 @@ mod tests {
             visible_range: None,
         };
 
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 }

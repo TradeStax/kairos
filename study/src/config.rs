@@ -48,6 +48,16 @@ pub enum LineStyleValue {
     Dotted,
 }
 
+impl std::fmt::Display for LineStyleValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LineStyleValue::Solid => write!(f, "Solid"),
+            LineStyleValue::Dashed => write!(f, "Dashed"),
+            LineStyleValue::Dotted => write!(f, "Dotted"),
+        }
+    }
+}
+
 /// Snapshot of a study's current configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudyConfig {

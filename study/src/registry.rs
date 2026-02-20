@@ -249,6 +249,11 @@ impl StudyRegistry {
         self.info.insert(id.to_string(), info);
     }
 
+    /// Check if a study with the given ID is already registered.
+    pub fn contains(&self, id: &str) -> bool {
+        self.factories.contains_key(id)
+    }
+
     /// Create a study instance by id.
     pub fn create(&self, id: &str) -> Option<Box<dyn Study>> {
         self.factories.get(id).map(|f| f())
@@ -256,16 +261,20 @@ impl StudyRegistry {
 
     /// List all registered studies.
     pub fn list(&self) -> Vec<StudyInfo> {
-        self.info.values().cloned().collect()
+        let mut studies: Vec<_> = self.info.values().cloned().collect();
+        studies.sort_by(|a, b| a.name.cmp(&b.name));
+        studies
     }
 
     /// List studies filtered by category.
     pub fn list_by_category(&self, category: StudyCategory) -> Vec<StudyInfo> {
-        self.info
+        let mut studies: Vec<_> = self.info
             .values()
             .filter(|info| info.category == category)
             .cloned()
-            .collect()
+            .collect();
+        studies.sort_by(|a, b| a.name.cmp(&b.name));
+        studies
     }
 }
 

@@ -121,7 +121,7 @@ impl Study for VwapStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
         let show_bands = self.config.get_bool("show_bands", false);
@@ -130,7 +130,7 @@ impl Study for VwapStudy {
         let candles = input.candles;
         if candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let mut cum_tp_vol: f64 = 0.0;
@@ -150,7 +150,7 @@ impl Study for VwapStudy {
             cum_vol += vol;
             cum_tp2_vol += typical_price * typical_price * vol;
 
-            let key = candle_key(candle, i, &input.basis);
+            let key = candle_key(candle, i, candles.len(), &input.basis);
 
             if cum_vol > 0.0 {
                 let vwap = cum_tp_vol / cum_vol;
@@ -199,6 +199,7 @@ impl Study for VwapStudy {
         }
 
         self.output = StudyOutput::Lines(lines);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -257,7 +258,7 @@ mod tests {
     fn test_vwap_empty() {
         let mut study = VwapStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -267,15 +268,14 @@ mod tests {
         // TP = (30 + 10 + 20) / 3 = 20.0
         let candles = vec![make_candle(1000, 30.0, 10.0, 20.0, 50.0, 50.0)];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            assert_eq!(lines[0].points.len(), 1);
-            assert!((lines[0].points[0].1 - 20.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].points.len(), 1);
+        assert!((lines[0].points[0].1 - 20.0).abs() < 0.01);
     }
 
     #[test]
@@ -290,17 +290,16 @@ mod tests {
             make_candle(2000, 24.0, 16.0, 20.0, 120.0, 80.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            let pts = &lines[0].points;
-            assert_eq!(pts.len(), 2);
-            assert!((pts[0].1 - 10.0).abs() < 0.01);
-            assert!((pts[1].1 - 16.667).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 2);
+        assert!((pts[0].1 - 10.0).abs() < 0.01);
+        assert!((pts[1].1 - 16.667).abs() < 0.01);
     }
 
     #[test]
@@ -316,20 +315,19 @@ mod tests {
             make_candle(3000, 18.0, 12.0, 15.0, 80.0, 70.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 3);
-            assert_eq!(lines[0].label, "VWAP");
-            assert_eq!(lines[1].label, "VWAP Upper");
-            assert_eq!(lines[2].label, "VWAP Lower");
-            // Upper should be above VWAP, lower below
-            for i in 0..lines[0].points.len() {
-                assert!(lines[1].points[i].1 >= lines[0].points[i].1);
-                assert!(lines[2].points[i].1 <= lines[0].points[i].1);
-            }
-        } else {
-            panic!("expected Lines output");
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].label, "VWAP");
+        assert_eq!(lines[1].label, "VWAP Upper");
+        assert_eq!(lines[2].label, "VWAP Lower");
+        // Upper should be above VWAP, lower below
+        for i in 0..lines[0].points.len() {
+            assert!(lines[1].points[i].1 >= lines[0].points[i].1);
+            assert!(lines[2].points[i].1 <= lines[0].points[i].1);
         }
     }
 
@@ -339,14 +337,13 @@ mod tests {
         // Zero volume candle should use typical price as VWAP
         let candles = vec![make_candle(1000, 30.0, 10.0, 20.0, 0.0, 0.0)];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines[0].points.len(), 1);
-            // TP = (30+10+20)/3 = 20.0
-            assert!((lines[0].points[0].1 - 20.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines[0].points.len(), 1);
+        // TP = (30+10+20)/3 = 20.0
+        assert!((lines[0].points[0].1 - 20.0).abs() < 0.01);
     }
 }

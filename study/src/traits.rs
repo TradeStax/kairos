@@ -27,7 +27,17 @@ pub trait Study: Send + Sync {
     fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError>;
 
     /// Compute study values from input data
-    fn compute(&mut self, input: &StudyInput);
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError>;
+
+    /// Incrementally process new trades appended since last compute.
+    /// Default implementation falls back to full recompute.
+    fn append_trades(
+        &mut self,
+        _new_trades: &[data::Trade],
+        input: &StudyInput,
+    ) -> Result<(), StudyError> {
+        self.compute(input)
+    }
 
     /// Get computed output for rendering
     fn output(&self) -> &StudyOutput;
@@ -40,13 +50,14 @@ pub trait Study: Send + Sync {
 }
 
 /// Study category for grouping in menus and search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum StudyCategory {
     Trend,
     Momentum,
     Volume,
     Volatility,
     OrderFlow,
+    #[default]
     Custom,
 }
 

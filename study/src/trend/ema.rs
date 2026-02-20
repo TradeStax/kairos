@@ -166,7 +166,7 @@ impl Study for EmaStudy {
         Ok(())
     }
 
-    fn compute(&mut self, input: &StudyInput) {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 9) as usize;
         let color = self.config.get_color(
             "color",
@@ -183,7 +183,7 @@ impl Study for EmaStudy {
         let candles = input.candles;
         if candles.len() < period {
             self.output = StudyOutput::Empty;
-            return;
+            return Ok(());
         }
 
         let multiplier = 2.0 / (period + 1) as f64;
@@ -196,7 +196,7 @@ impl Study for EmaStudy {
         }
         let mut ema = sum / period as f64;
         points.push((
-            candle_key(&candles[period - 1], period - 1, &input.basis),
+            candle_key(&candles[period - 1], period - 1, candles.len(), &input.basis),
             ema as f32,
         ));
 
@@ -204,7 +204,7 @@ impl Study for EmaStudy {
         for (i, candle) in candles.iter().enumerate().skip(period) {
             let val = source_value(candle, &source) as f64;
             ema = val * multiplier + ema * (1.0 - multiplier);
-            points.push((candle_key(candle, i, &input.basis), ema as f32));
+            points.push((candle_key(candle, i, candles.len(), &input.basis), ema as f32));
         }
 
         self.output = StudyOutput::Lines(vec![LineSeries {
@@ -214,6 +214,7 @@ impl Study for EmaStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
+        Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -263,7 +264,7 @@ mod tests {
     fn test_empty_candles() {
         let mut study = EmaStudy::new();
         let input = make_input(&[]);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -273,7 +274,7 @@ mod tests {
         // Default period is 9
         let candles: Vec<Candle> = (0..5).map(|i| make_candle(i * 60000, 100.0)).collect();
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -292,25 +293,24 @@ mod tests {
             make_candle(5000, 50.0),
         ];
         let input = make_input(&candles);
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
-        if let StudyOutput::Lines(lines) = study.output() {
-            assert_eq!(lines.len(), 1);
-            let points = &lines[0].points;
-            assert_eq!(points.len(), 3);
+        let output = study.output();
+        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
+        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        assert_eq!(lines.len(), 1);
+        let points = &lines[0].points;
+        assert_eq!(points.len(), 3);
 
-            // Seed: SMA(3) of [10, 20, 30] = 20.0
-            assert!((points[0].1 - 20.0).abs() < 0.01);
+        // Seed: SMA(3) of [10, 20, 30] = 20.0
+        assert!((points[0].1 - 20.0).abs() < 0.01);
 
-            // multiplier = 2/(3+1) = 0.5
-            // EMA = 40 * 0.5 + 20 * 0.5 = 30.0
-            assert!((points[1].1 - 30.0).abs() < 0.01);
+        // multiplier = 2/(3+1) = 0.5
+        // EMA = 40 * 0.5 + 20 * 0.5 = 30.0
+        assert!((points[1].1 - 30.0).abs() < 0.01);
 
-            // EMA = 50 * 0.5 + 30 * 0.5 = 40.0
-            assert!((points[2].1 - 40.0).abs() < 0.01);
-        } else {
-            panic!("expected Lines output");
-        }
+        // EMA = 50 * 0.5 + 30 * 0.5 = 40.0
+        assert!((points[2].1 - 40.0).abs() < 0.01);
     }
 
     #[test]
