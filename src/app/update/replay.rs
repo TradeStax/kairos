@@ -1,37 +1,33 @@
 use iced::Task;
 
-use crate::component::display::toast::Toast;
-use crate::modal::replay_manager;
+use crate::components::display::toast::Toast;
+use crate::modals::replay;
 use crate::screen::dashboard;
 
 use super::super::{Flowsurface, Message};
 
 impl Flowsurface {
-    pub(crate) fn handle_replay_message(
-        &mut self,
-        msg: replay_manager::Message,
-    ) -> Task<Message> {
+    pub(crate) fn handle_replay_message(&mut self, msg: replay::Message) -> Task<Message> {
         match msg {
-            replay_manager::Message::LoadData => {
+            replay::Message::LoadData => {
                 return self.replay_load_data();
             }
-            replay_manager::Message::Play => {
+            replay::Message::Play => {
                 return self.replay_engine_action(|engine| {
                     tokio::runtime::Handle::current().block_on(engine.play())
                 });
             }
-            replay_manager::Message::Pause => {
+            replay::Message::Pause => {
                 return self.replay_engine_action(|engine| {
                     tokio::runtime::Handle::current().block_on(engine.pause())
                 });
             }
-            replay_manager::Message::EndReplay => {
+            replay::Message::EndReplay => {
                 // Stop replay, restore chart data, hide controller
                 self.replay_manager.data_loaded = false;
                 self.replay_manager.progress = 0.0;
                 self.replay_manager.position = 0;
-                self.replay_manager.playback_status =
-                    data::state::replay_state::PlaybackStatus::Stopped;
+                self.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
                 self.replay_manager.controller_visible = false;
                 self.replay_manager.volume_buckets.clear();
 
@@ -41,36 +37,34 @@ impl Flowsurface {
                     tokio::runtime::Handle::current().block_on(engine.stop())
                 });
             }
-            replay_manager::Message::CloseController => {
+            replay::Message::CloseController => {
                 // Hide controller but keep replay playing
                 self.replay_manager.controller_visible = false;
             }
-            replay_manager::Message::OpenController => {
+            replay::Message::OpenController => {
                 self.replay_manager.controller_visible = true;
             }
-            replay_manager::Message::SetSpeed(speed) => {
+            replay::Message::SetSpeed(speed) => {
                 self.replay_manager.speed = speed;
                 return self.replay_engine_action(move |engine| {
-                    tokio::runtime::Handle::current()
-                        .block_on(engine.set_speed(speed))
+                    tokio::runtime::Handle::current().block_on(engine.set_speed(speed))
                 });
             }
-            replay_manager::Message::Seek(progress) => {
+            replay::Message::Seek(progress) => {
                 return self.replay_seek(progress);
             }
-            replay_manager::Message::JumpForward => {
+            replay::Message::JumpForward => {
                 return self.replay_engine_action(|engine| {
                     tokio::runtime::Handle::current().block_on(engine.jump(30_000))
                 });
             }
-            replay_manager::Message::JumpBackward => {
+            replay::Message::JumpBackward => {
                 return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current()
-                        .block_on(engine.jump(-30_000))
+                    tokio::runtime::Handle::current().block_on(engine.jump(-30_000))
                 });
             }
             other => {
-                // UI-only messages (SelectStream, SetStartDate, etc.)
+                // UI-only messages (SelectStream, SelectDate, etc.)
                 self.replay_manager.update(other);
             }
         }
@@ -149,8 +143,7 @@ impl Flowsurface {
                     .push(Toast::error(format!("Replay: {}", msg)));
             }
             data::services::ReplayEvent::PlaybackComplete => {
-                self.replay_manager.playback_status =
-                    data::state::replay_state::PlaybackStatus::Stopped;
+                self.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
                 self.replay_manager.progress = 1.0;
             }
             data::services::ReplayEvent::SeekCompleted {
@@ -182,9 +175,7 @@ impl Flowsurface {
     /// Run a synchronous action on the replay engine via spawn_blocking.
     fn replay_engine_action<F>(&self, action: F) -> Task<Message>
     where
-        F: FnOnce(&mut data::services::ReplayEngine) -> Result<(), String>
-            + Send
-            + 'static,
+        F: FnOnce(&mut data::services::ReplayEngine) -> Result<(), String> + Send + 'static,
     {
         let Some(engine) = self.replay_engine.clone() else {
             return Task::none();
@@ -193,8 +184,7 @@ impl Flowsurface {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let mut guard =
-                        engine.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut guard = engine.lock().unwrap_or_else(|e| e.into_inner());
                     action(&mut guard)
                 })
                 .await
@@ -202,9 +192,7 @@ impl Flowsurface {
             },
             |result| match result {
                 Ok(()) => Message::Tick(std::time::Instant::now()),
-                Err(e) => {
-                    Message::ReplayEvent(data::services::ReplayEvent::Error(e))
-                }
+                Err(e) => Message::ReplayEvent(data::services::ReplayEvent::Error(e)),
             },
         )
     }
@@ -215,8 +203,7 @@ impl Flowsurface {
         };
 
         let Some(engine) = self.replay_engine.clone() else {
-            self.replay_manager.error =
-                Some("Replay engine not available".to_string());
+            self.replay_manager.error = Some("Replay engine not available".to_string());
             return Task::none();
         };
 
@@ -228,16 +215,14 @@ impl Flowsurface {
         let start_timestamp = self.compute_replay_start_timestamp();
 
         // Set initial loading state
-        self.replay_manager.loading_progress =
-            Some((0.0, "Starting load...".to_string()));
+        self.replay_manager.loading_progress = Some((0.0, "Starting load...".to_string()));
         self.replay_manager.error = None;
 
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let handle = tokio::runtime::Handle::current();
-                    let mut guard =
-                        engine.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut guard = engine.lock().unwrap_or_else(|e| e.into_inner());
 
                     // Take the event_rx and bridge to global buffer
                     if let Some(rx) = guard.event_rx.take() {
@@ -254,9 +239,7 @@ impl Flowsurface {
 
                     // Load data, seek to user-specified start, then play
                     handle.block_on(async {
-                        guard
-                            .load_data(ticker_info, date_range)
-                            .await?;
+                        guard.load_data(ticker_info, date_range).await?;
 
                         // Seek to user-specified start time if provided
                         if let Some(ts) = start_timestamp {
@@ -271,12 +254,8 @@ impl Flowsurface {
                 .map_err(|e| format!("Task join error: {}", e))?
             },
             |result| match result {
-                Ok(()) => Message::ReplayEvent(
-                    data::services::ReplayEvent::PlaybackStarted,
-                ),
-                Err(e) => {
-                    Message::ReplayEvent(data::services::ReplayEvent::Error(e))
-                }
+                Ok(()) => Message::ReplayEvent(data::services::ReplayEvent::PlaybackStarted),
+                Err(e) => Message::ReplayEvent(data::services::ReplayEvent::Error(e)),
             },
         )
     }
@@ -313,19 +292,13 @@ impl Flowsurface {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let guard =
-                        engine.lock().unwrap_or_else(|e| e.into_inner());
-                    tokio::runtime::Handle::current()
-                        .block_on(guard.compute_volume_histogram(200))
+                    let guard = engine.lock().unwrap_or_else(|e| e.into_inner());
+                    tokio::runtime::Handle::current().block_on(guard.compute_volume_histogram(200))
                 })
                 .await
                 .unwrap_or_default()
             },
-            |buckets| {
-                Message::Replay(
-                    replay_manager::Message::VolumeHistogramReady(buckets),
-                )
-            },
+            |buckets| Message::Replay(replay::Message::VolumeHistogramReady(buckets)),
         )
     }
 
@@ -384,8 +357,7 @@ impl Flowsurface {
         let timestamp = start + ((end - start) as f32 * progress) as u64;
 
         self.replay_engine_action(move |engine| {
-            tokio::runtime::Handle::current()
-                .block_on(engine.seek(timestamp))
+            tokio::runtime::Handle::current().block_on(engine.seek(timestamp))
         })
     }
 }

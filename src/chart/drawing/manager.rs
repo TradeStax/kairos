@@ -7,7 +7,34 @@ use super::point::DrawingPoint;
 use crate::chart::ViewState;
 use data::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
 use iced::{Point, Size};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
+
+/// Maximum number of undo operations to keep
+const MAX_UNDO_STACK: usize = 50;
+
+/// An undoable drawing operation
+#[derive(Debug, Clone)]
+enum DrawingOp {
+    Add(SerializableDrawing),
+    Remove(SerializableDrawing),
+    Modify {
+        id: DrawingId,
+        before: SerializableDrawing,
+        after: SerializableDrawing,
+    },
+}
+
+/// State for a clone being placed by the user
+#[derive(Debug, Clone)]
+struct ClonePlacement {
+    /// The cloned drawing being placed
+    drawing: Drawing,
+    /// Original points (before any movement)
+    original_points: Vec<DrawingPoint>,
+    /// Center of original points (used as cursor anchor)
+    center_time: i64,
+    center_price: i64,
+}
 
 /// Manages all drawings on a chart
 #[derive(Debug, Clone)]
@@ -24,6 +51,18 @@ pub struct DrawingManager {
     snap_enabled: bool,
     /// Default style for new drawings
     default_style: DrawingStyle,
+    /// Undo stack
+    undo_stack: VecDeque<DrawingOp>,
+    /// Redo stack
+    redo_stack: VecDeque<DrawingOp>,
+    /// Saved state for in-progress move/edit operations
+    move_edit_before: Option<(DrawingId, SerializableDrawing)>,
+    /// Last cursor position during drag (for relative movement)
+    last_drag_point: Option<DrawingPoint>,
+    /// Screen position where the current drag started (for axis-lock constraint)
+    drag_start_screen: Option<Point>,
+    /// Clone placement in progress (user is positioning a cloned drawing)
+    clone_placement: Option<ClonePlacement>,
 }
 
 impl Default for DrawingManager {
@@ -42,6 +81,12 @@ impl DrawingManager {
             active_tool: DrawingTool::None,
             snap_enabled: true,
             default_style: DrawingStyle::default(),
+            undo_stack: VecDeque::new(),
+            redo_stack: VecDeque::new(),
+            move_edit_before: None,
+            last_drag_point: None,
+            drag_start_screen: None,
+            clone_placement: None,
         }
     }
 
@@ -54,6 +99,12 @@ impl DrawingManager {
             active_tool: DrawingTool::None,
             snap_enabled: true,
             default_style: DrawingStyle::default(),
+            undo_stack: VecDeque::new(),
+            redo_stack: VecDeque::new(),
+            move_edit_before: None,
+            last_drag_point: None,
+            drag_start_screen: None,
+            clone_placement: None,
         }
     }
 
@@ -94,10 +145,11 @@ impl DrawingManager {
         self.default_style = style;
     }
 
-    /// Start a new drawing at the given point
-    pub fn start_drawing(&mut self, point: DrawingPoint) {
+    /// Start a new drawing at the given point.
+    /// Returns `Some(id)` if the drawing completed immediately (single-point tools).
+    pub fn start_drawing(&mut self, point: DrawingPoint) -> Option<DrawingId> {
         if self.active_tool == DrawingTool::None {
-            return;
+            return None;
         }
 
         let mut drawing = Drawing::with_style(self.active_tool, self.default_style.clone());
@@ -105,10 +157,14 @@ impl DrawingManager {
 
         // For single-point drawings, complete immediately
         if drawing.is_complete() {
+            let id = drawing.id;
+            self.push_undo(DrawingOp::Add(drawing.to_serializable()));
             self.drawings.push(drawing);
             self.pending = None;
+            Some(id)
         } else {
             self.pending = Some(drawing);
+            None
         }
     }
 
@@ -126,6 +182,7 @@ impl DrawingManager {
 
             if drawing.is_complete() {
                 let id = drawing.id;
+                self.push_undo(DrawingOp::Add(drawing.to_serializable()));
                 self.drawings.push(drawing);
                 return Some(id);
             } else {
@@ -194,12 +251,29 @@ impl DrawingManager {
 
     /// Delete selected drawings
     pub fn delete_selected(&mut self) {
+        for drawing in &self.drawings {
+            if self.selected.contains(&drawing.id) {
+                self.undo_stack
+                    .push_back(DrawingOp::Remove(drawing.to_serializable()));
+            }
+        }
+        self.redo_stack.clear();
+        self.trim_undo_stack();
         self.drawings.retain(|d| !self.selected.contains(&d.id));
         self.selected.clear();
     }
 
+    /// Add a completed drawing directly (e.g. for cloning)
+    pub fn add_drawing(&mut self, drawing: Drawing) {
+        self.push_undo(DrawingOp::Add(drawing.to_serializable()));
+        self.drawings.push(drawing);
+    }
+
     /// Delete a specific drawing
     pub fn delete(&mut self, id: DrawingId) {
+        if let Some(drawing) = self.get(id) {
+            self.push_undo(DrawingOp::Remove(drawing.to_serializable()));
+        }
         self.drawings.retain(|d| d.id != id);
         self.selected.remove(&id);
     }
@@ -233,9 +307,9 @@ impl DrawingManager {
             if let Some(drawing) = self.get(id)
                 && let Some(handle_index) =
                     drawing.hit_test_handle(screen_point, state, bounds, handle_size)
-                {
-                    return Some((id, handle_index));
-                }
+            {
+                return Some((id, handle_index));
+            }
         }
         None
     }
@@ -243,9 +317,11 @@ impl DrawingManager {
     /// Move a drawing point (for handle dragging)
     pub fn move_point(&mut self, id: DrawingId, point_index: usize, new_point: DrawingPoint) {
         if let Some(drawing) = self.get_mut(id)
-            && point_index < drawing.points.len() && !drawing.locked {
-                drawing.points[point_index] = new_point;
-            }
+            && point_index < drawing.points.len()
+            && !drawing.locked
+        {
+            drawing.points[point_index] = new_point;
+        }
     }
 
     /// Move entire drawing by offset
@@ -259,6 +335,87 @@ impl DrawingManager {
                 point.price = exchange::util::Price::from_units(point.price.units + delta_price);
             }
         }
+    }
+
+    /// Start tracking a move/edit operation for undo support.
+    ///
+    /// Call this before beginning a drag operation. Saves the drawing's
+    /// current state so it can be restored on undo.
+    pub fn start_move_edit(&mut self, id: DrawingId) {
+        // Only save once per drag operation
+        if self.move_edit_before.is_some() {
+            return;
+        }
+        if let Some(drawing) = self.get(id) {
+            self.move_edit_before = Some((id, drawing.to_serializable()));
+        }
+    }
+
+    /// Finish tracking a move/edit operation.
+    ///
+    /// Call this after a drag operation completes (mouse release).
+    /// Pushes the Modify operation onto the undo stack.
+    pub fn finish_move_edit(&mut self) {
+        if let Some((id, before)) = self.move_edit_before.take() {
+            if let Some(drawing) = self.get(id) {
+                let after = drawing.to_serializable();
+                self.push_undo(DrawingOp::Modify { id, before, after });
+            }
+        }
+    }
+
+    /// Record a property change for undo, bypassing the move_edit guard.
+    pub fn record_property_change(&mut self, id: DrawingId, before: SerializableDrawing) {
+        if let Some(drawing) = self.get(id) {
+            let after = drawing.to_serializable();
+            self.push_undo(DrawingOp::Modify { id, before, after });
+        }
+    }
+
+    /// Start a drag operation with relative tracking.
+    /// `screen_pos` is the raw screen position for axis-lock reference.
+    pub fn start_drag(&mut self, point: DrawingPoint, id: DrawingId, screen_pos: Point) {
+        self.start_move_edit(id);
+        self.last_drag_point = Some(point);
+        self.drag_start_screen = Some(screen_pos);
+    }
+
+    /// Get the screen position where the current drag started
+    pub fn drag_start_screen(&self) -> Option<Point> {
+        self.drag_start_screen
+    }
+
+    /// Update a whole-drawing drag with relative movement
+    pub fn update_drag(&mut self, id: DrawingId, new_point: DrawingPoint) {
+        if let Some(last) = self.last_drag_point {
+            let dt = new_point.time as i64 - last.time as i64;
+            let dp = new_point.price.units - last.price.units;
+            self.move_drawing(id, dt, dp);
+            self.last_drag_point = Some(new_point);
+        }
+    }
+
+    /// Update a single-handle drag
+    pub fn update_handle_drag(
+        &mut self,
+        id: DrawingId,
+        handle_index: usize,
+        new_point: DrawingPoint,
+    ) {
+        self.move_point(id, handle_index, new_point);
+        self.last_drag_point = Some(new_point);
+    }
+
+    /// End a drag operation
+    pub fn end_drag(&mut self) {
+        self.last_drag_point = None;
+        self.drag_start_screen = None;
+        self.finish_move_edit();
+    }
+
+    /// Check if a drag is in progress
+    pub fn is_dragging(&self) -> bool {
+        self.last_drag_point.is_some()
     }
 
     /// Serialize all drawings for persistence
@@ -280,5 +437,147 @@ impl DrawingManager {
     /// Get the number of drawings
     pub fn len(&self) -> usize {
         self.drawings.len()
+    }
+
+    /// Undo the last drawing operation. Returns true if an operation was undone.
+    pub fn undo(&mut self) -> bool {
+        if let Some(op) = self.undo_stack.pop_back() {
+            match op.clone() {
+                DrawingOp::Add(drawing) => {
+                    // Undo an add = remove the drawing
+                    self.drawings.retain(|d| d.id != drawing.id);
+                    self.selected.remove(&drawing.id);
+                    self.redo_stack.push_back(op);
+                }
+                DrawingOp::Remove(drawing) => {
+                    // Undo a remove = re-add the drawing
+                    self.drawings.push(Drawing::from(&drawing));
+                    self.redo_stack.push_back(op);
+                }
+                DrawingOp::Modify { id, before, .. } => {
+                    // Undo a modify = restore the before state
+                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
+                        self.drawings[pos] = Drawing::from(&before);
+                    }
+                    self.redo_stack.push_back(op);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Redo the last undone operation. Returns true if an operation was redone.
+    pub fn redo(&mut self) -> bool {
+        if let Some(op) = self.redo_stack.pop_back() {
+            match op.clone() {
+                DrawingOp::Add(drawing) => {
+                    // Redo an add = add the drawing back
+                    self.drawings.push(Drawing::from(&drawing));
+                    self.undo_stack.push_back(op);
+                }
+                DrawingOp::Remove(drawing) => {
+                    // Redo a remove = remove the drawing again
+                    self.drawings.retain(|d| d.id != drawing.id);
+                    self.selected.remove(&drawing.id);
+                    self.undo_stack.push_back(op);
+                }
+                DrawingOp::Modify { id, after, .. } => {
+                    // Redo a modify = apply the after state
+                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
+                        self.drawings[pos] = Drawing::from(&after);
+                    }
+                    self.undo_stack.push_back(op);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Push an operation onto the undo stack, clearing the redo stack
+    fn push_undo(&mut self, op: DrawingOp) {
+        self.undo_stack.push_back(op);
+        self.redo_stack.clear();
+        self.trim_undo_stack();
+    }
+
+    /// Trim the undo stack to MAX_UNDO_STACK (O(1) per pop from front)
+    fn trim_undo_stack(&mut self) {
+        while self.undo_stack.len() > MAX_UNDO_STACK {
+            self.undo_stack.pop_front();
+        }
+    }
+
+    /// Check if undo is available
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Check if redo is available
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    // ── Clone placement ────────────────────────────────────────────────
+
+    /// Start clone placement mode: the drawing follows the cursor until
+    /// the user clicks to confirm.
+    pub fn start_clone_placement(&mut self, drawing: Drawing) {
+        let original_points = drawing.points.clone();
+        let n = original_points.len().max(1) as i64;
+        let center_time = original_points.iter().map(|p| p.time as i64).sum::<i64>() / n;
+        let center_price = original_points.iter().map(|p| p.price.units).sum::<i64>() / n;
+
+        self.clone_placement = Some(ClonePlacement {
+            drawing,
+            original_points,
+            center_time,
+            center_price,
+        });
+    }
+
+    /// Update the clone position so it follows the cursor.
+    pub fn update_clone_position(&mut self, cursor: DrawingPoint) {
+        if let Some(ref mut placement) = self.clone_placement {
+            let dt = cursor.time as i64 - placement.center_time;
+            let dp = cursor.price.units - placement.center_price;
+            for (i, point) in placement.drawing.points.iter_mut().enumerate() {
+                point.time = (placement.original_points[i].time as i64 + dt).max(0) as u64;
+                point.price = exchange::util::Price::from_units(
+                    placement.original_points[i].price.units + dp,
+                );
+            }
+        }
+    }
+
+    /// Confirm clone placement, adding the drawing to the chart.
+    /// Returns the new drawing's ID.
+    pub fn confirm_clone_placement(&mut self) -> Option<DrawingId> {
+        if let Some(placement) = self.clone_placement.take() {
+            let id = placement.drawing.id;
+            self.push_undo(DrawingOp::Add(placement.drawing.to_serializable()));
+            self.drawings.push(placement.drawing);
+            Some(id)
+        } else {
+            None
+        }
+    }
+
+    /// Cancel clone placement without adding the drawing.
+    pub fn cancel_clone_placement(&mut self) {
+        self.clone_placement = None;
+    }
+
+    /// Check if a clone is being placed.
+    pub fn has_clone_pending(&self) -> bool {
+        self.clone_placement.is_some()
+    }
+
+    /// Get the clone being placed (for rendering).
+    pub fn clone_preview(&self) -> Option<&Drawing> {
+        self.clone_placement.as_ref().map(|p| &p.drawing)
     }
 }

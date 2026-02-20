@@ -7,7 +7,7 @@ use iced::{Border, Color, Shadow, Theme, widget};
 
 use super::tokens;
 
-// ── Pane Grid ───────────────────────────────────────────────────────
+// ── Pane Grid ─────────────────────────────────────────────────────────
 
 pub fn pane_grid(theme: &Theme) -> widget::pane_grid::Style {
     let palette = theme.extended_palette();
@@ -37,20 +37,18 @@ pub fn pane_grid(theme: &Theme) -> widget::pane_grid::Style {
     }
 }
 
-// ── Scrollable ──────────────────────────────────────────────────────
+// ── Scrollable ────────────────────────────────────────────────────────
 
-pub fn scroll_bar(
-    theme: &Theme,
-    status: widget::scrollable::Status,
-) -> widget::scrollable::Style {
+pub fn scroll_bar(theme: &Theme, status: widget::scrollable::Status) -> widget::scrollable::Style {
     let palette = theme.extended_palette();
 
     let (rail_bg, scroller_bg) = match status {
-        widget::scrollable::Status::Hovered { .. }
-        | widget::scrollable::Status::Dragged { .. } => (
-            palette.background.weakest.color,
-            palette.background.weak.color,
-        ),
+        widget::scrollable::Status::Hovered { .. } | widget::scrollable::Status::Dragged { .. } => {
+            (
+                palette.background.weakest.color,
+                palette.background.weak.color,
+            )
+        }
         _ => (
             palette.background.base.color,
             palette.background.weakest.color,
@@ -99,7 +97,7 @@ pub fn scroll_bar(
     }
 }
 
-// ── Text Input ──────────────────────────────────────────────────────
+// ── Text Input ────────────────────────────────────────────────────────
 
 pub fn validated_text_input(
     theme: &Theme,
@@ -119,8 +117,7 @@ pub fn validated_text_input(
             palette.background.strong.color,
             palette.background.weak.text,
         ),
-        widget::text_input::Status::Focused { .. }
-        | widget::text_input::Status::Disabled => (
+        widget::text_input::Status::Focused { .. } | widget::text_input::Status::Disabled => (
             palette.background.base.color,
             palette.background.strong.color,
             palette.background.strong.color,
@@ -145,7 +142,7 @@ pub fn validated_text_input(
     }
 }
 
-// ── Progress Bar ────────────────────────────────────────────────────
+// ── Progress Bar ──────────────────────────────────────────────────────
 
 pub fn progress_bar(theme: &Theme) -> widget::progress_bar::Style {
     let palette = theme.extended_palette();
@@ -161,7 +158,7 @@ pub fn progress_bar(theme: &Theme) -> widget::progress_bar::Style {
     }
 }
 
-// ── Rule ────────────────────────────────────────────────────────────
+// ── Rule ──────────────────────────────────────────────────────────────
 
 pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
     let palette = theme.extended_palette();

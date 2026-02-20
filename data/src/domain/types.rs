@@ -51,11 +51,6 @@ impl Price {
         self.units
     }
 
-    /// Alias for units() - for compatibility
-    pub fn to_units(self) -> i64 {
-        self.units
-    }
-
     /// Round to tick size
     pub fn round_to_tick(self, tick_size: Price) -> Self {
         if tick_size.units == 0 {

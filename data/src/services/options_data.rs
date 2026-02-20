@@ -1,5 +1,5 @@
-use crate::domain::{DateRange, GexProfile, OptionChain, OptionContract, OptionSnapshot};
 use crate::domain::LoadingStatus;
+use crate::domain::{DateRange, GexProfile, OptionChain, OptionContract, OptionSnapshot};
 use crate::repository::{
     OptionChainRepository, OptionContractRepository, OptionSnapshotRepository, RepositoryError,
     RepositoryResult,
@@ -48,13 +48,16 @@ impl OptionsDataService {
         underlying_ticker: &str,
         date: NaiveDate,
     ) -> RepositoryResult<OptionChain> {
-        let key = format!("chain_{}_{}",underlying_ticker, date);
-        self.set_loading_status(&key, LoadingStatus::LoadingFromCache {
-            schema: crate::domain::DataSchema::Options,
-            days_total: 1,
-            days_loaded: 0,
-            items_loaded: 0,
-        })
+        let key = format!("chain_{}_{}", underlying_ticker, date);
+        self.set_loading_status(
+            &key,
+            LoadingStatus::LoadingFromCache {
+                schema: crate::domain::DataSchema::Options,
+                days_total: 1,
+                days_loaded: 0,
+                items_loaded: 0,
+            },
+        )
         .await;
 
         // Fetch chain from repository
@@ -92,18 +95,17 @@ impl OptionsDataService {
         underlying_ticker: &str,
         date_range: &DateRange,
     ) -> RepositoryResult<Vec<OptionChain>> {
-        let key = format!(
-            "chains_{}_{:?}",
-            underlying_ticker,
-            date_range
-        );
+        let key = format!("chains_{}_{:?}", underlying_ticker, date_range);
 
-        self.set_loading_status(&key, LoadingStatus::Downloading {
-            schema: crate::domain::DataSchema::Options,
-            days_total: date_range.num_days() as usize,
-            days_complete: 0,
-            current_day: String::new(),
-        })
+        self.set_loading_status(
+            &key,
+            LoadingStatus::Downloading {
+                schema: crate::domain::DataSchema::Options,
+                days_total: date_range.num_days() as usize,
+                days_complete: 0,
+                current_day: String::new(),
+            },
+        )
         .await;
 
         let result = self
@@ -194,7 +196,13 @@ impl OptionsDataService {
         include_expired: bool,
     ) -> RepositoryResult<Vec<OptionContract>> {
         self.contract_repo
-            .search_contracts(underlying_ticker, expiration, min_strike, max_strike, include_expired)
+            .search_contracts(
+                underlying_ticker,
+                expiration,
+                min_strike,
+                max_strike,
+                include_expired,
+            )
             .await
     }
 
@@ -343,15 +351,12 @@ impl OptionsDataService {
         status.clone()
     }
 
-    /// Clear old loading statuses
-    pub async fn clear_old_statuses(&self, _older_than: std::time::Duration) {
+    /// Clear completed and errored loading statuses
+    ///
+    /// Removes Ready and Error statuses, keeping only active operations.
+    pub async fn clear_old_statuses(&self) {
         let mut status = self.loading_status.lock().await;
-        let _now = std::time::Instant::now();
-
-        // Remove completed statuses older than threshold
-        status.retain(|_, s| {
-            !matches!(s, LoadingStatus::Ready | LoadingStatus::Error { .. })
-        });
+        status.retain(|_, s| !matches!(s, LoadingStatus::Ready | LoadingStatus::Error { .. }));
     }
 
     /// Get cache statistics from repositories
@@ -410,7 +415,10 @@ mod tests {
                 OptionType::Call,
                 ExerciseStyle::American,
             );
-            Ok(OptionSnapshot::new(contract, Timestamp(Utc::now().timestamp_millis() as u64)))
+            Ok(OptionSnapshot::new(
+                contract,
+                Timestamp(Utc::now().timestamp_millis() as u64),
+            ))
         }
 
         async fn get_snapshots_for_contracts(
@@ -551,10 +559,7 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn get_contract(
-            &self,
-            _contract_ticker: &str,
-        ) -> RepositoryResult<OptionContract> {
+        async fn get_contract(&self, _contract_ticker: &str) -> RepositoryResult<OptionContract> {
             let contract = OptionContract::new(
                 "O:TEST".to_string(),
                 "TEST".to_string(),
@@ -608,8 +613,7 @@ mod tests {
         let chain_repo = Arc::new(MockChainRepository);
         let contract_repo = Arc::new(MockContractRepository);
 
-        let service =
-            OptionsDataService::new(snapshot_repo, chain_repo, contract_repo);
+        let service = OptionsDataService::new(snapshot_repo, chain_repo, contract_repo);
 
         // Test get_snapshot
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();

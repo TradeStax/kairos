@@ -1,12 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod audio;
 mod chart;
-mod component;
+mod components;
+mod error;
 mod layout;
 mod logger;
-mod modal;
+mod modals;
 mod screen;
 mod style;
 mod window;
@@ -21,8 +21,8 @@ fn main() {
         .settings(iced::Settings {
             antialiasing: true,
             fonts: vec![
-                Cow::Borrowed(component::primitives::AZERET_MONO_BYTES),
-                Cow::Borrowed(component::primitives::ICONS_BYTES),
+                Cow::Borrowed(components::primitives::AZERET_MONO_BYTES),
+                Cow::Borrowed(components::primitives::ICONS_BYTES),
             ],
             default_text_size: iced::Pixels(12.0),
             ..Default::default()

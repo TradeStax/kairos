@@ -100,7 +100,7 @@ pub fn get_continuous_ticker_info() -> HashMap<FuturesTicker, Option<FuturesTick
         result.insert(ticker, Some(ticker_info));
     }
 
-    log::info!("Loaded {} continuous futures ticker info", result.len());
+    log::debug!("Loaded {} continuous futures ticker info", result.len());
     result
 }
 
@@ -115,14 +115,14 @@ pub async fn fetch_historical_prices(
     // Use data from 2 days ago to be safe (definitely available)
     let target_date = as_of_date.unwrap_or_else(|| {
         let two_days_ago = chrono::Utc::now().date_naive() - chrono::Duration::days(2);
-        log::info!(
+        log::debug!(
             "Fetching data from {} (2 days ago - guaranteed available)",
             two_days_ago
         );
         two_days_ago
     });
 
-    log::info!(
+    log::debug!(
         "Fetching historical prices for {} from databento (ONE batch query)",
         target_date
     );
@@ -145,7 +145,7 @@ pub async fn fetch_historical_prices(
         .map_err(|e| DatabentoError::Config(format!("Invalid timestamp: {}", e)))?;
     let time_date = offset_dt.date();
 
-    log::info!(
+    log::debug!(
         "Querying databento for ALL {} symbols in one request for {}",
         symbols.len(),
         time_date
@@ -194,7 +194,7 @@ pub async fn fetch_historical_prices(
         all_stats.insert(ticker, stats);
 
         log::debug!(
-            "✓ {}: close={:.2}, change={:+.2}%, volume={:.0}",
+            "{}: close={:.2}, change={:+.2}%, volume={:.0}",
             symbol,
             close_price,
             daily_change_pct,

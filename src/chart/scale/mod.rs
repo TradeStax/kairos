@@ -2,11 +2,11 @@ pub mod linear;
 pub mod timeseries;
 
 use crate::chart::TEXT_SIZE;
-use crate::component::primitives::AZERET_MONO;
+use crate::components::primitives::AZERET_MONO;
 
 use super::{Interaction, Message};
 use data::ChartBasis;
-use data::{chart::Autoscale, util::round_to_tick};
+use data::{Autoscale, util::round_to_tick};
 use iced::{
     Alignment, Color, Event, Point, Rectangle, Renderer, Size, Theme, mouse,
     theme::palette::Extended,
@@ -298,7 +298,7 @@ impl AxisLabelsX<'_> {
                 let crosshair_millis =
                     x_min as f64 + f64::from(crosshair_ratio) * (x_max as f64 - x_min as f64);
 
-                let interval = timeframe.to_millis();
+                let interval = timeframe.to_milliseconds();
 
                 let crosshair_time =
                     chrono::DateTime::from_timestamp_millis(crosshair_millis as i64)?;
@@ -346,7 +346,7 @@ impl AxisLabelsX<'_> {
     fn x_to_interval(&self, x: f32) -> u64 {
         match self.basis {
             ChartBasis::Time(timeframe) => {
-                let interval = timeframe.to_millis() as f64;
+                let interval = timeframe.to_milliseconds() as f64;
 
                 if x <= 0.0 {
                     let diff = (f64::from(-x / self.cell_width) * interval) as u64;
@@ -660,7 +660,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             if let Some(label) = self.last_price {
                 let candle_close_label = match self.basis {
                     ChartBasis::Time(timeframe) => {
-                        let interval = timeframe.to_millis();
+                        let interval = timeframe.to_milliseconds();
 
                         let current_time = chrono::Utc::now().timestamp_millis() as u64;
                         let next_kline_open = (current_time / interval + 1) * interval;

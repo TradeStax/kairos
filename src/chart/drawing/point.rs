@@ -29,12 +29,7 @@ impl DrawingPoint {
     }
 
     /// Create a drawing point from screen coordinates
-    pub fn from_screen(
-        cursor: Point,
-        state: &ViewState,
-        bounds: Size,
-        snap: bool,
-    ) -> Self {
+    pub fn from_screen(cursor: Point, state: &ViewState, bounds: Size, snap: bool) -> Self {
         let region = state.visible_region(bounds);
 
         // Convert screen X to chart X coordinate

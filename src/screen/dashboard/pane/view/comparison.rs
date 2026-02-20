@@ -1,5 +1,5 @@
 use crate::{
-    modal::{self, ModifierKind},
+    modals::{self, ModifierKind},
     screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
@@ -11,8 +11,8 @@ use iced::{
 };
 use rustc_hash::FxHashMap;
 
-use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
+use super::helpers::basis_modifier;
 
 impl State {
     /// Build the Comparison chart content view.
@@ -23,7 +23,7 @@ impl State {
         &'a self,
         id: iced::widget::pane_grid::Pane,
         chart: &'a Option<crate::chart::comparison::ComparisonChart>,
-        modifier: Option<modal::stream::Modifier>,
+        modifier: Option<modals::stream::Modifier>,
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
@@ -49,7 +49,7 @@ impl State {
                 Message::PaneEvent(id, Event::ComparisonChartInteraction(message))
             });
 
-            let settings_modal = || modal::pane::settings::comparison_cfg_view(id, c);
+            let settings_modal = || modals::pane::settings::comparison_cfg_view(id, c);
             let selected_tickers = c.selected_tickers();
             // Use Box::leak to create a static reference for the title bar
             let selected_tickers_static: &'static [_] =

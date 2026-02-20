@@ -11,8 +11,7 @@
 //! AppState (persisted to saved-state.json)
 //!   ├─ UI preferences (theme, timezone, scale)
 //!   ├─ Window configuration
-//!   ├─ Layout management
-//!   └─ Audio settings
+//!   └─ Layout management
 //!
 //! ChartState (in-memory only, NOT persisted)
 //!   ├─ Chart configuration
@@ -29,25 +28,22 @@
 //! - App state: Small, persisted (theme, layout, preferences)
 //! - Chart data: Large, NOT persisted (derives from cache)
 
-pub mod app_state;
-pub mod chart_state;
-pub mod downloaded_tickers;
-pub mod layout_manager;
-pub mod layout_types;
+pub mod app;
+pub mod chart;
+pub mod layout;
 pub mod migrations;
 pub mod pane;
-pub mod pane_config;
 pub mod persistence;
-pub mod replay_state;
+pub mod registry;
+pub mod replay;
 
-pub use app_state::{AppState, WindowSpec};
-pub use chart_state::ChartState;
-pub use downloaded_tickers::DownloadedTickersRegistry;
-pub use layout_manager::{Layout, LayoutManager, Layouts};
-pub use layout_types::{Axis, Dashboard, Pane};
-pub use pane_config::{
+pub use app::{AppState, WindowSpec};
+pub use chart::ChartState;
+pub use layout::{Axis, Dashboard, Layout, LayoutManager, Layouts, Pane};
+pub use pane::{
     ComparisonConfig, ContentKind, HeatmapConfig, KlineConfig, LadderConfig, LinkGroup, Settings,
     TimeAndSalesConfig, VisualConfig,
 };
 pub use persistence::{StateVersion, load_state, save_state};
-pub use replay_state::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};
+pub use registry::DownloadedTickersRegistry;
+pub use replay::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};

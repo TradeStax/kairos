@@ -13,18 +13,18 @@ use std::collections::BTreeMap;
 /// trade aggressor side. This enum is specifically for orderbook-level
 /// operations where rounding direction matters (bids floor, asks ceil).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
+pub enum DepthSide {
     Bid,
     Ask,
 }
 
-impl Side {
+impl DepthSide {
     pub fn is_bid(self) -> bool {
-        matches!(self, Side::Bid)
+        matches!(self, DepthSide::Bid)
     }
 
     pub fn is_ask(self) -> bool {
-        matches!(self, Side::Ask)
+        matches!(self, DepthSide::Ask)
     }
 }
 
@@ -44,7 +44,7 @@ impl Side {
 /// # Example
 /// ```ignore
 /// use std::collections::BTreeMap;
-/// use flowsurface_data::domain::panel::depth_grouping::{group_depth_by_tick, Side};
+/// use flowsurface_data::domain::panel::depth_grouping::{group_depth_by_tick, DepthSide};
 ///
 /// let mut levels = BTreeMap::new();
 /// levels.insert(100_000_000_i64, 10.0_f32);  // 1.00 @ 10
@@ -52,7 +52,7 @@ impl Side {
 /// levels.insert(101_000_000_i64, 8.0_f32);   // 1.01 @ 8
 ///
 /// // Group to 0.01 tick (1_000_000 units at PRICE_SCALE=8)
-/// let grouped = group_depth_by_tick(&levels, Side::Bid, 1_000_000);
+/// let grouped = group_depth_by_tick(&levels, DepthSide::Bid, 1_000_000);
 ///
 /// assert_eq!(grouped.len(), 2);
 /// assert_eq!(grouped.get(&100_000_000), Some(&15.0));  // 10 + 5 grouped
@@ -60,7 +60,7 @@ impl Side {
 /// ```
 pub fn group_depth_by_tick(
     levels: &BTreeMap<i64, f32>,
-    side: Side,
+    side: DepthSide,
     tick_step_units: i64,
 ) -> BTreeMap<i64, f32> {
     let mut grouped = BTreeMap::new();
@@ -79,14 +79,14 @@ pub fn group_depth_by_tick(
 /// Asks: ceil (round up toward higher prices)
 ///
 /// This ensures bids and asks don't overlap at bin edges.
-fn round_to_side_step(price_units: i64, side: Side, step_units: i64) -> i64 {
+fn round_to_side_step(price_units: i64, side: DepthSide, step_units: i64) -> i64 {
     if step_units <= 1 {
         return price_units;
     }
 
     match side {
-        Side::Bid => floor_to_step(price_units, step_units),
-        Side::Ask => ceil_to_step(price_units, step_units),
+        DepthSide::Bid => floor_to_step(price_units, step_units),
+        DepthSide::Ask => ceil_to_step(price_units, step_units),
     }
 }
 
@@ -132,7 +132,7 @@ mod tests {
         levels.insert(105, 5.0);
         levels.insert(110, 8.0);
 
-        let grouped = group_depth_by_tick(&levels, Side::Bid, 10);
+        let grouped = group_depth_by_tick(&levels, DepthSide::Bid, 10);
 
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped.get(&100), Some(&15.0)); // 100 + 105 -> 100
@@ -146,7 +146,7 @@ mod tests {
         levels.insert(105, 5.0);
         levels.insert(110, 8.0);
 
-        let grouped = group_depth_by_tick(&levels, Side::Ask, 10);
+        let grouped = group_depth_by_tick(&levels, DepthSide::Ask, 10);
 
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped.get(&100), Some(&10.0));
@@ -159,7 +159,7 @@ mod tests {
         levels.insert(100, 10.0);
         levels.insert(101, 5.0);
 
-        let grouped = group_depth_by_tick(&levels, Side::Bid, 1);
+        let grouped = group_depth_by_tick(&levels, DepthSide::Bid, 1);
 
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped.get(&100), Some(&10.0));
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_empty_levels() {
         let levels = BTreeMap::new();
-        let grouped = group_depth_by_tick(&levels, Side::Bid, 10);
+        let grouped = group_depth_by_tick(&levels, DepthSide::Bid, 10);
         assert!(grouped.is_empty());
     }
 
@@ -182,8 +182,8 @@ mod tests {
         let mut ask_levels = BTreeMap::new();
         ask_levels.insert(105, 10.0);
 
-        let bid_grouped = group_depth_by_tick(&bid_levels, Side::Bid, 10);
-        let ask_grouped = group_depth_by_tick(&ask_levels, Side::Ask, 10);
+        let bid_grouped = group_depth_by_tick(&bid_levels, DepthSide::Bid, 10);
+        let ask_grouped = group_depth_by_tick(&ask_levels, DepthSide::Ask, 10);
 
         // Bid rounds to 100, Ask rounds to 110 - no overlap
         assert_eq!(bid_grouped.get(&100), Some(&10.0));

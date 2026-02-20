@@ -1,5 +1,5 @@
 use data::Candle;
-use data::state::pane_config::CandleStyle;
+use data::state::pane::CandleStyle;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Path, Stroke};
@@ -66,18 +66,10 @@ struct ResolvedColors {
 impl ResolvedColors {
     fn resolve(style: &CandleStyle, palette: &Extended) -> Self {
         Self {
-            bull_body: style
-                .bull_body_color
-                .unwrap_or(palette.success.base.color),
-            bear_body: style
-                .bear_body_color
-                .unwrap_or(palette.danger.base.color),
-            bull_wick: style
-                .bull_wick_color
-                .unwrap_or(palette.success.base.color),
-            bear_wick: style
-                .bear_wick_color
-                .unwrap_or(palette.danger.base.color),
+            bull_body: style.bull_body_color.unwrap_or(palette.success.base.color),
+            bear_body: style.bear_body_color.unwrap_or(palette.danger.base.color),
+            bull_wick: style.bull_wick_color.unwrap_or(palette.success.base.color),
+            bear_wick: style.bear_wick_color.unwrap_or(palette.danger.base.color),
             bull_border: style.bull_border_color,
             bear_border: style.bear_border_color,
         }
@@ -133,10 +125,7 @@ pub fn draw_candle(
             border,
         );
         frame.stroke(
-            &Path::rectangle(
-                Point::new(body_x, body_y),
-                Size::new(candle_width, body_h),
-            ),
+            &Path::rectangle(Point::new(body_x, body_y), Size::new(candle_width, body_h)),
             border_stroke,
         );
     }

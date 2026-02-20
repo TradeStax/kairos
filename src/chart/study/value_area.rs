@@ -36,12 +36,16 @@ pub fn calculate_value_area(footprint: &Footprint, percentage: f32) -> Option<Va
 
     while accumulated < target_volume && (lower > 0 || upper < prices.len() - 1) {
         let up_vol = if upper + 1 < prices.len() {
-            footprint.get(prices[upper + 1]).map_or(0.0, |tg| tg.total_qty())
+            footprint
+                .get(prices[upper + 1])
+                .map_or(0.0, |tg| tg.total_qty())
         } else {
             0.0
         };
         let down_vol = if lower > 0 {
-            footprint.get(prices[lower - 1]).map_or(0.0, |tg| tg.total_qty())
+            footprint
+                .get(prices[lower - 1])
+                .map_or(0.0, |tg| tg.total_qty())
         } else {
             0.0
         };

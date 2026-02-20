@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use iced::Task;
 
-use data::layout::WindowSpec;
 use crate::layout::{LayoutId, configuration};
 use crate::screen::dashboard::Dashboard;
 use crate::window;
+use data::state::WindowSpec;
 
 use super::{Flowsurface, Message};
 
@@ -32,7 +32,11 @@ impl Flowsurface {
             .expect("No active dashboard")
     }
 
-    pub fn load_layout(&mut self, layout_uid: uuid::Uuid, main_window: window::Id) -> Task<Message> {
+    pub fn load_layout(
+        &mut self,
+        layout_uid: uuid::Uuid,
+        main_window: window::Id,
+    ) -> Task<Message> {
         match self.layout_manager.set_active_layout(layout_uid) {
             Ok(layout) => {
                 layout
@@ -65,22 +69,19 @@ impl Flowsurface {
             .find(|(id, _)| **id == self.main_window.id)
             .map(|(_, spec)| spec.clone());
 
-        // Convert audio stream config to app_state format (simplified)
-        let audio_cfg_full = data::AudioStream::from(&self.audio_stream);
-        let audio_cfg_simplified = data::state::app_state::AudioStream {
-            volume: audio_cfg_full.volume,
-            enabled: !audio_cfg_full.streams.is_empty(),
-        };
-
         // Clone the layout manager data for serialization
-        let active_layout_name = self.layout_manager.active_layout_id()
+        let active_layout_name = self
+            .layout_manager
+            .active_layout_id()
             .map(|id| id.name.clone());
 
-        let layouts_for_save: Vec<data::state::app_state::Layout> = self.layout_manager.layouts
+        let layouts_for_save: Vec<data::state::app::Layout> = self
+            .layout_manager
+            .layouts
             .iter()
             .filter_map(|layout| {
                 self.layout_manager.get(layout.id.unique).map(|_l| {
-                    data::state::app_state::Layout {
+                    data::state::app::Layout {
                         name: Some(layout.id.name.clone()),
                         // Intentionally empty: pane layout is managed by the
                         // dashboard's PaneGrid state and restored separately.
@@ -90,7 +91,7 @@ impl Flowsurface {
             })
             .collect();
 
-        let layout_manager_clone = data::state::app_state::LayoutManager {
+        let layout_manager_clone = data::state::app::LayoutManager {
             layouts: layouts_for_save,
             active_layout: active_layout_name,
         };
@@ -103,7 +104,6 @@ impl Flowsurface {
             self.timezone,
             self.sidebar.state.clone(),
             self.ui_scale_factor,
-            audio_cfg_simplified,
             self.downloaded_tickers.lock().unwrap().clone(),
             self.data_feed_manager
                 .lock()
@@ -200,16 +200,12 @@ impl Flowsurface {
             .as_ref()
             .map(|layout| layout.unique);
 
-        window::collect_window_specs(
-            active_popout_keys,
-            dashboard::Message::SavePopoutSpecs,
-        )
-        .map(move |msg| Message::Dashboard {
-            layout_id: old_layout_id,
-            event: msg,
-        })
-        .chain(window_tasks)
-        .chain(self.load_layout(layout, self.main_window.id))
+        window::collect_window_specs(active_popout_keys, dashboard::Message::SavePopoutSpecs)
+            .map(move |msg| Message::Dashboard {
+                layout_id: old_layout_id,
+                event: msg,
+            })
+            .chain(window_tasks)
+            .chain(self.load_layout(layout, self.main_window.id))
     }
-
 }

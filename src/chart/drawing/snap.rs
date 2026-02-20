@@ -1,0 +1,138 @@
+//! Drawing snap constraints
+//!
+//! Provides constraint functions for Shift-key drawing operations:
+//! - Angle snapping to 45 degree increments for line-based tools
+//! - Square constraint for rectangles
+//! - Circle constraint for ellipses
+//! - Axis locking for whole-drawing moves
+
+use super::point::DrawingPoint;
+use crate::chart::ViewState;
+use data::DrawingTool;
+use iced::{Point, Size};
+
+/// Snap angle to nearest 45 degree increment relative to anchor point.
+pub fn constrain_angle(anchor: Point, cursor: Point) -> Point {
+    let dx = cursor.x - anchor.x;
+    let dy = cursor.y - anchor.y;
+    let distance = (dx * dx + dy * dy).sqrt();
+
+    if distance < 0.001 {
+        return cursor;
+    }
+
+    let angle = dy.atan2(dx);
+    let snap_angle = (angle / std::f32::consts::FRAC_PI_4).round() * std::f32::consts::FRAC_PI_4;
+
+    Point::new(
+        anchor.x + distance * snap_angle.cos(),
+        anchor.y + distance * snap_angle.sin(),
+    )
+}
+
+/// Constrain to equal width/height (square) relative to anchor corner.
+pub fn constrain_square(anchor: Point, cursor: Point) -> Point {
+    let dx = cursor.x - anchor.x;
+    let dy = cursor.y - anchor.y;
+    let max_dim = dx.abs().max(dy.abs());
+
+    Point::new(
+        anchor.x + max_dim * dx.signum(),
+        anchor.y + max_dim * dy.signum(),
+    )
+}
+
+/// Constrain to equal radii (circle) relative to center point.
+pub fn constrain_circle(center: Point, cursor: Point) -> Point {
+    constrain_square(center, cursor)
+}
+
+/// Lock movement to horizontal or vertical axis based on dominant direction.
+pub fn constrain_axis(start: Point, cursor: Point) -> Point {
+    let dx = (cursor.x - start.x).abs();
+    let dy = (cursor.y - start.y).abs();
+
+    if dx >= dy {
+        Point::new(cursor.x, start.y)
+    } else {
+        Point::new(start.x, cursor.y)
+    }
+}
+
+/// Apply constraint for drawing creation based on tool type.
+/// `anchor` is the first confirmed point in screen coordinates.
+pub fn constrain_creation(tool: DrawingTool, anchor: Point, cursor: Point) -> Point {
+    match tool {
+        DrawingTool::Line
+        | DrawingTool::Ray
+        | DrawingTool::ExtendedLine
+        | DrawingTool::Arrow
+        | DrawingTool::FibRetracement => constrain_angle(anchor, cursor),
+
+        DrawingTool::Rectangle | DrawingTool::PriceRange | DrawingTool::DateRange => {
+            constrain_square(anchor, cursor)
+        }
+
+        DrawingTool::Ellipse => constrain_circle(anchor, cursor),
+
+        _ => cursor,
+    }
+}
+
+/// Apply constraint for handle drag based on tool type and handle index.
+/// Returns the constrained cursor position in screen coordinates.
+pub fn constrain_handle(
+    tool: DrawingTool,
+    points: &[DrawingPoint],
+    handle_index: usize,
+    state: &ViewState,
+    bounds: Size,
+    cursor: Point,
+) -> Point {
+    let anchor_index = match tool {
+        DrawingTool::Line
+        | DrawingTool::Ray
+        | DrawingTool::ExtendedLine
+        | DrawingTool::Arrow
+        | DrawingTool::FibRetracement
+        | DrawingTool::Rectangle
+        | DrawingTool::PriceRange
+        | DrawingTool::DateRange => {
+            if handle_index == 0 {
+                1
+            } else {
+                0
+            }
+        }
+        DrawingTool::Ellipse => {
+            if handle_index == 0 {
+                // Dragging center point: no angle/shape constraint
+                return cursor;
+            }
+            0
+        }
+        _ => return cursor,
+    };
+
+    if anchor_index >= points.len() {
+        return cursor;
+    }
+
+    let anchor = points[anchor_index].to_screen(state, bounds);
+
+    match tool {
+        DrawingTool::Line
+        | DrawingTool::Ray
+        | DrawingTool::ExtendedLine
+        | DrawingTool::Arrow
+        | DrawingTool::FibRetracement => constrain_angle(anchor, cursor),
+
+        DrawingTool::Rectangle | DrawingTool::PriceRange | DrawingTool::DateRange => {
+            constrain_square(anchor, cursor)
+        }
+
+        DrawingTool::Ellipse => constrain_circle(anchor, cursor),
+
+        _ => cursor,
+    }
+}

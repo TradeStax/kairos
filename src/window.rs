@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use data::layout::WindowSpec;
+use data::state::WindowSpec;
 use iced::{Point, Size, Subscription, Task, window};
 
 pub use iced::window::{Id, Position, Settings, close, open};
@@ -10,11 +10,16 @@ use iced_futures::MaybeSend;
 pub struct Window {
     pub id: Id,
     pub position: Option<Point>,
+    pub is_maximized: bool,
 }
 
 impl Window {
     pub fn new(id: Id) -> Self {
-        Self { id, position: None }
+        Self {
+            id,
+            position: None,
+            is_maximized: false,
+        }
     }
 }
 
@@ -103,6 +108,7 @@ where
 #[cfg(target_os = "linux")]
 pub fn settings() -> Settings {
     Settings {
+        decorations: false,
         min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
@@ -126,6 +132,7 @@ pub fn settings() -> Settings {
 #[cfg(target_os = "windows")]
 pub fn settings() -> Settings {
     Settings {
+        decorations: false,
         min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }

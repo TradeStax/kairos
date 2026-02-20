@@ -4,8 +4,8 @@
 
 use super::ViewState;
 use crate::chart::Message;
-use data::Indicator;
-use iced::{Element, Vector, widget::canvas};
+use data::{DrawingId, Indicator};
+use iced::{Element, Point, Size, Vector, widget::canvas};
 
 /// Core trait for all chart types
 ///
@@ -48,6 +48,40 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
     /// a `DrawingManager` should override this to return the active tool.
     fn active_drawing_tool(&self) -> data::DrawingTool {
         data::DrawingTool::None
+    }
+
+    /// Check if there is a pending (in-progress) drawing
+    fn has_pending_drawing(&self) -> bool {
+        false
+    }
+
+    /// Hit test all drawings at a screen point, returning the topmost hit
+    fn hit_test_drawing(&self, _screen_point: Point, _bounds: Size) -> Option<DrawingId> {
+        None
+    }
+
+    /// Hit test selection handles on already-selected drawings
+    fn hit_test_drawing_handle(
+        &self,
+        _screen_point: Point,
+        _bounds: Size,
+    ) -> Option<(DrawingId, usize)> {
+        None
+    }
+
+    /// Check if any drawing is currently selected
+    fn has_drawing_selection(&self) -> bool {
+        false
+    }
+
+    /// Check if a specific drawing is currently selected
+    fn is_drawing_selected(&self, _id: DrawingId) -> bool {
+        false
+    }
+
+    /// Check if a clone placement is in progress
+    fn has_clone_pending(&self) -> bool {
+        false
     }
 }
 

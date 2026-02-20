@@ -1,4 +1,4 @@
-use super::{pane, Dashboard, Message};
+use super::{Dashboard, Message, pane};
 use crate::{
     style::{self, tokens},
     window::{self, Window},
@@ -7,9 +7,7 @@ use data::UserTimezone;
 use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element, Length, Task,
-    widget::{
-        PaneGrid, center, container,
-    },
+    widget::{PaneGrid, center, container},
 };
 use rustc_hash::FxHashMap;
 
@@ -128,5 +126,4 @@ impl Dashboard {
         }
         false
     }
-
 }

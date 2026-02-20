@@ -1,7 +1,5 @@
 use crate::{
-    component,
-    component::primitives::label::*,
-    screen::dashboard::pane::view::CompactControls,
+    components, components::primitives::label::*, screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
 use data::ContentKind;
@@ -27,7 +25,7 @@ impl State {
                 Message::PaneEvent(id, Event::ContentSelected(kind))
             });
 
-        let base: Element<_> = component::display::toast::Manager::new(
+        let base: Element<_> = components::display::toast::Manager::new(
             center(
                 column![heading("Choose a view to get started"), content_picklist]
                     .align_x(Alignment::Center)

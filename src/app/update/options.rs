@@ -1,4 +1,4 @@
-use crate::component::display::toast::{Notification, Toast};
+use crate::components::display::toast::{Notification, Toast};
 
 use super::super::Flowsurface;
 

@@ -4,12 +4,12 @@
 //! Refactored for futures historical/replay mode with clean domain types.
 
 use super::Message;
-use crate::component::primitives::AZERET_MONO;
+use crate::components::primitives::AZERET_MONO;
 use crate::style::{self, tokens};
-use data::panel::ladder::Config;
+use data::config::panel::ladder::Config;
 use data::{DepthSnapshot, Side, Trade};
-use exchange::util::{Price as ExPrice, PriceStep};
 use exchange::TickerInfo;
+use exchange::util::{Price as ExPrice, PriceStep};
 
 use iced::widget::canvas::{self, Path, Stroke, Text};
 use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
@@ -114,8 +114,12 @@ impl Ladder {
         }
 
         // Calculate raw spread
-        let raw_best_bid = ex_bids.last_key_value().map(|(p, _)| ExPrice::from_units(*p));
-        let raw_best_ask = ex_asks.first_key_value().map(|(p, _)| ExPrice::from_units(*p));
+        let raw_best_bid = ex_bids
+            .last_key_value()
+            .map(|(p, _)| ExPrice::from_units(*p));
+        let raw_best_ask = ex_asks
+            .first_key_value()
+            .map(|(p, _)| ExPrice::from_units(*p));
         self.raw_price_spread = match (raw_best_bid, raw_best_ask) {
             (Some(bid), Some(ask)) => Some(ask - bid),
             _ => None,
@@ -126,10 +130,18 @@ impl Ladder {
         // Update chase trackers
         if self.config.show_chase_tracker {
             let max_int = CHASE_MIN_INTERVAL.as_millis() as u64;
-            self.chase_tracker_mut(Side::Bid)
-                .update(raw_best_bid.map(|p| p.units), true, update_t, max_int);
-            self.chase_tracker_mut(Side::Ask)
-                .update(raw_best_ask.map(|p| p.units), false, update_t, max_int);
+            self.chase_tracker_mut(Side::Bid).update(
+                raw_best_bid.map(|p| p.units),
+                true,
+                update_t,
+                max_int,
+            );
+            self.chase_tracker_mut(Side::Ask).update(
+                raw_best_ask.map(|p| p.units),
+                false,
+                update_t,
+                max_int,
+            );
         } else {
             self.chase_tracker_mut(Side::Bid).reset();
             self.chase_tracker_mut(Side::Ask).reset();
@@ -140,8 +152,13 @@ impl Ladder {
         for trade in trades {
             let ex_price = ExPrice::from(trade.price);
             let is_sell = trade.side == data::Side::Sell;
-            self.trades
-                .insert_trade(trade.time.to_millis(), ex_price, trade.quantity.0 as f32, is_sell, step);
+            self.trades.insert_trade(
+                trade.time.to_millis(),
+                ex_price,
+                trade.quantity.0 as f32,
+                is_sell,
+                step,
+            );
         }
 
         // Regroup depth from converted exchange types
@@ -150,10 +167,11 @@ impl Ladder {
 
         self.last_exchange_ts_ms = Some(update_t);
 
-        if self
-            .trades
-            .maybe_cleanup(update_t, self.config.trade_retention.as_millis() as u64, self.tick_size)
-        {
+        if self.trades.maybe_cleanup(
+            update_t,
+            self.config.trade_retention.as_millis() as u64,
+            self.tick_size,
+        ) {
             self.invalidate(Some(Instant::now()));
         }
     }
@@ -343,7 +361,8 @@ impl canvas::Program<Message> for Ladder {
                         DomRow::Spread => {
                             if let Some(spread) = self.raw_price_spread {
                                 let min_ticksize_f32 = self.ticker_info.min_ticksize.to_f32_lossy();
-                                let min_ticksize = exchange::util::MinTicksize::from(min_ticksize_f32);
+                                let min_ticksize =
+                                    exchange::util::MinTicksize::from(min_ticksize_f32);
                                 spread_row = Some((visible_row.y, visible_row.y + ROW_HEIGHT));
 
                                 let spread = spread.round_to_min_tick(min_ticksize);
@@ -888,7 +907,12 @@ impl Ladder {
         (visible, maxima)
     }
 
-    fn price_to_screen_y(&self, price: ExPrice, grid: &PriceGrid, bounds_height: f32) -> Option<f32> {
+    fn price_to_screen_y(
+        &self,
+        price: ExPrice,
+        grid: &PriceGrid,
+        bounds_height: f32,
+    ) -> Option<f32> {
         let mid_screen_y = bounds_height * 0.5;
         let scroll = self.scroll_px;
 
@@ -940,9 +964,7 @@ impl PriceGrid {
     }
 }
 
-// ============================================================================
-// Internal Data Structures (using exchange::util types)
-// ============================================================================
+// ── Internal Data Structures (using exchange::util types) ─────────────
 
 /// Grouped depth for one side of orderbook
 #[derive(Debug, Clone)]
@@ -959,12 +981,7 @@ impl GroupedDepth {
         }
     }
 
-    fn regroup_from_btree(
-        &mut self,
-        raw: &BTreeMap<i64, f32>,
-        side: Side,
-        tick_step: PriceStep,
-    ) {
+    fn regroup_from_btree(&mut self, raw: &BTreeMap<i64, f32>, side: Side, tick_step: PriceStep) {
         self.orders.clear();
 
         for (price_units, qty) in raw.iter() {
@@ -1000,7 +1017,14 @@ impl TradeStore {
         }
     }
 
-    fn insert_trade(&mut self, time: u64, price: ExPrice, qty: f32, is_sell: bool, step: PriceStep) {
+    fn insert_trade(
+        &mut self,
+        time: u64,
+        price: ExPrice,
+        qty: f32,
+        is_sell: bool,
+        step: PriceStep,
+    ) {
         self.trades.push((time, price, qty, is_sell));
 
         let grouped_price = price.round_to_step(step);
@@ -1105,9 +1129,11 @@ impl ChaseTracker {
         max_interval_ms: u64,
     ) {
         if let Some(prev) = self.last_update_ms
-            && max_interval_ms > 0 && now_ms.saturating_sub(prev) > max_interval_ms {
-                self.reset();
-            }
+            && max_interval_ms > 0
+            && now_ms.saturating_sub(prev) > max_interval_ms
+        {
+            self.reset();
+        }
 
         self.last_update_ms = Some(now_ms);
 
@@ -1130,13 +1156,20 @@ impl ChaseTracker {
             let is_unchanged = current == last;
 
             self.state = match (&self.state, is_continue, is_reverse, is_unchanged) {
-                (ChaseState::Chasing { start_units, consecutive, .. }, true, _, _) => {
+                (
                     ChaseState::Chasing {
-                        start_units: *start_units,
-                        end_units: current,
-                        consecutive: consecutive.saturating_add(1),
-                    }
-                }
+                        start_units,
+                        consecutive,
+                        ..
+                    },
+                    true,
+                    _,
+                    _,
+                ) => ChaseState::Chasing {
+                    start_units: *start_units,
+                    end_units: current,
+                    consecutive: consecutive.saturating_add(1),
+                },
                 (ChaseState::Idle, true, _, _) | (ChaseState::Fading { .. }, true, _, _) => {
                     ChaseState::Chasing {
                         start_units: last,

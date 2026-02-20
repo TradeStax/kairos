@@ -1,4 +1,4 @@
-use crate::modal::layout_manager::LayoutManager;
+use crate::modals::layout::LayoutManager;
 use crate::screen::dashboard::{Dashboard, pane};
 use data::{Axis, UserTimezone, WindowSpec};
 
@@ -25,25 +25,32 @@ pub struct SavedState {
     pub sidebar: data::Sidebar,
     pub theme: data::Theme,
     pub custom_theme: Option<data::Theme>,
-    pub audio_cfg: data::AudioStream,
     pub downloaded_tickers: data::DownloadedTickersRegistry,
     pub data_feeds: data::DataFeedManager,
 }
 
 impl SavedState {
     pub fn window(&self) -> (iced::window::Position, iced::Size) {
-        let position = self.main_window.as_ref().and_then(|w| {
-            if let (Some(x), Some(y)) = (w.x, w.y) {
-                Some(iced::window::Position::Specific(iced::Point::new(x as f32, y as f32)))
-            } else {
-                None
-            }
-        }).unwrap_or(iced::window::Position::Centered);
+        let position = self
+            .main_window
+            .as_ref()
+            .and_then(|w| {
+                if let (Some(x), Some(y)) = (w.x, w.y) {
+                    Some(iced::window::Position::Specific(iced::Point::new(
+                        x as f32, y as f32,
+                    )))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(iced::window::Position::Centered);
 
-        let size = self.main_window.as_ref().map_or_else(
-            crate::window::default_size,
-            |w| iced::Size::new(w.width as f32, w.height as f32)
-        );
+        let size = self
+            .main_window
+            .as_ref()
+            .map_or_else(crate::window::default_size, |w| {
+                iced::Size::new(w.width as f32, w.height as f32)
+            });
 
         (position, size)
     }
@@ -54,14 +61,17 @@ impl SavedState {
     ) -> Self {
         let sidebar = data::Sidebar::default();
         SavedState {
-            layout_manager: LayoutManager::new(market_data_service, downloaded_tickers.clone(), sidebar.date_range_preset),
+            layout_manager: LayoutManager::new(
+                market_data_service,
+                downloaded_tickers.clone(),
+                sidebar.date_range_preset,
+            ),
             main_window: None,
             scale_factor: data::ScaleFactor::default(),
             timezone: UserTimezone::default(),
             sidebar,
             theme: data::Theme::default(),
             custom_theme: None,
-            audio_cfg: data::AudioStream::default(),
             downloaded_tickers: (*downloaded_tickers.lock().unwrap()).clone(),
             data_feeds: data::DataFeedManager::default(),
         }
@@ -148,24 +158,15 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                     chart: None,
                     indicators: vec![],
                     layout: data::ViewConfig::default(),
-                    kind: data::KlineChartKind::Candles,
-                },
-                data::ContentKind::FootprintChart => pane::Content::Kline {
-                    chart: None,
-                    indicators: vec![],
-                    layout: data::ViewConfig::default(),
-                    kind: data::KlineChartKind::Footprint {
-                        clusters: data::ClusterKind::default(),
-                        scaling: data::ClusterScaling::default(),
-                        studies: vec![],
-                    },
                 },
                 data::ContentKind::TimeAndSales => pane::Content::TimeAndSales(None),
                 data::ContentKind::Ladder => pane::Content::Ladder(None),
                 data::ContentKind::ComparisonChart => pane::Content::Comparison(None),
             };
 
-            Configuration::Pane(pane::State::from_config(content, settings, link_group, None))
+            Configuration::Pane(pane::State::from_config(
+                content, settings, link_group, None,
+            ))
         }
     }
 }
@@ -173,7 +174,8 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
 pub fn load_saved_state_without_registry(
     market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
 ) -> SavedState {
-    let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
+    let downloaded_tickers =
+        std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
     match data::load_state("app-state.json") {
         Ok(state) => {
             // AppState persists layout metadata (names, IDs) but not the full
@@ -185,16 +187,15 @@ pub fn load_saved_state_without_registry(
             SavedState {
                 theme: state.selected_theme,
                 custom_theme: state.custom_theme,
-                layout_manager: LayoutManager::new(market_data_service.clone(), downloaded_tickers.clone(), state.sidebar.date_range_preset),
+                layout_manager: LayoutManager::new(
+                    market_data_service.clone(),
+                    downloaded_tickers.clone(),
+                    state.sidebar.date_range_preset,
+                ),
                 main_window: state.main_window,
                 timezone: state.timezone,
                 sidebar: state.sidebar,
                 scale_factor: state.scale_factor,
-                // TODO: Restore audio settings from state.audio_cfg.
-                // AudioStream wraps a rodio sink that can't be deserialized,
-                // so we need to construct a new AudioStream and apply the
-                // persisted volume/stream configs from state.audio_cfg.
-                audio_cfg: data::AudioStream::default(),
                 downloaded_tickers: state.downloaded_tickers,
                 data_feeds: state.data_feeds,
             }

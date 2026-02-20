@@ -66,8 +66,8 @@ pub struct Greeks {
 /// Contract details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractDetails {
-    pub contract_type: Option<String>, // "call", "put", "other"
-    pub exercise_style: Option<String>, // "american", "european", "bermudan"
+    pub contract_type: Option<String>,   // "call", "put", "other"
+    pub exercise_style: Option<String>,  // "american", "european", "bermudan"
     pub expiration_date: Option<String>, // YYYY-MM-DD
     pub shares_per_contract: Option<u32>,
     pub strike_price: Option<f64>,
@@ -89,13 +89,13 @@ pub struct UnderlyingAsset {
 /// Aggregate/bar data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aggregate {
-    pub c: Option<f64>, // Close
-    pub h: Option<f64>, // High
-    pub l: Option<f64>, // Low
-    pub n: Option<u64>, // Number of transactions
-    pub o: Option<f64>, // Open
-    pub t: Option<u64>, // Timestamp (milliseconds)
-    pub v: Option<f64>, // Volume
+    pub c: Option<f64>,  // Close
+    pub h: Option<f64>,  // High
+    pub l: Option<f64>,  // Low
+    pub n: Option<u64>,  // Number of transactions
+    pub o: Option<f64>,  // Open
+    pub t: Option<u64>,  // Timestamp (milliseconds)
+    pub v: Option<f64>,  // Volume
     pub vw: Option<f64>, // Volume weighted average price
 }
 
@@ -174,14 +174,15 @@ where
 pub fn extract_error_message(body: &str) -> String {
     if let Ok(value) = serde_json::from_str::<Value>(body)
         && let Some(status) = value.get("status").and_then(|v| v.as_str())
-            && (status == "ERROR" || status == "error") {
-                if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
-                    return message.to_string();
-                }
-                if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
-                    return error.to_string();
-                }
-            }
+        && (status == "ERROR" || status == "error")
+    {
+        if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+            return message.to_string();
+        }
+        if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
+            return error.to_string();
+        }
+    }
 
     body.to_string()
 }

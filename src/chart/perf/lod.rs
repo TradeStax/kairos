@@ -32,9 +32,9 @@ impl LodLevel {
     /// Get decimation factor (render every Nth item)
     pub fn decimation_factor(&self) -> usize {
         match self {
-            LodLevel::Low => 10,    // Render every 10th item
-            LodLevel::Medium => 3,  // Render every 3rd item
-            LodLevel::High => 1,    // Render all items
+            LodLevel::Low => 10,   // Render every 10th item
+            LodLevel::Medium => 3, // Render every 3rd item
+            LodLevel::High => 1,   // Render all items
         }
     }
 

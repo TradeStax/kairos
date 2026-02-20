@@ -1,6 +1,6 @@
 use crate::{
     chart,
-    modal::{self, ModifierKind, pane::Modal},
+    modals::{self, ModifierKind, pane::Modal},
     screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
@@ -12,8 +12,8 @@ use iced::{
 };
 use rustc_hash::FxHashMap;
 
-use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
+use super::helpers::basis_modifier;
 
 impl State {
     /// Build the Kline (candlestick / footprint) chart content view.
@@ -26,8 +26,7 @@ impl State {
         id: iced::widget::pane_grid::Pane,
         chart_opt: &'a Option<chart::candlestick::KlineChart>,
         indicators: &'a [KlineIndicator],
-        chart_kind: &'a data::KlineChartKind,
-        modifier: Option<modal::stream::Modifier>,
+        modifier: Option<modals::stream::Modifier>,
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
@@ -36,37 +35,27 @@ impl State {
         let mut extra = Vec::new();
 
         if let Some(chart) = chart_opt {
-            match chart_kind {
-                data::KlineChartKind::Footprint { .. } => {
-                    let basis = self
-                        .settings
-                        .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                    let kind = ModifierKind::Footprint(basis);
+            let selected_basis = self
+                .settings
+                .selected_basis
+                .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
-                    // Tick multiplier removed - only for crypto
-                    let modifiers: Element<'a, Message> =
-                        basis_modifier(id, basis, modifier, kind);
+            let kind = if chart.footprint.is_some() {
+                ModifierKind::Footprint(selected_basis)
+            } else {
+                ModifierKind::Candlestick(selected_basis)
+            };
 
-                    extra.push(modifiers);
-                }
-                data::KlineChartKind::Candles => {
-                    let selected_basis = self
-                        .settings
-                        .selected_basis
-                        .unwrap_or(ChartBasis::Time(Timeframe::M5));
-                    let kind = ModifierKind::Candlestick(selected_basis);
+            let modifiers: Element<'a, Message> =
+                row![basis_modifier(id, selected_basis, modifier, kind),]
+                    .spacing(tokens::spacing::XS)
+                    .into();
+            extra.push(modifiers);
 
-                    let modifiers: Element<'a, Message> =
-                        row![basis_modifier(id, selected_basis, modifier, kind),]
-                            .spacing(tokens::spacing::XS)
-                            .into();
-
-                    extra.push(modifiers);
-                }
-            }
-
-            let base = chart::view(chart, indicators, timezone)
+            let selected_panel = self
+                .selected_indicator
+                .and_then(|ind| self.content.indicator_panel_index(&ind));
+            let base = chart::view(chart, indicators, timezone, selected_panel)
                 .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
             let settings_modal = || {
                 // Read candle style from the chart's current config
@@ -75,21 +64,15 @@ impl State {
                 {
                     saved.clone()
                 } else {
-                    let mut default = data::state::pane_config::KlineConfig::default();
+                    let mut default = data::state::pane::KlineConfig::default();
                     default.candle_style = chart.candle_style().clone();
                     default
                 };
-                modal::pane::settings::kline_cfg_view(
-                    cfg,
-                    chart.study_configurator(),
-                    chart_kind,
-                    id,
-                    chart.basis(),
-                )
+                modals::pane::settings::kline_cfg_view(cfg, chart.footprint_config().cloned(), id)
             };
 
             let indicator_modal = if self.modal == Some(Modal::Indicators) {
-                Some(modal::pane::indicators::content_row_kline(
+                Some(modals::pane::indicators::content_row_kline(
                     id, indicators, true, // Kline allows dragging
                 ))
             } else {
@@ -107,11 +90,7 @@ impl State {
             );
             (body, extra)
         } else {
-            let content_kind = match chart_kind {
-                data::KlineChartKind::Candles => ContentKind::CandlestickChart,
-                data::KlineChartKind::Footprint { .. } => ContentKind::FootprintChart,
-            };
-            let base = uninitialized_base(content_kind);
+            let base = uninitialized_base(ContentKind::CandlestickChart);
             let body = self.compose_stack_view(
                 base,
                 id,

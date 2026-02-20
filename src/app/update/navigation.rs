@@ -2,13 +2,44 @@ use std::collections::HashMap;
 
 use iced::Task;
 
-use crate::component::display::toast::Toast;
+use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
 use crate::window;
 
-use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message};
+use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message, menu_bar};
 
 impl Flowsurface {
+    pub(crate) fn handle_menu_bar(&mut self, msg: menu_bar::Message) -> Task<Message> {
+        // Pre-fill save dialog name when opening
+        if matches!(msg, menu_bar::Message::SaveLayout) {
+            self.menu_bar.save_layout_name = self.layout_manager.generate_unique_layout_name();
+        }
+
+        let action = self.menu_bar.update(msg);
+
+        match action {
+            menu_bar::Action::CloseWindow => {
+                return self.handle_window_close(self.main_window.id);
+            }
+            menu_bar::Action::SaveLayout(name) => {
+                if let Some(active_id) = self.layout_manager.active_layout_id().map(|l| l.unique) {
+                    self.handle_layout_clone(active_id);
+                    // Rename the newly created layout (last in the list)
+                    if let Some(new_layout) = self.layout_manager.layouts.last() {
+                        let new_id = new_layout.id.unique;
+                        let unique_name = self.layout_manager.ensure_unique_name(&name, new_id);
+                        self.layout_manager.layouts.last_mut().unwrap().id.name = unique_name;
+                    }
+                }
+            }
+            menu_bar::Action::LoadLayout(id) => {
+                return self.handle_layout_select(id);
+            }
+            menu_bar::Action::None => {}
+        }
+        Task::none()
+    }
+
     pub(crate) fn handle_tick(&mut self, now: std::time::Instant) -> Task<Message> {
         let main_window_id = self.main_window.id;
 
@@ -45,7 +76,7 @@ impl Flowsurface {
 
     pub(crate) fn handle_exit_requested(
         &mut self,
-        windows: HashMap<window::Id, data::layout::WindowSpec>,
+        windows: HashMap<window::Id, data::state::WindowSpec>,
     ) -> Task<Message> {
         self.save_state_to_disk(&windows);
         iced::exit()
@@ -56,6 +87,12 @@ impl Flowsurface {
 
         if self.confirm_dialog.is_some() {
             self.confirm_dialog = None;
+        } else if self.menu_bar.show_save_dialog {
+            self.menu_bar.show_save_dialog = false;
+            self.menu_bar.save_layout_name.clear();
+        } else if self.menu_bar.open_menu.is_some() {
+            self.menu_bar.open_menu = None;
+            self.menu_bar.show_submenu = false;
         } else if self.historical_download_modal.is_some() {
             self.historical_download_modal = None;
             self.historical_download_id = None;
@@ -125,6 +162,10 @@ impl Flowsurface {
                     date_range,
                 })),
                 Some(dashboard::Event::PaneClosed { .. }) => Task::none(),
+                Some(dashboard::Event::DrawingToolChanged(tool)) => {
+                    self.sidebar.drawing_tools.set_active_tool(tool);
+                    Task::none()
+                }
                 None => Task::none(),
             };
 
@@ -143,5 +184,26 @@ impl Flowsurface {
             self.notifications
                 .push(Toast::error(format!("Failed to open data folder: {err}")));
         }
+    }
+
+    // ── Window control handlers (custom title bar) ─────────────────────
+
+    pub(crate) fn handle_window_drag(&self, id: window::Id) -> Task<Message> {
+        iced::window::drag(id)
+    }
+
+    pub(crate) fn handle_window_minimize(&self, id: window::Id) -> Task<Message> {
+        iced::window::minimize(id, true)
+    }
+
+    pub(crate) fn handle_window_toggle_maximize(&mut self, id: window::Id) -> Task<Message> {
+        if id == self.main_window.id {
+            self.main_window.is_maximized = !self.main_window.is_maximized;
+        }
+        iced::window::toggle_maximize(id)
+    }
+
+    pub(crate) fn handle_window_close(&mut self, id: window::Id) -> Task<Message> {
+        self.handle_window_event(window::Event::CloseRequested(id))
     }
 }

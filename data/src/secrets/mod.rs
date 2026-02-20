@@ -1,11 +1,13 @@
 //! Secrets Management Layer
 //!
-//! Provides secure storage for API keys using OS keyring with fallback to environment variables.
+//! Provides secure storage for API keys using OS keyring with fallback
+//! to file-based storage and environment variables.
 //!
 //! ## Storage Priority (checked in order)
-//! 1. OS Keyring (UI-configured via `keyring` crate)
-//! 2. Environment variables (backward compatibility)
-//! 3. Not configured
+//! 1. OS Keyring (most secure, UI-configured via `keyring` crate)
+//! 2. File storage (base64-encoded, NOT encrypted - use only when keyring unavailable)
+//! 3. Environment variables (backward compatibility)
+//! 4. Not configured
 //!
 //! ## Usage
 //! ```rust
@@ -80,15 +82,17 @@ impl ApiProvider {
         match self {
             ApiProvider::Databento => "Required for CME futures market data (ES, NQ, etc.)",
             ApiProvider::Massive => "Required for US options data and GEX analysis",
-            ApiProvider::Rithmic => {
-                "Required for Rithmic realtime + historical futures data"
-            }
+            ApiProvider::Rithmic => "Required for Rithmic realtime + historical futures data",
         }
     }
 
     /// List all providers
     pub fn all() -> &'static [ApiProvider] {
-        &[ApiProvider::Databento, ApiProvider::Massive, ApiProvider::Rithmic]
+        &[
+            ApiProvider::Databento,
+            ApiProvider::Massive,
+            ApiProvider::Rithmic,
+        ]
     }
 }
 
@@ -182,22 +186,25 @@ impl SecretsManager {
     pub fn get_api_key(&self, provider: ApiProvider) -> ApiKeyStatus {
         // First, try keyring
         if let Some(key) = self.get_from_keyring(provider)
-            && !key.is_empty() {
-                return ApiKeyStatus::FromKeyring(key);
-            }
+            && !key.is_empty()
+        {
+            return ApiKeyStatus::FromKeyring(key);
+        }
 
         // Try file-based storage (fallback)
         if let Some(key) = self.get_from_file(provider)
-            && !key.is_empty() {
-                log::debug!("Found {} key in file storage", provider.display_name());
-                return ApiKeyStatus::FromKeyring(key); // Report as "configured in app"
-            }
+            && !key.is_empty()
+        {
+            log::debug!("Found {} key in file storage", provider.display_name());
+            return ApiKeyStatus::FromKeyring(key); // Report as "configured in app"
+        }
 
         // Fall back to environment variable
         if let Ok(key) = std::env::var(provider.env_var())
-            && !key.is_empty() {
-                return ApiKeyStatus::FromEnv(key);
-            }
+            && !key.is_empty()
+        {
+            return ApiKeyStatus::FromEnv(key);
+        }
 
         ApiKeyStatus::NotConfigured
     }
@@ -206,7 +213,9 @@ impl SecretsManager {
     pub fn set_api_key(&self, provider: ApiProvider, key: &str) -> Result<(), SecretsError> {
         // Basic validation
         if key.is_empty() {
-            return Err(SecretsError::InvalidKey("API key cannot be empty".to_string()));
+            return Err(SecretsError::InvalidKey(
+                "API key cannot be empty".to_string(),
+            ));
         }
 
         if key.len() < 10 {
@@ -235,10 +244,7 @@ impl SecretsManager {
         }
 
         if keyring_result.is_ok() {
-            log::info!(
-                "Stored {} API key in OS keyring",
-                provider.display_name()
-            );
+            log::info!("Stored {} API key in OS keyring", provider.display_name());
         } else {
             log::info!(
                 "Stored {} API key in file storage (keyring unavailable)",
@@ -257,25 +263,25 @@ impl SecretsManager {
                 SecretsError::KeyringAccess(e.to_string())
             })?;
 
-        entry
-            .set_password(key)
-            .map_err(|e| {
-                log::warn!("Failed to set password in keyring: {}", e);
-                SecretsError::StoreFailed(e.to_string())
-            })?;
+        entry.set_password(key).map_err(|e| {
+            log::warn!("Failed to set password in keyring: {}", e);
+            SecretsError::StoreFailed(e.to_string())
+        })?;
 
         Ok(())
     }
 
     /// Save key to file storage (fallback)
     fn save_to_file(&self, provider: ApiProvider, key: &str) -> Result<(), SecretsError> {
-        let file_path = Self::secrets_file_path(provider)
-            .ok_or_else(|| SecretsError::StoreFailed("Could not determine secrets directory".to_string()))?;
+        let file_path = Self::secrets_file_path(provider).ok_or_else(|| {
+            SecretsError::StoreFailed("Could not determine secrets directory".to_string())
+        })?;
 
         // Create secrets directory if needed
         if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| SecretsError::StoreFailed(format!("Failed to create secrets dir: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                SecretsError::StoreFailed(format!("Failed to create secrets dir: {}", e))
+            })?;
         }
 
         // Write key to file (simple obfuscation - not secure, but better than plaintext)
@@ -283,7 +289,11 @@ impl SecretsManager {
         std::fs::write(&file_path, encoded)
             .map_err(|e| SecretsError::StoreFailed(format!("Failed to write key file: {}", e)))?;
 
-        log::debug!("Saved {} key to file: {:?}", provider.display_name(), file_path);
+        log::debug!(
+            "Saved {} key to file: {:?}",
+            provider.display_name(),
+            file_path
+        );
         Ok(())
     }
 
@@ -296,9 +306,7 @@ impl SecretsManager {
         }
 
         match std::fs::read_to_string(&file_path) {
-            Ok(encoded) => {
-                base64_decode(&encoded)
-            }
+            Ok(encoded) => base64_decode(&encoded),
             Err(e) => {
                 log::warn!("Failed to read key file: {}", e);
                 None
@@ -352,7 +360,11 @@ impl SecretsManager {
 
         match entry.get_password() {
             Ok(password) => {
-                log::debug!("Found {} key in keyring (len={})", provider.display_name(), password.len());
+                log::debug!(
+                    "Found {} key in keyring (len={})",
+                    provider.display_name(),
+                    password.len()
+                );
                 Some(password)
             }
             Err(keyring::Error::NoEntry) => {
@@ -380,7 +392,8 @@ fn base64_encode(input: &str) -> String {
 /// Simple base64 decoding
 fn base64_decode(input: &str) -> Option<String> {
     use base64::{Engine, engine::general_purpose::STANDARD};
-    STANDARD.decode(input.trim())
+    STANDARD
+        .decode(input.trim())
         .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
 }

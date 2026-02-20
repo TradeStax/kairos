@@ -70,18 +70,12 @@ mod tests {
     #[test]
     fn test_find_poc() {
         let mut footprint = Footprint::new();
-        footprint.insert(
-            Price::from_f32(100.0),
-            TradeGroup::new(10.0, 5.0),
-        );
+        footprint.insert(Price::from_f32(100.0), TradeGroup::new(10.0, 5.0));
         footprint.insert(
             Price::from_f32(101.0),
             TradeGroup::new(20.0, 15.0), // 35 total - highest
         );
-        footprint.insert(
-            Price::from_f32(102.0),
-            TradeGroup::new(5.0, 10.0),
-        );
+        footprint.insert(Price::from_f32(102.0), TradeGroup::new(5.0, 10.0));
 
         let (poc_price, poc_volume) = find_poc(&footprint).unwrap();
         assert_eq!(poc_price, Price::from_f32(101.0));

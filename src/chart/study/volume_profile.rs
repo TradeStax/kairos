@@ -44,9 +44,10 @@ pub fn build_volume_profile(
 
         // Apply price filter if specified
         if let Some((lowest, highest)) = price_filter
-            && (price_rounded < lowest || price_rounded > highest) {
-                continue;
-            }
+            && (price_rounded < lowest || price_rounded > highest)
+        {
+            continue;
+        }
 
         let entry = footprint.entry(price_rounded).or_insert(TradeGroup {
             buy_qty: 0.0,

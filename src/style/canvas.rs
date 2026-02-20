@@ -1,8 +1,8 @@
 //! Canvas stroke styles for chart overlays (crosshair, dashed lines).
 
+use iced::Theme;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{LineDash, Stroke};
-use iced::Theme;
 
 use super::tokens;
 

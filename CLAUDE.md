@@ -1,127 +1,167 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Flowsurface is a native desktop charting platform for futures markets built with Rust and Iced (v0.14). Provides real-time and historical market data visualization: candlestick/footprint charts, heatmaps, order flow analysis, comparison charts, and options data. Supports multi-window layouts with popout panes.
 
-## Project Overview
-
-Flowsurface is a native desktop charting platform for futures markets built with Rust and Iced GUI framework. It provides real-time market data visualization with support for candlestick charts, heatmaps, order flow analysis, and options data.
-
-## Build Commands
+## Build & Test
 
 ```bash
-# Development build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run the application
-cargo run --release
-
-# Platform-specific builds
-./scripts/build-macos.sh [x86_64|aarch64|universal]
-./scripts/build-windows.sh
-./scripts/package-linux.sh
-```
-
-## Testing & Linting
-
-```bash
-# Run all tests
-cargo test
-
-# Test specific package
+cargo build                          # Dev build
+cargo build --release                # Release build
+cargo run --release                  # Run app
+cargo test                           # All tests
 cargo test --package flowsurface-data
 cargo test --package flowsurface-exchange
-
-# Integration tests (require API keys)
-DATABENTO_API_KEY=your_key cargo test --package flowsurface-exchange -- --ignored
-
-# Clippy linting
-cargo clippy
-
-# Format check
-cargo fmt --check
+cargo test --package flowsurface-study
+cargo clippy                         # Lint
+cargo fmt --check                    # Format check
 ```
 
 ## Environment Variables
 
 ```bash
-DATABENTO_API_KEY=your_api_key      # Required for futures data
+DATABENTO_API_KEY=your_key           # Required for historical futures data
 MASSIVE_API_KEY=your_polygon_key     # Optional for options data
-FLOWSURFACE_PROFILE=production       # or staging/development
 RUST_LOG=flowsurface_data=debug      # Logging level
 ```
 
+Rithmic credentials are managed via `keyring` (OS credential store), configured through the UI.
+
 ## Architecture
 
-### Three-Layer Structure
+Four workspace crates (Rust edition 2024):
 
 ```
-src/                    # Application layer (Iced GUI)
-├── app/               # App state, message handling, services
-├── screen/            # Views (dashboard, panes, panels)
-├── chart/             # Charting system (candlestick, heatmap, overlays)
-├── widget/            # Custom Iced widgets
-├── modal/             # Modal dialogs
-└── style/             # Theming and styling
+src/                    # Application layer — flowsurface (Iced GUI)
+├── app/               # Flowsurface struct, Message enum, update routing, services
+│   └── update/        # Message handlers: chart, download, feeds, navigation, options, preferences, replay
+├── screen/dashboard/  # Main dashboard: pane grid, sidebar, panels (ladder, time&sales)
+│   ├── pane/          # Pane state, content types, lifecycle, view rendering
+│   ├── panel/         # Side panels: Ladder, TimeAndSales
+│   ├── layout/        # Pane grid layout management
+│   └── loading/       # Loading states & feed management
+├── chart/             # Charting engine
+│   ├── core/          # Chart trait, ViewState, Caches, Interaction (pan/zoom/drawing)
+│   ├── candlestick/   # KlineChart — OHLC + footprint rendering
+│   ├── heatmap/       # HeatmapChart — order flow depth heatmap
+│   ├── comparison/    # ComparisonChart — multi-series overlay
+│   ├── indicator/     # Built-in kline indicators (SMA, EMA, RSI, MACD, Bollinger, etc.)
+│   ├── study/         # Legacy studies (POC, value area, volume profile, imbalance)
+│   ├── study_renderer/ # Renders StudyOutput primitives to canvas (line, band, bar, histogram, profile)
+│   ├── overlay/       # Crosshair, ruler, last price, gap markers
+│   ├── drawing/       # Drawing tools (lines, boxes) with persistence
+│   ├── scale/         # Axis scaling — linear & timeseries
+│   └── perf/          # LOD (level-of-detail) rendering optimization
+├── components/        # Reusable UI component library
+│   ├── display/       # Toast, tooltip, status dot, progress bar, empty state, key-value
+│   ├── input/         # Text, numeric, checkbox, dropdown, color picker, slider, toggle, search, secure, multi-select
+│   ├── layout/        # Card, collapsible, multi-split, reorderable list, toolbar, button grid/group
+│   ├── overlay/       # Confirm dialog, context menu, dropdown menu, form modal, modal shell
+│   ├── form/          # Form field, form row, form section
+│   └── primitives/    # Icon button, icons, badge, label, separator, truncated text
+├── modals/            # Application & pane-level modals
+│   ├── pane/          # Pane modals: tickers, calendar, indicators, stream, settings (kline/heatmap/comparison/panel/study)
+│   ├── connections/   # Data feed connection status
+│   ├── data_feeds/    # Feed management & preview
+│   ├── download/      # Historical data download & data management
+│   ├── drawing_tools/ # Drawing tool selection panel
+│   ├── layout/        # Layout manager (save/load/switch layouts)
+│   ├── replay/        # Replay playback controller
+│   └── theme/         # Theme editor
+├── style/             # Theming: tokens, palette, button/container/canvas/widget styles
+├── layout.rs          # Layout & Dashboard serialization, LayoutId
+├── window.rs          # Multi-window management, WindowSpec, popout support
+├── error.rs           # InternalError (Chart, Data, Rendering variants)
+└── logger.rs          # Async file logging with rotation (50MB max)
 
-data/                   # Data layer (pure business logic, no I/O)
-├── domain/            # Core types: Price, Trade, Candle, Options
-├── repository/        # Trait definitions for data access
-├── services/          # MarketDataService, OptionsDataService, GexCalculationService
-└── state/             # State persistence and migrations
+data/                   # Data layer — flowsurface-data (pure business logic, no I/O)
+├── domain/            # Core types: Price, Trade, Candle, DepthSnapshot, Options, Futures
+│   ├── error.rs       # ErrorSeverity enum, AppError trait (user_message, is_retriable, severity)
+│   ├── types.rs       # Value objects: Price (i64, 10^-8 precision), Volume, Timestamp, Side
+│   ├── entities.rs    # Trade, Candle, DepthSnapshot, MarketData
+│   ├── chart.rs       # ChartConfig, ChartData, ChartBasis, ChartType, LoadingStatus
+│   ├── futures.rs     # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
+│   ├── options.rs     # OptionContract, OptionChain, OptionSnapshot
+│   ├── panel.rs       # Panel types: depth grouping, trade aggregation, chase tracking
+│   └── aggregation.rs # Trade-to-candle aggregation logic
+├── repository/        # Async trait definitions: TradeRepository, DepthRepository, Option*Repository
+├── services/          # MarketDataService, OptionsDataService, GexCalculationService, ReplayEngine, FeedMerger, CacheManager
+├── state/             # Persistence & state types
+│   ├── app.rs         # AppState (persisted): layout manager, theme, timezone, feed configs, downloaded tickers registry
+│   ├── chart.rs       # ChartState (in-memory only): config, data, loading status
+│   ├── layout.rs      # Layout, Dashboard, LayoutManager types
+│   ├── pane.rs        # Pane configuration (serializable)
+│   ├── registry.rs    # DownloadedTickersRegistry — tracks downloaded ticker date ranges
+│   ├── replay.rs      # ReplayState, PlaybackStatus, SpeedPreset
+│   └── persistence.rs # Versioned serialization & migrations
+├── config/            # Theme, timezone, sidebar, panel configuration
+├── feed/              # DataFeedManager, FeedConfig, FeedKind (Databento/Rithmic)
+├── drawing/           # Drawing entity types
+├── secrets/           # SecretsManager — API key storage via OS keyring
+└── util/              # Formatting, time, math, logging helpers
 
-exchange/               # Exchange layer (adapters)
+exchange/               # Exchange layer — flowsurface-exchange (adapters & repository impls)
 ├── adapter/
-│   ├── databento/     # CME Globex futures via Databento API
-│   └── massive/       # US options via Polygon API
-└── repository/        # Repository implementations
+│   ├── databento/     # CME Globex historical futures — Databento API (.dbn.zst cache)
+│   ├── rithmic/       # CME Globex real-time streaming — Rithmic (rithmic-rs)
+│   ├── massive/       # US options — Polygon Massive API
+│   ├── error.rs       # AdapterError (fetch, parse, connection, invalid request)
+│   ├── event.rs       # Event enum: historical + live events (depth, kline, trade, connect/disconnect)
+│   └── stream.rs      # StreamKind, PersistStreamKind, ResolvedStream, UniqueStreams
+├── repository/
+│   ├── databento/     # DatabentoTradeRepository, DatabentoDepthRepository
+│   ├── rithmic/       # RithmicTradeRepository, RithmicDepthRepository
+│   └── massive/       # MassiveChainRepository, MassiveContractRepository, MassiveSnapshotRepository
+└── error.rs           # Error enum with UserFacingError trait
+
+study/                  # Study layer — flowsurface-study (technical analysis library)
+├── traits.rs          # Study trait, StudyCategory, StudyPlacement, StudyInput
+├── output.rs          # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Clusters
+├── config.rs          # ParameterDef, ParameterValue, StudyConfig
+├── registry.rs        # StudyRegistry — factory for 15 built-in studies
+├── volume/            # Volume, Delta, CVD, OBV
+├── trend/             # SMA, EMA, VWAP
+├── momentum/          # RSI, MACD, Stochastic
+├── volatility/        # ATR, Bollinger Bands
+└── orderflow/         # Volume Profile, POC, Value Area, Imbalance
 ```
 
-### Key Patterns
+## Key Patterns
 
-**Elm Architecture**: The app uses Iced's Elm-inspired pattern:
-- `Message` enum defines all events
-- `update()` handles messages and returns `Task<Message>`
-- `view()` renders the UI
-- `subscription()` provides async event streams
+**Elm Architecture (Iced)**: `Flowsurface` struct implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` → `dashboard::Message` → `pane::Message` → `chart::Message`.
 
-**Repository Pattern**: Data access is abstracted via async traits in `data/repository/`, with implementations in `exchange/repository/`.
+**Hierarchical Message Routing**: Each layer handles its own message domain. `src/app/update/` splits handlers by concern (chart, download, feeds, navigation, options, preferences, replay).
 
-**Service Initialization**: Services are created in `src/app/services.rs` and wrapped in `Arc<Mutex<>>` for thread-safe sharing.
+**Generic Chart Trait**: `Chart` trait in `src/chart/core/traits.rs` provides a unified interface. `KlineChart`, `HeatmapChart`, and `ComparisonChart` all implement it. Chart update/view logic is generic over `T: Chart`.
 
-**Fixed-Point Arithmetic**: `Price` type uses i64 units with 10^-8 precision for accuracy.
+**Pane Content Polymorphism**: `Content` enum (`src/screen/dashboard/pane/content.rs`) holds `Starter`, `Kline`, `Heatmap`, `TimeAndSales`, `Ladder`, or `Comparison`. Panes can switch content types without losing layout position.
 
-**Per-Day Caching**: Trade data is cached by date in `cache/databento/` and `cache/massive/` directories using `.dbn.zst` format.
+**Repository Pattern**: Async traits defined in `data/repository/traits.rs`, implemented in `exchange/repository/`. Services depend on traits, not concrete adapters.
 
-### Chart System
+**Multi-Window Popouts**: Dashboard tracks `popout: HashMap<window::Id, (PaneGridState, WindowSpec)>`. Panes pop out to separate OS windows with persisted positions.
 
-Located in `src/chart/`, uses a modular architecture:
-- `core/` - Unified chart engine with LOD-based rendering
-- `candlestick/`, `heatmap/`, `comparison/` - Chart types
-- `overlay/` - Crosshair, ruler, price lines
-- `indicator/` - Technical indicators
-- `scale/` - Axis scaling and labels
+**Study System**: `study/` crate provides trait-based technical analysis. Studies implement `Study` trait → `compute(StudyInput)` → `StudyOutput`. The `StudyRegistry` factory creates instances by ID. `src/chart/study_renderer/` converts `StudyOutput` to canvas draw calls.
 
-### Async Tasks
+**Stream Subscriptions**: Two-tier model — `PersistStreamKind` (serializable config) → resolved at runtime to `StreamKind` (with full `FuturesTickerInfo`). `UniqueStreams` deduplicates across panes.
 
-Non-blocking operations use `Task::perform`:
-```rust
-Task::perform(
-    async move { service.get_chart_data(&config).await },
-    |result| Message::ChartDataLoaded { result }
-)
-```
+**Global Event Staging**: Three `OnceLock<Arc<Mutex<>>>` globals in `src/app/mod.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
+
+**Error Hierarchy**: All error types implement `user_message()`, `is_retriable()`, `severity()` via `AppError` trait (data layer) and `UserFacingError` trait (exchange layer). Use `thiserror` for derivation.
+
+**Fixed-Point Arithmetic**: `Price` type = i64 with 10^-8 precision. Never use floating point for price values.
+
+**Per-Day Caching**: Historical data cached by date in `cache/databento/` (.dbn.zst) and `cache/massive/` (.zst). Repositories check cache first, fetch only missing date ranges.
+
+**Service Threading**: Services wrapped in `Arc<Mutex<>>` or `Arc<tokio::sync::Mutex<>>` for async sharing. Created in `src/app/services.rs`.
 
 ## Code Style
 
 - Max line width: 100 characters (rustfmt.toml)
-- Clippy: max 16 function arguments, 5 enum variants
-- Error types include `user_message()`, `is_retriable()`, `severity()` methods
-- Use `thiserror` for custom error types
+- Clippy: max 16 function arguments, 5 enum variant names (clippy.toml)
+- Rust edition 2024
+- Use `thiserror` for error types with `user_message()`, `is_retriable()`, `severity()` methods
+- Non-blocking I/O via `Task::perform` — never block the UI thread
 
 ## Supported Instruments
 
-- **Futures**: ES, NQ, YM, RTY, ZN, GC, CL (CME Globex via Databento)
+- **Futures**: ES, NQ, YM, RTY, ZN, ZB, ZF, GC, SI, NG, HG, CL (CME Globex via Databento + Rithmic)
 - **Options**: US-listed equity options (via Polygon Massive API)

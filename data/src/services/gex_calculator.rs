@@ -128,9 +128,8 @@ impl GexCalculationService {
             // High open interest + high gamma = squeeze potential
             if nearest_exposure.total_oi > 10_000 && nearest_exposure.total_gamma > 500_000.0 {
                 // Check if price is within 2% of the strike
-                let strike_distance = (nearest_exposure.strike_price.to_f64()
-                    - current_price.to_f64())
-                .abs();
+                let strike_distance =
+                    (nearest_exposure.strike_price.to_f64() - current_price.to_f64()).abs();
                 let price_pct = strike_distance / current_price.to_f64();
 
                 return price_pct < 0.02;
@@ -193,8 +192,8 @@ impl Default for GexCalculationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{ExerciseStyle, Greek, OptionContract, OptionSnapshot, OptionType};
     use crate::domain::Timestamp;
+    use crate::domain::{ExerciseStyle, Greek, OptionContract, OptionSnapshot, OptionType};
     use chrono::{NaiveDate, Utc};
 
     fn create_test_chain_with_gamma() -> OptionChain {
@@ -246,7 +245,9 @@ mod tests {
     fn test_calculate_profile() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX with underlying price");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX with underlying price");
 
         assert!(profile.has_data());
         assert_eq!(profile.underlying_ticker, "SPY");
@@ -261,7 +262,9 @@ mod tests {
     fn test_find_zero_gamma_level() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         // All strikes have identical gamma/OI, so net_gamma is the same negative value
         // at every strike. No sign change means no zero-gamma crossing.
@@ -276,7 +279,9 @@ mod tests {
     fn test_calculate_expected_range() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         if let Some((support, resistance)) = service.calculate_expected_range(&profile) {
             assert!(support < resistance);
@@ -287,7 +292,9 @@ mod tests {
     fn test_market_regime() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         // total_net_gamma = 5 strikes * (-166,050,000) = -830,250,000
         // This is < -1,000,000 so the regime is "Negative Gamma"
@@ -302,7 +309,9 @@ mod tests {
     fn test_volatility_expectation() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         // total_abs_gamma = 5 * 166,050,000 = 830,250,000
         // 830,250,000 > 10,000,000 so the function returns 0.2
@@ -318,7 +327,9 @@ mod tests {
     fn test_gamma_weighted_strike() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         if let Some(weighted_strike) = service.gamma_weighted_strike(&profile) {
             // Should be near the underlying price (450)
@@ -330,7 +341,9 @@ mod tests {
     fn test_analyze_gamma_skew() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         // Call gamma per strike: 0.05 * 10000 * 100 * 450^2 * 0.01 = 101,250,000
         // Put gamma per strike:  0.04 * 8000  * 100 * 450^2 * 0.01 = 64,800,000
@@ -354,17 +367,25 @@ mod tests {
     fn test_has_squeeze_potential() {
         let service = GexCalculationService::new();
         let chain = create_test_chain_with_gamma();
-        let profile = service.calculate_profile(&chain).expect("Should calculate GEX");
+        let profile = service
+            .calculate_profile(&chain)
+            .expect("Should calculate GEX");
 
         // Price exactly at the 450 strike: nearest exposure has total_oi=18000 (>10k),
         // total_gamma=166,050,000 (>500k), and distance is 0% (<2%), so squeeze = true
         let current_price = Price::from_f64(450.0);
         let has_squeeze = service.has_squeeze_potential(&profile, current_price);
-        assert!(has_squeeze, "Should detect squeeze potential when price is at a high-gamma strike");
+        assert!(
+            has_squeeze,
+            "Should detect squeeze potential when price is at a high-gamma strike"
+        );
 
         // Price far from any strike (e.g. 500.0): nearest strike is 460, distance ~8% (>2%)
         let far_price = Price::from_f64(500.0);
         let no_squeeze = service.has_squeeze_potential(&profile, far_price);
-        assert!(!no_squeeze, "Should not detect squeeze when price is far from strikes");
+        assert!(
+            !no_squeeze,
+            "Should not detect squeeze when price is far from strikes"
+        );
     }
 }

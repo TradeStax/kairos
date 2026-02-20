@@ -1,4 +1,4 @@
-use data::{ChartConfig, DateRange, FuturesTicker};
+use data::{ChartConfig, DateRange, DrawingTool, FuturesTicker};
 use exchange::FuturesTickerInfo;
 
 #[derive(Debug, Clone)]
@@ -19,4 +19,6 @@ pub enum Effect {
         schema: exchange::DatabentoSchema,
         date_range: DateRange,
     },
+    /// Drawing tool was auto-changed (e.g. after completing a drawing)
+    DrawingToolChanged(DrawingTool),
 }

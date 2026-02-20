@@ -1,6 +1,6 @@
 use iced::Task;
 
-use crate::component::display::toast::{Notification, Toast};
+use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
 use super::super::{DownloadMessage, Flowsurface, Message, services};
@@ -26,7 +26,7 @@ impl Flowsurface {
 
     pub(crate) fn handle_toggle_dialog_modal(
         &mut self,
-        dialog: Option<crate::screen::ConfirmDialog<Message>>,
+        dialog: Option<crate::components::overlay::confirm_dialog::ConfirmDialog<Message>>,
     ) {
         self.confirm_dialog = dialog;
     }
@@ -64,7 +64,7 @@ impl Flowsurface {
                 log::info!("Reinitializing Rithmic service with new password...");
                 if let Some(feed_id) = self.rithmic_feed_id {
                     return Task::done(Message::DataFeeds(
-                        crate::modal::pane::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
+                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
                     ));
                 } else {
                     self.notifications.push(Toast::new(Notification::Info(
@@ -78,21 +78,17 @@ impl Flowsurface {
         Task::none()
     }
 
-    pub(crate) fn handle_audio_stream(&mut self, message: crate::modal::audio::Message) {
-        self.audio_stream.update(message);
-    }
-
     pub(crate) fn handle_layouts(
         &mut self,
-        message: crate::modal::layout_manager::Message,
+        message: crate::modals::layout::Message,
     ) -> Task<Message> {
         let action = self.layout_manager.update(message);
 
         match action {
-            Some(crate::modal::layout_manager::Action::Select(layout)) => {
+            Some(crate::modals::layout::Action::Select(layout)) => {
                 return self.handle_layout_select(layout);
             }
-            Some(crate::modal::layout_manager::Action::Clone(id)) => {
+            Some(crate::modals::layout::Action::Clone(id)) => {
                 self.handle_layout_clone(id);
             }
             None => {}
@@ -100,14 +96,14 @@ impl Flowsurface {
         Task::none()
     }
 
-    pub(crate) fn handle_theme_editor(&mut self, msg: crate::modal::theme_editor::Message) {
+    pub(crate) fn handle_theme_editor(&mut self, msg: crate::modals::theme::Message) {
         let action = self.theme_editor.update(msg, &self.theme.clone().into());
 
         match action {
-            Some(crate::modal::theme_editor::Action::Exit) => {
+            Some(crate::modals::theme::Action::Exit) => {
                 self.sidebar.set_menu(Some(data::sidebar::Menu::Settings));
             }
-            Some(crate::modal::theme_editor::Action::UpdateTheme(theme)) => {
+            Some(crate::modals::theme::Action::UpdateTheme(theme)) => {
                 self.theme = data::Theme(theme);
                 let main_window = self.main_window.id;
                 self.active_dashboard_mut()
@@ -118,6 +114,8 @@ impl Flowsurface {
     }
 
     pub(crate) fn handle_sidebar(&mut self, message: dashboard::sidebar::Message) -> Task<Message> {
+        self.menu_bar.open_menu = None;
+
         // Handle date range preset change - update all dashboards
         if let dashboard::sidebar::Message::SetDateRangePreset(preset) = &message {
             self.layout_manager.set_date_range_preset(*preset);
@@ -153,7 +151,7 @@ impl Flowsurface {
             && let Some(action) = self.data_management_panel.request_initial_estimation()
         {
             match action {
-                crate::modal::pane::download::data_management::Action::EstimateRequested {
+                crate::modals::download::data_management::Action::EstimateRequested {
                     ticker,
                     schema,
                     date_range,
@@ -171,9 +169,7 @@ impl Flowsurface {
                             },
                         )));
                 }
-                crate::modal::pane::download::data_management::Action::DownloadRequested {
-                    ..
-                } => {
+                crate::modals::download::data_management::Action::DownloadRequested { .. } => {
                     // Shouldn't happen on initial open
                 }
             }
@@ -182,9 +178,7 @@ impl Flowsurface {
         // Refresh available streams when opening Replay menu
         if matches!(
             &message,
-            dashboard::sidebar::Message::ToggleSidebarMenu(
-                Some(data::sidebar::Menu::Replay)
-            )
+            dashboard::sidebar::Message::ToggleSidebarMenu(Some(data::sidebar::Menu::Replay))
         ) {
             let feed_manager = self
                 .data_feed_manager
@@ -209,7 +203,7 @@ impl Flowsurface {
         // Handle drawing tool actions from the sidebar
         if let Some(action) = drawing_action {
             match action {
-                crate::modal::drawing_tools::Action::SelectTool(tool) => {
+                crate::modals::drawing_tools::Action::SelectTool(tool) => {
                     return task
                         .map(Message::Sidebar)
                         .chain(Task::done(Message::Dashboard {
@@ -217,7 +211,7 @@ impl Flowsurface {
                             event: dashboard::Message::DrawingToolSelected(tool),
                         }));
                 }
-                crate::modal::drawing_tools::Action::ToggleSnap => {
+                crate::modals::drawing_tools::Action::ToggleSnap => {
                     return task
                         .map(Message::Sidebar)
                         .chain(Task::done(Message::Dashboard {
@@ -230,5 +224,4 @@ impl Flowsurface {
 
         task.map(Message::Sidebar)
     }
-
 }

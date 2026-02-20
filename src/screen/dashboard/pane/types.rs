@@ -1,16 +1,16 @@
 use super::Content;
 use crate::{
     chart,
-    component::display::toast::Toast,
-    modal::{self, pane::Modal},
+    components::display::toast::Toast,
+    modals::{self, pane::Modal},
     screen::dashboard::panel,
 };
 use data::{
-    ChartConfig, ChartData, ContentKind, LinkGroup, LoadingStatus, Settings, UiIndicator,
-    VisualConfig,
+    ChartConfig, ChartData, ContentKind, DrawingId, LinkGroup, LoadingStatus, Settings,
+    UiIndicator, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
-use iced::widget::pane_grid;
+use iced::{Point, widget::pane_grid};
 
 pub enum Action {
     Chart(chart::Action),
@@ -19,6 +19,47 @@ pub enum Action {
         config: ChartConfig,
         ticker_info: FuturesTickerInfo,
     },
+}
+
+/// What was right-clicked on the chart
+#[derive(Debug, Clone)]
+pub enum ContextMenuKind {
+    /// Right-clicked empty chart area
+    Chart { position: Point },
+    /// Right-clicked a specific drawing
+    Drawing {
+        position: Point,
+        id: DrawingId,
+        locked: bool,
+    },
+    /// Right-clicked while an indicator is selected
+    Indicator {
+        position: Point,
+        indicator: UiIndicator,
+    },
+}
+
+impl ContextMenuKind {
+    pub fn position(&self) -> Point {
+        match self {
+            ContextMenuKind::Chart { position }
+            | ContextMenuKind::Drawing { position, .. }
+            | ContextMenuKind::Indicator { position, .. } => *position,
+        }
+    }
+}
+
+/// Actions available from chart context menu
+#[derive(Debug, Clone)]
+pub enum ContextMenuAction {
+    RebuildChart,
+    CenterLastPrice,
+    OpenIndicators,
+    RemoveIndicator(UiIndicator),
+    DeleteDrawing(DrawingId),
+    ToggleLockDrawing(DrawingId),
+    CloneDrawing(DrawingId),
+    OpenDrawingProperties(DrawingId),
 }
 
 #[derive(Debug, Clone)]
@@ -47,14 +88,16 @@ pub enum Event {
     PanelInteraction(panel::Message),
     ToggleIndicator(UiIndicator),
     DeleteNotification(usize),
-    ReorderIndicator(crate::component::layout::reorderable_list::DragEvent),
-    DataManagementInteraction(crate::modal::pane::download::DataManagementMessage),
-    ClusterKindSelected(data::ClusterKind),
-    ClusterScalingSelected(data::ClusterScaling),
-    StudyConfigurator(modal::pane::settings::study::StudyMessage),
-    StreamModifierChanged(modal::stream::Message),
+    ReorderIndicator(crate::components::layout::reorderable_list::DragEvent),
+    DataManagementInteraction(crate::modals::download::DataManagementMessage),
+    FootprintStudyChanged(Option<data::FootprintStudyConfig>),
+    StudyConfigurator(modals::pane::settings::study::StudyMessage),
+    StreamModifierChanged(modals::stream::Message),
     ComparisonChartInteraction(chart::comparison::Message),
-    MiniTickersListInteraction(modal::pane::tickers::Message),
+    MiniTickersListInteraction(modals::pane::tickers::Message),
+    ContextMenuAction(ContextMenuAction),
+    DismissContextMenu,
+    DrawingPropertiesChanged(crate::modals::drawing_properties::Message),
 }
 
 pub struct State {
@@ -71,6 +114,10 @@ pub struct State {
     pub feed_id: Option<data::FeedId>,
     /// Backup of chart data before replay (restored on stop)
     pub replay_backup: Option<ChartData>,
+    /// Active right-click context menu
+    pub context_menu: Option<ContextMenuKind>,
+    /// Currently selected indicator panel (for context menu)
+    pub selected_indicator: Option<UiIndicator>,
 }
 
 impl State {
@@ -116,6 +163,8 @@ impl Default for State {
             link_group: None,
             feed_id: None,
             replay_backup: None,
+            context_menu: None,
+            selected_indicator: None,
         }
     }
 }

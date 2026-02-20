@@ -118,6 +118,9 @@ impl Flowsurface {
             Message::ReplayEvent(event) => {
                 return self.handle_replay_event(event);
             }
+            Message::MenuBar(msg) => {
+                return self.handle_menu_bar(msg);
+            }
 
             // Window/navigation events
             Message::Tick(now) => {
@@ -161,9 +164,6 @@ impl Flowsurface {
             Message::ReinitializeService(provider) => {
                 return self.handle_reinitialize_service(provider);
             }
-            Message::AudioStream(message) => {
-                self.handle_audio_stream(message);
-            }
             Message::Layouts(message) => {
                 return self.handle_layouts(message);
             }
@@ -172,6 +172,20 @@ impl Flowsurface {
             }
             Message::Sidebar(message) => {
                 return self.handle_sidebar(message);
+            }
+
+            // Window control messages (custom title bar)
+            Message::WindowDrag(id) => {
+                return self.handle_window_drag(id);
+            }
+            Message::WindowMinimize(id) => {
+                return self.handle_window_minimize(id);
+            }
+            Message::WindowToggleMaximize(id) => {
+                return self.handle_window_toggle_maximize(id);
+            }
+            Message::WindowClose(id) => {
+                return self.handle_window_close(id);
             }
         }
         Task::none()

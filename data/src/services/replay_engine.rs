@@ -8,7 +8,7 @@ use crate::domain::chart::ChartBasis;
 use crate::domain::futures::{FuturesTicker, FuturesTickerInfo};
 use crate::domain::{Candle, DateRange, DepthSnapshot, Price, Side, TimeRange, Trade};
 use crate::repository::{DepthRepository, TradeRepository};
-use crate::state::replay_state::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};
+use crate::state::replay::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -146,11 +146,11 @@ pub struct ReplayEngine {
     /// Depth repository (optional)
     depth_repo: Option<Arc<dyn DepthRepository + Send + Sync>>,
 
-    /// Event sender channel
-    event_tx: mpsc::UnboundedSender<ReplayEvent>,
+    /// Event sender channel (bounded to prevent memory growth under heavy load)
+    event_tx: mpsc::Sender<ReplayEvent>,
 
     /// Event receiver channel (public for external consumption, Option to allow taking)
-    pub event_rx: Option<mpsc::UnboundedReceiver<ReplayEvent>>,
+    pub event_rx: Option<mpsc::Receiver<ReplayEvent>>,
 
     /// Background playback task handle
     playback_handle: Option<tokio::task::JoinHandle<()>>,
@@ -163,7 +163,8 @@ impl ReplayEngine {
         trade_repo: Arc<dyn TradeRepository + Send + Sync>,
         depth_repo: Option<Arc<dyn DepthRepository + Send + Sync>>,
     ) -> Self {
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        // Bounded channel prevents unbounded memory growth during heavy replay
+        let (event_tx, event_rx) = mpsc::channel(1024);
 
         Self {
             config,
@@ -214,7 +215,7 @@ impl ReplayEngine {
         if self.check_cache(&ticker_info.ticker, &date_range).await {
             self.emit_event(ReplayEvent::CacheHit {
                 symbol: ticker_info.ticker.to_string(),
-                date_range: date_range,
+                date_range,
             });
         }
 
@@ -349,7 +350,10 @@ impl ReplayEngine {
 
     /// Check if data is in cache (simplified)
     async fn check_cache(&self, ticker: &FuturesTicker, date_range: &DateRange) -> bool {
-        self.trade_repo.has_trades(ticker, date_range.start).await.unwrap_or_default()
+        self.trade_repo
+            .has_trades(ticker, date_range.start)
+            .await
+            .unwrap_or_default()
     }
 
     /// Pre-aggregate common timeframes
@@ -373,7 +377,7 @@ impl ReplayEngine {
 
                 // Emit detailed progress if enabled
                 if self.config.detailed_progress {
-                    let _ = self.event_tx.send(ReplayEvent::LoadingProgress {
+                    let _ = self.event_tx.try_send(ReplayEvent::LoadingProgress {
                         progress: 0.9,
                         message: format!("Aggregated {} candles", name),
                     });
@@ -578,7 +582,7 @@ impl ReplayEngine {
                     let depth = replay_data.depth_at(new_position);
 
                     if !trades.is_empty() || depth.is_some() {
-                        let _ = event_tx.send(ReplayEvent::MarketData {
+                        let _ = event_tx.try_send(ReplayEvent::MarketData {
                             timestamp: new_position,
                             trades,
                             depth: depth.cloned(),
@@ -592,7 +596,7 @@ impl ReplayEngine {
                     state.progress()
                 };
 
-                let _ = event_tx.send(ReplayEvent::PositionUpdate {
+                let _ = event_tx.try_send(ReplayEvent::PositionUpdate {
                     timestamp: new_position,
                     progress,
                 });
@@ -604,17 +608,17 @@ impl ReplayEngine {
                         state.status = PlaybackStatus::Stopped;
                     }
 
-                    let _ = event_tx.send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped));
-                    let _ = event_tx.send(ReplayEvent::PlaybackComplete);
+                    let _ = event_tx.try_send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped));
+                    let _ = event_tx.try_send(ReplayEvent::PlaybackComplete);
                     break;
                 }
             }
         }));
     }
 
-    /// Emit an event
+    /// Emit an event (non-blocking, drops event if channel is full)
     fn emit_event(&self, event: ReplayEvent) {
-        if let Err(e) = self.event_tx.send(event) {
+        if let Err(e) = self.event_tx.try_send(event) {
             log::error!("Failed to emit replay event: {}", e);
         }
     }
@@ -724,10 +728,7 @@ impl ReplayEngine {
     /// Compute a volume histogram from loaded trade data.
     /// Divides the time range into `num_buckets` equal slices and
     /// sums buy/sell volume in each.
-    pub async fn compute_volume_histogram(
-        &self,
-        num_buckets: usize,
-    ) -> Vec<VolumeBucket> {
+    pub async fn compute_volume_histogram(&self, num_buckets: usize) -> Vec<VolumeBucket> {
         let num_buckets = num_buckets.max(1);
         let data_guard = self.data.read().await;
         let Some(data) = data_guard.as_ref() else {
@@ -859,10 +860,7 @@ mod tests {
 
     fn test_ticker_info() -> FuturesTickerInfo {
         FuturesTickerInfo {
-            ticker: FuturesTicker::new(
-                "ES.c.0",
-                crate::domain::futures::FuturesVenue::CMEGlobex,
-            ),
+            ticker: FuturesTicker::new("ES.c.0", crate::domain::futures::FuturesVenue::CMEGlobex),
             tick_size: 0.25,
             min_qty: 1.0,
             contract_size: 50.0,

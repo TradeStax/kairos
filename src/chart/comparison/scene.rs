@@ -4,8 +4,8 @@ use super::types::domain;
 use iced::advanced::Layout;
 use iced::{Point, Rectangle, mouse};
 
-use super::line_widget::TEXT_SIZE_PUB as TEXT_SIZE;
 use super::legend::{EndLabel, IconKind, LegendLayout, LegendMode, resolve_label_overlaps};
+use super::line_widget::TEXT_SIZE_PUB as TEXT_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum HitZone {
@@ -137,11 +137,7 @@ impl<'a, S> super::line_widget::LineComparison<'a, S>
 where
     S: SeriesLike,
 {
-    pub(super) fn compute_scene(
-        &self,
-        layout: Layout<'_>,
-        cursor: mouse::Cursor,
-    ) -> Option<Scene> {
+    pub(super) fn compute_scene(&self, layout: Layout<'_>, cursor: mouse::Cursor) -> Option<Scene> {
         let ((min_x, max_x), (min_pct, max_pct)) = self.compute_domains(self.pan)?;
 
         let regions = Regions::from_layout(layout);
@@ -274,13 +270,11 @@ where
 
         let should_draw_crosshair = !(hovering_legend && hovered_row.is_some());
         let mut reserved_y: Option<Rectangle> = None;
-        if should_draw_crosshair
-            && let Some(ci) = cursor_info
-        {
+        if should_draw_crosshair && let Some(ci) = cursor_info {
             let plot_rect = ctx.plot_rect();
 
-            let t = ((ci.y_pct - ctx.min_pct) / (ctx.max_pct - ctx.min_pct).max(1e-6))
-                .clamp(0.0, 1.0);
+            let t =
+                ((ci.y_pct - ctx.min_pct) / (ctx.max_pct - ctx.min_pct).max(1e-6)).clamp(0.0, 1.0);
             let cy_px = plot_rect.y + plot_rect.height - t * plot_rect.height;
 
             let pct_str = super::types::format_pct(ci.y_pct, step, true);
@@ -319,17 +313,13 @@ where
         })
     }
 
-    pub(super) fn compute_domains(
-        &self,
-        pan_points: f32,
-    ) -> Option<((u64, u64), (f32, f32))> {
+    pub(super) fn compute_domains(&self, pan_points: f32) -> Option<((u64, u64), (f32, f32))> {
         if self.series.is_empty() {
             return None;
         }
 
         let dt = self.dt_ms_est().max(1);
-        let all_points: Vec<&[(u64, f32)]> =
-            self.series.iter().map(|s| s.points()).collect();
+        let all_points: Vec<&[(u64, f32)]> = self.series.iter().map(|s| s.points()).collect();
 
         let (min_x, max_x) = domain::window(&all_points, self.zoom, pan_points, dt)?;
         let (min_pct, max_pct) = domain::pct_domain(&all_points, min_x, max_x)?;

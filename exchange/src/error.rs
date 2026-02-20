@@ -2,7 +2,7 @@
 //!
 //! Provides unified error types with proper context and user-friendly messages.
 
-use std::fmt;
+use flowsurface_data::domain::error::{AppError, ErrorSeverity};
 
 /// Result type alias for exchange operations
 pub type ExchangeResult<T> = std::result::Result<T, Error>;
@@ -59,16 +59,17 @@ impl From<crate::adapter::databento::DatabentoError> for Error {
             DatabentoError::Api(e) => Error::Databento(e),
             DatabentoError::Dbn(e) => Error::Dbn(e),
             DatabentoError::SymbolNotFound(s) => Error::Symbol(s),
-            DatabentoError::InvalidInstrumentId(id) => Error::Symbol(format!("Invalid instrument ID: {}", id)),
+            DatabentoError::InvalidInstrumentId(id) => {
+                Error::Symbol(format!("Invalid instrument ID: {}", id))
+            }
             DatabentoError::Cache(s) => Error::Cache(s),
             DatabentoError::Config(s) => Error::Config(s),
         }
     }
 }
 
-impl Error {
-    /// Get user-friendly error message (safe to display in UI)
-    pub fn user_message(&self) -> String {
+impl AppError for Error {
+    fn user_message(&self) -> String {
         match self {
             Error::Fetch(msg) => format!("Failed to fetch data: {}", msg),
             Error::Parse(msg) => format!("Failed to parse response: {}", msg),
@@ -87,16 +88,14 @@ impl Error {
         }
     }
 
-    /// Check if error is retriable
-    pub fn is_retriable(&self) -> bool {
+    fn is_retriable(&self) -> bool {
         matches!(
             self,
             Error::Fetch(_) | Error::Databento(_) | Error::Io(_) | Error::Rithmic(_)
         )
     }
 
-    /// Get severity level for logging
-    pub fn severity(&self) -> ErrorSeverity {
+    fn severity(&self) -> ErrorSeverity {
         match self {
             Error::Config(_) | Error::Dbn(_) => ErrorSeverity::Critical,
             Error::Fetch(_) | Error::Databento(_) | Error::Io(_) | Error::Rithmic(_) => {
@@ -104,25 +103,6 @@ impl Error {
             }
             Error::Parse(_) | Error::Cache(_) => ErrorSeverity::Warning,
             Error::Symbol(_) | Error::Validation(_) => ErrorSeverity::Info,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorSeverity {
-    Critical,    // Application cannot continue
-    Recoverable, // Can retry or fallback
-    Warning,     // Non-fatal but should be addressed
-    Info,        // Expected errors (e.g., user input validation)
-}
-
-impl fmt::Display for ErrorSeverity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ErrorSeverity::Critical => write!(f, "CRITICAL"),
-            ErrorSeverity::Recoverable => write!(f, "ERROR"),
-            ErrorSeverity::Warning => write!(f, "WARN"),
-            ErrorSeverity::Info => write!(f, "INFO"),
         }
     }
 }

@@ -27,18 +27,42 @@ pub enum DrawingTool {
     /// Selection/pan mode (default) - no drawing active
     #[default]
     None,
+    // ── Lines ─────────────────────────────────────────────────────────
     /// Two-point line segment
     Line,
     /// Line infinite in one direction from first point
     Ray,
+    /// Line extending infinitely in both directions through two points
+    ExtendedLine,
     /// Horizontal price level line (1 point)
     HorizontalLine,
     /// Vertical time/bar line (1 point)
     VerticalLine,
+    // ── Fibonacci ──────────────────────────────────────────────────────
+    /// Fibonacci retracement (2 points, configurable levels)
+    FibRetracement,
+    /// Fibonacci extension (3 points)
+    FibExtension,
+    // ── Channels ──────────────────────────────────────────────────────
+    /// Parallel channel (3 points)
+    ParallelChannel,
+    // ── Shapes ────────────────────────────────────────────────────────
     /// Two-point rectangle
     Rectangle,
-    /// Two-point trend line with optional extensions
-    TrendLine,
+    /// Ellipse defined by center + radius point
+    Ellipse,
+    // ── Annotations ───────────────────────────────────────────────────
+    /// Text label at a single point
+    TextLabel,
+    /// Price label at a single point (auto-shows price)
+    PriceLabel,
+    /// Arrow from point A to point B with arrowhead
+    Arrow,
+    // ── Measurement ───────────────────────────────────────────────────
+    /// Price range measurement (2 points, shows price delta)
+    PriceRange,
+    /// Date range measurement (2 points, shows time delta)
+    DateRange,
 }
 
 impl DrawingTool {
@@ -46,19 +70,46 @@ impl DrawingTool {
     pub fn required_points(&self) -> usize {
         match self {
             DrawingTool::None => 0,
-            DrawingTool::HorizontalLine | DrawingTool::VerticalLine => 1,
-            DrawingTool::Line | DrawingTool::Ray | DrawingTool::Rectangle | DrawingTool::TrendLine => 2,
+            DrawingTool::HorizontalLine
+            | DrawingTool::VerticalLine
+            | DrawingTool::TextLabel
+            | DrawingTool::PriceLabel => 1,
+            DrawingTool::Line
+            | DrawingTool::Ray
+            | DrawingTool::ExtendedLine
+            | DrawingTool::FibRetracement
+            | DrawingTool::Rectangle
+            | DrawingTool::Ellipse
+            | DrawingTool::Arrow
+            | DrawingTool::PriceRange
+            | DrawingTool::DateRange => 2,
+            DrawingTool::FibExtension | DrawingTool::ParallelChannel => 3,
         }
     }
 
     /// All available drawing tools (excluding None)
     pub const ALL: &'static [DrawingTool] = &[
+        // Lines
         DrawingTool::Line,
         DrawingTool::Ray,
+        DrawingTool::ExtendedLine,
         DrawingTool::HorizontalLine,
         DrawingTool::VerticalLine,
+        // Fibonacci
+        DrawingTool::FibRetracement,
+        DrawingTool::FibExtension,
+        // Channels
+        DrawingTool::ParallelChannel,
+        // Shapes
         DrawingTool::Rectangle,
-        DrawingTool::TrendLine,
+        DrawingTool::Ellipse,
+        // Annotations
+        DrawingTool::TextLabel,
+        DrawingTool::PriceLabel,
+        DrawingTool::Arrow,
+        // Measurement
+        DrawingTool::PriceRange,
+        DrawingTool::DateRange,
     ];
 }
 
@@ -68,24 +119,159 @@ impl std::fmt::Display for DrawingTool {
             DrawingTool::None => write!(f, "Select"),
             DrawingTool::Line => write!(f, "Line"),
             DrawingTool::Ray => write!(f, "Ray"),
+            DrawingTool::ExtendedLine => write!(f, "Extended Line"),
             DrawingTool::HorizontalLine => write!(f, "H-Line"),
             DrawingTool::VerticalLine => write!(f, "V-Line"),
+            DrawingTool::FibRetracement => write!(f, "Fib Retracement"),
+            DrawingTool::FibExtension => write!(f, "Fib Extension"),
+            DrawingTool::ParallelChannel => write!(f, "Parallel Channel"),
             DrawingTool::Rectangle => write!(f, "Rectangle"),
-            DrawingTool::TrendLine => write!(f, "Trend Line"),
+            DrawingTool::Ellipse => write!(f, "Ellipse"),
+            DrawingTool::TextLabel => write!(f, "Text"),
+            DrawingTool::PriceLabel => write!(f, "Price Label"),
+            DrawingTool::Arrow => write!(f, "Arrow"),
+            DrawingTool::PriceRange => write!(f, "Price Range"),
+            DrawingTool::DateRange => write!(f, "Date Range"),
+        }
+    }
+}
+
+/// Label alignment on a drawing line
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum LabelAlignment {
+    Left,
+    Center,
+    #[default]
+    Right,
+}
+
+impl LabelAlignment {
+    pub const ALL: [LabelAlignment; 3] = [
+        LabelAlignment::Left,
+        LabelAlignment::Center,
+        LabelAlignment::Right,
+    ];
+}
+
+impl std::fmt::Display for LabelAlignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LabelAlignment::Left => write!(f, "Left"),
+            LabelAlignment::Center => write!(f, "Center"),
+            LabelAlignment::Right => write!(f, "Right"),
         }
     }
 }
 
 /// Line style for drawing strokes
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum LineStyle {
     #[default]
     Solid,
     Dashed,
     Dotted,
+    DashDot,
 }
 
+impl LineStyle {
+    pub const ALL: [LineStyle; 4] = [
+        LineStyle::Solid,
+        LineStyle::Dashed,
+        LineStyle::Dotted,
+        LineStyle::DashDot,
+    ];
+}
+
+impl std::fmt::Display for LineStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LineStyle::Solid => write!(f, "Solid"),
+            LineStyle::Dashed => write!(f, "Dashed"),
+            LineStyle::Dotted => write!(f, "Dotted"),
+            LineStyle::DashDot => write!(f, "Dash-Dot"),
+        }
+    }
+}
+
+/// Fibonacci retracement/extension level
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FibLevel {
+    /// The ratio (e.g. 0.618)
+    pub ratio: f64,
+    /// Color for this level line
+    pub color: SerializableColor,
+    /// Display label (e.g. "61.8%")
+    pub label: String,
+    /// Whether this level is drawn
+    pub visible: bool,
+}
+
+/// Fibonacci configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FibonacciConfig {
+    /// The fibonacci levels to display
+    pub levels: Vec<FibLevel>,
+    /// Show price values at each level
+    pub show_prices: bool,
+    /// Show percentage labels
+    pub show_percentages: bool,
+    /// Extend level lines beyond the anchor points
+    pub extend_lines: bool,
+}
+
+impl Default for FibonacciConfig {
+    fn default() -> Self {
+        Self {
+            levels: vec![
+                FibLevel {
+                    ratio: 0.0,
+                    color: SerializableColor::new(0.5, 0.5, 0.5, 1.0),
+                    label: "0%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 0.236,
+                    color: SerializableColor::new(0.8, 0.2, 0.2, 1.0),
+                    label: "23.6%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 0.382,
+                    color: SerializableColor::new(0.2, 0.8, 0.2, 1.0),
+                    label: "38.2%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 0.5,
+                    color: SerializableColor::new(0.2, 0.2, 0.8, 1.0),
+                    label: "50%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 0.618,
+                    color: SerializableColor::new(0.2, 0.8, 0.2, 1.0),
+                    label: "61.8%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 0.786,
+                    color: SerializableColor::new(0.8, 0.2, 0.2, 1.0),
+                    label: "78.6%".into(),
+                    visible: true,
+                },
+                FibLevel {
+                    ratio: 1.0,
+                    color: SerializableColor::new(0.5, 0.5, 0.5, 1.0),
+                    label: "100%".into(),
+                    visible: true,
+                },
+            ],
+            show_prices: true,
+            show_percentages: true,
+            extend_lines: false,
+        }
+    }
+}
 
 /// Serializable color (RGBA)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -108,14 +294,21 @@ impl Default for SerializableColor {
     }
 }
 
+impl SerializableColor {
+    /// Create a new color with values clamped to valid range [0.0, 1.0]
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self {
+            r: r.clamp(0.0, 1.0),
+            g: g.clamp(0.0, 1.0),
+            b: b.clamp(0.0, 1.0),
+            a: a.clamp(0.0, 1.0),
+        }
+    }
+}
+
 impl From<iced_core::Color> for SerializableColor {
     fn from(color: iced_core::Color) -> Self {
-        Self {
-            r: color.r,
-            g: color.g,
-            b: color.b,
-            a: color.a,
-        }
+        Self::new(color.r, color.g, color.b, color.a)
     }
 }
 
@@ -134,10 +327,19 @@ pub struct DrawingStyle {
     pub stroke_width: f32,
     /// Line style (solid, dashed, dotted)
     pub line_style: LineStyle,
-    /// Fill color (for rectangles)
+    /// Fill color (for rectangles, ellipses, etc.)
     pub fill_color: Option<SerializableColor>,
     /// Whether to show price labels
     pub show_labels: bool,
+    /// Fill opacity (0.0 - 1.0)
+    pub fill_opacity: f32,
+    /// Fibonacci configuration (for FibRetracement/FibExtension tools)
+    pub fibonacci: Option<FibonacciConfig>,
+    /// Text content (for TextLabel tool)
+    pub text: Option<String>,
+    /// Label alignment (left, center, right) for line-type drawings
+    #[serde(default)]
+    pub label_alignment: LabelAlignment,
 }
 
 impl Default for DrawingStyle {
@@ -148,12 +350,16 @@ impl Default for DrawingStyle {
             line_style: LineStyle::Solid,
             fill_color: None,
             show_labels: true,
+            fill_opacity: 0.2,
+            fibonacci: None,
+            text: None,
+            label_alignment: LabelAlignment::default(),
         }
     }
 }
 
 /// A point anchored to price and time coordinates
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SerializablePoint {
     /// Price in fixed-point units (i64 with 10^-8 precision)
     pub price_units: i64,
@@ -179,7 +385,7 @@ impl SerializablePoint {
 }
 
 /// A complete drawing that can be serialized
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SerializableDrawing {
     /// Unique identifier
     pub id: DrawingId,

@@ -6,8 +6,11 @@
 #[allow(clippy::module_inception)]
 mod drawing;
 mod manager;
+#[allow(dead_code)]
+pub mod persistence;
 mod point;
 pub mod render;
+pub mod snap;
 
 pub use drawing::Drawing;
 pub use manager::DrawingManager;

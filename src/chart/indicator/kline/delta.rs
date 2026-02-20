@@ -12,8 +12,8 @@ use crate::chart::{
     },
 };
 
-use data::{Candle, ChartBasis};
 use data::util::format_with_commas;
+use data::{Candle, ChartBasis};
 
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
@@ -67,7 +67,8 @@ impl KlineIndicatorImpl for DeltaIndicator {
         match basis {
             ChartBasis::Time(_) => {
                 for candle in candles {
-                    self.data.insert(candle.time.0, candle.volume_delta() as f32);
+                    self.data
+                        .insert(candle.time.0, candle.volume_delta() as f32);
                 }
             }
             ChartBasis::Tick(_) => {

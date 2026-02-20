@@ -28,33 +28,31 @@ mod render;
 pub mod trades;
 
 use crate::chart::{
-    Chart, Message, PlotConstants, ViewState,
-    drawing::DrawingManager,
+    Chart, Message, PlotConstants, ViewState, drawing::DrawingManager,
     scale::linear::PriceInfoLabel,
 };
-use crate::modal::pane::settings::study;
+use crate::modals::pane::settings::study;
 
 use data::{HeatmapData, QtyScale};
 
+use ::data::util::count_decimals;
 use ::data::{
     ChartBasis, ChartData, DepthSnapshot, HeatmapIndicator, Price as DataPrice,
     Trade as DomainTrade, ViewConfig,
 };
-use ::data::util::count_decimals;
 use exchange::FuturesTickerInfo;
 
 use iced::{Element, Vector};
 
 use enum_map::EnumMap;
+use std::cell::Cell;
 use std::time::Instant;
 
 // Re-export types from submodules
 pub use render::HeatmapStudy;
 pub use trades::TradeRenderingMode;
 
-// =============================================================================
-// Constants - Visual Configuration
-// =============================================================================
+// ── Constants - Visual Configuration ──────────────────────────────────
 
 /// Minimum chart scaling factor
 const MIN_SCALING: f32 = 0.6;
@@ -74,9 +72,7 @@ const MIN_CELL_HEIGHT: f32 = 1.0;
 /// Default cell width
 const DEFAULT_CELL_WIDTH: f32 = 3.0;
 
-// =============================================================================
-// Chart Trait Implementation
-// =============================================================================
+// ── Chart Trait Implementation ────────────────────────────────────────
 
 impl Chart for HeatmapChart {
     type IndicatorKind = HeatmapIndicator;
@@ -124,6 +120,50 @@ impl Chart for HeatmapChart {
     fn active_drawing_tool(&self) -> ::data::DrawingTool {
         self.drawings.active_tool()
     }
+
+    fn has_pending_drawing(&self) -> bool {
+        self.drawings.has_pending()
+    }
+
+    fn hit_test_drawing(
+        &self,
+        screen_point: iced::Point,
+        bounds: iced::Size,
+    ) -> Option<::data::DrawingId> {
+        use crate::chart::core::tokens;
+        self.drawings.hit_test(
+            screen_point,
+            self.state(),
+            bounds,
+            tokens::drawing::HIT_TOLERANCE,
+        )
+    }
+
+    fn hit_test_drawing_handle(
+        &self,
+        screen_point: iced::Point,
+        bounds: iced::Size,
+    ) -> Option<(::data::DrawingId, usize)> {
+        use crate::chart::core::tokens;
+        self.drawings.hit_test_handle(
+            screen_point,
+            self.state(),
+            bounds,
+            tokens::drawing::HANDLE_SIZE,
+        )
+    }
+
+    fn has_drawing_selection(&self) -> bool {
+        !self.drawings.selected_ids().is_empty()
+    }
+
+    fn is_drawing_selected(&self, id: ::data::DrawingId) -> bool {
+        self.drawings.is_selected(id)
+    }
+
+    fn has_clone_pending(&self) -> bool {
+        self.drawings.has_clone_pending()
+    }
 }
 
 impl PlotConstants for HeatmapChart {
@@ -156,16 +196,7 @@ impl PlotConstants for HeatmapChart {
     }
 }
 
-// =============================================================================
-// Domain Types
-// =============================================================================
-
-/// Indicator data (currently just volume, but extensible)
-#[derive(Default)]
-pub(crate) enum IndicatorData {
-    #[default]
-    Volume,
-}
+// ── Domain Types ──────────────────────────────────────────────────────
 
 /// Visual configuration for heatmap display
 #[derive(Debug, Clone, Copy)]
@@ -177,8 +208,6 @@ pub struct VisualConfig {
     pub trade_size_filter: f32,
     /// Trade circle size scaling (None = fixed size)
     pub trade_size_scale: Option<u16>,
-    /// Depth coalescing strategy (unused currently)
-    pub coalescing: Option<CoalesceKind>,
     /// Trade rendering mode (Sparse/Dense/Auto)
     pub trade_rendering_mode: TradeRenderingMode,
     /// Maximum number of trade circles to render (performance limit)
@@ -191,23 +220,13 @@ impl Default for VisualConfig {
             order_size_filter: 0.0,
             trade_size_filter: 0.0,
             trade_size_scale: Some(100),
-            coalescing: None,
             trade_rendering_mode: TradeRenderingMode::Auto,
             max_trade_markers: 10_000, // Performance limit: max 10k circles
         }
     }
 }
 
-/// Coalescing strategy for depth runs (future enhancement)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoalesceKind {
-    Aggressive,
-    Conservative,
-}
-
-// =============================================================================
-// Main Chart Structure
-// =============================================================================
+// ── Main Chart Structure ──────────────────────────────────────────────
 
 /// Heatmap Chart - Volume Heatmap with Order Flow
 ///
@@ -229,8 +248,8 @@ pub struct HeatmapChart {
     /// Processed heatmap data (depth runs + trade buckets)
     pub(crate) heatmap_data: HeatmapData,
 
-    /// Active indicators
-    pub(crate) indicators: EnumMap<HeatmapIndicator, Option<IndicatorData>>,
+    /// Active indicators (presence tracked as bool)
+    pub(crate) indicators: EnumMap<HeatmapIndicator, bool>,
 
     /// Visual configuration (filters, scaling)
     pub(crate) visual_config: VisualConfig,
@@ -246,6 +265,9 @@ pub struct HeatmapChart {
 
     /// Drawing manager for chart annotations
     pub drawings: DrawingManager,
+
+    /// Cached qty_scales to avoid recomputation when viewport hasn't changed
+    qty_scale_cache: Cell<Option<(u64, u64, i64, i64, QtyScale)>>,
 }
 
 impl HeatmapChart {
@@ -264,10 +286,7 @@ impl HeatmapChart {
         // Initialize indicator map
         let mut indicators_map = EnumMap::default();
         for &indicator in indicators {
-            indicators_map[indicator] = Some(match indicator {
-                HeatmapIndicator::Volume => IndicatorData::Volume,
-                _ => IndicatorData::Volume,
-            });
+            indicators_map[indicator] = true;
         }
 
         // Build heatmap data from chart_data
@@ -275,7 +294,10 @@ impl HeatmapChart {
 
         // Process depth snapshots if available
         if let Some(depth_snapshots) = &chart_data.depth_snapshots {
-            log::info!("📊 Processing {} depth snapshots for heatmap...", depth_snapshots.len());
+            log::info!(
+                "📊 Processing {} depth snapshots for heatmap...",
+                depth_snapshots.len()
+            );
             let total = depth_snapshots.len();
             let start_time = std::time::Instant::now();
 
@@ -285,17 +307,28 @@ impl HeatmapChart {
                 if (idx + 1) % 1000 == 0 || idx + 1 == total {
                     let elapsed = start_time.elapsed().as_secs_f32();
                     let rate = (idx + 1) as f32 / elapsed;
-                    log::info!("  📊 Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
-                        idx + 1, total, ((idx + 1) as f32 / total as f32) * 100.0, rate);
+                    log::info!(
+                        "  📊 Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
+                        idx + 1,
+                        total,
+                        ((idx + 1) as f32 / total as f32) * 100.0,
+                        rate
+                    );
                 }
             }
 
             let total_time = start_time.elapsed();
-            log::info!("✓ Depth processing complete in {:.2}s", total_time.as_secs_f32());
+            log::info!(
+                "✓ Depth processing complete in {:.2}s",
+                total_time.as_secs_f32()
+            );
         }
 
         // Process trades
-        log::info!("📊 Processing {} trades for heatmap...", chart_data.trades.len());
+        log::info!(
+            "📊 Processing {} trades for heatmap...",
+            chart_data.trades.len()
+        );
         for trade in &chart_data.trades {
             heatmap_data.add_trade(trade, basis, tick_size);
         }
@@ -353,12 +386,15 @@ impl HeatmapChart {
             studies,
             last_tick: Instant::now(),
             drawings: DrawingManager::new(),
+            qty_scale_cache: Cell::new(None),
         };
 
         // Set initial price and position
-        chart.chart.base_price_y = exchange::util::Price::from_units(base_price.to_units());
+        chart.chart.base_price_y = exchange::util::Price::from_units(base_price.units());
         chart.chart.latest_x = latest_x;
-        chart.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(base_price.to_units())));
+        chart.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(
+            base_price.units(),
+        )));
 
         chart
     }
@@ -367,15 +403,18 @@ impl HeatmapChart {
     pub fn update_from_replay(&mut self, depth: &DepthSnapshot, trades: &[DomainTrade]) {
         let tick_size = DataPrice::from_f32(self.ticker_info.tick_size);
 
-        self.heatmap_data.add_depth_snapshot(depth, self.basis, tick_size);
+        self.heatmap_data
+            .add_depth_snapshot(depth, self.basis, tick_size);
 
         for trade in trades {
             self.heatmap_data.add_trade(trade, self.basis, tick_size);
         }
 
         if let Some(mid_price) = depth.mid_price() {
-            self.chart.base_price_y = exchange::util::Price::from_units(mid_price.to_units());
-            self.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(mid_price.to_units())));
+            self.chart.base_price_y = exchange::util::Price::from_units(mid_price.units());
+            self.chart.last_price = Some(PriceInfoLabel::Neutral(
+                exchange::util::Price::from_units(mid_price.units()),
+            ));
         }
 
         self.chart.latest_x = depth.time.to_millis();
@@ -400,10 +439,9 @@ impl HeatmapChart {
         // Update latest X and base price from last trade
         if let Some(last) = trades.last() {
             self.chart.latest_x = last.time.to_millis();
-            self.chart.base_price_y =
-                exchange::util::Price::from_units(last.price.to_units());
+            self.chart.base_price_y = exchange::util::Price::from_units(last.price.units());
             self.chart.last_price = Some(PriceInfoLabel::Neutral(
-                exchange::util::Price::from_units(last.price.to_units()),
+                exchange::util::Price::from_units(last.price.units()),
             ));
         }
 
@@ -422,11 +460,10 @@ impl HeatmapChart {
 
         // Update latest X and base price
         self.chart.latest_x = trade.time.to_millis();
-        self.chart.base_price_y =
-            exchange::util::Price::from_units(trade.price.to_units());
-        self.chart.last_price = Some(PriceInfoLabel::Neutral(
-            exchange::util::Price::from_units(trade.price.to_units()),
-        ));
+        self.chart.base_price_y = exchange::util::Price::from_units(trade.price.units());
+        self.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(
+            trade.price.units(),
+        )));
     }
 
     /// Get current visual configuration
@@ -503,7 +540,7 @@ impl HeatmapChart {
     /// Get basis interval in milliseconds (None for tick basis)
     pub fn basis_interval(&self) -> Option<u64> {
         match self.basis {
-            ChartBasis::Time(timeframe) => Some(timeframe.to_millis()),
+            ChartBasis::Time(timeframe) => Some(timeframe.to_milliseconds()),
             ChartBasis::Tick(_) => None,
         }
     }
@@ -546,15 +583,7 @@ impl HeatmapChart {
 
     /// Toggle indicator on/off
     pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {
-        if self.indicators[indicator].is_some() {
-            self.indicators[indicator] = None;
-        } else {
-            let data = match indicator {
-                HeatmapIndicator::Volume => IndicatorData::Volume,
-                _ => IndicatorData::Volume,
-            };
-            self.indicators[indicator] = Some(data);
-        }
+        self.indicators[indicator] = !self.indicators[indicator];
     }
 
     /// Invalidate caches and trigger redraw
@@ -569,6 +598,7 @@ impl HeatmapChart {
         }
 
         chart.cache.clear_all();
+        self.qty_scale_cache.set(None);
 
         if let Some(t) = now {
             self.last_tick = t;
@@ -582,7 +612,7 @@ impl HeatmapChart {
         self.last_tick
     }
 
-    /// Calculate quantity scales for rendering
+    /// Calculate quantity scales for rendering, with viewport-based caching
     pub(crate) fn calc_qty_scales(
         &self,
         earliest: u64,
@@ -590,6 +620,14 @@ impl HeatmapChart {
         highest: DataPrice,
         lowest: DataPrice,
     ) -> QtyScale {
+        let key = (earliest, latest, highest.units(), lowest.units());
+
+        if let Some((ce, cl, ch, clo, cached)) = self.qty_scale_cache.get() {
+            if ce == key.0 && cl == key.1 && ch == key.2 && clo == key.3 {
+                return cached;
+            }
+        }
+
         let max_trade_qty = self.heatmap_data.max_trade_qty_in_range(earliest, latest);
         let max_aggr_volume = self.heatmap_data.max_aggr_volume_in_range(earliest, latest);
         let max_depth_qty = self.heatmap_data.max_depth_qty_in_range(
@@ -600,10 +638,15 @@ impl HeatmapChart {
             self.visual_config.order_size_filter,
         );
 
-        QtyScale {
+        let result = QtyScale {
             max_trade_qty,
             max_aggr_volume,
             max_depth_qty,
-        }
+        };
+
+        self.qty_scale_cache
+            .set(Some((key.0, key.1, key.2, key.3, result)));
+
+        result
     }
 }

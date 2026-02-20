@@ -1,6 +1,13 @@
 //! MACD Indicator
 
-use crate::chart::{Caches, Message, ViewState, indicator::{indicator_row, kline::KlineIndicatorImpl, plot::{PlotTooltip, line::LinePlot}}};
+use crate::chart::{
+    Caches, Message, ViewState,
+    indicator::{
+        indicator_row,
+        kline::KlineIndicatorImpl,
+        plot::{PlotTooltip, line::LinePlot},
+    },
+};
 use data::{Candle, ChartBasis};
 use iced::widget::column;
 use std::{collections::BTreeMap, ops::RangeInclusive};
@@ -23,7 +30,9 @@ impl MacdIndicator {
     fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.macd_line.clear();
         self.signal_line.clear();
-        if candles.len() < 26 { return; }
+        if candles.len() < 26 {
+            return;
+        }
 
         let multiplier_12 = 2.0 / 13.0;
         let multiplier_26 = 2.0 / 27.0;
@@ -45,7 +54,9 @@ impl MacdIndicator {
             self.macd_line.insert(key, macd);
         }
 
-        if macd_values.len() < 9 { return; }
+        if macd_values.len() < 9 {
+            return;
+        }
         let multiplier_9 = 2.0 / 10.0;
         let mut signal = macd_values[0].1;
 
@@ -57,20 +68,48 @@ impl MacdIndicator {
 }
 
 impl KlineIndicatorImpl for MacdIndicator {
-    fn clear_all_caches(&mut self) { self.cache.clear_all(); }
-    fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
+    fn clear_all_caches(&mut self) {
+        self.cache.clear_all();
+    }
+    fn clear_crosshair_caches(&mut self) {
+        self.cache.clear_crosshair();
+    }
 
-    fn element<'a>(&'a self, chart: &'a ViewState, visible_range: RangeInclusive<u64>) -> iced::Element<'a, Message> {
+    fn element<'a>(
+        &'a self,
+        chart: &'a ViewState,
+        visible_range: RangeInclusive<u64>,
+    ) -> iced::Element<'a, Message> {
         let tooltip_macd = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("MACD: {:.2}", v));
-        let tooltip_signal = |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("Signal: {:.2}", v));
+        let tooltip_signal =
+            |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("Signal: {:.2}", v));
 
-        let macd_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.5).show_points(false).with_tooltip(tooltip_macd);
-        let signal_plot = LinePlot::new(|v: &f32| *v).stroke_width(1.5).show_points(false).with_tooltip(tooltip_signal);
+        let macd_plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.5)
+            .show_points(false)
+            .with_tooltip(tooltip_macd);
+        let signal_plot = LinePlot::new(|v: &f32| *v)
+            .stroke_width(1.5)
+            .show_points(false)
+            .with_tooltip(tooltip_signal);
 
         column![
-            indicator_row(chart, &self.cache, macd_plot, &self.macd_line, visible_range.clone()),
-            indicator_row(chart, &self.cache, signal_plot, &self.signal_line, visible_range)
-        ].into()
+            indicator_row(
+                chart,
+                &self.cache,
+                macd_plot,
+                &self.macd_line,
+                visible_range.clone()
+            ),
+            indicator_row(
+                chart,
+                &self.cache,
+                signal_plot,
+                &self.signal_line,
+                visible_range
+            )
+        ]
+        .into()
     }
 
     fn rebuild_from_candles(&mut self, candles: &[Candle], basis: ChartBasis) {
@@ -80,5 +119,7 @@ impl KlineIndicatorImpl for MacdIndicator {
 }
 
 impl Default for MacdIndicator {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

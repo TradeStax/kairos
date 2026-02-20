@@ -177,12 +177,7 @@ pub(super) fn format_time_label(ts_ms: u64, step_ms: u64) -> String {
     }
 }
 
-pub(super) fn time_ticks(
-    min_x: u64,
-    max_x: u64,
-    px_per_ms: f32,
-    min_px: f32,
-) -> (Vec<u64>, u64) {
+pub(super) fn time_ticks(min_x: u64, max_x: u64, px_per_ms: f32, min_px: f32) -> (Vec<u64>, u64) {
     let span = max_x.saturating_sub(min_x).max(1);
     let mut step = *time_tick_candidates().first().unwrap_or(&1_000);
     for &candidate in time_tick_candidates() {
@@ -316,11 +311,7 @@ pub mod domain {
         Some((left, right))
     }
 
-    pub fn pct_domain(
-        series: &[&[(u64, f32)]],
-        min_x: u64,
-        max_x: u64,
-    ) -> Option<(f32, f32)> {
+    pub fn pct_domain(series: &[&[(u64, f32)]], min_x: u64, max_x: u64) -> Option<(f32, f32)> {
         let mut min_pct = f32::INFINITY;
         let mut max_pct = f32::NEG_INFINITY;
         let mut any = false;

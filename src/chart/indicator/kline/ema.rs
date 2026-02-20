@@ -19,12 +19,18 @@ pub struct EmaIndicator {
 
 impl EmaIndicator {
     pub fn new(period: usize) -> Self {
-        Self { period, data: BTreeMap::new(), cache: Caches::default() }
+        Self {
+            period,
+            data: BTreeMap::new(),
+            cache: Caches::default(),
+        }
     }
 
     fn calculate(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.data.clear();
-        if candles.is_empty() { return; }
+        if candles.is_empty() {
+            return;
+        }
 
         let multiplier = 2.0 / (self.period as f32 + 1.0);
         let mut ema = candles[0].close.to_f32();
@@ -43,16 +49,20 @@ impl EmaIndicator {
 
     fn get_color(&self) -> iced::Color {
         match self.period {
-            9 => iced::Color::from_rgb(0.3, 1.0, 0.3),   // Green
-            21 => iced::Color::from_rgb(1.0, 0.3, 0.3),   // Red
-            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),    // Gray
+            9 => iced::Color::from_rgb(0.3, 1.0, 0.3),  // Green
+            21 => iced::Color::from_rgb(1.0, 0.3, 0.3), // Red
+            _ => iced::Color::from_rgb(0.5, 0.5, 0.5),  // Gray
         }
     }
 }
 
 impl KlineIndicatorImpl for EmaIndicator {
-    fn clear_all_caches(&mut self) { self.cache.clear_all(); }
-    fn clear_crosshair_caches(&mut self) { self.cache.clear_crosshair(); }
+    fn clear_all_caches(&mut self) {
+        self.cache.clear_all();
+    }
+    fn clear_crosshair_caches(&mut self) {
+        self.cache.clear_crosshair();
+    }
 
     fn element<'a>(
         &'a self,
@@ -61,9 +71,8 @@ impl KlineIndicatorImpl for EmaIndicator {
     ) -> iced::Element<'a, Message> {
         // EMA is an overlay indicator; fallback panel view.
         let period = self.period;
-        let tooltip = move |v: &f32, _n: Option<&f32>| {
-            PlotTooltip::new(format!("EMA({}): {:.2}", period, v))
-        };
+        let tooltip =
+            move |v: &f32, _n: Option<&f32>| PlotTooltip::new(format!("EMA({}): {:.2}", period, v));
         let plot = LinePlot::new(|v: &f32| *v)
             .stroke_width(1.5)
             .show_points(false)

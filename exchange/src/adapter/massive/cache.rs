@@ -52,12 +52,7 @@ impl CacheManager {
     }
 
     /// Check if data is cached for a symbol and date
-    pub async fn has_cached(
-        &self,
-        data_type: &str,
-        symbol: &str,
-        date: NaiveDate,
-    ) -> bool {
+    pub async fn has_cached(&self, data_type: &str, symbol: &str, date: NaiveDate) -> bool {
         let path = self.cache_path(data_type, symbol, Some(date));
         tokio::fs::metadata(&path).await.is_ok()
     }
@@ -164,7 +159,11 @@ impl CacheManager {
         }
     }
 
-    fn walk_cache_dir<'a>(&'a self, dir: &'a Path, stats: &'a mut CacheStats) -> std::pin::Pin<Box<dyn std::future::Future<Output = MassiveResult<()>> + Send + 'a>> {
+    fn walk_cache_dir<'a>(
+        &'a self,
+        dir: &'a Path,
+        stats: &'a mut CacheStats,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = MassiveResult<()>> + Send + 'a>> {
         Box::pin(async move {
             let mut entries = tokio::fs::read_dir(dir).await?;
 
@@ -179,9 +178,7 @@ impl CacheManager {
                     if let Ok(modified) = metadata.modified() {
                         let modified_dt = chrono::DateTime::<chrono::Utc>::from(modified);
 
-                        if stats.oldest_file.is_none()
-                            || Some(modified_dt) < stats.oldest_file
-                        {
+                        if stats.oldest_file.is_none() || Some(modified_dt) < stats.oldest_file {
                             stats.oldest_file = Some(modified_dt);
                         }
                     }
@@ -194,7 +191,12 @@ impl CacheManager {
         })
     }
 
-    fn cleanup_dir<'a>(&'a self, dir: &'a Path, cutoff: chrono::NaiveDateTime) -> std::pin::Pin<Box<dyn std::future::Future<Output = MassiveResult<usize>> + Send + 'a>> {
+    fn cleanup_dir<'a>(
+        &'a self,
+        dir: &'a Path,
+        cutoff: chrono::NaiveDateTime,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = MassiveResult<usize>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut removed = 0;
 
@@ -222,10 +224,8 @@ impl CacheManager {
                     removed += self.cleanup_dir(&path, cutoff).await?;
 
                     // Remove empty directories
-                    let mut remaining =
-                        tokio::fs::read_dir(&path).await?;
-                    let is_empty =
-                        remaining.next_entry().await?.is_none();
+                    let mut remaining = tokio::fs::read_dir(&path).await?;
+                    let is_empty = remaining.next_entry().await?.is_none();
                     if is_empty {
                         tokio::fs::remove_dir(&path).await?;
                     }
@@ -310,10 +310,7 @@ mod tests {
             .unwrap();
 
         // Load
-        let loaded: TestData = cache
-            .load("snapshots", "TEST", Some(date))
-            .await
-            .unwrap();
+        let loaded: TestData = cache.load("snapshots", "TEST", Some(date)).await.unwrap();
 
         assert_eq!(loaded, test_data);
     }

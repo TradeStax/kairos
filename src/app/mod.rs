@@ -1,23 +1,25 @@
+pub(crate) mod menu_bar;
 mod services;
 mod state;
 mod subscriptions;
+pub(crate) mod title_bar;
 mod update;
 
-use crate::component;
-use crate::component::display::toast::{self, Toast};
-use crate::component::display::tooltip::tooltip;
-use crate::modal::{LayoutManager, ThemeEditor, audio::AudioStream};
-use crate::modal::{dashboard_modal, main_dialog_modal};
+use crate::components;
+use crate::components::display::toast::{self, Toast};
+use crate::components::display::tooltip::tooltip;
+use crate::modals::{LayoutManager, ThemeEditor};
+use crate::modals::{dashboard_modal, main_dialog_modal};
 use crate::screen::dashboard::{self, Dashboard};
 use crate::style::tokens;
 use crate::{split_column, style, window};
 use data::config::theme::default_theme;
-use data::{layout::WindowSpec, sidebar};
+use data::{sidebar, state::WindowSpec};
 
 use data::FeedId;
 use exchange::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
 use iced::{
-    Alignment, Element, Subscription, Task, padding,
+    Alignment, Element, Length, Subscription, Task, padding,
     widget::{
         button, column, container, pane_grid, pick_list, row, rule, scrollable, text,
         tooltip::Position as TooltipPosition,
@@ -46,9 +48,8 @@ pub fn get_rithmic_events() -> &'static std::sync::Arc<std::sync::Mutex<Vec<exch
 }
 
 // Global staging for Replay engine events
-static REPLAY_EVENTS: OnceLock<
-    std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>>,
-> = OnceLock::new();
+static REPLAY_EVENTS: OnceLock<std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>>> =
+    OnceLock::new();
 
 pub fn get_replay_events()
 -> &'static std::sync::Arc<std::sync::Mutex<Vec<data::services::ReplayEvent>>> {
@@ -71,21 +72,21 @@ pub struct Flowsurface {
     pub(crate) tickers_info: FxHashMap<FuturesTicker, FuturesTickerInfo>,
     pub(crate) layout_manager: LayoutManager,
     pub(crate) theme_editor: ThemeEditor,
-    pub(crate) audio_stream: AudioStream,
-    pub(crate) data_management_panel: crate::modal::pane::download::DataManagementPanel,
-    pub(crate) connections_menu: crate::modal::pane::connections::ConnectionsMenu,
-    pub(crate) data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal,
-    pub(crate) historical_download_modal:
-        Option<crate::modal::pane::download::HistoricalDownloadModal>,
+    pub(crate) data_management_panel: crate::modals::download::DataManagementPanel,
+    pub(crate) connections_menu: crate::modals::connections::ConnectionsMenu,
+    pub(crate) data_feeds_modal: crate::modals::data_feeds::DataFeedsModal,
+    pub(crate) historical_download_modal: Option<crate::modals::download::HistoricalDownloadModal>,
     pub(crate) historical_download_id: Option<uuid::Uuid>,
     pub(crate) data_feed_manager: std::sync::Arc<std::sync::Mutex<data::DataFeedManager>>,
-    pub(crate) confirm_dialog: Option<crate::screen::ConfirmDialog<Message>>,
+    pub(crate) confirm_dialog:
+        Option<crate::components::overlay::confirm_dialog::ConfirmDialog<Message>>,
     // Service layer (optional - None when API key not configured)
     pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub(crate) options_service: Option<std::sync::Arc<data::services::OptionsDataService>>,
     pub(crate) replay_engine:
         Option<std::sync::Arc<std::sync::Mutex<data::services::ReplayEngine>>>,
-    pub(crate) replay_manager: crate::modal::replay_manager::ReplayManager,
+    pub(crate) replay_manager: crate::modals::replay::ReplayManager,
+    pub(crate) menu_bar: menu_bar::MenuBar,
     // Rithmic connection state
     pub(crate) rithmic_client: Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
     pub(crate) rithmic_trade_repo: Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
@@ -117,6 +118,7 @@ pub enum ChartMessage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Options data pipeline not yet wired
 pub enum OptionsMessage {
     OptionChainLoaded {
         pane_id: uuid::Uuid,
@@ -158,7 +160,7 @@ pub enum DownloadMessage {
         date_range: data::DateRange,
         result: Result<usize, String>,
     },
-    HistoricalDownload(crate::modal::pane::download::HistoricalDownloadMessage),
+    HistoricalDownload(crate::modals::download::HistoricalDownloadMessage),
     HistoricalDownloadCostEstimated {
         result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
     },
@@ -177,13 +179,14 @@ pub enum Message {
         layout_id: Option<uuid::Uuid>,
         event: dashboard::Message,
     },
-    ConnectionsMenu(crate::modal::pane::connections::ConnectionsMenuMessage),
-    DataFeeds(crate::modal::pane::data_feeds::DataFeedsMessage),
+    ConnectionsMenu(crate::modals::connections::ConnectionsMenuMessage),
+    DataFeeds(crate::modals::data_feeds::DataFeedsMessage),
     DataFeedPreviewLoaded {
         feed_id: data::FeedId,
-        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
+        result: Result<crate::modals::data_feeds::PreviewData, String>,
     },
     Chart(ChartMessage),
+    #[allow(dead_code)] // Options data pipeline not yet wired
     Options(OptionsMessage),
     Download(DownloadMessage),
     Tick(std::time::Instant),
@@ -195,18 +198,23 @@ pub enum Message {
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
     RemoveNotification(usize),
-    ToggleDialogModal(Option<crate::screen::ConfirmDialog<Message>>),
-    ThemeEditor(crate::modal::theme_editor::Message),
-    Layouts(crate::modal::layout_manager::Message),
-    AudioStream(crate::modal::audio::Message),
+    ToggleDialogModal(Option<crate::components::overlay::confirm_dialog::ConfirmDialog<Message>>),
+    ThemeEditor(crate::modals::theme::Message),
+    Layouts(crate::modals::layout::Message),
     ReinitializeService(data::ApiProvider),
     RithmicConnected {
         feed_id: FeedId,
         result: Result<(), String>,
     },
     RithmicStreamEvent(exchange::Event),
-    Replay(crate::modal::replay_manager::Message),
+    Replay(crate::modals::replay::Message),
     ReplayEvent(data::services::ReplayEvent),
+    MenuBar(menu_bar::Message),
+    // Window control messages (custom title bar)
+    WindowDrag(window::Id),
+    WindowMinimize(window::Id),
+    WindowToggleMaximize(window::Id),
+    WindowClose(window::Id),
 }
 
 impl Flowsurface {
@@ -227,7 +235,7 @@ impl Flowsurface {
         ));
 
         // Re-create layout manager with the shared Arc
-        let layout_manager = crate::modal::LayoutManager::new(
+        let layout_manager = crate::modals::LayoutManager::new(
             market_data_service.clone(),
             downloaded_tickers.clone(),
             saved_state_temp.sidebar.date_range_preset,
@@ -246,7 +254,6 @@ impl Flowsurface {
             timezone: saved_state_temp.timezone,
             sidebar: saved_state_temp.sidebar,
             scale_factor: saved_state_temp.scale_factor,
-            audio_cfg: saved_state_temp.audio_cfg,
             downloaded_tickers: saved_state_temp.downloaded_tickers,
             data_feeds: saved_state_temp.data_feeds,
         };
@@ -256,6 +263,7 @@ impl Flowsurface {
             let config = window::Settings {
                 size,
                 position,
+                maximized: true,
                 exit_on_close_request: false,
                 ..window::settings()
             };
@@ -270,13 +278,15 @@ impl Flowsurface {
         let sidebar = dashboard::Sidebar::new(&saved_state);
 
         let mut state = Self {
-            main_window: window::Window::new(main_window_id),
+            main_window: window::Window {
+                is_maximized: true,
+                ..window::Window::new(main_window_id)
+            },
             layout_manager: saved_state.layout_manager,
             theme_editor: ThemeEditor::new(saved_state.custom_theme),
-            audio_stream: AudioStream::new(saved_state.audio_cfg),
-            data_management_panel: crate::modal::pane::download::DataManagementPanel::new(),
-            connections_menu: crate::modal::pane::connections::ConnectionsMenu::new(),
-            data_feeds_modal: crate::modal::pane::data_feeds::DataFeedsModal::new(),
+            data_management_panel: crate::modals::download::DataManagementPanel::new(),
+            connections_menu: crate::modals::connections::ConnectionsMenu::new(),
+            data_feeds_modal: crate::modals::data_feeds::DataFeedsModal::new(),
             historical_download_modal: None,
             historical_download_id: None,
             data_feed_manager,
@@ -290,7 +300,8 @@ impl Flowsurface {
             market_data_service,
             options_service,
             replay_engine,
-            replay_manager: crate::modal::replay_manager::ReplayManager::new(),
+            replay_manager: crate::modals::replay::ReplayManager::new(),
+            menu_bar: menu_bar::MenuBar::new(),
             timezone: saved_state.timezone,
             ui_scale_factor: saved_state.scale_factor,
             theme: saved_state.theme,
@@ -350,8 +361,7 @@ impl Flowsurface {
                     .into_iter()
                     .collect();
                 if !ticker_symbols.is_empty() {
-                    state.tickers_info =
-                        build_tickers_info(ticker_symbols);
+                    state.tickers_info = build_tickers_info(ticker_symbols);
                 }
             }
 
@@ -379,22 +389,18 @@ impl Flowsurface {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        subscriptions::build_subscription(
-            self.replay_manager.is_dragging,
-        )
+        subscriptions::build_subscription(self.replay_manager.is_dragging)
     }
 
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
         let dashboard = self.active_dashboard();
         let sidebar_pos = self.sidebar.position();
+        let window_title = self.title(id);
 
         let tickers_info = &self.tickers_info;
 
         let content = if id == self.main_window.id {
-            let sidebar_view = self
-                .sidebar
-                .view(self.audio_stream.volume())
-                .map(Message::Sidebar);
+            let sidebar_view = self.sidebar.view().map(Message::Sidebar);
 
             let dashboard_view = dashboard
                 .view(&self.main_window, tickers_info, self.timezone)
@@ -403,7 +409,7 @@ impl Flowsurface {
                     event: msg,
                 });
 
-            let header_title = {
+            let header: Element<'_, Message> = {
                 #[cfg(target_os = "macos")]
                 {
                     iced::widget::center(
@@ -418,30 +424,150 @@ impl Flowsurface {
                     .height(20)
                     .align_y(Alignment::Center)
                     .padding(padding::top(tokens::spacing::XS))
+                    .into()
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    column![]
+                    let title = title_bar::view_title_bar(
+                        id,
+                        window_title.clone(),
+                        self.main_window.is_maximized,
+                    );
+                    let menu = self.menu_bar.view().map(Message::MenuBar);
+                    column![title, menu].into()
                 }
             };
 
             let base = column![
-                header_title,
+                header,
                 match sidebar_pos {
                     sidebar::Position::Left => row![sidebar_view, dashboard_view,],
                     sidebar::Position::Right => row![dashboard_view, sidebar_view],
                 }
-                .spacing(tokens::spacing::XS)
+                .spacing(tokens::spacing::MD)
                 .padding(tokens::spacing::MD),
             ];
 
-            if let Some(menu) = self.sidebar.active_menu() {
-                self.view_with_modal(base.into(), dashboard, menu)
+            // Layer the drawing tool flyout over the base if expanded
+            let base: Element<'_, Message> =
+                if let Some(flyout_content) = self.sidebar.view_tool_flyout() {
+                    use iced::widget::{mouse_area, opaque, stack};
+
+                    let flyout_content = flyout_content.map(Message::Sidebar);
+                    let y = self.sidebar.flyout_y_offset();
+                    let sidebar_w = tokens::layout::SIDEBAR_WIDTH + tokens::spacing::MD;
+
+                    let positioned = match sidebar_pos {
+                        sidebar::Position::Left => container(opaque(flyout_content))
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .padding(padding::Padding {
+                                top: y,
+                                right: 0.0,
+                                bottom: 0.0,
+                                left: sidebar_w,
+                            }),
+                        sidebar::Position::Right => container(opaque(flyout_content))
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .padding(padding::Padding {
+                                top: y,
+                                right: sidebar_w,
+                                bottom: 0.0,
+                                left: 0.0,
+                            })
+                            .align_x(Alignment::End),
+                    };
+
+                    let on_close = Message::Sidebar(dashboard::sidebar::Message::DrawingTools(
+                        crate::modals::drawing_tools::Message::ExpandGroup(None),
+                    ));
+
+                    stack![base, mouse_area(positioned).on_press(on_close)].into()
+                } else {
+                    base.into()
+                };
+
+            // Menu bar dropdown overlay
+            let base: Element<'_, Message> = {
+                use iced::widget::{mouse_area, opaque, stack};
+
+                let active_id = self.layout_manager.active_layout_id().map(|lid| lid.unique);
+                let layouts: Vec<(uuid::Uuid, String, bool)> = self
+                    .layout_manager
+                    .layouts
+                    .iter()
+                    .map(|l| {
+                        (
+                            l.id.unique,
+                            l.id.name.clone(),
+                            Some(l.id.unique) == active_id,
+                        )
+                    })
+                    .collect();
+
+                if let Some((dropdown, submenu)) = self.menu_bar.view_dropdown(&layouts) {
+                    let y = tokens::layout::TITLE_BAR_HEIGHT + tokens::layout::MENU_BAR_HEIGHT;
+                    let x = match self.menu_bar.open_menu {
+                        Some(menu_bar::Menu::File) => tokens::spacing::SM,
+                        Some(menu_bar::Menu::Layout) => tokens::spacing::SM + 46.0,
+                        None => 0.0,
+                    };
+
+                    // Primary dropdown + optional submenu side-by-side
+                    let dropdown = dropdown.map(Message::MenuBar);
+                    let menus: Element<'_, Message> = if let Some(sub) = submenu {
+                        row![opaque(dropdown), opaque(sub.map(Message::MenuBar)),].into()
+                    } else {
+                        opaque(dropdown).into()
+                    };
+
+                    let positioned = container(menus)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .padding(padding::Padding {
+                            top: y,
+                            right: 0.0,
+                            bottom: 0.0,
+                            left: x,
+                        });
+
+                    stack![
+                        base,
+                        mouse_area(positioned).on_press(Message::MenuBar(menu_bar::Message::Close))
+                    ]
+                    .into()
+                } else {
+                    base
+                }
+            };
+
+            // Save layout dialog overlay
+            let base: Element<'_, Message> = if self.menu_bar.show_save_dialog {
+                use crate::components::overlay::form_modal::FormModalBuilder;
+                use iced::widget::text_input;
+
+                FormModalBuilder::new(
+                    "Save Layout",
+                    text_input("Layout name", &self.menu_bar.save_layout_name)
+                        .on_input(|s| Message::MenuBar(menu_bar::Message::SaveLayoutNameChanged(s)))
+                        .on_submit(Message::MenuBar(menu_bar::Message::SaveLayoutConfirm)),
+                    Message::MenuBar(menu_bar::Message::SaveLayoutConfirm),
+                    Message::MenuBar(menu_bar::Message::SaveLayoutCancel),
+                )
+                .max_width(320.0)
+                .view(base)
             } else {
-                base.into()
+                base
+            };
+
+            if let Some(menu) = self.sidebar.active_menu() {
+                self.view_with_modal(base, dashboard, menu)
+            } else {
+                base
             }
         } else {
-            container(
+            let popout_content = container(
                 dashboard
                     .view_window(id, &self.main_window, tickers_info, self.timezone)
                     .map(move |msg| Message::Dashboard {
@@ -449,31 +575,42 @@ impl Flowsurface {
                         event: msg,
                     }),
             )
-            .padding(padding::top(style::TITLE_PADDING_TOP))
-            .into()
+            .padding(padding::top(style::TITLE_PADDING_TOP));
+
+            #[cfg(target_os = "macos")]
+            {
+                popout_content.into()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                column![
+                    title_bar::view_title_bar(id, window_title, false,),
+                    popout_content,
+                ]
+                .into()
+            }
         };
 
         // Overlay the floating replay controller when replay is active
         // and controller is visible
-        let content =
-            if self.replay_manager.data_loaded && self.replay_manager.controller_visible {
-                use iced::widget::stack;
-                let pos = self.replay_manager.panel_position;
-                let controller = self
-                    .replay_manager
-                    .view_floating_controller(self.timezone)
-                    .map(Message::Replay);
-                let overlay = container(controller).padding(iced::Padding {
-                    top: pos.y,
-                    right: 0.0,
-                    bottom: 0.0,
-                    left: pos.x,
-                });
+        let content = if self.replay_manager.data_loaded && self.replay_manager.controller_visible {
+            use iced::widget::stack;
+            let pos = self.replay_manager.panel_position;
+            let controller = self
+                .replay_manager
+                .view_floating_controller(self.timezone)
+                .map(Message::Replay);
+            let overlay = container(controller).padding(iced::Padding {
+                top: pos.y,
+                right: 0.0,
+                bottom: 0.0,
+                left: pos.x,
+            });
 
-                stack![content, overlay].into()
-            } else {
-                content
-            };
+            stack![content, overlay].into()
+        } else {
+            content
+        };
 
         toast::Manager::new(
             content,
@@ -486,6 +623,13 @@ impl Flowsurface {
         )
         .into()
     }
+
+    /// Vertical offset for top-positioned sidebar modals to account for
+    /// the custom title bar on Windows/Linux.
+    #[cfg(target_os = "macos")]
+    const HEADER_OFFSET: f32 = 0.0;
+    #[cfg(not(target_os = "macos"))]
+    const HEADER_OFFSET: f32 = tokens::layout::TITLE_BAR_HEIGHT + tokens::layout::MENU_BAR_HEIGHT;
 
     fn view_with_modal<'a>(
         &'a self,
@@ -621,11 +765,12 @@ impl Flowsurface {
 
                 if let Some(dialog) = &self.confirm_dialog {
                     let on_cancel = Message::ToggleDialogModal(None);
-                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
-                        dialog.message.clone(),
-                        *dialog.on_confirm.clone(),
-                        on_cancel,
-                    );
+                    let mut builder =
+                        components::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                            dialog.message.clone(),
+                            *dialog.on_confirm.clone(),
+                            on_cancel,
+                        );
                     if let Some(text) = &dialog.on_confirm_btn_text {
                         builder = builder.confirm_text(text.clone());
                     }
@@ -732,8 +877,14 @@ impl Flowsurface {
                 };
 
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(40)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(40)),
+                    sidebar::Position::Left => (
+                        Alignment::Start,
+                        padding::left(44).top(8.0 + Self::HEADER_OFFSET),
+                    ),
+                    sidebar::Position::Right => (
+                        Alignment::End,
+                        padding::right(44).top(8.0 + Self::HEADER_OFFSET),
+                    ),
                 };
 
                 dashboard_modal(
@@ -747,8 +898,8 @@ impl Flowsurface {
             }
             sidebar::Menu::Connections => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(80)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(80)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(46)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(46)),
                 };
 
                 dashboard_modal(
@@ -778,18 +929,19 @@ impl Flowsurface {
                         base_content,
                         dl_content,
                         Message::Download(DownloadMessage::HistoricalDownload(
-                            crate::modal::pane::download::HistoricalDownloadMessage::Close,
+                            crate::modals::download::HistoricalDownloadMessage::Close,
                         )),
                     );
                 }
 
                 if let Some(dialog) = &self.confirm_dialog {
                     let on_cancel = Message::ToggleDialogModal(None);
-                    let mut builder = component::overlay::confirm_dialog::ConfirmDialogBuilder::new(
-                        dialog.message.clone(),
-                        *dialog.on_confirm.clone(),
-                        on_cancel,
-                    );
+                    let mut builder =
+                        components::overlay::confirm_dialog::ConfirmDialogBuilder::new(
+                            dialog.message.clone(),
+                            *dialog.on_confirm.clone(),
+                            on_cancel,
+                        );
                     if let Some(text) = &dialog.on_confirm_btn_text {
                         builder = builder.confirm_text(text.clone());
                     }
@@ -798,35 +950,16 @@ impl Flowsurface {
                     base_content
                 }
             }
-            sidebar::Menu::Audio => {
-                let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(76)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(76)),
-                };
-
-                // TODO: Collect active depth/L2 streams from pane states
-                // so the audio modal can list subscribable instruments.
-                let depth_streams_list = vec![];
-
-                dashboard_modal(
-                    base,
-                    self.audio_stream
-                        .view(depth_streams_list)
-                        .map(Message::AudioStream),
-                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
-                    padding,
-                    Alignment::Start,
-                    align_x,
-                )
-            }
             sidebar::Menu::Replay => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => {
-                        (Alignment::Start, padding::left(44).bottom(120))
-                    }
-                    sidebar::Position::Right => {
-                        (Alignment::End, padding::right(44).bottom(120))
-                    }
+                    sidebar::Position::Left => (
+                        Alignment::Start,
+                        padding::left(44).top(46.0 + Self::HEADER_OFFSET),
+                    ),
+                    sidebar::Position::Right => (
+                        Alignment::End,
+                        padding::right(44).top(46.0 + Self::HEADER_OFFSET),
+                    ),
                 };
 
                 dashboard_modal(
@@ -834,11 +967,9 @@ impl Flowsurface {
                     self.replay_manager
                         .view_setup_modal(self.timezone)
                         .map(Message::Replay),
-                    Message::Sidebar(
-                        dashboard::sidebar::Message::ToggleSidebarMenu(None),
-                    ),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
-                    Alignment::End,
+                    Alignment::Start,
                     align_x,
                 )
             }
@@ -891,9 +1022,7 @@ pub(crate) fn build_tickers_info(
     let venue = FuturesVenue::CMEGlobex;
     let mut info = FxHashMap::default();
 
-    for (symbol, product_name, tick_size, min_qty, contract_size)
-        in FUTURES_PRODUCTS
-    {
+    for (symbol, product_name, tick_size, min_qty, contract_size) in FUTURES_PRODUCTS {
         if !available_symbols.contains(*symbol) {
             continue;
         }
@@ -905,12 +1034,7 @@ pub(crate) fn build_tickers_info(
             Some(product_name),
         );
 
-        let ticker_info = FuturesTickerInfo::new(
-            ticker,
-            *tick_size,
-            *min_qty,
-            *contract_size,
-        );
+        let ticker_info = FuturesTickerInfo::new(ticker, *tick_size, *min_qty, *contract_size);
 
         info.insert(ticker, ticker_info);
     }

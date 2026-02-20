@@ -154,7 +154,9 @@ impl CacheManager {
     /// List all symbols that have cached data
     ///
     /// Scans cache directory and returns set of symbols with at least one cached file
-    pub async fn list_cached_symbols(&self) -> Result<std::collections::HashSet<String>, DatabentoError> {
+    pub async fn list_cached_symbols(
+        &self,
+    ) -> Result<std::collections::HashSet<String>, DatabentoError> {
         use std::collections::HashSet;
 
         let mut cached_symbols = HashSet::new();
@@ -166,17 +168,21 @@ impl CacheManager {
 
         while let Ok(Some(entry)) = entries.next_entry().await {
             if let Ok(metadata) = entry.metadata().await
-                && metadata.is_dir() {
-                    // Directory name is sanitized symbol (ES-c-0 → ES.c.0)
-                    // Preserve case to match ticker format
-                    let dir_name = entry.file_name().to_string_lossy().to_string();
-                    let symbol = dir_name.replace('-', ".");
-                    log::debug!("  Found cached dir: {} → symbol: {}", dir_name, symbol);
-                    cached_symbols.insert(symbol);
-                }
+                && metadata.is_dir()
+            {
+                // Directory name is sanitized symbol (ES-c-0 → ES.c.0)
+                // Preserve case to match ticker format
+                let dir_name = entry.file_name().to_string_lossy().to_string();
+                let symbol = dir_name.replace('-', ".");
+                log::debug!("  Found cached dir: {} → symbol: {}", dir_name, symbol);
+                cached_symbols.insert(symbol);
+            }
         }
 
-        log::info!("CACHE: Found {} tickers with cached data", cached_symbols.len());
+        log::info!(
+            "CACHE: Found {} tickers with cached data",
+            cached_symbols.len()
+        );
         for symbol in &cached_symbols {
             log::info!("CACHE:   - {}", symbol);
         }

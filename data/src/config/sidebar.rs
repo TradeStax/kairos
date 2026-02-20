@@ -73,7 +73,6 @@ pub enum Menu {
     #[serde(alias = "DataManagement")]
     DataFeeds,
     Settings,
-    Audio,
     ThemeEditor,
     Replay,
 }

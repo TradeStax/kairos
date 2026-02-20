@@ -8,4 +8,4 @@ pub(crate) mod view;
 
 pub use content::Content;
 pub use effects::Effect;
-pub use types::{Action, Event, Message, State};
+pub use types::{Action, ContextMenuAction, ContextMenuKind, Event, Message, State};

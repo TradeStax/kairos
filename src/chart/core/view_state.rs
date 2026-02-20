@@ -4,10 +4,10 @@
 
 use super::Caches;
 use crate::chart::scale::linear::PriceInfoLabel;
+use crate::style::tokens;
 use data::{ChartBasis, ViewConfig};
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
-use crate::style::tokens;
 use iced::{Length, Rectangle, Size, Vector};
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
@@ -156,11 +156,7 @@ impl ViewState {
             }
             ChartBasis::Tick(_) => {
                 let tick = -(x / self.cell_width);
-                if tick < 0.0 {
-                    0
-                } else {
-                    tick.round() as u64
-                }
+                if tick < 0.0 { 0 } else { tick.round() as u64 }
             }
         }
     }
@@ -233,8 +229,7 @@ impl ViewState {
 
                 let millis_at_x = earliest + f64::from(x_ratio) * (latest - earliest);
 
-                let rounded_timestamp =
-                    (millis_at_x / (interval as f64)).round() as u64 * interval;
+                let rounded_timestamp = (millis_at_x / (interval as f64)).round() as u64 * interval;
 
                 let snap_ratio = if latest - earliest > 0.0 {
                     ((rounded_timestamp as f64 - earliest) / (latest - earliest)) as f32

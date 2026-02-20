@@ -6,7 +6,7 @@ pub fn abbr_large_numbers(value: f32) -> String {
 
     match abs_value {
         v if v >= 1_000_000_000.0 => {
-            format!("{}{:.3}b", sign, v / 100_000_000.0)
+            format!("{}{:.2}b", sign, v / 1_000_000_000.0)
         }
         v if v >= 1_000_000.0 => format!("{}{:.2}m", sign, v / 1_000_000.0),
         v if v >= 10_000.0 => format!("{}{:.1}k", sign, v / 1_000.0),

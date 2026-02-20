@@ -179,6 +179,46 @@ pub enum DatabentoError {
     Config(String),
 }
 
+use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+
+impl AppError for DatabentoError {
+    fn user_message(&self) -> String {
+        match self {
+            DatabentoError::Api(e) => {
+                format!("Databento API error: {}", e)
+            }
+            DatabentoError::Dbn(e) => {
+                format!("Data format error: {}", e)
+            }
+            DatabentoError::SymbolNotFound(s) => {
+                format!("Symbol not found: {}", s)
+            }
+            DatabentoError::InvalidInstrumentId(id) => {
+                format!("Invalid instrument ID: {}", id)
+            }
+            DatabentoError::Cache(s) => format!("Cache error: {}", s),
+            DatabentoError::Config(s) => {
+                format!("Configuration error: {}", s)
+            }
+        }
+    }
+
+    fn is_retriable(&self) -> bool {
+        matches!(self, DatabentoError::Api(_) | DatabentoError::Cache(_))
+    }
+
+    fn severity(&self) -> ErrorSeverity {
+        match self {
+            DatabentoError::Api(_) | DatabentoError::Cache(_) => ErrorSeverity::Recoverable,
+            DatabentoError::Config(_) => ErrorSeverity::Critical,
+            DatabentoError::Dbn(_) => ErrorSeverity::Warning,
+            DatabentoError::SymbolNotFound(_) | DatabentoError::InvalidInstrumentId(_) => {
+                ErrorSeverity::Info
+            }
+        }
+    }
+}
+
 impl From<DatabentoError> for AdapterError {
     fn from(err: DatabentoError) -> Self {
         match err {

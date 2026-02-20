@@ -86,10 +86,7 @@ impl Greek {
 
     /// Check if all greek values are present
     pub fn is_complete(&self) -> bool {
-        self.delta.is_some()
-            && self.gamma.is_some()
-            && self.theta.is_some()
-            && self.vega.is_some()
+        self.delta.is_some() && self.gamma.is_some() && self.theta.is_some() && self.vega.is_some()
     }
 
     /// Check if any greek value is present
@@ -326,9 +323,9 @@ impl OptionSnapshot {
     /// Calculate extrinsic value (time value)
     pub fn extrinsic_value(&self) -> Option<Price> {
         match (self.best_price(), self.intrinsic_value()) {
-            (Some(price), Some(intrinsic)) => {
-                Some(Price::from_units((price.units() - intrinsic.units()).max(0)))
-            }
+            (Some(price), Some(intrinsic)) => Some(Price::from_units(
+                (price.units() - intrinsic.units()).max(0),
+            )),
             _ => None,
         }
     }
@@ -446,12 +443,10 @@ impl OptionChain {
         }
 
         // Find strike closest to underlying price
-        strikes
-            .into_iter()
-            .min_by_key(|strike| {
-                let diff = strike.units() - underlying.units();
-                diff.abs()
-            })
+        strikes.into_iter().min_by_key(|strike| {
+            let diff = strike.units() - underlying.units();
+            diff.abs()
+        })
     }
 
     /// Filter contracts with complete Greeks data
@@ -472,18 +467,12 @@ impl OptionChain {
 
     /// Calculate total open interest for the chain
     pub fn total_open_interest(&self) -> u64 {
-        self.contracts
-            .iter()
-            .filter_map(|s| s.open_interest)
-            .sum()
+        self.contracts.iter().filter_map(|s| s.open_interest).sum()
     }
 
     /// Calculate total volume for the chain
     pub fn total_volume(&self) -> u64 {
-        self.contracts
-            .iter()
-            .filter_map(|s| s.volume)
-            .sum()
+        self.contracts.iter().filter_map(|s| s.volume).sum()
     }
 }
 
@@ -550,7 +539,8 @@ mod tests {
             ExerciseStyle::American,
         );
 
-        let mut snapshot = OptionSnapshot::new(contract, Timestamp(Utc::now().timestamp_millis() as u64));
+        let mut snapshot =
+            OptionSnapshot::new(contract, Timestamp(Utc::now().timestamp_millis() as u64));
         snapshot.bid = Some(Price::from_f64(5.0));
         snapshot.ask = Some(Price::from_f64(5.5));
 
@@ -570,7 +560,10 @@ mod tests {
             ExerciseStyle::American,
         );
 
-        let mut call_snapshot = OptionSnapshot::new(call_contract, Timestamp(Utc::now().timestamp_millis() as u64));
+        let mut call_snapshot = OptionSnapshot::new(
+            call_contract,
+            Timestamp(Utc::now().timestamp_millis() as u64),
+        );
         call_snapshot.underlying_price = Some(Price::from_f64(105.0));
 
         assert_eq!(call_snapshot.intrinsic_value(), Some(Price::from_f64(5.0)));
@@ -585,7 +578,10 @@ mod tests {
             ExerciseStyle::American,
         );
 
-        let mut put_snapshot = OptionSnapshot::new(put_contract, Timestamp(Utc::now().timestamp_millis() as u64));
+        let mut put_snapshot = OptionSnapshot::new(
+            put_contract,
+            Timestamp(Utc::now().timestamp_millis() as u64),
+        );
         put_snapshot.underlying_price = Some(Price::from_f64(95.0));
 
         assert_eq!(put_snapshot.intrinsic_value(), Some(Price::from_f64(5.0)));

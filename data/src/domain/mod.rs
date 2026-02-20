@@ -10,8 +10,8 @@
 
 pub mod aggregation;
 pub mod chart;
-pub mod chart_ui_types;
 pub mod entities;
+pub mod error;
 pub mod futures;
 pub mod gex;
 pub mod options;
@@ -21,13 +21,10 @@ pub mod types;
 // Re-export commonly used types
 pub use aggregation::{AggregationError, aggregate_trades_to_candles, aggregate_trades_to_ticks};
 pub use chart::{
-    ChartBasis, ChartConfig, ChartData, ChartType, DataGap, DataGapKind, DataSchema, DataSegment,
-    LoadingStatus, MergeResult,
-};
-pub use chart_ui_types::{
-    Autoscale, CandlePosition, ClusterScaling, FootprintMode, FootprintStudyConfig, FootprintType,
-    HeatmapIndicator, Indicator, KlineDataPoint, KlineIndicator, KlineTrades, NPoc,
-    PointOfControl, UiIndicator, ViewConfig,
+    Autoscale, CandlePosition, ChartBasis, ChartConfig, ChartData, ChartType, ClusterScaling,
+    DataGap, DataGapKind, DataSchema, DataSegment, FootprintMode, FootprintStudyConfig,
+    FootprintType, HeatmapIndicator, Indicator, KlineDataPoint, KlineIndicator, KlineTrades,
+    LoadingStatus, MergeResult, NPoc, PointOfControl, UiIndicator, ViewConfig,
 };
 pub use entities::{Candle, DepthSnapshot, MarketData, Trade};
 pub use futures::{
@@ -35,7 +32,5 @@ pub use futures::{
     Timeframe,
 };
 pub use gex::{GammaExposure, GexLevel, GexLevelType, GexProfile};
-pub use options::{
-    ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType,
-};
+pub use options::{ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType};
 pub use types::{DateRange, Price, Quantity, Side, TimeRange, Timestamp, Volume};

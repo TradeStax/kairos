@@ -3,18 +3,6 @@
 //! This module contains ALL aggregation logic for converting raw tick-by-tick
 //! trades into higher-level data structures (candles, tick bars, etc.).
 //!
-//! ## Correctness Verification (Phase 2.1 - 2026-01-22)
-//!
-//! ✅ **VERIFIED CORRECT** - Comprehensive review completed:
-//! - ✅ Proper sorting validation (trades MUST be sorted by time)
-//! - ✅ Correct time-based bucketing (floor division)
-//! - ✅ Correct tick-based chunking (chunks by count)
-//! - ✅ Accurate OHLCV calculation (first, max, min, last)
-//! - ✅ Separate buy/sell volume tracking
-//! - ✅ Tick size rounding applied consistently
-//! - ✅ Edge cases handled (empty trades, invalid params)
-//! - ✅ Comprehensive test coverage (lines 283-448)
-//!
 //! ## Architecture
 //!
 //! ```text

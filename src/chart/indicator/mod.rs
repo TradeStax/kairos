@@ -156,4 +156,3 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
         mouse::Interaction::default()
     }
 }
-

@@ -1,8 +1,8 @@
 use crate::{
-    component::primitives::AZERET_MONO,
-    modal::{self, ModifierKind},
+    components::display::tooltip::button_with_tooltip,
+    components::primitives::AZERET_MONO,
+    modals::{self, ModifierKind},
     style::{self, tokens},
-    component::display::tooltip::button_with_tooltip,
 };
 use data::{ChartBasis, LinkGroup};
 use iced::{
@@ -57,17 +57,18 @@ pub fn link_group_modal<'a>(
 pub fn basis_modifier<'a>(
     id: pane_grid::Pane,
     selected_basis: ChartBasis,
-    modifier: Option<modal::stream::Modifier>,
+    modifier: Option<modals::stream::Modifier>,
     kind: ModifierKind,
 ) -> Element<'a, Message> {
-    use crate::modal::pane::Modal;
+    use crate::modals::pane::Modal;
 
     let modifier_modal = Modal::StreamModifier(
-        modal::stream::Modifier::new(kind).with_view_mode(modal::stream::ViewMode::BasisSelection),
+        modals::stream::Modifier::new(kind)
+            .with_view_mode(modals::stream::ViewMode::BasisSelection),
     );
 
     let is_active =
-        modifier.is_some_and(|m| m.view_mode == modal::stream::ViewMode::BasisSelection);
+        modifier.is_some_and(|m| m.view_mode == modals::stream::ViewMode::BasisSelection);
 
     button(text(selected_basis.to_string()))
         .style(move |theme, status| style::button::modifier(theme, status, !is_active))

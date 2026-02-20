@@ -8,9 +8,7 @@ use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-// ============================================================================
-// VENUE
-// ============================================================================
+// ── Venue ─────────────────────────────────────────────────────────────
 
 /// Futures exchange venue
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -37,9 +35,7 @@ impl FuturesVenue {
     }
 }
 
-// ============================================================================
-// CONTRACT TYPES
-// ============================================================================
+// ── Contract Types ────────────────────────────────────────────────────
 
 /// Type of futures contract
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -101,9 +97,7 @@ impl fmt::Display for ContractSpec {
     }
 }
 
-// ============================================================================
-// FUTURES TICKER
-// ============================================================================
+// ── Futures Ticker ────────────────────────────────────────────────────
 
 /// Futures ticker identifier
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -160,8 +154,9 @@ impl FuturesTicker {
                 };
 
                 // Parse year (handles both 2-digit and 4-digit years)
+                // NOTE: 2-digit years use a pivot at 50: 00-49 → 2000-2049,
+                // 50-99 → 1950-1999. This will need updating before 2050.
                 let year = if year_str.len() == 2 {
-                    // 2-digit year: assume 20xx for now (adjust logic as needed)
                     let y = year_str.parse::<i32>().ok()?;
                     if y < 50 { 2000 + y } else { 1900 + y }
                 } else if year_str.len() == 4 {
@@ -236,10 +231,7 @@ impl FuturesTicker {
         } else {
             let extracted = Self::extract_product(symbol);
             if extracted.len() > 8 {
-                log::warn!(
-                    "Product string '{}' truncated to 8 characters",
-                    extracted
-                );
+                log::warn!("Product string '{}' truncated to 8 characters", extracted);
             }
             let prod_len = extracted.len().min(8);
             product_bytes[..prod_len].copy_from_slice(&extracted.as_bytes()[..prod_len]);
@@ -404,9 +396,7 @@ impl<'de> Deserialize<'de> for FuturesTicker {
     }
 }
 
-// ============================================================================
-// TICKER INFO
-// ============================================================================
+// ── Ticker Info ───────────────────────────────────────────────────────
 
 /// Futures ticker information with contract specifications
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -458,9 +448,7 @@ impl std::hash::Hash for FuturesTickerInfo {
 
 impl Eq for FuturesTickerInfo {}
 
-// ============================================================================
-// TIMEFRAME
-// ============================================================================
+// ── Timeframe ─────────────────────────────────────────────────────────
 
 /// Timeframe for candle aggregation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -532,11 +520,6 @@ impl Timeframe {
         }
     }
 
-    /// Alias for to_milliseconds
-    pub fn to_millis(self) -> u64 {
-        self.to_milliseconds()
-    }
-
     pub fn to_seconds(self) -> u64 {
         self.to_milliseconds() / 1000
     }
@@ -561,9 +544,7 @@ impl fmt::Display for Timeframe {
     }
 }
 
-// ============================================================================
-// TICKER STATS
-// ============================================================================
+// ── Ticker Stats ──────────────────────────────────────────────────────
 
 /// Ticker statistics (price, volume, etc.)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -595,7 +576,12 @@ mod tests {
         eprintln!("Product: {}", ticker.product());
 
         let expiry = ticker.expiration_date();
-        assert!(expiry.is_some(), "Expected expiration date to be parsed for ESH26, symbol: {}, product: {}", ticker.as_str(), ticker.product());
+        assert!(
+            expiry.is_some(),
+            "Expected expiration date to be parsed for ESH26, symbol: {}, product: {}",
+            ticker.as_str(),
+            ticker.product()
+        );
 
         // March 2026 third Friday should be March 20, 2026
         if let Some(date) = expiry {

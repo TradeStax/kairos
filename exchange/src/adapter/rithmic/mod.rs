@@ -30,19 +30,50 @@ pub enum RithmicError {
     Config(String),
 }
 
+use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+
+impl AppError for RithmicError {
+    fn user_message(&self) -> String {
+        match self {
+            RithmicError::Connection(s) => {
+                format!("Connection error: {}", s)
+            }
+            RithmicError::Auth(s) => format!("Authentication error: {}", s),
+            RithmicError::Subscription(s) => {
+                format!("Subscription error: {}", s)
+            }
+            RithmicError::Data(s) => format!("Data error: {}", s),
+            RithmicError::Config(s) => format!("Configuration error: {}", s),
+        }
+    }
+
+    fn is_retriable(&self) -> bool {
+        matches!(
+            self,
+            RithmicError::Connection(_) | RithmicError::Subscription(_)
+        )
+    }
+
+    fn severity(&self) -> ErrorSeverity {
+        match self {
+            RithmicError::Connection(_) | RithmicError::Subscription(_) => {
+                ErrorSeverity::Recoverable
+            }
+            RithmicError::Auth(_) | RithmicError::Config(_) => ErrorSeverity::Critical,
+            RithmicError::Data(_) => ErrorSeverity::Warning,
+        }
+    }
+}
+
 impl From<RithmicError> for AdapterError {
     fn from(err: RithmicError) -> Self {
         match err {
             RithmicError::Connection(s) => AdapterError::ConnectionError(s),
-            RithmicError::Auth(s) => {
-                AdapterError::InvalidRequest(format!("Rithmic auth: {}", s))
-            }
+            RithmicError::Auth(s) => AdapterError::InvalidRequest(format!("Rithmic auth: {}", s)),
             RithmicError::Subscription(s) => {
                 AdapterError::InvalidRequest(format!("Rithmic sub: {}", s))
             }
-            RithmicError::Data(s) => {
-                AdapterError::ParseError(format!("Rithmic data: {}", s))
-            }
+            RithmicError::Data(s) => AdapterError::ParseError(format!("Rithmic data: {}", s)),
             RithmicError::Config(s) => {
                 AdapterError::InvalidRequest(format!("Rithmic config: {}", s))
             }
@@ -84,13 +115,9 @@ impl RithmicConfig {
     pub fn from_env(
         env: rithmic_rs::RithmicEnv,
     ) -> Result<(Self, rithmic_rs::RithmicConfig), RithmicError> {
-        let rithmic_config =
-            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
-                RithmicError::Config(format!(
-                    "Failed to load Rithmic config from env: {}",
-                    e
-                ))
-            })?;
+        let rithmic_config = rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
+            RithmicError::Config(format!("Failed to load Rithmic config from env: {}", e))
+        })?;
 
         Ok((
             Self {
@@ -112,43 +139,30 @@ impl RithmicConfig {
     ) -> Result<(Self, rithmic_rs::RithmicConfig), RithmicError> {
         // Validate required fields
         if feed_config.user_id.trim().is_empty() {
-            return Err(RithmicError::Config(
-                "User ID is required".to_string(),
-            ));
+            return Err(RithmicError::Config("User ID is required".to_string()));
         }
         if password.trim().is_empty() {
-            return Err(RithmicError::Config(
-                "Password is required".to_string(),
-            ));
+            return Err(RithmicError::Config("Password is required".to_string()));
         }
         if feed_config.system_name.trim().is_empty() {
-            return Err(RithmicError::Config(
-                "System name is required".to_string(),
-            ));
+            return Err(RithmicError::Config("System name is required".to_string()));
         }
 
         let env = match feed_config.environment {
-            flowsurface_data::feed::RithmicEnvironment::Demo => {
-                rithmic_rs::RithmicEnv::Demo
-            }
-            flowsurface_data::feed::RithmicEnvironment::Live => {
-                rithmic_rs::RithmicEnv::Live
-            }
-            flowsurface_data::feed::RithmicEnvironment::Test => {
-                rithmic_rs::RithmicEnv::Test
-            }
+            flowsurface_data::feed::RithmicEnvironment::Demo => rithmic_rs::RithmicEnv::Demo,
+            flowsurface_data::feed::RithmicEnvironment::Live => rithmic_rs::RithmicEnv::Live,
+            flowsurface_data::feed::RithmicEnvironment::Test => rithmic_rs::RithmicEnv::Test,
         };
 
         // Load base config from environment variables (URLs, account IDs)
-        let mut rithmic_config =
-            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
-                RithmicError::Config(format!(
-                    "Failed to load Rithmic env config: {}. \
+        let mut rithmic_config = rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
+            RithmicError::Config(format!(
+                "Failed to load Rithmic env config: {}. \
                      Set RITHMIC_{}_* environment variables.",
-                    e,
-                    env.to_string().to_uppercase()
-                ))
-            })?;
+                e,
+                env.to_string().to_uppercase()
+            ))
+        })?;
 
         // Override with feed config values
         rithmic_config.user = feed_config.user_id.clone();

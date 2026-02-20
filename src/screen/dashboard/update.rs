@@ -1,7 +1,6 @@
 use super::{Dashboard, Event, Message, pane};
 use crate::{
-    component::display::toast::Toast,
-    modal::pane::{Modal, download::DownloadProgress},
+    components::display::toast::Toast, modals::download::DownloadProgress, modals::pane::Modal,
     window::Window,
 };
 use data::LoadingStatus;
@@ -90,19 +89,11 @@ impl Dashboard {
                         if let Some(state) = self.get_pane(main_window.id, window, pane) {
                             // Extract studies from heatmap content if present
                             let studies_cfg: Option<
-                                Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>,
+                                Vec<data::domain::chart::heatmap::HeatmapStudy>,
                             > = match &state.content {
                                 pane::Content::Heatmap { studies, .. } => Some(studies.clone()),
                                 _ => None,
                             };
-                            let clusters_cfg = match &state.content {
-                                pane::Content::Kline {
-                                    kind: data::chart::KlineChartKind::Footprint { clusters, .. },
-                                    ..
-                                } => Some(*clusters),
-                                _ => None,
-                            };
-
                             self.iter_all_panes_mut(main_window.id)
                                 .for_each(|(_, _, state)| {
                                     let should_apply = match state.settings.visual_config {
@@ -113,16 +104,16 @@ impl Dashboard {
                                         None => matches!(
                                             (&cfg, &state.content),
                                             (
-                                                data::layout::pane::VisualConfig::Kline(_),
+                                                data::state::pane::VisualConfig::Kline(_),
                                                 pane::Content::Kline { .. }
                                             ) | (
-                                                data::layout::pane::VisualConfig::Heatmap(_),
+                                                data::state::pane::VisualConfig::Heatmap(_),
                                                 pane::Content::Heatmap { .. }
                                             ) | (
-                                                data::layout::pane::VisualConfig::TimeAndSales(_),
+                                                data::state::pane::VisualConfig::TimeAndSales(_),
                                                 pane::Content::TimeAndSales(_)
                                             ) | (
-                                                data::layout::pane::VisualConfig::Comparison(_),
+                                                data::state::pane::VisualConfig::Comparison(_),
                                                 pane::Content::Comparison(_)
                                             )
                                         ),
@@ -140,14 +131,6 @@ impl Dashboard {
                                             } = &mut state.content
                                         {
                                             *hm_studies = studies.clone();
-                                        }
-
-                                        if let Some(cluster_kind) = &clusters_cfg
-                                            && let pane::Content::Kline { chart, .. } =
-                                                &mut state.content
-                                            && let Some(c) = chart
-                                        {
-                                            c.set_cluster_kind(*cluster_kind);
                                         }
                                     }
                                 });
@@ -252,6 +235,9 @@ impl Dashboard {
                                     date_range,
                                 });
                                 (task, None)
+                            }
+                            pane::Effect::DrawingToolChanged(tool) => {
+                                (Task::none(), Some(Event::DrawingToolChanged(tool)))
                             }
                         };
                         return (task, event);
@@ -418,9 +404,7 @@ impl Dashboard {
                 }
             }
             Message::ReplaySyncPane { pane_id, trades } => {
-                if let Some(pane_state) =
-                    self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
-                {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     pane_state.enter_replay_mode();
                     pane_state.content.rebuild_from_trades(&trades);
                 }

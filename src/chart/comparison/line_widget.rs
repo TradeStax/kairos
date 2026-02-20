@@ -11,8 +11,8 @@ use iced_core::renderer::Quad;
 
 use chrono::TimeZone;
 
-use crate::style::tokens;
 use super::scene::{HitZone, Regions};
+use crate::style::tokens;
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
 const Y_AXIS_GUTTER: f32 = tokens::chart::Y_AXIS_GUTTER;
@@ -426,8 +426,7 @@ where
                                 let dt = self.dt_ms_est().max(1) as f32;
                                 let dx_pts = dx_ms / dt;
 
-                                let event =
-                                    LineComparisonEvent::PanChanged(self.pan + dx_pts);
+                                let event = LineComparisonEvent::PanChanged(self.pan + dx_pts);
 
                                 shell.publish(M::from(event));
                                 state.clear_all_caches();

@@ -1,11 +1,11 @@
 pub mod ladder;
 pub mod timeandsales;
 
+use crate::style::tokens;
 use iced::{
     Element, padding,
     widget::{canvas, center, container, text},
 };
-use crate::style::tokens;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +39,11 @@ pub fn view<T: Panel>(panel: &'_ T, _timezone: data::UserTimezone) -> Element<'_
             .height(iced::Length::Fill)
             .width(iced::Length::Fill),
     )
-    .padding(padding::left(tokens::spacing::XXXS).right(tokens::spacing::XXXS).bottom(tokens::spacing::XXXS))
+    .padding(
+        padding::left(tokens::spacing::XXXS)
+            .right(tokens::spacing::XXXS)
+            .bottom(tokens::spacing::XXXS),
+    )
     .into()
 }
 

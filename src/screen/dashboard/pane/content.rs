@@ -1,10 +1,10 @@
-use crate::chart::{comparison::ComparisonChart, heatmap::HeatmapChart, candlestick::KlineChart};
+use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart};
+use crate::components::layout::reorderable_list as column_drag;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
-use crate::component::layout::reorderable_list as column_drag;
 
 use data::{
-    ContentKind, DrawingTool, HeatmapIndicator, KlineIndicator, Settings, UiIndicator,
-    ViewConfig, VisualConfig,
+    ContentKind, DrawingTool, HeatmapIndicator, KlineIndicator, Settings, UiIndicator, ViewConfig,
+    VisualConfig,
 };
 use exchange::FuturesTickerInfo;
 use std::time::Instant;
@@ -17,7 +17,7 @@ pub enum Content {
         chart: Option<HeatmapChart>,
         indicators: Vec<HeatmapIndicator>,
         layout: ViewConfig,
-        studies: Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>,
+        studies: Vec<data::domain::chart::heatmap::HeatmapStudy>,
     },
     Kline {
         chart: Option<KlineChart>,
@@ -60,24 +60,25 @@ impl Content {
                     .clone()
                     .and_then(|v| v.time_and_sales());
                 // Convert state config to panel config
-                let panel_config = state_config.map(|cfg| {
-                    data::panel::timeandsales::Config {
+                let panel_config =
+                    state_config.map(|cfg| data::config::panel::timeandsales::Config {
                         max_rows: cfg.max_rows,
                         ..Default::default()
-                    }
-                });
+                    });
                 Content::TimeAndSales(Some(TimeAndSales::new(panel_config, ticker_info.into())))
             }
             ContentKind::Ladder => {
                 let state_config = settings.visual_config.clone().and_then(|v| v.ladder());
                 // Convert state config to panel config
-                let panel_config = state_config.map(|cfg| {
-                    data::panel::ladder::Config {
-                        levels: cfg.levels,
-                        ..Default::default()
-                    }
+                let panel_config = state_config.map(|cfg| data::config::panel::ladder::Config {
+                    levels: cfg.levels,
+                    ..Default::default()
                 });
-                Content::Ladder(Some(Ladder::new(panel_config, ticker_info.into(), ticker_info.tick_size)))
+                Content::Ladder(Some(Ladder::new(
+                    panel_config,
+                    ticker_info.into(),
+                    ticker_info.tick_size,
+                )))
             }
             ContentKind::ComparisonChart => Content::Comparison(None),
             ContentKind::Starter => Content::Starter,
@@ -123,9 +124,7 @@ impl Content {
 
     pub fn footprint_config(&self) -> Option<data::FootprintStudyConfig> {
         match self {
-            Content::Kline { chart, .. } => {
-                chart.as_ref()?.footprint_config().cloned()
-            }
+            Content::Kline { chart, .. } => chart.as_ref()?.footprint_config().cloned(),
             _ => None,
         }
     }
@@ -196,7 +195,6 @@ impl Content {
                     order_size_filter: cfg.order_size_filter,
                     trade_size_filter: cfg.trade_size_filter,
                     trade_size_scale: cfg.trade_size_scale,
-                    coalescing: None, // CoalesceKind is not exposed, use None
                     trade_rendering_mode: crate::chart::heatmap::TradeRenderingMode::Auto,
                     max_trade_markers: 10_000,
                 };
@@ -209,13 +207,13 @@ impl Content {
                 // Convert state config to panel config
                 let stacked_bar = cfg.stacked_bar.map(|(is_compact, ratio)| {
                     if is_compact {
-                        data::panel::timeandsales::StackedBar::Compact(ratio)
+                        data::config::panel::timeandsales::StackedBar::Compact(ratio)
                     } else {
-                        data::panel::timeandsales::StackedBar::Full(ratio)
+                        data::config::panel::timeandsales::StackedBar::Full(ratio)
                     }
                 });
 
-                panel.config = data::panel::timeandsales::Config {
+                panel.config = data::config::panel::timeandsales::Config {
                     max_rows: cfg.max_rows,
                     show_delta: cfg.show_delta,
                     stacked_bar,
@@ -225,7 +223,7 @@ impl Content {
             }
             (Content::Ladder(Some(panel)), VisualConfig::Ladder(cfg)) => {
                 // Convert state config to panel config
-                panel.config = data::panel::ladder::Config {
+                panel.config = data::config::panel::ladder::Config {
                     levels: cfg.levels,
                     group_by_ticks: panel.config.group_by_ticks, // Preserve existing value
                     show_chase: panel.config.show_chase,         // Preserve existing value
@@ -242,7 +240,7 @@ impl Content {
         }
     }
 
-    pub fn heatmap_studies(&self) -> Option<Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>> {
+    pub fn heatmap_studies(&self) -> Option<Vec<data::domain::chart::heatmap::HeatmapStudy>> {
         match &self {
             Content::Heatmap { studies, .. } => Some(studies.clone()),
             _ => None,
@@ -259,7 +257,7 @@ impl Content {
 
     pub fn update_heatmap_studies(
         &mut self,
-        studies: Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy>,
+        studies: Vec<data::domain::chart::heatmap::HeatmapStudy>,
     ) {
         if let Content::Heatmap {
             chart,
@@ -272,7 +270,7 @@ impl Content {
                 c.studies = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(kind) => {
+                        data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
                             crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
                         }
                     })
@@ -280,6 +278,40 @@ impl Content {
             }
             *previous = studies;
         }
+    }
+
+    /// Resolve a panel index (among non-overlay indicators) to a `UiIndicator`.
+    pub fn indicator_at_panel(&self, panel_index: usize) -> Option<UiIndicator> {
+        match self {
+            Content::Kline { indicators, .. } => indicators
+                .iter()
+                .filter(|i| !i.is_overlay())
+                .nth(panel_index)
+                .map(|&i| UiIndicator::Kline(i)),
+            Content::Heatmap { indicators, .. } => indicators
+                .iter()
+                .nth(panel_index)
+                .map(|&i| UiIndicator::Heatmap(i)),
+            _ => None,
+        }
+    }
+
+    /// Panel index of the given indicator (among non-overlay panels).
+    pub fn indicator_panel_index(&self, target: &UiIndicator) -> Option<usize> {
+        match (self, target) {
+            (Content::Kline { indicators, .. }, UiIndicator::Kline(t)) => indicators
+                .iter()
+                .filter(|i| !i.is_overlay())
+                .position(|i| i == t),
+            (Content::Heatmap { indicators, .. }, UiIndicator::Heatmap(t)) => {
+                indicators.iter().position(|i| i == t)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn has_indicators(&self) -> bool {
+        matches!(self, Content::Kline { .. } | Content::Heatmap { .. })
     }
 
     pub fn kind(&self) -> ContentKind {

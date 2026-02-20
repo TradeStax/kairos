@@ -284,14 +284,11 @@ impl MassiveError {
     }
 
     /// Get error severity
-    pub fn severity(&self) -> crate::error::ErrorSeverity {
-        use crate::error::ErrorSeverity;
+    pub fn severity(&self) -> flowsurface_data::domain::error::ErrorSeverity {
+        use flowsurface_data::domain::error::ErrorSeverity;
         match self {
-            MassiveError::Config(_) | MassiveError::Auth(_) => {
-                ErrorSeverity::Critical
-            }
-            MassiveError::SymbolNotFound(_)
-            | MassiveError::InvalidContractTicker(_) => {
+            MassiveError::Config(_) | MassiveError::Auth(_) => ErrorSeverity::Critical,
+            MassiveError::SymbolNotFound(_) | MassiveError::InvalidContractTicker(_) => {
                 ErrorSeverity::Warning
             }
             MassiveError::RateLimit(_) => ErrorSeverity::Recoverable,
@@ -341,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_error_severity() {
-        use crate::error::ErrorSeverity;
+        use flowsurface_data::domain::error::ErrorSeverity;
 
         let auth_err = MassiveError::Auth("test".to_string());
         assert_eq!(auth_err.severity(), ErrorSeverity::Critical);

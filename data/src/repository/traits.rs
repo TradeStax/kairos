@@ -4,19 +4,24 @@
 //! Implementations can be cached, remote, in-memory, etc.
 
 use crate::domain::chart::LoadingStatus;
+use crate::domain::error::{AppError, ErrorSeverity};
 use crate::domain::{DateRange, DepthSnapshot, Trade};
 use crate::domain::{FuturesTicker, OptionChain, OptionContract, OptionSnapshot};
 use chrono::NaiveDate;
 use std::fmt;
 use thiserror::Error;
 
-/// Cache coverage report
+/// Cache coverage report for tracking which dates have cached data
 #[derive(Debug, Clone)]
 pub struct CacheCoverageReport {
+    /// Number of dates with cached data
     pub cached_count: usize,
+    /// Number of dates missing from cache
     pub uncached_count: usize,
-    pub gaps: Vec<(chrono::NaiveDate, chrono::NaiveDate)>, // (start, end) inclusive
-    pub cached_dates: Vec<chrono::NaiveDate>, // List of all cached dates
+    /// Date ranges that need to be fetched (start, end inclusive)
+    pub gaps: Vec<(chrono::NaiveDate, chrono::NaiveDate)>,
+    /// All dates that have cached data
+    pub cached_dates: Vec<chrono::NaiveDate>,
 }
 
 /// Repository error types
@@ -45,6 +50,34 @@ pub enum RepositoryError {
 
     #[error("Invalid data: {0}")]
     InvalidData(String),
+}
+
+impl AppError for RepositoryError {
+    fn user_message(&self) -> String {
+        match self {
+            Self::NotFound(s) => format!("Data not found: {s}"),
+            Self::AccessDenied(_) => "Access denied. Check your API key.".into(),
+            Self::RateLimit(_) => "Rate limit reached. Please try again shortly.".into(),
+            Self::Cache(s) => format!("Cache error: {s}"),
+            Self::Remote(_) => "Connection failed. Check your internet connection.".into(),
+            Self::Serialization(_) => "Data format error occurred.".into(),
+            Self::Io(_) => "File system error occurred.".into(),
+            Self::InvalidData(s) => format!("Invalid data: {s}"),
+        }
+    }
+
+    fn is_retriable(&self) -> bool {
+        matches!(self, Self::RateLimit(_) | Self::Remote(_) | Self::Io(_))
+    }
+
+    fn severity(&self) -> ErrorSeverity {
+        match self {
+            Self::NotFound(_) => ErrorSeverity::Info,
+            Self::RateLimit(_) | Self::Remote(_) => ErrorSeverity::Warning,
+            Self::AccessDenied(_) | Self::InvalidData(_) => ErrorSeverity::Recoverable,
+            Self::Cache(_) | Self::Serialization(_) | Self::Io(_) => ErrorSeverity::Critical,
+        }
+    }
 }
 
 pub type RepositoryResult<T> = Result<T, RepositoryError>;
@@ -119,10 +152,17 @@ pub trait TradeRepository: Send + Sync {
     /// Get repository statistics
     async fn stats(&self) -> RepositoryResult<RepositoryStats>;
 
+    // ── Provider-specific methods (Databento) ───────────────────────
+    //
+    // These methods support Databento-specific cache and cost operations.
+    // Default implementations return errors for non-Databento repos.
+    // TODO: Consider extracting to a separate extension trait when
+    // additional providers need similar capabilities.
+
     /// Check which days are cached vs need download (Databento-specific)
     ///
-    /// Note: This method accepts Databento Schema type for exchange-specific operations.
-    /// The data layer can call this via dynamic dispatch without knowing Schema details.
+    /// Returns a `CacheCoverageReport` showing which dates have cached data
+    /// and which need to be downloaded. Only implemented by Databento repos.
     async fn check_cache_coverage_databento(
         &self,
         _ticker: &FuturesTicker,
@@ -163,7 +203,8 @@ pub trait TradeRepository: Send + Sync {
     ) -> RepositoryResult<usize> {
         // Default: call non-progress version and ignore callback
         let _ = progress_callback; // Silence unused warning
-        self.prefetch_to_cache_databento(ticker, schema_discriminant, date_range).await
+        self.prefetch_to_cache_databento(ticker, schema_discriminant, date_range)
+            .await
     }
 
     /// Get actual cost from Databento API (Databento-specific)
@@ -186,7 +227,9 @@ pub trait TradeRepository: Send + Sync {
     ///
     /// Returns set of symbol strings that have at least one cached file.
     /// Default implementation returns empty set.
-    async fn list_cached_symbols_databento(&self) -> RepositoryResult<std::collections::HashSet<String>> {
+    async fn list_cached_symbols_databento(
+        &self,
+    ) -> RepositoryResult<std::collections::HashSet<String>> {
         Ok(std::collections::HashSet::new())
     }
 }
@@ -406,8 +449,7 @@ pub trait OptionChainRepository: Send + Sync {
     ) -> RepositoryResult<OptionChain>;
 
     /// Check if chain data is available for a date
-    async fn has_chain(&self, underlying_ticker: &str, date: NaiveDate)
-        -> RepositoryResult<bool>;
+    async fn has_chain(&self, underlying_ticker: &str, date: NaiveDate) -> RepositoryResult<bool>;
 
     /// Store option chain for a specific date
     async fn store_chain(
@@ -436,10 +478,8 @@ pub trait OptionContractRepository: Send + Sync {
     /// Get all available contracts for an underlying asset
     ///
     /// Returns both active and expired contracts by default.
-    async fn get_contracts(
-        &self,
-        underlying_ticker: &str,
-    ) -> RepositoryResult<Vec<OptionContract>>;
+    async fn get_contracts(&self, underlying_ticker: &str)
+    -> RepositoryResult<Vec<OptionContract>>;
 
     /// Get active contracts for an underlying asset
     ///

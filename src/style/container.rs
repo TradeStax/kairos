@@ -5,7 +5,29 @@ use iced::{Border, Color, Shadow, Theme};
 
 use super::tokens;
 
-// ── Panes ───────────────────────────────────────────────────────────
+// ── Window Title Bar ──────────────────────────────────────────────────
+
+pub fn window_title_bar(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        background: Some(palette.background.base.color.into()),
+        ..Default::default()
+    }
+}
+
+// ── Menu Bar ──────────────────────────────────────────────────────────
+
+pub fn menu_bar(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        background: Some(palette.background.base.color.into()),
+        ..Default::default()
+    }
+}
+
+// ── Panes ─────────────────────────────────────────────────────────────
 
 pub fn pane_title_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
@@ -67,7 +89,26 @@ pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
     }
 }
 
-// ── Modals ──────────────────────────────────────────────────────────
+// ── Chart Indicator Selection ─────────────────────────────────────────
+
+pub fn selected_indicator(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        border: Border {
+            width: tokens::border::THIN,
+            color: palette
+                .primary
+                .strong
+                .color
+                .scale_alpha(tokens::alpha::MEDIUM),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+// ── Modals ────────────────────────────────────────────────────────────
 
 pub fn chart_modal(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
@@ -178,7 +219,7 @@ pub fn modal_container(theme: &Theme) -> Style {
     }
 }
 
-// ── Overlays ────────────────────────────────────────────────────────
+// ── Overlays ──────────────────────────────────────────────────────────
 
 pub fn dropdown_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
@@ -217,7 +258,7 @@ pub fn tooltip(theme: &Theme) -> Style {
     }
 }
 
-// ── Floating panels ────────────────────────────────────────────────
+// ── Floating panels ───────────────────────────────────────────────────
 
 pub fn floating_panel(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
@@ -284,48 +325,7 @@ pub fn floating_panel_header(theme: &Theme) -> Style {
     }
 }
 
-// ── Domain-specific ─────────────────────────────────────────────────
-
-pub fn drawing_tools_container(theme: &Theme) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        background: Some(
-            if palette.is_dark {
-                palette
-                    .background
-                    .weak
-                    .color
-                    .scale_alpha(tokens::alpha::SUBTLE)
-            } else {
-                palette
-                    .background
-                    .strong
-                    .color
-                    .scale_alpha(tokens::alpha::SUBTLE)
-            }
-            .into(),
-        ),
-        border: Border {
-            width: tokens::border::THIN,
-            color: if palette.is_dark {
-                palette
-                    .background
-                    .weak
-                    .color
-                    .scale_alpha(tokens::alpha::MEDIUM)
-            } else {
-                palette
-                    .background
-                    .strong
-                    .color
-                    .scale_alpha(tokens::alpha::MEDIUM)
-            },
-            radius: tokens::radius::LG.into(),
-        },
-        ..Default::default()
-    }
-}
+// ── Domain-specific ───────────────────────────────────────────────────
 
 pub fn ticker_card(theme: &Theme) -> Style {
     let palette = theme.extended_palette();

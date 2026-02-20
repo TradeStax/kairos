@@ -5,6 +5,6 @@
 mod types;
 
 pub use types::{
-    DrawingId, DrawingStyle, DrawingTool, LineStyle, SerializableColor, SerializableDrawing,
-    SerializablePoint,
+    DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment, LineStyle,
+    SerializableColor, SerializableDrawing, SerializablePoint,
 };

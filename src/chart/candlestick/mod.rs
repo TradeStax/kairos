@@ -4,12 +4,12 @@ mod render;
 
 use crate::chart::indicator::kline::KlineIndicatorImpl;
 use crate::chart::{Chart, Message, PlotConstants, ViewState, drawing::DrawingManager, indicator};
+use data::state::pane::CandleStyle;
 use data::util::count_decimals;
 use data::{
-    Autoscale, Candle, ChartBasis, ChartData, ClusterScaling, FootprintStudyConfig, FootprintType,
-    KlineIndicator, Price as DomainPrice, Side, Trade, ViewConfig,
+    Autoscale, Candle, ChartBasis, ChartData, FootprintStudyConfig, FootprintType, KlineIndicator,
+    Price as DomainPrice, Side, Trade, ViewConfig,
 };
-use data::state::pane_config::CandleStyle;
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 
@@ -81,8 +81,7 @@ impl Chart for KlineChart {
         let x_translation = if self.footprint.is_some() {
             0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
         } else {
-            0.5 * (chart.bounds.width / chart.scaling)
-                - (8.0 * chart.cell_width / chart.scaling)
+            0.5 * (chart.bounds.width / chart.scaling) - (8.0 * chart.cell_width / chart.scaling)
         };
         Vector::new(x_translation, chart.translation.y)
     }
@@ -98,6 +97,50 @@ impl Chart for KlineChart {
     fn active_drawing_tool(&self) -> data::DrawingTool {
         self.drawings.active_tool()
     }
+
+    fn has_pending_drawing(&self) -> bool {
+        self.drawings.has_pending()
+    }
+
+    fn hit_test_drawing(
+        &self,
+        screen_point: iced::Point,
+        bounds: iced::Size,
+    ) -> Option<data::DrawingId> {
+        use crate::chart::core::tokens;
+        self.drawings.hit_test(
+            screen_point,
+            self.state(),
+            bounds,
+            tokens::drawing::HIT_TOLERANCE,
+        )
+    }
+
+    fn hit_test_drawing_handle(
+        &self,
+        screen_point: iced::Point,
+        bounds: iced::Size,
+    ) -> Option<(data::DrawingId, usize)> {
+        use crate::chart::core::tokens;
+        self.drawings.hit_test_handle(
+            screen_point,
+            self.state(),
+            bounds,
+            tokens::drawing::HANDLE_SIZE,
+        )
+    }
+
+    fn has_drawing_selection(&self) -> bool {
+        !self.drawings.selected_ids().is_empty()
+    }
+
+    fn is_drawing_selected(&self, id: data::DrawingId) -> bool {
+        self.drawings.is_selected(id)
+    }
+
+    fn has_clone_pending(&self) -> bool {
+        self.drawings.has_clone_pending()
+    }
 }
 
 impl PlotConstants for KlineChart {
@@ -110,7 +153,11 @@ impl PlotConstants for KlineChart {
     }
 
     fn max_cell_width(&self) -> f32 {
-        if self.footprint.is_some() { 500.0 } else { 100.0 }
+        if self.footprint.is_some() {
+            500.0
+        } else {
+            100.0
+        }
     }
 
     fn min_cell_width(&self) -> f32 {
@@ -118,7 +165,11 @@ impl PlotConstants for KlineChart {
     }
 
     fn max_cell_height(&self) -> f32 {
-        if self.footprint.is_some() { 100.0 } else { 200.0 }
+        if self.footprint.is_some() {
+            100.0
+        } else {
+            200.0
+        }
     }
 
     fn min_cell_height(&self) -> f32 {
@@ -145,6 +196,8 @@ pub struct KlineChart {
     pub drawings: DrawingManager,
     /// Candlestick visual style
     pub(crate) candle_style: CandleStyle,
+    /// Overlay studies (Big Trades, etc.)
+    studies: Vec<Box<dyn study::Study>>,
 }
 
 /// Maximum total price levels stored across all cached footprints
@@ -254,8 +307,7 @@ impl FootprintCache {
 
             let mut trades_map = BTreeMap::new();
             for trade in &trades[start_trade..end_trade] {
-                let price_rounded =
-                    domain_to_exchange_price(trade.price).round_to_step(tick_size);
+                let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size);
                 let entry = trades_map.entry(price_rounded).or_insert(TradeGroup {
                     buy_qty: 0.0,
                     sell_qty: 0.0,
@@ -362,8 +414,7 @@ impl KlineChart {
         let x_translation = if has_footprint {
             0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling)
         } else {
-            0.5 * (chart.bounds.width / chart.scaling)
-                - (8.0 * chart.cell_width / chart.scaling)
+            0.5 * (chart.bounds.width / chart.scaling) - (8.0 * chart.cell_width / chart.scaling)
         };
         chart.translation.x = x_translation;
 
@@ -386,6 +437,7 @@ impl KlineChart {
             footprint_cache: RefCell::new(FootprintCache::new()),
             drawings: DrawingManager::new(),
             candle_style: CandleStyle::default(),
+            studies: Vec::new(),
         }
     }
 
@@ -528,251 +580,29 @@ impl KlineChart {
         self.invalidate();
     }
 
-    fn calc_qty_scales(
+    /// Calculate max quantity for visible candles from the footprint cache
+    fn calc_qty_scales_from_cache(
         &self,
-        earliest: u64,
-        latest: u64,
-        highest: Price,
-        lowest: Price,
-        step: PriceStep,
-        cluster_kind: ClusterKind,
+        first_idx: usize,
+        last_idx: usize,
+        study_type: FootprintType,
     ) -> f32 {
-        let rounded_highest = highest.round_to_side_step(false, step).add_steps(1, step);
-        let rounded_lowest = lowest.round_to_side_step(true, step).add_steps(-1, step);
-
-        // Calculate max quantity from trades in visible candles
-        match &self.basis {
-            ChartBasis::Time(timeframe) => {
-                let interval_ms = timeframe.to_milliseconds();
-                // For time-based, find candles in timestamp range
-                let visible_candles: Vec<&Candle> = self
-                    .chart_data
-                    .candles
-                    .iter()
-                    .filter(|c| c.time.0 >= earliest && c.time.0 <= latest)
-                    .collect();
-
-                self.max_qty_from_candles(
-                    &visible_candles,
-                    rounded_highest,
-                    rounded_lowest,
-                    cluster_kind,
-                    interval_ms,
-                )
-            }
-            ChartBasis::Tick(_tick_count) => {
-                // For tick-based, use index range
-                let earliest = earliest as usize;
-                let latest = latest as usize;
-                let len = self.chart_data.candles.len();
-
-                let visible_candles: Vec<&Candle> = self
-                    .chart_data
-                    .candles
-                    .iter()
-                    .rev()
-                    .enumerate()
-                    .filter(|(idx, _)| *idx >= earliest && *idx <= latest && *idx < len)
-                    .map(|(_, c)| c)
-                    .collect();
-
-                // For tick charts, we use tick count to estimate time range
-                let interval_estimate = 1000; // 1 second default
-                self.max_qty_from_candles(
-                    &visible_candles,
-                    rounded_highest,
-                    rounded_lowest,
-                    cluster_kind,
-                    interval_estimate,
-                )
-            }
-        }
-    }
-
-    fn max_qty_from_candles(
-        &self,
-        candles: &[&Candle],
-        highest: Price,
-        lowest: Price,
-        cluster_kind: ClusterKind,
-        interval_ms: u64,
-    ) -> f32 {
-        // Build footprint from trades for visible candles
-        let mut max_qty = 0.0_f32;
-
-        for candle in candles {
-            // Get trades within this candle's time range using binary search
-            let candle_start = candle.time.0;
-            let candle_end = candle.time.0 + interval_ms;
-
-            // Find start index using binary search
-            let start_idx = self
-                .chart_data
-                .trades
-                .binary_search_by_key(&candle_start, |t| t.time.0)
-                .unwrap_or_else(|i| i);
-
-            // Find end index using binary search on the remaining slice
-            let end_idx = self.chart_data.trades[start_idx..]
-                .binary_search_by_key(&candle_end, |t| t.time.0)
-                .map(|i| start_idx + i)
-                .unwrap_or_else(|i| start_idx + i);
-
-            // Get slice directly - O(1) instead of O(N)
-            let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
-
-            let footprint = self.build_footprint(trades_in_candle, highest, lowest);
-
-            match cluster_kind {
-                ClusterKind::BidAsk => {
-                    for group in footprint.values() {
-                        max_qty = max_qty.max(group.buy_qty.max(group.sell_qty));
-                    }
-                }
-                ClusterKind::DeltaProfile => {
-                    for group in footprint.values() {
-                        max_qty = max_qty.max((group.buy_qty - group.sell_qty).abs());
-                    }
-                }
-                ClusterKind::VolumeProfile => {
-                    for group in footprint.values() {
-                        max_qty = max_qty.max(group.buy_qty + group.sell_qty);
-                    }
-                }
-                ClusterKind::Delta | ClusterKind::Volume | ClusterKind::Trades => {
-                    // For simple cluster types, use buy_qty + sell_qty
-                    for group in footprint.values() {
-                        max_qty = max_qty.max(group.buy_qty + group.sell_qty);
-                    }
-                }
-            }
-        }
-
-        max_qty
-    }
-
-    /// Build footprint for a single candle from trades
-    fn build_footprint(
-        &self,
-        trades: &[Trade],
-        highest: Price,
-        lowest: Price,
-    ) -> BTreeMap<Price, TradeGroup> {
-        let step = self.chart.tick_size;
-        let mut trades_map = BTreeMap::new();
-
-        for trade in trades {
-            let price_rounded = domain_to_exchange_price(trade.price).round_to_step(step);
-
-            // Only include trades within visible price range
-            if price_rounded < lowest || price_rounded > highest {
-                continue;
-            }
-
-            let entry = trades_map.entry(price_rounded).or_insert(TradeGroup {
-                buy_qty: 0.0,
-                sell_qty: 0.0,
-            });
-
-            match trade.side {
-                Side::Buy | Side::Bid => entry.buy_qty += trade.quantity.0 as f32,
-                Side::Sell | Side::Ask => entry.sell_qty += trade.quantity.0 as f32,
-            }
-        }
-
-        trades_map
-    }
-
-    /// Get or build cached footprint for a candle index
-    ///
-    /// Uses lazy initialization - builds full cache on first access,
-    /// then serves from cache on subsequent calls.
-    fn get_cached_footprint(
-        &mut self,
-        candle_index: usize,
-        interval_ms: u64,
-        highest: Price,
-        lowest: Price,
-    ) -> Option<BTreeMap<Price, TradeGroup>> {
-        // Check if we need to rebuild cache
-        if self.footprint_cache.is_none() {
-            self.build_footprint_cache(interval_ms);
-        }
-
-        // Retrieve from cache
-        self.footprint_cache
-            .as_ref()
-            .and_then(|cache: &Vec<BTreeMap<Price, TradeGroup>>| cache.get(candle_index).cloned())
-            .or_else(|| {
-                // Fallback: build on-demand if cache miss
-                if candle_index < self.chart_data.candles.len() {
-                    let candle = &self.chart_data.candles[candle_index];
-                    let candle_start = candle.time.0;
-                    let candle_end = candle.time.0 + interval_ms;
-
-                    let start_idx = self
-                        .chart_data
-                        .trades
-                        .binary_search_by_key(&candle_start, |t| t.time.0)
-                        .unwrap_or_else(|i| i);
-
-                    let end_idx = self.chart_data.trades[start_idx..]
-                        .binary_search_by_key(&candle_end, |t| t.time.0)
-                        .map(|i| start_idx + i)
-                        .unwrap_or_else(|i| start_idx + i);
-
-                    let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
-                    Some(self.build_footprint(trades_in_candle, highest, lowest))
-                } else {
-                    None
-                }
+        let cache = self.footprint_cache.borrow();
+        (first_idx..=last_idx)
+            .filter_map(|i| cache.get(i))
+            .flat_map(|fp| fp.values())
+            .map(|g| match study_type {
+                FootprintType::Volume => g.total_qty(),
+                FootprintType::BidAskSplit => g.buy_qty.max(g.sell_qty),
+                FootprintType::Delta => g.delta_qty().abs(),
+                FootprintType::DeltaAndVolume => g.total_qty(),
             })
-    }
-
-    /// Build complete footprint cache for all candles
-    ///
-    /// Pre-computes footprints for better rendering performance
-    fn build_footprint_cache(&mut self, interval_ms: u64) {
-        let candle_count = self.chart_data.candles.len();
-        let mut cache = Vec::with_capacity(candle_count);
-
-        // Use max price range to capture all trades
-        let highest = Price::from_f32(f32::MAX);
-        let lowest = Price::from_f32(0.0);
-
-        for (idx, candle) in self.chart_data.candles.iter().enumerate() {
-            let candle_start = candle.time.0;
-            let candle_end = if idx + 1 < candle_count {
-                self.chart_data.candles[idx + 1].time.0
-            } else {
-                candle.time.0 + interval_ms
-            };
-
-            // Binary search for trade range
-            let start_idx = self
-                .chart_data
-                .trades
-                .binary_search_by_key(&candle_start, |t| t.time.0)
-                .unwrap_or_else(|i| i);
-
-            let end_idx = self.chart_data.trades[start_idx..]
-                .binary_search_by_key(&candle_end, |t| t.time.0)
-                .map(|i| start_idx + i)
-                .unwrap_or_else(|i| start_idx + i);
-
-            let trades_in_candle = &self.chart_data.trades[start_idx..end_idx];
-            let footprint = self.build_footprint(trades_in_candle, highest, lowest);
-            cache.push(footprint);
-        }
-
-        self.footprint_cache = Some(cache);
-        self.cache_revision += 1;
+            .fold(0.0f32, f32::max)
     }
 
     /// Invalidate footprint cache (call when data or basis changes)
     fn invalidate_footprint_cache(&mut self) {
-        self.footprint_cache = None;
-        self.cache_revision += 1;
+        self.footprint_cache.borrow_mut().clear();
     }
 
     pub fn last_update(&self) -> Instant {
@@ -780,15 +610,6 @@ impl KlineChart {
     }
 
     pub fn invalidate(&mut self) {
-        // Rebuild footprint cache for footprint charts if data has changed
-        if matches!(self.kind, KlineChartKind::Footprint { .. }) && self.footprint_cache.is_none() {
-            let interval_ms = match &self.basis {
-                ChartBasis::Time(tf) => tf.to_milliseconds(),
-                ChartBasis::Tick(_) => 1000, // Default estimate
-            };
-            self.build_footprint_cache(interval_ms);
-        }
-
         let chart = &mut self.chart;
 
         if let Some(autoscale) = chart.layout.autoscale {
@@ -797,15 +618,12 @@ impl KlineChart {
                     // No autoscaling - do nothing
                 }
                 Autoscale::CenterLatest => {
-                    let x_translation = match &self.kind {
-                        KlineChartKind::Footprint { .. } => {
-                            0.5 * (chart.bounds.width / chart.scaling)
-                                - (chart.cell_width / chart.scaling)
-                        }
-                        KlineChartKind::Candles => {
-                            0.5 * (chart.bounds.width / chart.scaling)
-                                - (8.0 * chart.cell_width / chart.scaling)
-                        }
+                    let x_translation = if self.footprint.is_some() {
+                        0.5 * (chart.bounds.width / chart.scaling)
+                            - (chart.cell_width / chart.scaling)
+                    } else {
+                        0.5 * (chart.bounds.width / chart.scaling)
+                            - (8.0 * chart.cell_width / chart.scaling)
                     };
                     chart.translation.x = x_translation;
 
@@ -895,6 +713,8 @@ impl KlineChart {
             indi.clear_all_caches();
         }
 
+        self.recompute_studies();
+
         self.last_tick = Instant::now();
     }
 
@@ -925,18 +745,16 @@ impl KlineChart {
     ///
     /// Pushes the trade to internal `chart_data`, updates candles
     /// (or creates new ones), updates `latest_x` for autoscroll,
-    /// and invalidates the footprint cache.
+    /// and incrementally updates the footprint cache.
     pub fn append_trade(&mut self, trade: &Trade) {
         self.chart_data.trades.push(*trade);
 
         let (buy_vol, sell_vol) = match trade.side {
-            Side::Buy | Side::Bid => {
-                (data::Volume(trade.quantity.0), data::Volume(0.0))
-            }
-            Side::Sell | Side::Ask => {
-                (data::Volume(0.0), data::Volume(trade.quantity.0))
-            }
+            Side::Buy | Side::Bid => (data::Volume(trade.quantity.0), data::Volume(0.0)),
+            Side::Sell | Side::Ask => (data::Volume(0.0), data::Volume(trade.quantity.0)),
         };
+
+        let mut new_candle = false;
 
         match self.basis {
             ChartBasis::Time(tf) => {
@@ -951,14 +769,13 @@ impl KlineChart {
                         last.high = last.high.max(trade.price);
                         last.low = last.low.min(trade.price);
                         last.close = trade.price;
-                        last.buy_volume = data::Volume(
-                            last.buy_volume.0 + buy_vol.0,
-                        );
-                        last.sell_volume = data::Volume(
-                            last.sell_volume.0 + sell_vol.0,
-                        );
+                        last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
+                        last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
                         self.chart.latest_x = last.time.0;
-                        self.invalidate_footprint_cache();
+                        // Incremental cache update instead of full invalidation
+                        self.footprint_cache
+                            .borrow_mut()
+                            .update_last(trade, self.chart.tick_size);
                         return;
                     }
                 }
@@ -972,6 +789,7 @@ impl KlineChart {
                     buy_volume: buy_vol,
                     sell_volume: sell_vol,
                 });
+                new_candle = true;
             }
             ChartBasis::Tick(count) => {
                 let count = count as usize;
@@ -980,27 +798,21 @@ impl KlineChart {
                 }
                 let num_candles = self.chart_data.candles.len();
                 let num_trades = self.chart_data.trades.len();
-                let completed = if num_candles > 0 {
-                    num_candles - 1
-                } else {
-                    0
-                };
-                let trades_in_current =
-                    num_trades.saturating_sub(completed * count);
+                let completed = if num_candles > 0 { num_candles - 1 } else { 0 };
+                let trades_in_current = num_trades.saturating_sub(completed * count);
 
                 if let Some(last) = self.chart_data.candles.last_mut() {
                     if trades_in_current <= count {
                         last.high = last.high.max(trade.price);
                         last.low = last.low.min(trade.price);
                         last.close = trade.price;
-                        last.buy_volume = data::Volume(
-                            last.buy_volume.0 + buy_vol.0,
-                        );
-                        last.sell_volume = data::Volume(
-                            last.sell_volume.0 + sell_vol.0,
-                        );
+                        last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
+                        last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
                         self.chart.latest_x = last.time.0;
-                        self.invalidate_footprint_cache();
+                        // Incremental cache update
+                        self.footprint_cache
+                            .borrow_mut()
+                            .update_last(trade, self.chart.tick_size);
                         return;
                     }
                 }
@@ -1014,7 +826,16 @@ impl KlineChart {
                     buy_volume: buy_vol,
                     sell_volume: sell_vol,
                 });
+                new_candle = true;
             }
+        }
+
+        if new_candle {
+            // Add empty entry for the new candle, then update it
+            self.footprint_cache.borrow_mut().push_empty();
+            self.footprint_cache
+                .borrow_mut()
+                .update_last(trade, self.chart.tick_size);
         }
 
         self.chart.latest_x = self
@@ -1023,7 +844,6 @@ impl KlineChart {
             .last()
             .map(|c| c.time.0)
             .unwrap_or(0);
-        self.invalidate_footprint_cache();
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
@@ -1059,11 +879,42 @@ impl KlineChart {
 
         self.invalidate();
     }
+
+    // ── Study management ──────────────────────────────────────────────
+
+    pub fn add_study(&mut self, study: Box<dyn study::Study>) {
+        self.studies.push(study);
+        self.recompute_studies();
+        self.invalidate();
+    }
+
+    pub fn remove_study(&mut self, id: &str) {
+        self.studies.retain(|s| s.id() != id);
+        self.invalidate();
+    }
+
+    pub fn studies(&self) -> &[Box<dyn study::Study>] {
+        &self.studies
+    }
+
+    fn recompute_studies(&mut self) {
+        if self.studies.is_empty() {
+            return;
+        }
+        let input = study::StudyInput {
+            candles: &self.chart_data.candles,
+            trades: Some(&self.chart_data.trades),
+            basis: self.basis,
+            tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
+            visible_range: None,
+        };
+        for s in &mut self.studies {
+            s.compute(&input);
+        }
+    }
 }
 
-// ============================================================================
-// HELPER TYPES
-// ============================================================================
+// ── Helper Types ──────────────────────────────────────────────────────
 
 pub(crate) use crate::chart::study::TradeGroup;
 

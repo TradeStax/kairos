@@ -1,6 +1,6 @@
 use iced::Task;
 
-use crate::component::display::toast::{Notification, Toast};
+use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
 use super::super::{DownloadMessage, Flowsurface, Message, get_download_progress};
@@ -74,7 +74,7 @@ impl Flowsurface {
 
                 if pane_id == uuid::Uuid::nil() {
                     self.data_management_panel.set_cache_status(
-                        crate::modal::pane::download::CacheStatus {
+                        crate::modals::download::CacheStatus {
                             total_days,
                             cached_days,
                             uncached_days,
@@ -183,7 +183,7 @@ impl Flowsurface {
         if self.historical_download_id == Some(pane_id) {
             if let Some(modal) = &mut self.historical_download_modal {
                 modal.set_download_progress(
-                    crate::modal::pane::download::DownloadProgress::Downloading {
+                    crate::modals::download::DownloadProgress::Downloading {
                         current_day: current,
                         total_days: total,
                     },
@@ -191,7 +191,7 @@ impl Flowsurface {
             }
         } else if pane_id == uuid::Uuid::nil() {
             self.data_management_panel.set_download_progress(
-                crate::modal::pane::download::DownloadProgress::Downloading {
+                crate::modals::download::DownloadProgress::Downloading {
                     current_day: current,
                     total_days: total,
                 },
@@ -256,17 +256,16 @@ impl Flowsurface {
                 );
 
                 if pane_id == uuid::Uuid::nil() {
-                    self.data_management_panel.set_download_progress(
-                        crate::modal::pane::download::DownloadProgress::Idle,
-                    );
+                    self.data_management_panel
+                        .set_download_progress(crate::modals::download::DownloadProgress::Idle);
 
                     let estimate_ticker = data::FuturesTicker::new(
-                        crate::modal::pane::FUTURES_PRODUCTS
+                        crate::modals::download::FUTURES_PRODUCTS
                             [self.data_management_panel.selected_ticker_idx()]
                         .0,
                         data::FuturesVenue::CMEGlobex,
                     );
-                    let schema = crate::modal::pane::SCHEMAS
+                    let schema = crate::modals::download::SCHEMAS
                         [self.data_management_panel.selected_schema_idx()]
                     .0;
                     let estimate_date_range = self.data_management_panel.current_date_range();
@@ -304,13 +303,13 @@ impl Flowsurface {
 
     pub(crate) fn handle_historical_download(
         &mut self,
-        msg: crate::modal::pane::download::HistoricalDownloadMessage,
+        msg: crate::modals::download::HistoricalDownloadMessage,
     ) -> Task<Message> {
         if let Some(modal) = &mut self.historical_download_modal
             && let Some(action) = modal.update(msg)
         {
             match action {
-                crate::modal::pane::download::historical::Action::EstimateRequested {
+                crate::modals::download::historical::Action::EstimateRequested {
                     ticker,
                     schema,
                     date_range,
@@ -338,7 +337,7 @@ impl Flowsurface {
                         },
                     );
                 }
-                crate::modal::pane::download::historical::Action::DownloadRequested {
+                crate::modals::download::historical::Action::DownloadRequested {
                     ticker,
                     schema,
                     date_range,
@@ -382,7 +381,7 @@ impl Flowsurface {
                         },
                     );
                 }
-                crate::modal::pane::download::historical::Action::ApiKeySaved { provider, key } => {
+                crate::modals::download::historical::Action::ApiKeySaved { provider, key } => {
                     let secrets = data::SecretsManager::new();
                     if let Err(e) = secrets.set_api_key(provider, &key) {
                         log::warn!("Failed to save API key: {}", e);
@@ -391,7 +390,7 @@ impl Flowsurface {
                         return Task::done(Message::ReinitializeService(provider));
                     }
                 }
-                crate::modal::pane::download::historical::Action::Closed => {
+                crate::modals::download::historical::Action::Closed => {
                     self.historical_download_modal = None;
                     self.historical_download_id = None;
                 }
@@ -415,7 +414,7 @@ impl Flowsurface {
                     cached_dates,
                 )) => {
                     modal.set_cache_status(
-                        crate::modal::pane::download::CacheStatus {
+                        crate::modals::download::CacheStatus {
                             total_days,
                             cached_days,
                             uncached_days,
@@ -470,9 +469,9 @@ impl Flowsurface {
                 if let Some(modal) = &self.historical_download_modal {
                     let name = modal.auto_name();
                     let schema_idx = modal.selected_schema_idx();
-                    let (_, schema_name, _) = crate::modal::pane::SCHEMAS[schema_idx];
+                    let (_, schema_name, _) = crate::modals::download::SCHEMAS[schema_idx];
                     let ticker_idx = modal.selected_ticker_idx();
-                    let (ticker_sym, _) = crate::modal::pane::FUTURES_PRODUCTS[ticker_idx];
+                    let (ticker_sym, _) = crate::modals::download::FUTURES_PRODUCTS[ticker_idx];
 
                     let info = data::HistoricalDatasetInfo {
                         ticker: ticker_sym.to_string(),
@@ -505,9 +504,8 @@ impl Flowsurface {
                 self.notifications
                     .push(Toast::error(format!("Download failed: {}", e)));
                 if let Some(modal) = &mut self.historical_download_modal {
-                    modal.set_download_progress(
-                        crate::modal::pane::download::DownloadProgress::Error(e),
-                    );
+                    modal
+                        .set_download_progress(crate::modals::download::DownloadProgress::Error(e));
                 }
             }
         }

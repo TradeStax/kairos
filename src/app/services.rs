@@ -1,5 +1,5 @@
+use data::{ApiKeyStatus, ApiProvider, SecretsManager};
 use std::sync::Arc;
-use data::{SecretsManager, ApiProvider, ApiKeyStatus};
 
 /// Initialize options services from environment or keyring
 pub fn initialize_options_services() -> (
@@ -20,36 +20,44 @@ pub fn initialize_options_services() -> (
                 ApiKeyStatus::FromEnv(_) => "environment",
                 _ => "unknown",
             };
-            log::info!("Massive API key found (from {}), initializing options data service", source);
+            log::info!(
+                "Massive API key found (from {}), initializing options data service",
+                source
+            );
 
             let config = exchange::MassiveConfig::new(api_key);
 
             // Initialize repositories asynchronously
             match tokio::runtime::Runtime::new() {
-                Ok(rt) => {
-                    rt.block_on(async {
-                        let snapshot_repo_result = exchange::MassiveSnapshotRepository::new(config.clone()).await;
-                        let chain_repo_result = exchange::MassiveChainRepository::new(config.clone()).await;
-                        let contract_repo_result = exchange::MassiveContractRepository::new(config).await;
+                Ok(rt) => rt.block_on(async {
+                    let snapshot_repo_result =
+                        exchange::MassiveSnapshotRepository::new(config.clone()).await;
+                    let chain_repo_result =
+                        exchange::MassiveChainRepository::new(config.clone()).await;
+                    let contract_repo_result =
+                        exchange::MassiveContractRepository::new(config).await;
 
-                        match (snapshot_repo_result, chain_repo_result, contract_repo_result) {
-                            (Ok(snapshot_repo), Ok(chain_repo), Ok(contract_repo)) => {
-                                let service = data::services::OptionsDataService::new(
-                                    Arc::new(snapshot_repo),
-                                    Arc::new(chain_repo),
-                                    Arc::new(contract_repo),
-                                );
+                    match (
+                        snapshot_repo_result,
+                        chain_repo_result,
+                        contract_repo_result,
+                    ) {
+                        (Ok(snapshot_repo), Ok(chain_repo), Ok(contract_repo)) => {
+                            let service = data::services::OptionsDataService::new(
+                                Arc::new(snapshot_repo),
+                                Arc::new(chain_repo),
+                                Arc::new(contract_repo),
+                            );
 
-                                log::info!("✓ Options data service initialized successfully");
-                                Some(Arc::new(service))
-                            }
-                            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
-                                log::error!("Failed to initialize options repositories: {}", e);
-                                None
-                            }
+                            log::info!("✓ Options data service initialized successfully");
+                            Some(Arc::new(service))
                         }
-                    })
-                }
+                        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                            log::error!("Failed to initialize options repositories: {}", e);
+                            None
+                        }
+                    }
+                }),
                 Err(e) => {
                     log::error!("Failed to create runtime for options service: {}", e);
                     None
@@ -58,7 +66,9 @@ pub fn initialize_options_services() -> (
         }
         ApiKeyStatus::NotConfigured => {
             log::info!("Massive API key not configured - options data features disabled");
-            log::info!("Configure via Settings > API Keys or set MASSIVE_API_KEY environment variable");
+            log::info!(
+                "Configure via Settings > API Keys or set MASSIVE_API_KEY environment variable"
+            );
             None
         }
     };
@@ -67,6 +77,7 @@ pub fn initialize_options_services() -> (
 }
 
 /// Result of market data service initialization
+#[allow(dead_code)]
 pub struct MarketDataServiceResult {
     pub service: Arc<data::MarketDataService>,
     pub trade_repo: Arc<exchange::DatabentoTradeRepository>,
@@ -91,7 +102,9 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
         }
         ApiKeyStatus::NotConfigured => {
             log::warn!("Databento API key not configured - market data features disabled");
-            log::info!("Configure via Settings > API Keys or set DATABENTO_API_KEY environment variable");
+            log::info!(
+                "Configure via Settings > API Keys or set DATABENTO_API_KEY environment variable"
+            );
             return None;
         }
     };
@@ -106,7 +119,6 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
     };
 
     // Create repository instances (async)
-    
 
     rt.block_on(async {
         let trade_result = exchange::DatabentoTradeRepository::new(databento_config.clone()).await;
@@ -116,9 +128,10 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
             (Ok(trade), Ok(depth)) => {
                 let trade_repo = Arc::new(trade);
                 let depth_repo = Arc::new(depth);
-                let service = Arc::new(
-                    data::MarketDataService::new(trade_repo.clone(), depth_repo.clone())
-                );
+                let service = Arc::new(data::MarketDataService::new(
+                    trade_repo.clone(),
+                    depth_repo.clone(),
+                ));
                 log::info!("Market data service initialized successfully");
                 Some(MarketDataServiceResult {
                     service,
@@ -152,25 +165,18 @@ pub struct RithmicServiceResult {
 pub async fn initialize_rithmic_service(
     feed_config: &data::feed::RithmicFeedConfig,
     password: &str,
-) -> Result<RithmicServiceResult, String> {
+) -> Result<RithmicServiceResult, exchange::Error> {
     let (status_tx, _status_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let (local_config, rithmic_config) =
-        exchange::RithmicConfig::from_feed_config(feed_config, password)
-            .map_err(|e| format!("Rithmic config error: {}", e))?;
+        exchange::RithmicConfig::from_feed_config(feed_config, password)?;
 
-    let mut client =
-        exchange::RithmicClient::new(local_config, status_tx);
-    client.connect(&rithmic_config).await.map_err(|e| {
-        format!("Rithmic connection error: {}", e)
-    })?;
+    let mut client = exchange::RithmicClient::new(local_config, status_tx);
+    client.connect(&rithmic_config).await?;
 
     let client = Arc::new(tokio::sync::Mutex::new(client));
 
-    let trade_repo = Arc::new(exchange::RithmicTradeRepository::new(
-        client.clone(),
-        "CME",
-    ));
+    let trade_repo = Arc::new(exchange::RithmicTradeRepository::new(client.clone(), "CME"));
     let depth_repo = Arc::new(exchange::RithmicDepthRepository::new());
 
     log::info!("Rithmic service initialized successfully");

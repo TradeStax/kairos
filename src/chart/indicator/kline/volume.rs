@@ -10,8 +10,8 @@ use crate::chart::{
     },
 };
 
-use data::{Candle, ChartBasis};
 use data::util::format_with_commas;
+use data::{Candle, ChartBasis};
 
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;

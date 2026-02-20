@@ -18,9 +18,7 @@ impl DataFeedManager {
         Self::default()
     }
 
-    // ========================================================================
-    // CRUD Operations
-    // ========================================================================
+    // ── CRUD Operations ────────────────────────────────────────────────
 
     /// Get all feeds
     pub fn feeds(&self) -> &[DataFeed] {
@@ -63,9 +61,7 @@ impl DataFeedManager {
         }
     }
 
-    // ========================================================================
-    // Query Operations
-    // ========================================================================
+    // ── Query Operations ───────────────────────────────────────────────
 
     /// Get all enabled feeds
     pub fn enabled_feeds(&self) -> Vec<&DataFeed> {
@@ -89,12 +85,9 @@ impl DataFeedManager {
 
     /// Check if any enabled feed provides realtime data
     pub fn has_realtime(&self) -> bool {
-        self.feeds.iter().any(|f| {
-            f.enabled
-                && f.capabilities()
-                    .iter()
-                    .any(|c| c.is_realtime())
-        })
+        self.feeds
+            .iter()
+            .any(|f| f.enabled && f.capabilities().iter().any(|c| c.is_realtime()))
     }
 
     /// Count of currently connected feeds
@@ -137,27 +130,20 @@ impl DataFeedManager {
 
     /// Check if any enabled feed of the given provider is currently connected
     pub fn has_connected_provider(&self, provider: FeedProvider) -> bool {
-        self.feeds.iter().any(|f| {
-            f.provider == provider && f.enabled && f.status.is_connected()
-        })
+        self.feeds
+            .iter()
+            .any(|f| f.provider == provider && f.enabled && f.status.is_connected())
     }
 
     /// Get the feed ID of a connected feed for the given provider (first match)
-    pub fn connected_feed_id_for_provider(
-        &self,
-        provider: FeedProvider,
-    ) -> Option<FeedId> {
+    pub fn connected_feed_id_for_provider(&self, provider: FeedProvider) -> Option<FeedId> {
         self.feeds
             .iter()
-            .find(|f| {
-                f.provider == provider && f.enabled && f.status.is_connected()
-            })
+            .find(|f| f.provider == provider && f.enabled && f.status.is_connected())
             .map(|f| f.id)
     }
 
-    // ========================================================================
-    // Migration
-    // ========================================================================
+    // ── Migration ──────────────────────────────────────────────────────
 
     /// Create a DataFeedManager from legacy configuration.
     ///
@@ -252,10 +238,7 @@ mod tests {
     fn test_manager_migration() {
         let manager = DataFeedManager::migrate_from_legacy(true);
         assert_eq!(manager.total_count(), 1);
-        assert_eq!(
-            manager.feeds()[0].provider,
-            FeedProvider::Databento
-        );
+        assert_eq!(manager.feeds()[0].provider, FeedProvider::Databento);
 
         let manager = DataFeedManager::migrate_from_legacy(false);
         assert_eq!(manager.total_count(), 0);

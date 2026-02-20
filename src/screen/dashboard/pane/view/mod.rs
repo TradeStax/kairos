@@ -9,9 +9,9 @@ mod starter;
 pub(crate) use modal_stack::CompactControls;
 
 use crate::{
-    component::primitives::{exchange_icon, icon_text, label::*},
-    component::input::link_group_button::link_group_button,
-    modal::{self, pane::Modal},
+    components::input::link_group_button::link_group_button,
+    components::primitives::{exchange_icon, icon_text, label::*},
+    modals::{self, pane::Modal},
     screen::dashboard::panel,
     style::{self, palette, tokens},
     window::{self, Window},
@@ -60,7 +60,7 @@ impl State {
                 .on_press(Message::PaneEvent(
                     id,
                     Event::ShowModal(Modal::MiniTickersList(
-                        modal::pane::tickers::MiniPanel::new(),
+                        modals::pane::tickers::MiniPanel::new(),
                     )),
                 ))
                 .style(|theme, status| {
@@ -82,7 +82,7 @@ impl State {
                 .on_press(Message::PaneEvent(
                     id,
                     Event::ShowModal(Modal::MiniTickersList(
-                        modal::pane::tickers::MiniPanel::new(),
+                        modals::pane::tickers::MiniPanel::new(),
                     )),
                 ))
                 .style(|theme, status| {
@@ -97,7 +97,7 @@ impl State {
             stream_info_element = stream_info_element.push(tickers_list_btn);
         }
 
-        let modifier: Option<modal::stream::Modifier> = self.modal.clone().and_then(|m| {
+        let modifier: Option<modals::stream::Modifier> = self.modal.clone().and_then(|m| {
             if let Modal::StreamModifier(modifier) = m {
                 Some(modifier)
             } else {
@@ -150,12 +150,9 @@ impl State {
 
                 center(content).into()
             } else {
-                let content = column![
-                    heading(kind.to_string()),
-                    title("No ticker selected")
-                ]
-                .spacing(tokens::spacing::MD)
-                .align_x(Alignment::Center);
+                let content = column![heading(kind.to_string()), title("No ticker selected")]
+                    .spacing(tokens::spacing::MD)
+                    .align_x(Alignment::Center);
 
                 center(content).into()
             }
@@ -185,7 +182,7 @@ impl State {
                     });
 
                     let settings_modal =
-                        || modal::pane::settings::timesales_cfg_view(panel.config.clone(), id);
+                        || modals::pane::settings::timesales_cfg_view(panel.config.clone(), id);
 
                     self.compose_stack_view(
                         base,
@@ -216,7 +213,7 @@ impl State {
                         .selected_basis
                         .unwrap_or(data::ChartBasis::Time(data::Timeframe::M5));
 
-                    let kind = modal::ModifierKind::Orderbook(basis);
+                    let kind = modals::ModifierKind::Orderbook(basis);
 
                     let modifiers = helpers::basis_modifier(id, basis, modifier, kind);
 
@@ -227,7 +224,7 @@ impl State {
                     });
 
                     let settings_modal =
-                        || modal::pane::settings::ladder_cfg_view(panel.config.clone(), id);
+                        || modals::pane::settings::ladder_cfg_view(panel.config.clone(), id);
 
                     self.compose_stack_view(
                         base,
@@ -273,16 +270,12 @@ impl State {
                 body
             }
             Content::Kline {
-                chart,
-                indicators,
-                kind: chart_kind,
-                ..
+                chart, indicators, ..
             } => {
                 let (body, extras) = self.view_kline_body(
                     id,
                     chart,
                     indicators,
-                    chart_kind,
                     modifier,
                     compact_controls,
                     uninitialized_base,
@@ -331,8 +324,8 @@ impl State {
                     && self.ticker_info.is_some()
                     && self.content.initialized()
                 {
-                    stream_info_element = stream_info_element
-                        .push(colored("Disconnected", palette::warning_color()));
+                    stream_info_element =
+                        stream_info_element.push(colored("Disconnected", palette::warning_color()));
                 }
             }
             data::LoadingStatus::Error { message } => {

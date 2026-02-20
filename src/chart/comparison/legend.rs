@@ -5,11 +5,11 @@ use exchange::TickerInfo;
 
 use iced::{Color, Point, Rectangle};
 
-use super::scene::PlotContext;
 use super::line_widget::{
     CHAR_W, ICON_BOX, ICON_GAP_AFTER_TEXT, ICON_SPACING, LEGEND_LINE_H, LEGEND_PADDING,
     TEXT_SIZE_PUB as TEXT_SIZE,
 };
+use super::scene::PlotContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum IconKind {

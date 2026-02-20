@@ -9,10 +9,12 @@
 
 mod caches;
 mod interaction;
+#[allow(dead_code)]
+pub mod tokens;
 mod traits;
 mod view_state;
 
 pub use caches::Caches;
-pub use interaction::{Interaction, canvas_interaction};
+pub use interaction::{ChartState, Interaction, canvas_interaction};
 pub use traits::{Chart, PlotConstants};
 pub use view_state::ViewState;

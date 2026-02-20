@@ -1,10 +1,10 @@
 use super::Message;
-use crate::component::primitives::AZERET_MONO;
+use crate::components::primitives::AZERET_MONO;
 use crate::style::tokens;
-use data::config::theme::{darken, lighten};
-pub use data::panel::timeandsales::Config;
-use data::panel::timeandsales::{HistAgg, StackedBar, StackedBarRatio, TradeEntry};
 use data::Trade;
+pub use data::config::panel::timeandsales::Config;
+use data::config::panel::timeandsales::{HistAgg, StackedBar, StackedBarRatio, TradeEntry};
+use data::config::theme::{darken, lighten};
 use exchange::TickerInfo;
 
 use iced::widget::canvas::{self, Text};
@@ -500,7 +500,9 @@ impl canvas::Program<Message> for TimeAndSales {
 
                 // Convert domain Price to exchange Price for formatting
                 let exchange_price = exchange::util::Price::from(entry.price);
-                let precision = exchange::util::Power10::<-8, 2>::from(self.ticker_info.min_ticksize.to_f32_lossy());
+                let precision = exchange::util::Power10::<-8, 2>::from(
+                    self.ticker_info.min_ticksize.to_f32_lossy(),
+                );
                 let trade_price = create_text(
                     exchange_price.to_string(precision),
                     Point {

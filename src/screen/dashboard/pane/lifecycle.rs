@@ -1,6 +1,6 @@
 use super::{Action, Content, Effect, State};
 use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart};
-use crate::component::display::toast::Toast;
+use crate::components::display::toast::Toast;
 use data::{
     ChartBasis, ChartConfig, ChartData, ContentKind, DataSchema, DateRange, LoadingStatus,
     Timeframe, VisualConfig,
@@ -28,16 +28,24 @@ impl State {
             Content::Kline {
                 chart,
                 indicators,
-                kind,
                 layout,
             } => {
+                // Get footprint config from visual settings
+                let footprint = self.settings.visual_config.as_ref().and_then(|vc| {
+                    if let VisualConfig::Kline(cfg) = vc {
+                        cfg.footprint.clone()
+                    } else {
+                        None
+                    }
+                });
+
                 let mut new_chart = KlineChart::from_chart_data(
                     chart_data,
                     basis,
                     ticker_info,
                     layout.clone(),
                     indicators,
-                    kind.clone(),
+                    footprint,
                 );
                 if !self.settings.drawings.is_empty() {
                     new_chart
@@ -45,9 +53,7 @@ impl State {
                         .load_drawings(self.settings.drawings.clone());
                 }
                 // Apply saved candle style from visual config
-                if let Some(VisualConfig::Kline(ref kline_cfg)) =
-                    self.settings.visual_config
-                {
+                if let Some(VisualConfig::Kline(ref kline_cfg)) = self.settings.visual_config {
                     new_chart.set_candle_style(kline_cfg.candle_style.clone());
                 }
                 *chart = Some(new_chart);
@@ -61,9 +67,9 @@ impl State {
                 let chart_studies: Vec<crate::chart::heatmap::HeatmapStudy> = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(
-                            kind,
-                        ) => crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind),
+                        data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
+                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
+                        }
                     })
                     .collect();
                 log::info!(

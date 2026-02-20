@@ -1,6 +1,6 @@
 use iced::Task;
 
-use crate::component::display::toast::Toast;
+use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
 use data::LoadingStatus;
 

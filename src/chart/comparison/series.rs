@@ -3,9 +3,9 @@
 //! This module provides the UI for editing series properties
 //! such as color and custom label names.
 
-use crate::style;
 use super::types::Series;
-use crate::component::input::color_picker::color_picker;
+use crate::components::input::color_picker::color_picker;
+use crate::style;
 use exchange::FuturesTickerInfo;
 use iced::widget::{button, column, container, row, text};
 use iced::{Element, Length};
@@ -86,9 +86,10 @@ impl TickerSeriesEditor {
 
             let header = button(
                 row![
-                    container("").width(14).height(14).style(move |theme| {
-                        style::colored_circle_container(theme, applied)
-                    }),
+                    container("")
+                        .width(14)
+                        .height(14)
+                        .style(move |theme| { style::colored_circle_container(theme, applied) }),
                     text(futures_info.ticker.as_str().to_string()).size(13),
                 ]
                 .width(Length::Fill)

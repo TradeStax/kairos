@@ -8,13 +8,16 @@ use iced::widget::canvas::Cache;
 ///
 /// Separates different rendering layers for independent invalidation:
 /// - `main` - Primary chart content (candles, depth, etc.)
+/// - `drawings` - Completed drawing annotations
 /// - `x_labels` - X-axis time/tick labels
 /// - `y_labels` - Y-axis price labels
-/// - `crosshair` - Crosshair overlay
+/// - `crosshair` - Crosshair overlay (selection handles, pending preview, crosshair)
 #[derive(Default)]
 pub struct Caches {
     /// Main chart content cache
     pub main: Cache,
+    /// Completed drawings cache
+    pub drawings: Cache,
     /// X-axis labels cache
     pub x_labels: Cache,
     /// Y-axis labels cache
@@ -32,14 +35,23 @@ impl Caches {
     /// Clear all caches (full redraw needed)
     pub fn clear_all(&self) {
         self.main.clear();
+        self.drawings.clear();
         self.x_labels.clear();
         self.y_labels.clear();
         self.crosshair.clear();
     }
 
-    /// Clear only crosshair-related caches
+    /// Clear only the drawings cache
+    pub fn clear_drawings(&self) {
+        self.drawings.clear();
+    }
+
+    /// Clear crosshair and axis label caches
     ///
-    /// Used when cursor moves but chart content hasn't changed
+    /// Used when cursor moves but chart data hasn't changed.
+    /// Axis labels must also be cleared because the `AxisLabelsX` and
+    /// `AxisLabelsY` draw closures render the cursor-position label
+    /// (crosshair price / time) directly into their respective caches.
     pub fn clear_crosshair(&self) {
         self.crosshair.clear();
         self.y_labels.clear();

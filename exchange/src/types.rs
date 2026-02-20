@@ -8,9 +8,7 @@ use flowsurface_data::domain::FuturesTicker;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-// ============================================================================
-// MARKET DATA TYPES
-// ============================================================================
+// ── Market Data Types ─────────────────────────────────────────────────
 
 /// Trade execution
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -62,9 +60,7 @@ pub struct OpenInterest {
     pub open_interest: f32,
 }
 
-// ============================================================================
-// ORDERBOOK / DEPTH TYPES
-// ============================================================================
+// ── Orderbook / Depth Types ───────────────────────────────────────────
 
 /// Market depth (orderbook) snapshot
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,9 +143,7 @@ impl Default for Depth {
     }
 }
 
-// ============================================================================
-// TICKER INFO (for exchange adapter)
-// ============================================================================
+// ── Ticker Info (for exchange adapter) ────────────────────────────────
 
 /// Ticker info used by exchange adapter (uses exchange::util::Price types)
 #[derive(Debug, Clone, Copy, PartialEq)]

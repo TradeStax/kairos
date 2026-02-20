@@ -7,7 +7,9 @@ use crate::domain::chart::{DataSegment, MergeResult};
 use crate::domain::types::Timestamp;
 use crate::domain::{DateRange, FuturesTicker, Trade};
 use crate::feed::FeedId;
-use crate::repository::traits::{RepositoryError, RepositoryResult, RepositoryStats, TradeRepository};
+use crate::repository::traits::{
+    RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
+};
 use crate::services::feed_merger;
 use std::sync::Arc;
 
@@ -38,6 +40,8 @@ impl CompositeTradeRepository {
     ) -> RepositoryResult<MergeResult> {
         let mut segments = Vec::with_capacity(self.repos.len());
 
+        let mut errors = Vec::new();
+
         for feed_repo in &self.repos {
             match feed_repo.repo.get_trades(ticker, date_range).await {
                 Ok(trades) => {
@@ -60,9 +64,14 @@ impl CompositeTradeRepository {
                         ticker.as_str(),
                         e
                     );
-                    // Continue with other feeds
+                    errors.push(e);
                 }
             }
+        }
+
+        // If all feeds failed, propagate the error
+        if segments.is_empty() && !errors.is_empty() {
+            return Err(errors.remove(0));
         }
 
         let expected_start = Timestamp(date_range.start_timestamp_ms());
@@ -93,8 +102,18 @@ impl TradeRepository for CompositeTradeRepository {
         date: chrono::NaiveDate,
     ) -> RepositoryResult<bool> {
         for feed_repo in &self.repos {
-            if feed_repo.repo.has_trades(ticker, date).await.unwrap_or(false) {
-                return Ok(true);
+            match feed_repo.repo.has_trades(ticker, date).await {
+                Ok(true) => return Ok(true),
+                Ok(false) => continue,
+                Err(e) => {
+                    log::debug!(
+                        "Feed {} check failed for {}: {}",
+                        feed_repo.feed_id,
+                        ticker.as_str(),
+                        e
+                    );
+                    continue;
+                }
             }
         }
         Ok(false)
@@ -222,10 +241,7 @@ mod tests {
     #[tokio::test]
     async fn test_composite_merge() {
         let repo_a = Arc::new(MockRepo {
-            trades: vec![
-                make_trade(1000, 100.0),
-                make_trade(2000, 101.0),
-            ],
+            trades: vec![make_trade(1000, 100.0), make_trade(2000, 101.0)],
         });
 
         let repo_b = Arc::new(MockRepo {
@@ -246,16 +262,16 @@ mod tests {
             },
         ]);
 
-        let ticker = FuturesTicker::new(
-            "ES.c.0",
-            crate::domain::FuturesVenue::CMEGlobex,
-        );
+        let ticker = FuturesTicker::new("ES.c.0", crate::domain::FuturesVenue::CMEGlobex);
         let date_range = DateRange::new(
             chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
             chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
         );
 
-        let result = composite.get_merged_trades(&ticker, &date_range).await.unwrap();
+        let result = composite
+            .get_merged_trades(&ticker, &date_range)
+            .await
+            .unwrap();
 
         // Should have 3 unique trades: 1000@100, 1500@100.5, 2000@101
         assert_eq!(result.trades.len(), 3);

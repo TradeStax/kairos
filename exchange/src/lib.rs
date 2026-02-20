@@ -1,32 +1,28 @@
-//! Flowsurface Exchange Layer - Modern Architecture
+//! Flowsurface Exchange Layer
 //!
-//! Exchange adapter layer providing market data from external sources.
+//! Adapter layer providing market data from external sources.
 //!
 //! ## Data Sources
-//! - **Databento**: CME Globex futures market data (trades, depth, OHLCV)
-//! - **Massive (Polygon)**: US options market data (chains, Greeks, IV)
+//! - **Databento**: CME Globex futures (trades, depth, OHLCV)
+//! - **Massive (Polygon)**: US options (chains, Greeks, IV)
+//! - **Rithmic**: Real-time CME futures streaming
 //!
 //! ## Modules
-//! - **types**: All type definitions (futures, market data, depth, timeframe)
-//! - **adapter**: Adapter pattern for exchange integration
-//! - **repository**: Repository implementations for each data source
-//! - **config**: Exchange configuration
-//! - **error**: Error handling
-//! - **util**: Price utilities and helpers
+//! - [`types`] - Exchange-specific type definitions (Trade, Kline, Depth)
+//! - [`adapter`] - Adapter implementations (Databento, Massive, Rithmic)
+//! - [`repository`] - Repository trait implementations per data source
+//! - [`error`] - Error types with [`AppError`] trait
+//! - [`util`] - Fixed-point Price type and helpers
 
-// ============================================================================
-// MODERN ARCHITECTURE - Exchange Adapter Layer
-// ============================================================================
-
-pub mod adapter; // Adapter pattern (Databento implementation)
-pub mod config; // Exchange configuration
-pub mod error; // Error types
-pub mod repository; // Repository implementations (Databento)
-pub mod types; // Consolidated type definitions
-pub mod util; // Price utilities
+pub mod adapter;
+pub mod error;
+pub mod repository;
+pub mod types;
+pub mod util;
 
 // Re-export error types
 pub use error::{Error, ExchangeResult};
+pub use flowsurface_data::domain::error::{AppError, ErrorSeverity};
 
 // Re-export domain types from data layer (futures, timeframe, etc.)
 pub use flowsurface_data::domain::{
@@ -36,9 +32,6 @@ pub use flowsurface_data::domain::{
 
 // Re-export exchange-specific types
 pub use types::{Depth, Kline, OpenInterest, TickerInfo, Trade, TradeSide};
-
-// Type alias for compatibility
-pub type Ticker = FuturesTicker;
 
 // Re-export adapter event
 pub use adapter::Event;
@@ -56,36 +49,14 @@ pub use repository::{
 };
 
 // Re-export Massive adapter
-pub use adapter::massive::{
-    HistoricalOptionsManager, MassiveConfig, MassiveError, MassiveResult,
-};
+pub use adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError, MassiveResult};
 
 // Re-export Rithmic adapter
-pub use adapter::rithmic::{
-    RithmicClient, RithmicConfig, RithmicError, RithmicStream,
-};
+pub use adapter::rithmic::{RithmicClient, RithmicConfig, RithmicError, RithmicStream};
 pub use rithmic_rs::{self, RithmicEnv};
 
 // Re-export Databento Schema for UI access
 pub use databento::dbn::Schema as DatabentoSchema;
-
-/// Check if symbol is supported
-pub fn is_symbol_supported(
-    symbol: &str,
-    _venue: FuturesVenue,
-    log_warn: bool,
-) -> bool {
-    let valid = symbol.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
-    });
-    if !valid && log_warn {
-        log::warn!("Unsupported ticker symbol: '{}'", symbol);
-    }
-    valid
-}
-
-// TickMultiplier removed - was only needed for crypto which this project doesn't support
-// Use ticker_info.tick_size directly for futures tick sizes
 
 /// Push frequency for orderbook updates
 #[derive(
@@ -103,66 +74,5 @@ impl std::fmt::Display for PushFrequency {
             PushFrequency::ServerDefault => write!(f, "Server Default"),
             PushFrequency::Custom(tf) => write!(f, "{}", tf),
         }
-    }
-}
-
-/// Serializable ticker for map keys
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SerTicker {
-    pub venue: FuturesVenue,
-    pub ticker: FuturesTicker,
-}
-
-impl SerTicker {
-    pub fn new(venue: FuturesVenue, ticker_str: &str) -> Self {
-        let ticker = FuturesTicker::new(ticker_str, venue);
-        Self { venue, ticker }
-    }
-
-    pub fn from_parts(ticker: FuturesTicker) -> Self {
-        Self {
-            venue: ticker.venue,
-            ticker,
-        }
-    }
-}
-
-impl serde::Serialize for SerTicker {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let combined = format!("CMEGlobex:{}", self.ticker.as_str());
-        serializer.serialize_str(&combined)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SerTicker {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let parts: Vec<&str> = s.split(':').collect();
-
-        if parts.len() != 2 {
-            return Err(serde::de::Error::custom(format!(
-                "Invalid SerTicker format: expected 'Venue:Ticker', got '{}'",
-                s
-            )));
-        }
-
-        let venue = match parts[0] {
-            "CMEGlobex" => FuturesVenue::CMEGlobex,
-            _ => {
-                return Err(serde::de::Error::custom(format!(
-                    "Unknown venue: {}",
-                    parts[0]
-                )));
-            }
-        };
-
-        let ticker = FuturesTicker::new(parts[1], venue);
-        Ok(SerTicker { venue, ticker })
     }
 }

@@ -4,11 +4,11 @@
 //! Coordinates repositories and applies business logic.
 
 use crate::domain::{
-    Candle, DateRange, Price, Trade,
+    Candle, DateRange, FuturesTicker, FuturesTickerInfo, Price, Trade,
     aggregation::{AggregationError, aggregate_trades_to_candles, aggregate_trades_to_ticks},
     chart::{ChartBasis, ChartConfig, ChartData, DataSchema, LoadingStatus},
+    error::{AppError, ErrorSeverity},
 };
-use crate::domain::{FuturesTicker, FuturesTickerInfo};
 use crate::repository::{DepthRepository, RepositoryError, TradeRepository};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,34 @@ pub enum ServiceError {
 
     #[error("No data available: {0}")]
     NoData(String),
+}
+
+impl AppError for ServiceError {
+    fn user_message(&self) -> String {
+        match self {
+            Self::Repository(e) => e.user_message(),
+            Self::Aggregation(e) => format!("Data processing error: {e}"),
+            Self::InvalidConfig(s) => format!("Invalid configuration: {s}"),
+            Self::NoData(s) => format!("No data available: {s}"),
+        }
+    }
+
+    fn is_retriable(&self) -> bool {
+        match self {
+            Self::Repository(e) => e.is_retriable(),
+            Self::NoData(_) => true,
+            _ => false,
+        }
+    }
+
+    fn severity(&self) -> ErrorSeverity {
+        match self {
+            Self::Repository(e) => e.severity(),
+            Self::Aggregation(_) => ErrorSeverity::Recoverable,
+            Self::InvalidConfig(_) => ErrorSeverity::Recoverable,
+            Self::NoData(_) => ErrorSeverity::Info,
+        }
+    }
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
@@ -69,6 +97,15 @@ impl MarketDataService {
             depth_repo,
             loading_status: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Update loading status for a chart key
+    fn set_loading_status(&self, key: &str, status: LoadingStatus) {
+        let mut map = self
+            .loading_status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        map.insert(key.to_string(), status);
     }
 
     /// Get chart data based on configuration
@@ -118,26 +155,16 @@ impl MarketDataService {
             config.ticker, config.basis, config.date_range
         );
 
-        log::debug!("About to acquire loading_status lock...");
-
         // Update loading status: start downloading
-        {
-            let mut status_map = self
-                .loading_status
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            log::debug!("Loading status lock acquired successfully");
-            let date_range_days = effective_date_range.num_days() as usize;
-            status_map.insert(
-                chart_key.clone(),
-                LoadingStatus::Downloading {
-                    schema: DataSchema::Trades,
-                    days_total: date_range_days,
-                    days_complete: 0,
-                    current_day: effective_date_range.start.to_string(),
-                },
-            );
-        }
+        self.set_loading_status(
+            &chart_key,
+            LoadingStatus::Downloading {
+                schema: DataSchema::Trades,
+                days_total: effective_date_range.num_days() as usize,
+                days_complete: 0,
+                current_day: effective_date_range.start.to_string(),
+            },
+        );
 
         // Step 1: Fetch trades from repository WITH PROGRESS CALLBACK
         // Create a progress callback that updates loading_status
@@ -156,13 +183,8 @@ impl MarketDataService {
         {
             Ok(trades) => trades,
             Err(e) => {
-                // Update status to error
-                let mut status_map = self
-                    .loading_status
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                status_map.insert(
-                    chart_key.clone(),
+                self.set_loading_status(
+                    &chart_key,
                     LoadingStatus::Error {
                         message: format!("Failed to fetch trades: {:?}", e),
                     },
@@ -182,31 +204,20 @@ impl MarketDataService {
         log::info!("Loaded {} trades from repository", trades.len());
 
         // Update status: now building chart (aggregating trades)
-        {
-            let mut status_map = self
-                .loading_status
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            status_map.insert(
-                chart_key.clone(),
-                LoadingStatus::Building {
-                    operation: format!("Aggregating {} trades", trades.len()),
-                    progress: 0.3,
-                },
-            );
-        }
+        self.set_loading_status(
+            &chart_key,
+            LoadingStatus::Building {
+                operation: format!("Aggregating {} trades", trades.len()),
+                progress: 0.3,
+            },
+        );
 
         // Step 2: Aggregate to target basis
         let candles = match self.aggregate_to_basis(&trades, config.basis, ticker_info) {
             Ok(candles) => candles,
             Err(e) => {
-                // Update status to error
-                let mut status_map = self
-                    .loading_status
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                status_map.insert(
-                    chart_key.clone(),
+                self.set_loading_status(
+                    &chart_key,
                     LoadingStatus::Error {
                         message: format!("Failed to aggregate: {:?}", e),
                     },
@@ -222,19 +233,13 @@ impl MarketDataService {
         );
 
         // Update status: building candles complete
-        {
-            let mut status_map = self
-                .loading_status
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            status_map.insert(
-                chart_key.clone(),
-                LoadingStatus::Building {
-                    operation: format!("Built {} candles", candles.len()),
-                    progress: 0.6,
-                },
-            );
-        }
+        self.set_loading_status(
+            &chart_key,
+            LoadingStatus::Building {
+                operation: format!("Built {} candles", candles.len()),
+                progress: 0.6,
+            },
+        );
 
         // Step 3: Load depth data for heatmap charts
         let mut chart_data = ChartData::from_trades(trades, candles);
@@ -248,21 +253,15 @@ impl MarketDataService {
             );
 
             // Update status: loading depth data
-            {
-                let mut status_map = self
-                    .loading_status
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                status_map.insert(
-                    chart_key.clone(),
-                    LoadingStatus::Downloading {
-                        schema: DataSchema::MBP10,
-                        days_total: effective_date_range.num_days() as usize,
-                        days_complete: 0,
-                        current_day: effective_date_range.start.to_string(),
-                    },
-                );
-            }
+            self.set_loading_status(
+                &chart_key,
+                LoadingStatus::Downloading {
+                    schema: DataSchema::MBP10,
+                    days_total: effective_date_range.num_days() as usize,
+                    days_complete: 0,
+                    current_day: effective_date_range.start.to_string(),
+                },
+            );
 
             let depth_start = std::time::Instant::now();
             match self
@@ -278,22 +277,16 @@ impl MarketDataService {
                     );
 
                     // Update status: processing depth data
-                    {
-                        let mut status_map = self
-                            .loading_status
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner());
-                        status_map.insert(
-                            chart_key.clone(),
-                            LoadingStatus::Building {
-                                operation: format!(
-                                    "Processing {} depth snapshots",
-                                    depth_snapshots.len()
-                                ),
-                                progress: 0.9,
-                            },
-                        );
-                    }
+                    self.set_loading_status(
+                        &chart_key,
+                        LoadingStatus::Building {
+                            operation: format!(
+                                "Processing {} depth snapshots",
+                                depth_snapshots.len()
+                            ),
+                            progress: 0.9,
+                        },
+                    );
 
                     chart_data = chart_data.with_depth(depth_snapshots);
                 }
@@ -308,13 +301,7 @@ impl MarketDataService {
         }
 
         // Update status: ready
-        {
-            let mut status_map = self
-                .loading_status
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            status_map.insert(chart_key.clone(), LoadingStatus::Ready);
-        }
+        self.set_loading_status(&chart_key, LoadingStatus::Ready);
 
         // Step 4: Return chart data with depth (if heatmap)
         Ok(chart_data)
@@ -421,16 +408,13 @@ impl MarketDataService {
 
     /// Clear completed and errored loading statuses
     ///
-    /// Removes Ready and Error statuses that are older than the specified duration.
-    pub fn clear_old_statuses(&self, _older_than: std::time::Duration) {
+    /// Removes Ready, Idle, and Error statuses, keeping only active operations.
+    pub fn clear_old_statuses(&self) {
         let mut status_map = self
             .loading_status
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
-        // Remove completed statuses
-        // Note: Currently removes all completed statuses regardless of age
-        // TODO: Track timestamps to implement age-based removal
         status_map.retain(|_, status| {
             matches!(
                 status,

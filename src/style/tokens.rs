@@ -1,7 +1,9 @@
 //! Design tokens -- single source of truth for all visual constants.
 //! All view code should reference these instead of magic numbers.
+//!
+//! Some constants are defined for completeness and may not yet be referenced.
 
-// --- Spacing (4px base grid) ---
+// ── Spacing (4px base grid) ───────────────────────────────────────────
 pub mod spacing {
     pub const XXXS: f32 = 1.0; // Hairline (dividers)
     pub const XXS: f32 = 2.0; // Tight (drag margins)
@@ -13,7 +15,7 @@ pub mod spacing {
     pub const XXL: f32 = 24.0; // Spacious (modal padding, section breaks)
 }
 
-// --- Typography ---
+// ── Typography ────────────────────────────────────────────────────────
 pub mod text {
     pub const TINY: f32 = 10.0; // Badges, labels
     pub const SMALL: f32 = 11.0; // Chart labels, panel data (AZERET_MONO)
@@ -23,7 +25,7 @@ pub mod text {
     pub const HEADING: f32 = 16.0; // Modal headings
 }
 
-// --- Border Radii ---
+// ── Border Radii ──────────────────────────────────────────────────────
 pub mod radius {
     pub const NONE: f32 = 0.0;
     pub const SM: f32 = 2.0; // Inputs, scrollbars
@@ -32,7 +34,7 @@ pub mod radius {
     pub const ROUND: f32 = 16.0; // Circles, pills
 }
 
-// --- Border Widths ---
+// ── Border Widths ─────────────────────────────────────────────────────
 pub mod border {
     pub const NONE: f32 = 0.0;
     pub const THIN: f32 = 1.0; // Standard borders
@@ -40,7 +42,7 @@ pub mod border {
     pub const THICK: f32 = 2.0; // Active state, scrollbars
 }
 
-// --- Shadows ---
+// ── Shadows ───────────────────────────────────────────────────────────
 pub mod shadow {
     pub const NONE: f32 = 0.0;
     pub const SM: f32 = 2.0; // Minimal (modal containers)
@@ -50,9 +52,10 @@ pub mod shadow {
     pub const XXL: f32 = 20.0; // Dashboard modals (deepest)
 }
 
-// --- Layout Constants ---
+// ── Layout Constants ──────────────────────────────────────────────────
 pub mod layout {
     pub const TITLE_BAR_HEIGHT: f32 = 32.0;
+    pub const MENU_BAR_HEIGHT: f32 = 24.0;
     pub const SIDEBAR_WIDTH: f32 = 32.0;
     pub const SIDEBAR_BUTTON_HEIGHT: f32 = 34.0;
     pub const PANEL_ROW_HEIGHT: f32 = 16.0; // Ladder
@@ -64,14 +67,13 @@ pub mod layout {
     pub const MODAL_WIDTH_MD: f32 = 360.0; // data_management
     pub const MODAL_WIDTH_LG: f32 = 420.0; // historical_download
     pub const CONFIRM_DIALOG_WIDTH: f32 = 340.0;
-    pub const AUDIO_MODAL_WIDTH: f32 = 320.0;
     pub const SCROLLBAR_WIDTH: f32 = 4.0;
     pub const SLIDER_HEIGHT: f32 = 24.0;
     pub const TOGGLER_SIZE: f32 = 18.0;
     pub const TOAST_MAX_WIDTH: f32 = 200.0;
 }
 
-// --- Chart Rendering ---
+// ── Chart Rendering ───────────────────────────────────────────────────
 pub mod chart {
     pub const Y_AXIS_GUTTER: f32 = 66.0;
     pub const X_AXIS_HEIGHT: f32 = 24.0;
@@ -82,7 +84,7 @@ pub mod chart {
     pub const GAP_BREAK_MULTIPLIER: f32 = 3.0;
 }
 
-// --- Alpha Scale ---
+// ── Alpha Scale ───────────────────────────────────────────────────────
 pub mod alpha {
     pub const FAINT: f32 = 0.2; // Disabled, dark-theme hints
     pub const SUBTLE: f32 = 0.3; // Faint backgrounds

@@ -1,23 +1,22 @@
 //! Sidebar for navigation and menu access
 //!
-//! Provides navigation buttons for layout management, audio controls, data management,
-//! and settings. Drawing tools are displayed in the center with category-based selection.
+//! Provides navigation buttons for layout management, replay, connections,
+//! settings, and drawing tools with flyout submenus.
 
 use crate::{
+    components::display::tooltip::button_with_tooltip,
+    components::primitives::{Icon, icon_text},
     layout::SavedState,
-    modal::drawing_tools::{self, DrawingToolsPanel, ToolCategory},
-    component::primitives::{Icon, icon_text},
+    modals::drawing_tools::{self, DrawingToolsPanel, SidebarGroup},
     style,
     style::tokens,
-    component::display::tooltip::button_with_tooltip,
 };
-use iced::widget::tooltip::Position as TooltipPosition;
 use data::sidebar;
+use iced::widget::tooltip::Position as TooltipPosition;
 
 use iced::{
     Alignment, Element, Length, Task,
-    widget::{column, container, mouse_area, space, stack, Space},
-    padding,
+    widget::{button, column, container, row, rule, space},
 };
 
 #[derive(Debug, Clone)]
@@ -44,10 +43,8 @@ impl Sidebar {
         match message {
             Message::ToggleSidebarMenu(menu) => {
                 self.set_menu(menu.filter(|&m| !self.is_menu_active(m)));
-                // Close drawing tools dropdown when opening other menus
-                if menu.is_some() {
-                    self.drawing_tools.update(drawing_tools::Message::CloseDropdown);
-                }
+                // Close any open flyout when toggling sidebar menus
+                self.drawing_tools.expanded_group = None;
                 (Task::none(), None)
             }
             Message::SetDateRangePreset(preset) => {
@@ -61,7 +58,7 @@ impl Sidebar {
         }
     }
 
-    pub fn view(&self, audio_volume: Option<f32>) -> Element<'_, Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let state = &self.state;
 
         let tooltip_position = if state.position == sidebar::Position::Left {
@@ -70,24 +67,11 @@ impl Sidebar {
             TooltipPosition::Left
         };
 
-        // Build sidebar content
-        let sidebar_content = self.build_sidebar_content(audio_volume, tooltip_position);
-
-        // If a drawing tools dropdown is open, overlay it
-        if let Some(dropdown) = self.drawing_tools.view_dropdown() {
-            self.view_with_dropdown(sidebar_content, dropdown)
-        } else {
-            sidebar_content
-        }
+        self.build_sidebar_content(tooltip_position)
     }
 
-    fn build_sidebar_content(
-        &self,
-        audio_volume: Option<f32>,
-        tooltip_position: TooltipPosition,
-    ) -> Element<'_, Message> {
-        // Top buttons
-        let layout_modal_button = {
+    fn build_sidebar_content(&self, tooltip_position: TooltipPosition) -> Element<'_, Message> {
+        let layout_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Layout);
 
             button_with_tooltip(
@@ -95,24 +79,12 @@ impl Sidebar {
                     .width(24)
                     .align_x(Alignment::Center),
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::Layout)),
-                None,
+                Some("Layout"),
                 tooltip_position,
                 move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
         };
 
-        // Drawing tools section - centered with subtle container
-        let drawing_tools_section = {
-            let tools_buttons = self.drawing_tools
-                .view_sidebar_buttons()
-                .map(Message::DrawingTools);
-
-            container(tools_buttons)
-                .padding(padding::all(tokens::spacing::XS))
-                .style(style::drawing_tools_container)
-        };
-
-        // Bottom buttons
         let replay_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Replay);
 
@@ -123,31 +95,14 @@ impl Sidebar {
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::Replay)),
                 Some("Replay"),
                 tooltip_position,
-                move |theme, status| {
-                    crate::style::button::transparent(theme, status, is_active)
-                },
-            )
-        };
-
-        let audio_btn = {
-            let is_active = self.is_menu_active(sidebar::Menu::Audio);
-
-            let icon = match audio_volume.unwrap_or(0.0) {
-                v if v >= 40.0 => Icon::SpeakerHigh,
-                v if v > 0.0 => Icon::SpeakerLow,
-                _ => Icon::SpeakerOff,
-            };
-
-            button_with_tooltip(
-                icon_text(icon, 14).width(24).align_x(Alignment::Center),
-                Message::ToggleSidebarMenu(Some(sidebar::Menu::Audio)),
-                None,
-                tooltip_position,
                 move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
         };
 
-        let connections_button = {
+        // Drawing tool buttons - one per sidebar group
+        let drawing_buttons = self.build_drawing_buttons(tooltip_position);
+
+        let connections_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Connections);
 
             button_with_tooltip(
@@ -161,7 +116,7 @@ impl Sidebar {
             )
         };
 
-        let settings_modal_button = {
+        let settings_btn = {
             let is_active = self.is_menu_active(sidebar::Menu::Settings)
                 || self.is_menu_active(sidebar::Menu::ThemeEditor);
 
@@ -170,78 +125,207 @@ impl Sidebar {
                     .width(24)
                     .align_x(Alignment::Center),
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::Settings)),
-                None,
+                Some("Settings"),
                 tooltip_position,
                 move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
         };
 
-        // Layout: top, center (drawing tools), bottom
-        column![
-            // Top section
-            layout_modal_button,
-            // Spacer to push drawing tools to center
-            space::vertical().height(Length::Fill),
-            // Center section - drawing tools
-            drawing_tools_section,
-            // Spacer to push bottom buttons down
-            space::vertical().height(Length::Fill),
-            // Bottom section
-            replay_btn,
-            audio_btn,
-            connections_button,
-            settings_modal_button,
-        ]
-        .width(tokens::layout::SIDEBAR_WIDTH)
-        .spacing(tokens::spacing::XS)
-        .align_x(Alignment::Center)
-        .into()
-    }
+        let mut content = column![]
+            .width(tokens::layout::SIDEBAR_WIDTH)
+            .spacing(tokens::spacing::XS)
+            .align_x(Alignment::Center);
 
-    fn view_with_dropdown<'a>(
-        &'a self,
-        sidebar_content: Element<'a, Message>,
-        dropdown: Element<'a, drawing_tools::Message>,
-    ) -> Element<'a, Message> {
-        // Calculate dropdown position based on which category is open
-        let dropdown_offset = self.calculate_dropdown_offset();
+        // Top section: nav buttons
+        content = content.push(layout_btn);
+        content = content.push(replay_btn);
 
-        // Create the positioned dropdown
-        let positioned_dropdown = container(
-            dropdown.map(Message::DrawingTools)
-        )
-        .padding(padding::left(36).top(dropdown_offset));
-
-        // Create a mouse area that covers the whole screen to close dropdown on outside click
-        let close_overlay = mouse_area(
-            container(Space::new().width(Length::Fill).height(Length::Fill))
-        )
-        .on_press(Message::DrawingTools(drawing_tools::Message::CloseDropdown));
-
-        // Stack: base sidebar, overlay for closing, dropdown
-        stack![
-            sidebar_content,
-            close_overlay,
-            positioned_dropdown,
-        ]
-        .into()
-    }
-
-    fn calculate_dropdown_offset(&self) -> f32 {
-        const DRAWING_TOOLS_BASE_OFFSET: f32 = 120.0;
-        const TOOL_BUTTON_HEIGHT: f32 = 34.0; // 32px button + 2px spacing
-
-        if let Some(category) = self.drawing_tools.open_category() {
-            let category_index = ToolCategory::ALL
-                .iter()
-                .position(|c| *c == category)
-                .unwrap_or(0);
-
-            // Each button is approximately 32px tall with 2px spacing
-            DRAWING_TOOLS_BASE_OFFSET + (category_index as f32 * TOOL_BUTTON_HEIGHT)
-        } else {
-            DRAWING_TOOLS_BASE_OFFSET
+        // Drawing tools
+        for btn in drawing_buttons {
+            content = content.push(btn);
         }
+
+        // Spacer
+        content = content.push(space::vertical().height(Length::Fill));
+
+        // Bottom section
+        content = content.push(connections_btn);
+        content = content.push(settings_btn);
+
+        content.into()
+    }
+
+    /// Build one button per sidebar group.
+    /// Groups with submenus show a chevron on hover instead of a tooltip.
+    fn build_drawing_buttons(
+        &self,
+        tooltip_position: TooltipPosition,
+    ) -> Vec<Element<'_, Message>> {
+        let active_tool = self.drawing_tools.active_tool;
+
+        SidebarGroup::ALL
+            .iter()
+            .map(|&group| {
+                let selected_tool = self.drawing_tools.get_selected_for_group(group);
+                let icon = group.icon(selected_tool);
+
+                let is_active = if group == SidebarGroup::Select {
+                    active_tool == data::DrawingTool::None
+                } else {
+                    SidebarGroup::for_tool(active_tool) == group
+                        && active_tool != data::DrawingTool::None
+                };
+
+                let is_expanded = self.drawing_tools.expanded_group == Some(group);
+
+                // For groups with submenus, toggle the flyout.
+                // For Select, directly activate the tool.
+                let msg = if group.has_submenu() {
+                    let target = if is_expanded { None } else { Some(group) };
+                    Message::DrawingTools(drawing_tools::Message::ExpandGroup(target))
+                } else {
+                    Message::DrawingTools(drawing_tools::Message::ToolSelected(selected_tool))
+                };
+
+                if group.has_submenu() {
+                    // Show chevron on hover instead of tooltip
+                    let btn_content = iced::widget::mouse_area(
+                        button(
+                            row![
+                                icon_text(icon, 14).width(16).align_x(Alignment::Center),
+                                icon_text(Icon::ExpandRight, 8)
+                                    .width(8)
+                                    .align_x(Alignment::Center),
+                            ]
+                            .align_y(Alignment::Center)
+                            .spacing(0),
+                        )
+                        .style(move |theme, status| {
+                            style::button::transparent(theme, status, is_active || is_expanded)
+                        })
+                        .on_press(msg),
+                    );
+
+                    btn_content.into()
+                } else {
+                    // Select button: normal tooltip
+                    button_with_tooltip(
+                        icon_text(icon, 14).width(24).align_x(Alignment::Center),
+                        msg,
+                        Some(group.label()),
+                        tooltip_position,
+                        move |theme, status| style::button::transparent(theme, status, is_active),
+                    )
+                }
+            })
+            .chain(std::iter::once(self.snap_button(tooltip_position)))
+            .collect()
+    }
+
+    /// Snap toggle button using button_with_tooltip.
+    fn snap_button(&self, tooltip_position: TooltipPosition) -> Element<'_, Message> {
+        let snap_enabled = self.drawing_tools.snap_enabled;
+        let icon = if snap_enabled {
+            Icon::SnapOn
+        } else {
+            Icon::SnapOff
+        };
+
+        button_with_tooltip(
+            icon_text(icon, 14).width(24).align_x(Alignment::Center),
+            Message::DrawingTools(drawing_tools::Message::ToggleSnap),
+            Some(if snap_enabled { "Snap On" } else { "Snap Off" }),
+            tooltip_position,
+            move |theme, status| style::button::transparent(theme, status, snap_enabled),
+        )
+    }
+
+    /// Build the flyout submenu content for the currently expanded group.
+    /// Vertical column of icon buttons with tooltips, same width as sidebar.
+    pub fn view_tool_flyout(&self) -> Option<Element<'_, Message>> {
+        let group = self.drawing_tools.expanded_group?;
+
+        let sections = group.tool_sections();
+        let active_tool = self.drawing_tools.active_tool;
+
+        let tooltip_pos = if self.state.position == sidebar::Position::Left {
+            TooltipPosition::Right
+        } else {
+            TooltipPosition::Left
+        };
+
+        let mut col = column![]
+            .spacing(tokens::spacing::XS)
+            .width(tokens::layout::SIDEBAR_WIDTH)
+            .align_x(Alignment::Center);
+
+        for (i, section) in sections.iter().enumerate() {
+            if i > 0 {
+                col = col.push(rule::horizontal(1.0).style(style::split_ruler));
+            }
+
+            for &tool in *section {
+                let icon = drawing_tools::tool_icon(tool);
+                let label = drawing_tools::tool_label(tool);
+                let is_selected = tool == active_tool;
+
+                let btn = button_with_tooltip(
+                    icon_text(icon, 14).width(24).align_x(Alignment::Center),
+                    Message::DrawingTools(drawing_tools::Message::ToolSelected(tool)),
+                    Some(label),
+                    tooltip_pos,
+                    move |theme, status| style::button::transparent(theme, status, is_selected),
+                );
+
+                col = col.push(btn);
+            }
+        }
+
+        let panel = container(col)
+            .padding(tokens::spacing::XS)
+            .style(style::floating_panel);
+
+        Some(panel.into())
+    }
+
+    /// Y offset for the flyout, relative to the top of the window.
+    /// Accounts for header, padding, and the position of the group button.
+    pub fn flyout_y_offset(&self) -> f32 {
+        let group = match self.drawing_tools.expanded_group {
+            Some(g) => g,
+            None => return 0.0,
+        };
+
+        // Header height (macOS title bar or 0)
+        let header_h: f32 = if cfg!(target_os = "macos") {
+            20.0 + tokens::spacing::XS
+        } else {
+            0.0
+        };
+
+        // Row padding (the MD padding on the row that contains sidebar)
+        let row_pad = tokens::spacing::MD;
+
+        // Buttons above this group button:
+        // Layout + Replay = 2 nav buttons, then group index
+        let nav_buttons = 2u32;
+        let group_idx = SidebarGroup::ALL
+            .iter()
+            .position(|g| *g == group)
+            .unwrap_or(0) as u32;
+        let buttons_above = nav_buttons + group_idx;
+
+        // Each button slot: button natural height + column spacing (XS)
+        // Sidebar buttons are ~32px (SIDEBAR_WIDTH) tall
+        let button_h = tokens::layout::SIDEBAR_WIDTH;
+        let slot = button_h + tokens::spacing::XS;
+
+        header_h + row_pad + (buttons_above as f32 * slot)
+    }
+
+    #[allow(dead_code)]
+    pub fn expanded_group(&self) -> Option<SidebarGroup> {
+        self.drawing_tools.expanded_group
     }
 
     pub fn is_menu_active(&self, menu: sidebar::Menu) -> bool {
@@ -263,5 +347,4 @@ impl Sidebar {
     pub fn date_range_preset(&self) -> sidebar::DateRangePreset {
         self.state.date_range_preset
     }
-
 }

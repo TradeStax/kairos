@@ -7,8 +7,8 @@ use crate::chart::{
     },
 };
 
-use data::{Candle, ChartBasis, Timeframe};
 use data::util::format_with_commas;
+use data::{Candle, ChartBasis, Timeframe};
 
 use iced::widget::{center, row, text};
 use std::{collections::BTreeMap, ops::RangeInclusive};
@@ -88,7 +88,6 @@ impl OpenInterestIndicator {
                 | Timeframe::D1
         )
     }
-
 }
 
 impl KlineIndicatorImpl for OpenInterestIndicator {

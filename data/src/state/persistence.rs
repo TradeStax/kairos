@@ -6,7 +6,7 @@
 //! - Backup on parse failure
 //! - Validation
 
-use super::app_state::AppState;
+use super::app::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -218,11 +218,7 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
 
                 // Create migration registry and execute migrations
                 let registry = MigrationRegistry::new();
-                state = registry.execute_migrations(
-                    state,
-                    old_version,
-                    StateVersion::CURRENT.0,
-                )?;
+                state = registry.execute_migrations(state, old_version, StateVersion::CURRENT.0)?;
 
                 // Update version after successful migration
                 state.version = StateVersion::CURRENT.0;
@@ -312,9 +308,7 @@ fn state_file_path(file_name: &str) -> PersistenceResult<PathBuf> {
     Ok(data_dir.join("flowsurface").join(file_name))
 }
 
-// ============================================================================
-// EXAMPLE MIGRATIONS (for future use)
-// ============================================================================
+// ── Example Migrations (for future use) ───────────────────────────────
 
 /// Example migration: v0 → v1 (baseline)
 ///

@@ -93,7 +93,7 @@ impl Serialize for Theme {
                 iced_core::Theme::Moonfly => "moonfly",
                 iced_core::Theme::Nightfly => "nightfly",
                 iced_core::Theme::Oxocarbon => "oxocarbon",
-                _ => unreachable!(),
+                _ => "custom",
             };
             theme_str.serialize(serializer)
         }

@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::options::{OptionType, OptionChain, OptionSnapshot};
+use super::options::{OptionChain, OptionSnapshot, OptionType};
 use super::types::{Price, Timestamp};
 
 /// Gamma exposure for a single strike price
@@ -268,11 +268,7 @@ impl GexProfile {
     /// # Errors
     /// Returns None if underlying_price is not available (required for accurate GEX)
     pub fn from_option_chain(chain: &OptionChain) -> Option<Self> {
-        let mut profile = Self::new(
-            chain.underlying_ticker.clone(),
-            chain.date,
-            chain.time,
-        );
+        let mut profile = Self::new(chain.underlying_ticker.clone(), chain.date, chain.time);
 
         // Underlying price is REQUIRED for accurate GEX calculation
         let underlying_price = chain.underlying_price?;
@@ -441,8 +437,8 @@ impl GexProfile {
                 || (current.net_gamma < 0.0 && next.net_gamma > 0.0)
             {
                 // Linear interpolation to find zero crossing
-                let ratio = current.net_gamma.abs()
-                    / (current.net_gamma.abs() + next.net_gamma.abs());
+                let ratio =
+                    current.net_gamma.abs() / (current.net_gamma.abs() + next.net_gamma.abs());
 
                 let zero_level_units = current.strike_price.units()
                     + ((next.strike_price.units() - current.strike_price.units()) as f64 * ratio)
@@ -499,33 +495,25 @@ impl GexProfile {
         let call_wall_exposure = self
             .exposures
             .iter()
-            .max_by(|a, b| {
-                a.call_gamma
-                    .abs()
-                    .partial_cmp(&b.call_gamma.abs())
-                    .unwrap()
-            });
+            .max_by(|a, b| a.call_gamma.abs().partial_cmp(&b.call_gamma.abs()).unwrap());
 
         if let Some(exposure) = call_wall_exposure
-            && exposure.call_gamma.abs() > 0.0 {
-                self.call_wall = Some(exposure.strike_price);
-            }
+            && exposure.call_gamma.abs() > 0.0
+        {
+            self.call_wall = Some(exposure.strike_price);
+        }
 
         // Put wall: Strike with highest absolute put gamma
         let put_wall_exposure = self
             .exposures
             .iter()
-            .max_by(|a, b| {
-                a.put_gamma
-                    .abs()
-                    .partial_cmp(&b.put_gamma.abs())
-                    .unwrap()
-            });
+            .max_by(|a, b| a.put_gamma.abs().partial_cmp(&b.put_gamma.abs()).unwrap());
 
         if let Some(exposure) = put_wall_exposure
-            && exposure.put_gamma.abs() > 0.0 {
-                self.put_wall = Some(exposure.strike_price);
-            }
+            && exposure.put_gamma.abs() > 0.0
+        {
+            self.put_wall = Some(exposure.strike_price);
+        }
     }
 
     /// Calculate expected move based on gamma exposure
@@ -700,7 +688,8 @@ mod tests {
             ExerciseStyle::American,
         );
 
-        let mut snapshot = OptionSnapshot::new(contract, Timestamp(Utc::now().timestamp_millis() as u64));
+        let mut snapshot =
+            OptionSnapshot::new(contract, Timestamp(Utc::now().timestamp_millis() as u64));
         snapshot.greeks = Greek {
             delta: Some(delta),
             gamma: Some(gamma),
@@ -730,8 +719,14 @@ mod tests {
         // Put: 0.04 × 8000 × 100 × 450² × 0.01 = -6,480,000 (dealer short)
 
         // Values should be negative (dealer perspective)
-        assert!(exposure.call_gamma < 0.0, "Call gamma should be negative (dealer short)");
-        assert!(exposure.put_gamma < 0.0, "Put gamma should be negative (dealer short)");
+        assert!(
+            exposure.call_gamma < 0.0,
+            "Call gamma should be negative (dealer short)"
+        );
+        assert!(
+            exposure.put_gamma < 0.0,
+            "Put gamma should be negative (dealer short)"
+        );
 
         // Check magnitudes are reasonable (in millions)
         assert!(exposure.call_gamma.abs() > 1_000_000.0);
@@ -748,9 +743,9 @@ mod tests {
         // Realistic GEX values (dealer perspective, negative)
         let resistance = GammaExposure {
             strike_price: Price::from_f64(455.0),
-            net_gamma: -5_000_000.0, // -$5M net (more call than put)
+            net_gamma: -5_000_000.0,  // -$5M net (more call than put)
             call_gamma: -8_000_000.0, // -$8M calls
-            put_gamma: -3_000_000.0, // -$3M puts
+            put_gamma: -3_000_000.0,  // -$3M puts
             ..GammaExposure::new(Price::from_f64(455.0))
         };
 
@@ -760,9 +755,9 @@ mod tests {
 
         let support = GammaExposure {
             strike_price: Price::from_f64(445.0),
-            net_gamma: -6_000_000.0, // -$6M net (more put than call)
+            net_gamma: -6_000_000.0,  // -$6M net (more put than call)
             call_gamma: -2_000_000.0, // -$2M calls
-            put_gamma: -8_000_000.0, // -$8M puts
+            put_gamma: -8_000_000.0,  // -$8M puts
             ..GammaExposure::new(Price::from_f64(445.0))
         };
 
@@ -841,7 +836,10 @@ mod tests {
         assert!(profile.has_data());
 
         // Total gamma should be in billions for SPY with realistic OI
-        assert!(profile.total_abs_gamma > 100_000_000.0, "Total gamma should be > $100M");
+        assert!(
+            profile.total_abs_gamma > 100_000_000.0,
+            "Total gamma should be > $100M"
+        );
 
         // Should have identified key levels
         assert!(!profile.key_levels.is_empty());
@@ -851,6 +849,9 @@ mod tests {
         assert!(profile.put_wall.is_some(), "Should identify put wall");
 
         // Expected move should be calculated
-        assert!(profile.expected_move_pct.is_some(), "Should calculate expected move");
+        assert!(
+            profile.expected_move_pct.is_some(),
+            "Should calculate expected move"
+        );
     }
 }

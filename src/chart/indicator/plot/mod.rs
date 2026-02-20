@@ -4,9 +4,9 @@
 //! indicator plots, including line and bar plots.
 
 use crate::chart::{Interaction, Message, ViewState};
-use data::ChartBasis;
-use crate::component::primitives::AZERET_MONO;
+use crate::components::primitives::AZERET_MONO;
 use crate::style::dashed_line;
+use data::ChartBasis;
 use data::util::{guesstimate_ticks, round_to_tick};
 
 use iced::widget::canvas::{self, Cache, Geometry, Path};
@@ -283,7 +283,7 @@ where
                 let crosshair_ratio = f64::from(cursor_position.x / bounds.width);
                 let (rounded_x, snap_ratio) = match ctx.basis {
                     ChartBasis::Time(tf) => {
-                        let step = tf.to_millis() as f64;
+                        let step = tf.to_milliseconds() as f64;
                         let rx = ((earliest + crosshair_ratio * (latest - earliest)) / step).round()
                             as u64
                             * step as u64;

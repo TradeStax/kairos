@@ -5,8 +5,8 @@
 
 use super::mapper;
 use crate::adapter::{Event, StreamKind};
-use rithmic_rs::rti::messages::RithmicMessage;
 use rithmic_rs::RithmicTickerPlantHandle;
+use rithmic_rs::rti::messages::RithmicMessage;
 use std::sync::Arc;
 
 /// Rithmic streaming subscription
@@ -43,13 +43,9 @@ impl RithmicStream {
 
                     match &response.message {
                         RithmicMessage::LastTrade(_) => {
-                            if let Some(trade) =
-                                mapper::map_last_trade(&response.message)
+                            if let Some(trade) = mapper::map_last_trade(&response.message)
                                 && event_tx
-                                    .send(Event::TradeReceived(
-                                        stream_kind,
-                                        trade,
-                                    ))
+                                    .send(Event::TradeReceived(stream_kind, trade))
                                     .is_err()
                             {
                                 log::info!(
@@ -61,9 +57,7 @@ impl RithmicStream {
                         }
                         RithmicMessage::BestBidOffer(_) => {
                             if let Some((ts, depth)) =
-                                mapper::map_bbo_to_exchange_depth(
-                                    &response.message,
-                                )
+                                mapper::map_bbo_to_exchange_depth(&response.message)
                                 && event_tx
                                     .send(Event::DepthReceived(
                                         stream_kind,
@@ -78,9 +72,7 @@ impl RithmicStream {
                         }
                         RithmicMessage::OrderBook(_) => {
                             if let Some((ts, depth)) =
-                                mapper::map_orderbook_to_exchange_depth(
-                                    &response.message,
-                                )
+                                mapper::map_orderbook_to_exchange_depth(&response.message)
                                 && event_tx
                                     .send(Event::DepthReceived(
                                         stream_kind,
@@ -112,10 +104,7 @@ impl RithmicStream {
                     }
                 }
                 Err(e) => {
-                    log::error!(
-                        "Rithmic subscription receiver error: {}",
-                        e
-                    );
+                    log::error!("Rithmic subscription receiver error: {}", e);
                     let _ = event_tx.send(Event::ConnectionLost);
                     break;
                 }

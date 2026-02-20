@@ -4,7 +4,7 @@ pub type ContractSize = Power10<-4, 6>;
 pub type MinTicksize = Power10<-8, 2>;
 pub type MinQtySize = Power10<-6, 8>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Power10<const MIN: i8, const MAX: i8> {
     pub power: i8,
 }
@@ -62,7 +62,7 @@ impl<'de, const MIN: i8, const MAX: i8> serde::Deserialize<'de> for Power10<MIN,
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PriceStep {
     /// step size in atomic units (10^-PRICE_SCALE)
     pub units: i64,
@@ -91,7 +91,7 @@ impl PriceStep {
 
 /// Fixed atomic unit scale: 10^-PRICE_SCALE is the smallest stored fraction.
 /// MinTicksize has range [-8, 2], e.g. PRICE_SCALE = 8 to represent 10^-8 atomic units.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Price {
     /// number of atomic units (atomic unit = 10^-PRICE_SCALE)
     pub units: i64,
@@ -316,6 +316,11 @@ impl std::ops::Sub for Price {
                 .expect("Price sub overflowed"),
         }
     }
+}
+
+/// Convert a millisecond Unix timestamp to a chrono DateTime<Utc>
+pub fn ms_to_datetime(ms: u64) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::from_timestamp((ms / 1000) as i64, ((ms % 1000) * 1_000_000) as u32)
 }
 
 #[cfg(test)]

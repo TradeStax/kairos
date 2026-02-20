@@ -9,14 +9,12 @@ use serde::{Deserialize, Serialize};
 pub type FeedId = uuid::Uuid;
 
 /// Whether a feed is realtime (live connection) or historical (downloaded dataset)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FeedKind {
     #[default]
     Realtime,
     Historical(HistoricalDatasetInfo),
 }
-
 
 /// Metadata about a downloaded historical dataset
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,9 +51,7 @@ impl FeedProvider {
     pub fn description(&self) -> &'static str {
         match self {
             FeedProvider::Databento => "Historical trades, depth, OHLCV via Databento API",
-            FeedProvider::Rithmic => {
-                "Realtime + historical trades, depth, quotes via Rithmic"
-            }
+            FeedProvider::Rithmic => "Realtime + historical trades, depth, quotes via Rithmic",
         }
     }
 
@@ -127,7 +123,6 @@ impl FeedStatus {
         }
     }
 }
-
 
 /// Capabilities a feed can provide
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -315,10 +310,7 @@ impl DataFeed {
     }
 
     /// Create a new historical dataset feed (Databento)
-    pub fn new_historical_databento(
-        name: impl Into<String>,
-        info: HistoricalDatasetInfo,
-    ) -> Self {
+    pub fn new_historical_databento(name: impl Into<String>, info: HistoricalDatasetInfo) -> Self {
         Self {
             id: FeedId::new_v4(),
             name: name.into(),
@@ -417,11 +409,13 @@ mod tests {
     fn test_feed_status() {
         assert!(!FeedStatus::Disconnected.is_connected());
         assert!(FeedStatus::Connected.is_connected());
-        assert!(FeedStatus::Downloading {
-            current_day: 1,
-            total_days: 5
-        }
-        .is_connected());
+        assert!(
+            FeedStatus::Downloading {
+                current_day: 1,
+                total_days: 5
+            }
+            .is_connected()
+        );
         assert!(FeedStatus::Error("test".to_string()).is_error());
     }
 

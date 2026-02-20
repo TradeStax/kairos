@@ -1,0 +1,15 @@
+[package]
+name = "flowsurface-study"
+description = "Technical studies and indicators for Flowsurface charts"
+version = "0.1.0"
+license = "GPL-3.0-or-later"
+edition.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+data = { version = "0.1.0", path = "../data", package = "flowsurface-data" }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+thiserror.workspace = true

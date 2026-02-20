@@ -1,7 +1,6 @@
-mod chart_loading;
-mod feed_management;
+mod layout;
+mod loading;
 pub mod pane;
-mod pane_management;
 pub mod panel;
 pub mod sidebar;
 mod update;
@@ -9,8 +8,17 @@ mod view;
 
 pub use sidebar::Sidebar;
 
-use super::DashboardError;
-use crate::{component::display::toast::Toast, window};
+use crate::{components::display::toast::Toast, window};
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum DashboardError {
+    #[error("Fetch error: {0}")]
+    Fetch(String),
+    #[error("Pane set error: {0}")]
+    PaneSet(String),
+    #[error("Unknown error: {0}")]
+    Unknown(String),
+}
 use data::{ChartConfig, ChartData, ChartState, LoadingStatus, WindowSpec};
 use exchange::FuturesTickerInfo;
 
@@ -131,6 +139,8 @@ pub enum Event {
     PaneClosed {
         pane_id: uuid::Uuid,
     },
+    /// Drawing tool was auto-changed (e.g. after completing a drawing)
+    DrawingToolChanged(data::DrawingTool),
 }
 
 impl Dashboard {

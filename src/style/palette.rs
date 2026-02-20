@@ -2,7 +2,7 @@ use iced::Color;
 
 use data::feed::FeedStatus;
 
-// ── Semantic colors ─────────────────────────────────────────────────
+// ── Semantic colors ───────────────────────────────────────────────────
 // These are the single source of truth for recurring UI colors.
 // Chart-domain colors (candle bodies, heatmap gradients, indicator lines)
 // live in `src/chart/` and are intentionally kept separate.
@@ -32,7 +32,7 @@ pub fn neutral_color() -> Color {
     Color::from_rgb(0.5, 0.5, 0.5)
 }
 
-// ── Feed status ─────────────────────────────────────────────────────
+// ── Feed status ───────────────────────────────────────────────────────
 
 /// Connection status colors -- single source of truth.
 /// Previously hardcoded in connections_menu.rs and data_feeds.rs.

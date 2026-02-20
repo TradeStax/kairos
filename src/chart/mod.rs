@@ -12,16 +12,21 @@ pub mod indicator;
 pub mod overlay;
 pub mod perf;
 pub(crate) mod scale;
+#[allow(dead_code)]
 pub(crate) mod study;
+#[allow(dead_code)]
+pub mod study_renderer;
 
 // Re-export KlineChart for backwards compatibility
 
 // Re-export core types for public API
-pub use core::{Caches, Chart, Interaction, PlotConstants, ViewState, canvas_interaction};
+pub use core::{
+    Caches, Chart, ChartState, Interaction, PlotConstants, ViewState, canvas_interaction,
+};
 
+use crate::components::display::tooltip::tooltip;
+use crate::components::layout::multi_split::MultiSplit;
 use crate::style;
-use crate::component::layout::multi_split::MultiSplit;
-use crate::component::display::tooltip::tooltip;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
 
@@ -59,16 +64,32 @@ pub enum Message {
     BoundsChanged(Rectangle),
     SplitDragged(usize, f32),
     DoubleClick(AxisScaleClicked),
-    // Drawing operations
-    DrawingClick(Point),
-    DrawingMove(Point),
+    // Drawing operations (bool = shift_held for snap constraints)
+    DrawingClick(Point, bool),
+    DrawingMove(Point, bool),
     DrawingCancel,
     DrawingDelete,
+    // Drawing selection and editing
+    DrawingSelect(data::DrawingId),
+    DrawingDeselect,
+    DrawingDrag(Point, bool),
+    DrawingHandleDrag(Point, usize, bool),
+    DrawingDragEnd,
+    // Clone placement
+    ClonePlacementMove(Point),
+    ClonePlacementConfirm(Point),
+    ClonePlacementCancel,
+    // Context menu
+    ContextMenu(Point, Option<data::DrawingId>),
+    // Double-click on a selected drawing
+    DrawingDoubleClick(data::DrawingId),
+    // Indicator panel clicked (panel index among non-overlay indicators)
+    IndicatorClicked(usize),
 }
 
 /// Chart action for side effects
 pub enum Action {
-    ErrorOccurred(data::InternalError),
+    ErrorOccurred(crate::error::InternalError),
 }
 
 /// Update chart state based on message
@@ -282,7 +303,21 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
         }
         Message::CrosshairMoved => return chart.invalidate_crosshair(),
         // Drawing messages are handled at the pane level where we have mutable access
-        Message::DrawingClick(_) | Message::DrawingMove(_) | Message::DrawingCancel | Message::DrawingDelete => {
+        Message::DrawingClick(_, _)
+        | Message::DrawingMove(_, _)
+        | Message::DrawingCancel
+        | Message::DrawingDelete
+        | Message::DrawingSelect(_)
+        | Message::DrawingDeselect
+        | Message::DrawingDrag(_, _)
+        | Message::DrawingHandleDrag(_, _, _)
+        | Message::DrawingDragEnd
+        | Message::ClonePlacementMove(_)
+        | Message::ClonePlacementConfirm(_)
+        | Message::ClonePlacementCancel
+        | Message::ContextMenu(_, _)
+        | Message::DrawingDoubleClick(_)
+        | Message::IndicatorClicked(_) => {
             // These are handled by the pane/dashboard, not the chart itself
             return;
         }
@@ -295,6 +330,7 @@ pub fn view<'a, T: Chart>(
     chart: &'a T,
     indicators: &'a [T::IndicatorKind],
     timezone: data::UserTimezone,
+    selected_indicator_panel: Option<usize>,
 ) -> Element<'a, Message> {
     if chart.is_empty() {
         return center(text("Waiting for data...").size(16)).into();
@@ -379,13 +415,35 @@ pub fn view<'a, T: Chart>(
         ]
         .into();
 
-        let indicators = chart.view_indicators(indicators);
+        let indicator_elems = chart.view_indicators(indicators);
 
-        if indicators.is_empty() {
+        if indicator_elems.is_empty() {
             main_chart
         } else {
+            let wrapped: Vec<Element<_>> = indicator_elems
+                .into_iter()
+                .enumerate()
+                .map(|(i, elem)| {
+                    let is_selected = selected_indicator_panel == Some(i);
+                    let styled: Element<_> = container(elem)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(move |theme: &Theme| {
+                            if is_selected {
+                                style::selected_indicator(theme)
+                            } else {
+                                container::Style::default()
+                            }
+                        })
+                        .into();
+                    mouse_area(styled)
+                        .on_press(Message::IndicatorClicked(i))
+                        .into()
+                })
+                .collect();
+
             let panels = std::iter::once(main_chart)
-                .chain(indicators)
+                .chain(wrapped)
                 .collect::<Vec<_>>();
 
             MultiSplit::new(panels, &state.layout.splits, |index, position| {

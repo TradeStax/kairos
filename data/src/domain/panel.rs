@@ -16,5 +16,5 @@ pub mod trade_aggregator;
 
 // Re-export commonly used types
 pub use chase_tracker::ChaseTracker;
-pub use depth_grouping::{Side, group_depth_by_tick};
+pub use depth_grouping::{DepthSide, group_depth_by_tick};
 pub use trade_aggregator::{AggregationMode, StackedBarMetrics, TradeAggregator};

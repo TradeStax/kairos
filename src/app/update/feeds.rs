@@ -1,14 +1,14 @@
 use iced::Task;
 
-use crate::component::display::toast::{Notification, Toast};
+use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
-use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message, services};
+use super::super::{ChartMessage, Flowsurface, Message, services};
 
 impl Flowsurface {
     pub(crate) fn handle_data_feeds(
         &mut self,
-        msg: crate::modal::pane::data_feeds::DataFeedsMessage,
+        msg: crate::modals::data_feeds::DataFeedsMessage,
     ) -> Task<Message> {
         let mut feed_manager = self
             .data_feed_manager
@@ -22,27 +22,27 @@ impl Flowsurface {
             drop(feed_manager);
 
             match action {
-                crate::modal::pane::data_feeds::Action::ConnectFeed(feed_id) => {
+                crate::modals::data_feeds::Action::ConnectFeed(feed_id) => {
                     let mgr = self.data_feed_manager.clone();
                     let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
                     return self.connect_feed(feed_id, feed_manager);
                 }
-                crate::modal::pane::data_feeds::Action::DisconnectFeed(feed_id) => {
+                crate::modals::data_feeds::Action::DisconnectFeed(feed_id) => {
                     let mgr = self.data_feed_manager.clone();
                     let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
                     return self.disconnect_feed(feed_id, feed_manager);
                 }
-                crate::modal::pane::data_feeds::Action::FeedsUpdated => {
+                crate::modals::data_feeds::Action::FeedsUpdated => {
                     let mgr = self.data_feed_manager.clone();
                     let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
                     return self.handle_feeds_updated(feed_manager);
                 }
-                crate::modal::pane::data_feeds::Action::OpenHistoricalDownload => {
+                crate::modals::data_feeds::Action::OpenHistoricalDownload => {
                     self.historical_download_modal =
-                        Some(crate::modal::pane::download::HistoricalDownloadModal::new());
+                        Some(crate::modals::download::HistoricalDownloadModal::new());
                     return Task::none();
                 }
-                crate::modal::pane::data_feeds::Action::LoadPreview(feed_id, info) => {
+                crate::modals::data_feeds::Action::LoadPreview(feed_id, info) => {
                     return self.load_feed_preview(feed_id, info);
                 }
             }
@@ -217,7 +217,7 @@ impl Flowsurface {
                 },
                 move |_| {
                     Message::DataFeeds(
-                        crate::modal::pane::data_feeds::DataFeedsMessage::FeedStatusChanged(
+                        crate::modals::data_feeds::DataFeedsMessage::FeedStatusChanged(
                             feed_id,
                             data::FeedStatus::Disconnected,
                         ),
@@ -314,7 +314,7 @@ impl Flowsurface {
                         .collect();
 
                     // First 100 trades for the table
-                    let trade_rows: Vec<crate::modal::pane::data_feeds::TradePreviewRow> = trades
+                    let trade_rows: Vec<crate::modals::data_feeds::TradePreviewRow> = trades
                         .iter()
                         .take(100)
                         .map(|t| {
@@ -322,7 +322,7 @@ impl Flowsurface {
                             let time_str = dt
                                 .map(|d| d.format("%H:%M:%S%.3f").to_string())
                                 .unwrap_or_default();
-                            crate::modal::pane::data_feeds::TradePreviewRow {
+                            crate::modals::data_feeds::TradePreviewRow {
                                 time: time_str,
                                 price: format!("{:.2}", t.price.to_f64()),
                                 size: format!("{}", t.quantity.0 as u32),
@@ -335,7 +335,7 @@ impl Flowsurface {
                         })
                         .collect();
 
-                    Ok(crate::modal::pane::data_feeds::PreviewData {
+                    Ok(crate::modals::data_feeds::PreviewData {
                         feed_id,
                         price_line,
                         trades: trade_rows,
@@ -351,10 +351,10 @@ impl Flowsurface {
     pub(crate) fn handle_data_feed_preview_loaded(
         &mut self,
         feed_id: data::FeedId,
-        result: Result<crate::modal::pane::data_feeds::PreviewData, String>,
+        result: Result<crate::modals::data_feeds::PreviewData, String>,
     ) {
         self.data_feeds_modal.update(
-            crate::modal::pane::data_feeds::DataFeedsMessage::PreviewLoaded(feed_id, result),
+            crate::modals::data_feeds::DataFeedsMessage::PreviewLoaded(feed_id, result),
             &mut self
                 .data_feed_manager
                 .lock()
@@ -364,23 +364,23 @@ impl Flowsurface {
 
     pub(crate) fn handle_connections_menu(
         &mut self,
-        msg: crate::modal::pane::connections::ConnectionsMenuMessage,
+        msg: crate::modals::connections::ConnectionsMenuMessage,
     ) -> Task<Message> {
         if let Some(action) = self.connections_menu.update(msg) {
             match action {
-                crate::modal::pane::connections::Action::ConnectFeed(feed_id) => {
+                crate::modals::connections::Action::ConnectFeed(feed_id) => {
                     self.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
-                        crate::modal::pane::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
+                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
                     ));
                 }
-                crate::modal::pane::connections::Action::DisconnectFeed(feed_id) => {
+                crate::modals::connections::Action::DisconnectFeed(feed_id) => {
                     self.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
-                        crate::modal::pane::data_feeds::DataFeedsMessage::DisconnectFeed(feed_id),
+                        crate::modals::data_feeds::DataFeedsMessage::DisconnectFeed(feed_id),
                     ));
                 }
-                crate::modal::pane::connections::Action::OpenManageDialog => {
+                crate::modals::connections::Action::OpenManageDialog => {
                     self.sidebar.set_menu(Some(data::sidebar::Menu::DataFeeds));
                     let feed_manager = self
                         .data_feed_manager
@@ -522,7 +522,7 @@ impl Flowsurface {
                 "Rithmic reconnecting...".to_string(),
             )));
             return Task::done(Message::DataFeeds(
-                crate::modal::pane::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
+                crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
             ));
         }
 
@@ -567,7 +567,7 @@ async fn rithmic_init_and_stage(
             *staging = Some(service_result);
             Ok(())
         }
-        Ok(Err(e)) => Err(e),
+        Ok(Err(e)) => Err(e.to_string()),
         Err(_) => Err("Connection timed out after 30 seconds".to_string()),
     }
 }

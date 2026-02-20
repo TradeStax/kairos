@@ -1,18 +1,18 @@
-use crate::component::primitives::{AZERET_MONO, ICONS_FONT, Icon};
-use crate::style;
 use super::types::SeriesLike;
 use super::types::domain;
+use crate::components::primitives::{AZERET_MONO, ICONS_FONT, Icon};
+use crate::style;
 
 use iced::theme::palette::Extended;
 use iced::widget::canvas;
 use iced::{Point, Rectangle, Size, Vector};
 
 use super::legend::{EndLabel, IconKind, LegendLayout};
-use super::scene::{PlotContext, Scene};
 use super::line_widget::{
     CHAR_W, GAP_BREAK_MULTIPLIER, LEGEND_LINE_H, LEGEND_PADDING, MIN_X_TICK_PX,
     TEXT_SIZE_PUB as TEXT_SIZE,
 };
+use super::scene::{PlotContext, Scene};
 
 impl<'a, S> super::line_widget::LineComparison<'a, S>
 where
@@ -127,8 +127,7 @@ where
                 height: label_h,
             };
 
-            let intersects_reserved =
-                reserved_y.map(|res| rect.intersects(res)).unwrap_or(false);
+            let intersects_reserved = reserved_y.map(|res| rect.intersects(res)).unwrap_or(false);
 
             if !intersects_reserved {
                 frame.fill_rectangle(
@@ -318,8 +317,7 @@ where
                         })
                 };
 
-                let symbol_and_exchange =
-                    s.ticker_info().ticker.symbol_and_exchange_string();
+                let symbol_and_exchange = s.ticker_info().ticker.symbol_and_exchange_string();
                 let content = if let Some(pct) = pct_str {
                     format!("{symbol_and_exchange} {pct}")
                 } else {

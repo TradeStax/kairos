@@ -1,6 +1,6 @@
 use crate::{
     chart,
-    modal::{self, ModifierKind, pane::Modal},
+    modals::{self, ModifierKind, pane::Modal},
     screen::dashboard::pane::view::CompactControls,
 };
 use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
@@ -8,8 +8,8 @@ use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{Element, widget::column};
 use rustc_hash::FxHashMap;
 
-use super::helpers::basis_modifier;
 use super::super::{Event, Message, State};
+use super::helpers::basis_modifier;
 
 impl State {
     /// Build the Heatmap chart content view.
@@ -22,7 +22,7 @@ impl State {
         id: iced::widget::pane_grid::Pane,
         chart_opt: &'a Option<chart::heatmap::HeatmapChart>,
         indicators: &'a [data::HeatmapIndicator],
-        modifier: Option<modal::stream::Modifier>,
+        modifier: Option<modals::stream::Modifier>,
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
@@ -46,36 +46,37 @@ impl State {
 
             extra.push(modifiers);
 
-            let base = chart::view(chart, indicators, timezone)
+            let selected_panel = self
+                .selected_indicator
+                .and_then(|ind| self.content.indicator_panel_index(&ind));
+            let base = chart::view(chart, indicators, timezone, selected_panel)
                 .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
             let settings_modal = || {
                 // Convert chart::heatmap::VisualConfig to data::HeatmapConfig
                 let visual = chart.visual_config();
-                let cfg = data::state::pane_config::HeatmapConfig {
+                let cfg = data::state::pane::HeatmapConfig {
                     trade_size_filter: visual.trade_size_filter,
                     order_size_filter: visual.order_size_filter,
                     trade_size_scale: visual.trade_size_scale,
-                    coalescing: None, // CoalesceKind is not exposed, use None
-                    rendering_mode: data::state::pane_config::HeatmapRenderMode::Auto,
+                    coalescing: None,
+                    rendering_mode: data::state::pane::HeatmapRenderMode::Auto,
                     max_trade_markers: visual.max_trade_markers,
                     performance_preset: None,
                 };
                 // Convert chart::heatmap::HeatmapStudy to data studies and leak
                 // for 'static lifetime
-                let data_studies: Vec<data::domain::chart_ui_types::heatmap::HeatmapStudy> = chart
+                let data_studies: Vec<data::domain::chart::heatmap::HeatmapStudy> = chart
                     .studies
                     .iter()
                     .map(|s| match s {
                         crate::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                            data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(
-                                *kind,
-                            )
+                            data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
                         }
                     })
                     .collect();
                 // Use Box::leak to create a static reference
                 let studies_static: &'static [_] = Box::leak(data_studies.into_boxed_slice());
-                modal::pane::settings::heatmap_cfg_view(
+                modals::pane::settings::heatmap_cfg_view(
                     cfg,
                     id,
                     chart.study_configurator(),
@@ -85,7 +86,7 @@ impl State {
             };
 
             let indicator_modal = if self.modal == Some(Modal::Indicators) {
-                Some(modal::pane::indicators::content_row_heatmap(
+                Some(modals::pane::indicators::content_row_heatmap(
                     id, indicators, false, // Heatmap doesn't allow dragging
                 ))
             } else {

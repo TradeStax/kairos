@@ -15,7 +15,7 @@ repository = "https://github.com/flowsurface-rs/flowsurface"
 homepage = "https://flowsurface.com"
 
 [workspace]
-members = [ "data", "exchange"]
+members = [ "data", "exchange", "study"]
 
 [workspace.dependencies]
 iced_futures = { version = "0.14.0" }
@@ -56,12 +56,12 @@ num-traits.workspace = true
 rustc-hash.workspace = true
 enum-map.workspace = true
 fern = "0.7.1"
-rodio = { version = "0.20.1", default-features = false, features = [ "wav" ]}
 tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
 futures = "0.3"
 
 exchange = { version = "0.1.0", path = "exchange", package = "flowsurface-exchange" }
 data = { version = "0.1.0", path = "data", package = "flowsurface-data" }
+study = { version = "0.1.0", path = "study", package = "flowsurface-study" }
 
 [features]
 debug = ["iced/hot"]

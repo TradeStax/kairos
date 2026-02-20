@@ -7,8 +7,8 @@
 //!   → Makes 3 API calls: [5/6-5/9], [5/14-5/15], [5/17-5/18]
 //!   → Saves each day individually for future reuse
 
-use super::{DatabentoConfig, DatabentoError, cache::CacheManager, client};
 use super::mapper::{chrono_to_time, convert_databento_price, determine_stype};
+use super::{DatabentoConfig, DatabentoError, cache::CacheManager, client};
 use crate::{Kline, Timeframe, Trade};
 use databento::{
     HistoricalClient,
@@ -18,6 +18,9 @@ use databento::{
 use std::collections::HashSet;
 use std::path::PathBuf;
 use time::OffsetDateTime;
+
+/// Maximum number of retries for failed API requests
+const FETCH_MAX_RETRIES: u32 = 3;
 
 /// Date range gap (consecutive uncached days)
 #[derive(Debug, Clone)]
@@ -41,13 +44,104 @@ impl HistoricalDataManager {
         let cache = CacheManager::new(&config);
         cache.init().await?;
 
-        log::info!("HistoricalDataManager initialized with smart per-day caching");
+        log::debug!("HistoricalDataManager initialized with smart per-day caching");
 
         Ok(Self {
             client,
             cache,
             config,
         })
+    }
+
+    /// Identify cached days, find gaps, and fetch missing days for a schema.
+    ///
+    /// Returns the set of cached days for step 4 (loading from cache).
+    async fn ensure_cached(
+        &mut self,
+        method_name: &str,
+        symbol: &str,
+        schema: Schema,
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+    ) -> HashSet<chrono::NaiveDate> {
+        let total_days = (end_date - start_date).num_days() + 1;
+        log::debug!(
+            "{}: {} from {} to {} ({:?}) - {} days total",
+            method_name,
+            symbol,
+            start_date,
+            end_date,
+            schema,
+            total_days
+        );
+
+        // Step 1: Identify cached days
+        let mut cached_days = HashSet::new();
+        let mut current = start_date;
+        while current <= end_date {
+            if self.cache.has_cached(symbol, schema, current).await {
+                cached_days.insert(current);
+            }
+            current += chrono::Duration::days(1);
+        }
+
+        log::debug!("Found {}/{} days cached", cached_days.len(), total_days);
+
+        // Step 2: Find gaps
+        let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
+
+        if gaps.is_empty() {
+            return cached_days;
+        }
+
+        log::debug!("Identified {} gap(s) to fetch", gaps.len());
+
+        // Step 3: Fetch each gap
+        let num_gaps = gaps.len();
+        for (gap_idx, gap) in gaps.iter().enumerate() {
+            log::debug!(
+                "Fetching gap {}/{}: {} to {} ({} days)",
+                gap_idx + 1,
+                num_gaps,
+                gap.start,
+                gap.end,
+                (gap.end - gap.start).num_days() + 1
+            );
+
+            match self
+                .fetch_and_cache_range(symbol, schema, gap.start, gap.end)
+                .await
+            {
+                Ok(days_saved) => {
+                    log::debug!(
+                        "Gap {}/{} complete: cached {} days",
+                        gap_idx + 1,
+                        num_gaps,
+                        days_saved
+                    );
+                    // Update cached_days with newly fetched days
+                    let mut d = gap.start;
+                    while d <= gap.end {
+                        if self.cache.has_cached(symbol, schema, d).await {
+                            cached_days.insert(d);
+                        }
+                        d += chrono::Duration::days(1);
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "FAILED: Gap {}/{}: {} to {} - {:?}",
+                        gap_idx + 1,
+                        num_gaps,
+                        gap.start,
+                        gap.end,
+                        e
+                    );
+                }
+            }
+        }
+
+        cached_days
     }
 
     /// Fetch OHLCV data with SMART gap-based batching AND progress reporting
@@ -66,94 +160,18 @@ impl HistoricalDataManager {
         let start_date = start.date_naive();
         let end_date = end.date_naive();
 
-        let total_days = (end_date - start_date).num_days() + 1;
-        log::info!(
-            "fetch_ohlcv: {} from {} to {} ({:?}) - {} days total",
-            symbol,
-            start_date,
-            end_date,
-            timeframe,
-            total_days
-        );
-
         // Always use OHLCV-1M for caching (most granular, can aggregate to any timeframe)
         let schema = Schema::Ohlcv1M;
 
-        // Step 1: Identify which days are already cached
-        let mut cached_days = HashSet::new();
-        let mut current = start_date;
-        while current <= end_date {
-            if self.cache.has_cached(symbol, schema, current).await {
-                cached_days.insert(current);
-                log::debug!("Cache HIT: {} on {}", symbol, current);
-            }
-            current += chrono::Duration::days(1);
-        }
+        // Steps 1-3: Ensure all days are cached
+        self.ensure_cached("fetch_ohlcv", symbol, schema, start_date, end_date)
+            .await;
 
-        log::info!(
-            "Found {}/{} days cached",
-            cached_days.len(),
-            (end_date - start_date).num_days() + 1
-        );
-
-        // Step 2: Find gaps (consecutive uncached days)
-        let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
-
-        log::info!("Identified {} gap(s) to fetch from databento", gaps.len());
-        for gap in &gaps {
-            log::info!(
-                "  Gap: {} to {} ({} days)",
-                gap.start,
-                gap.end,
-                (gap.end - gap.start).num_days() + 1
-            );
-        }
-
-        // Step 3: Fetch each gap, save per-day with PROGRESS REPORTING
-        let num_gaps = gaps.len();
-        for (gap_idx, gap) in gaps.iter().enumerate() {
-            let gap_days = (gap.end - gap.start).num_days() + 1;
-            log::info!(
-                "Fetching gap {}/{}: {} to {} ({} days)",
-                gap_idx + 1,
-                num_gaps,
-                gap.start,
-                gap.end,
-                gap_days
-            );
-
-            match self
-                .fetch_and_cache_range(symbol, schema, gap.start, gap.end)
-                .await
-            {
-                Ok(days_saved) => {
-                    log::info!(
-                        "✓ Gap {}/{} complete: Fetched and cached {} days",
-                        gap_idx + 1,
-                        num_gaps,
-                        days_saved
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "✗ Gap {}/{} failed: {} to {} - {:?}",
-                        gap_idx + 1,
-                        num_gaps,
-                        gap.start,
-                        gap.end,
-                        e
-                    );
-                    // Continue with other gaps
-                }
-            }
-        }
-
-        // Step 4: Load all days from cache and assemble with PROGRESS REPORTING
+        // Step 4: Load all days from cache and assemble
+        let total_days = (end_date - start_date).num_days() + 1;
         let mut all_klines = Vec::new();
         let mut current = start_date;
         let mut day_count = 0;
-
-        log::info!("Loading {} days from cache...", total_days);
 
         while current <= end_date {
             day_count += 1;
@@ -161,7 +179,7 @@ impl HistoricalDataManager {
                 Ok(day_klines) => {
                     all_klines.extend(day_klines);
                     if day_count % 5 == 0 || day_count == total_days as usize {
-                        log::info!(
+                        log::debug!(
                             "Progress: {}/{} days loaded, {} bars total",
                             day_count,
                             total_days,
@@ -195,7 +213,7 @@ impl HistoricalDataManager {
             .collect();
 
         // Step 6: Aggregate to target timeframe if needed
-        log::info!(
+        log::debug!(
             "Before aggregation: {} 1M bars for {:?} target",
             filtered.len(),
             timeframe
@@ -204,36 +222,24 @@ impl HistoricalDataManager {
         let final_klines = aggregate_to_timeframe(filtered, timeframe);
 
         log::info!(
-            "✓ fetch_ohlcv COMPLETE: {} {:?} bars for {}",
+            "fetch_ohlcv complete: {} {:?} bars for {}",
             final_klines.len(),
             timeframe,
             symbol
-        );
-        log::info!(
-            "  Cache efficiency: {}/{} days cached, {} gaps fetched",
-            cached_days.len(),
-            total_days,
-            num_gaps
-        );
-        log::info!(
-            "  Final output: {} to {} ({} bars)",
-            final_klines.first().map(|k| k.time).unwrap_or(0),
-            final_klines.last().map(|k| k.time).unwrap_or(0),
-            final_klines.len()
         );
 
         // Log first few timestamps to verify spacing
         if final_klines.len() > 3 {
             let interval = timeframe.to_milliseconds();
-            log::info!("First bar: t={}", final_klines[0].time);
-            log::info!(
-                "Second bar: t={} (Δ={}ms, expected={}ms)",
+            log::debug!("First bar: t={}", final_klines[0].time);
+            log::debug!(
+                "Second bar: t={} (delta={}ms, expected={}ms)",
                 final_klines[1].time,
                 final_klines[1].time - final_klines[0].time,
                 interval
             );
-            log::info!(
-                "Third bar: t={} (Δ={}ms)",
+            log::debug!(
+                "Third bar: t={} (delta={}ms)",
                 final_klines[2].time,
                 final_klines[2].time - final_klines[1].time
             );
@@ -255,15 +261,15 @@ impl HistoricalDataManager {
         let mut current = start_date;
         let mut day_num = 0;
 
-        log::info!("Fetching {} days from databento...", total_gap_days);
+        log::debug!("Fetching {} days from databento...", total_gap_days);
 
         while current <= end_date {
             day_num += 1;
             match self.fetch_to_cache(symbol, schema, current).await {
                 Ok(_) => {
                     days_saved += 1;
-                    log::info!(
-                        "  ✓ Day {}/{}: {} cached successfully",
+                    log::debug!(
+                        "  Day {}/{}: {} cached successfully",
                         day_num,
                         total_gap_days,
                         current
@@ -271,7 +277,7 @@ impl HistoricalDataManager {
                 }
                 Err(e) => {
                     log::error!(
-                        "  ✗ Day {}/{}: {} failed - {:?}",
+                        "  FAILED: Day {}/{}: {} failed - {:?}",
                         day_num,
                         total_gap_days,
                         current,
@@ -282,7 +288,7 @@ impl HistoricalDataManager {
             current += chrono::Duration::days(1);
         }
 
-        log::info!(
+        log::debug!(
             "Gap fetch complete: {}/{} days successfully cached",
             days_saved,
             total_gap_days
@@ -412,7 +418,7 @@ impl HistoricalDataManager {
     /// - "Found X/Y days cached"
     /// - "Identified N gap(s) to fetch"
     /// - "Fetching gap 1/N: 2024-12-15 to 2024-12-18 (4 days)"
-    /// - "✓ Gap 1/N complete: Fetched and cached 4 days"
+    /// - "Gap 1/N complete: Fetched and cached 4 days"
     /// - "Loading 10 days from cache..."
     /// - "Progress: 5/10 days loaded, 50,000 trades total"
     ///
@@ -433,88 +439,17 @@ impl HistoricalDataManager {
         let start_date = start.date_naive();
         let end_date = end.date_naive();
 
-        let total_days = (end_date - start_date).num_days() + 1;
-        log::info!(
-            "fetch_trades_cached: {} from {} to {} - {} days total",
-            symbol,
-            start_date,
-            end_date,
-            total_days
-        );
-
         let schema = Schema::Trades;
 
-        // Step 1: Identify which days are already cached
-        let mut cached_days = HashSet::new();
-        let mut current = start_date;
-        while current <= end_date {
-            if self.cache.has_cached(symbol, schema, current).await {
-                cached_days.insert(current);
-                log::debug!("Cache HIT: {} trades on {}", symbol, current);
-            }
-            current += chrono::Duration::days(1);
-        }
+        // Steps 1-3: Ensure all days are cached
+        self.ensure_cached("fetch_trades_cached", symbol, schema, start_date, end_date)
+            .await;
 
-        log::info!("Found {}/{} days cached", cached_days.len(), total_days);
-
-        // Step 2: Find gaps (consecutive uncached days)
-        let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
-
-        log::info!("Identified {} gap(s) to fetch from databento", gaps.len());
-        for gap in &gaps {
-            log::info!(
-                "  Gap: {} to {} ({} days)",
-                gap.start,
-                gap.end,
-                (gap.end - gap.start).num_days() + 1
-            );
-        }
-
-        // Step 3: Fetch each gap, save per-day with PROGRESS REPORTING
-        let num_gaps = gaps.len();
-        for (gap_idx, gap) in gaps.iter().enumerate() {
-            let gap_days = (gap.end - gap.start).num_days() + 1;
-            log::info!(
-                "Fetching gap {}/{}: {} to {} ({} days)",
-                gap_idx + 1,
-                num_gaps,
-                gap.start,
-                gap.end,
-                gap_days
-            );
-
-            match self
-                .fetch_and_cache_trades_range(symbol, gap.start, gap.end)
-                .await
-            {
-                Ok(days_saved) => {
-                    log::info!(
-                        "✓ Gap {}/{} complete: Fetched and cached {} days",
-                        gap_idx + 1,
-                        num_gaps,
-                        days_saved
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "✗ Gap {}/{} failed: {} to {} - {:?}",
-                        gap_idx + 1,
-                        num_gaps,
-                        gap.start,
-                        gap.end,
-                        e
-                    );
-                    // Continue with other gaps
-                }
-            }
-        }
-
-        // Step 4: Load all days from cache and assemble with PROGRESS REPORTING
+        // Step 4: Load all days from cache and assemble
+        let total_days = (end_date - start_date).num_days() + 1;
         let mut all_trades = Vec::new();
         let mut current = start_date;
         let mut day_count = 0;
-
-        log::info!("Loading {} days from cache...", total_days);
 
         while current <= end_date {
             day_count += 1;
@@ -522,7 +457,7 @@ impl HistoricalDataManager {
                 Ok(day_trades) => {
                     all_trades.extend(day_trades);
                     if day_count % 5 == 0 || day_count == total_days as usize {
-                        log::info!(
+                        log::debug!(
                             "Progress: {}/{} days loaded, {} trades total",
                             day_count,
                             total_days,
@@ -561,21 +496,9 @@ impl HistoricalDataManager {
             .collect();
 
         log::info!(
-            "✓ fetch_trades_cached COMPLETE: {} trades for {}",
+            "fetch_trades_cached complete: {} trades for {}",
             filtered.len(),
             symbol
-        );
-        log::info!(
-            "  Cache efficiency: {}/{} days cached, {} gaps fetched",
-            cached_days.len(),
-            total_days,
-            num_gaps
-        );
-        log::info!(
-            "  Final output: {} to {} ({} trades)",
-            filtered.first().map(|t| t.time).unwrap_or(0),
-            filtered.last().map(|t| t.time).unwrap_or(0),
-            filtered.len()
         );
 
         Ok(filtered)
@@ -617,7 +540,7 @@ impl HistoricalDataManager {
         let end_date = end.date_naive();
 
         let total_days = (end_date - start_date).num_days() + 1;
-        log::info!(
+        log::debug!(
             "fetch_trades_cached_with_progress: {} from {} to {} - {} days total",
             symbol,
             start_date,
@@ -638,14 +561,14 @@ impl HistoricalDataManager {
             current += chrono::Duration::days(1);
         }
 
-        log::info!("Found {}/{} days cached", cached_days.len(), total_days);
+        log::debug!("Found {}/{} days cached", cached_days.len(), total_days);
 
         // Step 2: Find gaps (consecutive uncached days)
         let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
 
-        log::info!("Identified {} gap(s) to fetch from databento", gaps.len());
+        log::debug!("Identified {} gap(s) to fetch from databento", gaps.len());
         for gap in &gaps {
-            log::info!(
+            log::debug!(
                 "  Gap: {} to {} ({} days)",
                 gap.start,
                 gap.end,
@@ -660,7 +583,7 @@ impl HistoricalDataManager {
 
         for (gap_idx, gap) in gaps.iter().enumerate() {
             let gap_days = (gap.end - gap.start).num_days() + 1;
-            log::info!(
+            log::debug!(
                 "Fetching gap {}/{}: {} to {} ({} days)",
                 gap_idx + 1,
                 num_gaps,
@@ -672,12 +595,15 @@ impl HistoricalDataManager {
             // Fetch each day in the gap individually with progress reporting
             let mut gap_current = gap.start;
             while gap_current <= gap.end {
-                match self.fetch_to_cache(symbol, Schema::Trades, gap_current).await {
+                match self
+                    .fetch_to_cache(symbol, Schema::Trades, gap_current)
+                    .await
+                {
                     Ok(_) => {
-                        log::info!("  ✓ Downloaded {} trades successfully", gap_current);
+                        log::debug!("  Downloaded {} trades successfully", gap_current);
                     }
                     Err(e) => {
-                        log::error!("  ✗ Failed to download {} trades: {:?}", gap_current, e);
+                        log::error!("  FAILED: download {} trades: {:?}", gap_current, e);
                     }
                 }
 
@@ -694,7 +620,7 @@ impl HistoricalDataManager {
         let mut current = start_date;
         let mut load_days_count = 0;
 
-        log::info!("Loading {} days from cache...", total_days);
+        log::debug!("Loading {} days from cache...", total_days);
 
         while current <= end_date {
             let was_cached = cached_days.contains(&current);
@@ -721,7 +647,7 @@ impl HistoricalDataManager {
 
             load_days_count += 1;
             if load_days_count % 5 == 0 || load_days_count == total_days as usize {
-                log::info!(
+                log::debug!(
                     "Progress: {}/{} days loaded, {} trades total",
                     load_days_count,
                     total_days,
@@ -751,62 +677,12 @@ impl HistoricalDataManager {
             .collect();
 
         log::info!(
-            "✓ fetch_trades_cached_with_progress COMPLETE: {} trades for {}",
+            "fetch_trades_cached_with_progress complete: {} trades for {}",
             filtered.len(),
             symbol
         );
 
         Ok(filtered)
-    }
-
-    /// Fetch a gap range of trades and cache each day with DETAILED PROGRESS
-    async fn fetch_and_cache_trades_range(
-        &mut self,
-        symbol: &str,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-    ) -> Result<usize, DatabentoError> {
-        let total_gap_days = (end_date - start_date).num_days() + 1;
-        let mut days_saved = 0;
-        let mut current = start_date;
-        let mut day_num = 0;
-
-        log::info!(
-            "Fetching {} days of trades from databento...",
-            total_gap_days
-        );
-
-        while current <= end_date {
-            day_num += 1;
-            match self.fetch_to_cache(symbol, Schema::Trades, current).await {
-                Ok(_) => {
-                    days_saved += 1;
-                    log::info!(
-                        "  ✓ Day {}/{}: {} trades cached successfully",
-                        day_num,
-                        total_gap_days,
-                        current
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "  ✗ Day {}/{}: {} trades failed - {:?}",
-                        day_num,
-                        total_gap_days,
-                        current,
-                        e
-                    );
-                }
-            }
-            current += chrono::Duration::days(1);
-        }
-
-        log::info!(
-            "Gap fetch complete: {}/{} days successfully cached",
-            days_saved,
-            total_gap_days
-        );
-        Ok(days_saved)
     }
 
     /// Load a single day of trades from cache
@@ -869,7 +745,7 @@ impl HistoricalDataManager {
             log::warn!("{}", warning);
         }
 
-        log::info!(
+        log::debug!(
             "Fetching MBP-10 depth for {} (cost-effective L2 data)",
             symbol
         );
@@ -960,94 +836,17 @@ impl HistoricalDataManager {
         let start_date = start.date_naive();
         let end_date = end.date_naive();
 
-        let total_days = (end_date - start_date).num_days() + 1;
-        log::info!(
-            "fetch_mbp10_cached: {} from {} to {} - {} days total",
-            symbol,
-            start_date,
-            end_date,
-            total_days
-        );
-
         let schema = Schema::Mbp10;
 
-        // Step 1: Identify which days are already cached
-        let mut cached_days = HashSet::new();
-        let mut current = start_date;
-        while current <= end_date {
-            if self.cache.has_cached(symbol, schema, current).await {
-                cached_days.insert(current);
-                log::debug!("Cache HIT: {} MBP-10 on {}", symbol, current);
-            }
-            current += chrono::Duration::days(1);
-        }
+        // Steps 1-3: Ensure all days are cached
+        self.ensure_cached("fetch_mbp10_cached", symbol, schema, start_date, end_date)
+            .await;
 
-        log::info!(
-            "Found {}/{} days cached (MBP-10)",
-            cached_days.len(),
-            total_days
-        );
-
-        // Step 2: Find gaps (consecutive uncached days)
-        let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
-
-        log::info!(
-            "Identified {} MBP-10 gap(s) to fetch from databento",
-            gaps.len()
-        );
-        for gap in &gaps {
-            log::info!(
-                "  MBP-10 Gap: {} to {} ({} days)",
-                gap.start,
-                gap.end,
-                (gap.end - gap.start).num_days() + 1
-            );
-        }
-
-        // Step 3: Fetch each gap, save per-day with PROGRESS REPORTING
-        let num_gaps = gaps.len();
-        for (gap_idx, gap) in gaps.iter().enumerate() {
-            let gap_days = (gap.end - gap.start).num_days() + 1;
-            log::info!(
-                "Fetching MBP-10 gap {}/{}: {} to {} ({} days)",
-                gap_idx + 1,
-                num_gaps,
-                gap.start,
-                gap.end,
-                gap_days
-            );
-
-            match self
-                .fetch_and_cache_mbp10_range(symbol, gap.start, gap.end)
-                .await
-            {
-                Ok(days_saved) => {
-                    log::info!(
-                        "✓ MBP-10 gap {}/{} complete: Fetched and cached {} days",
-                        gap_idx + 1,
-                        num_gaps,
-                        days_saved
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "✗ MBP-10 gap {}/{} failed: {} to {} - {:?}",
-                        gap_idx + 1,
-                        num_gaps,
-                        gap.start,
-                        gap.end,
-                        e
-                    );
-                }
-            }
-        }
-
-        // Step 4: Load all days from cache and assemble with PROGRESS REPORTING
+        // Step 4: Load all days from cache and assemble
+        let total_days = (end_date - start_date).num_days() + 1;
         let mut all_snapshots = Vec::new();
         let mut current = start_date;
         let mut day_count = 0;
-
-        log::info!("Loading {} days of MBP-10 from cache...", total_days);
 
         while current <= end_date {
             day_count += 1;
@@ -1055,7 +854,7 @@ impl HistoricalDataManager {
                 Ok(day_snapshots) => {
                     all_snapshots.extend(day_snapshots);
                     if day_count % 5 == 0 || day_count == total_days as usize {
-                        log::info!(
+                        log::debug!(
                             "Progress: {}/{} days loaded, {} MBP-10 snapshots total",
                             day_count,
                             total_days,
@@ -1094,74 +893,12 @@ impl HistoricalDataManager {
             .collect();
 
         log::info!(
-            "✓ fetch_mbp10_cached COMPLETE: {} snapshots for {}",
+            "fetch_mbp10_cached complete: {} snapshots for {}",
             filtered.len(),
             symbol
         );
-        log::info!(
-            "  Cache efficiency: {}/{} days cached, {} gaps fetched",
-            cached_days.len(),
-            total_days,
-            num_gaps
-        );
-        log::info!(
-            "  Final output: {} to {} ({} snapshots)",
-            filtered.first().map(|(t, _)| *t).unwrap_or(0),
-            filtered.last().map(|(t, _)| *t).unwrap_or(0),
-            filtered.len()
-        );
 
         Ok(filtered)
-    }
-
-    /// Fetch a gap range of MBP-10 and cache each day with DETAILED PROGRESS
-    async fn fetch_and_cache_mbp10_range(
-        &mut self,
-        symbol: &str,
-        start_date: chrono::NaiveDate,
-        end_date: chrono::NaiveDate,
-    ) -> Result<usize, DatabentoError> {
-        let total_gap_days = (end_date - start_date).num_days() + 1;
-        let mut days_saved = 0;
-        let mut current = start_date;
-        let mut day_num = 0;
-
-        log::info!(
-            "Fetching {} days of MBP-10 from databento...",
-            total_gap_days
-        );
-
-        while current <= end_date {
-            day_num += 1;
-            match self.fetch_to_cache(symbol, Schema::Mbp10, current).await {
-                Ok(_) => {
-                    days_saved += 1;
-                    log::info!(
-                        "  ✓ Day {}/{}: {} MBP-10 cached successfully",
-                        day_num,
-                        total_gap_days,
-                        current
-                    );
-                }
-                Err(e) => {
-                    log::error!(
-                        "  ✗ Day {}/{}: {} MBP-10 failed - {:?}",
-                        day_num,
-                        total_gap_days,
-                        current,
-                        e
-                    );
-                }
-            }
-            current += chrono::Duration::days(1);
-        }
-
-        log::info!(
-            "MBP-10 gap fetch complete: {}/{} days successfully cached",
-            days_saved,
-            total_gap_days
-        );
-        Ok(days_saved)
     }
 
     /// Load a single day of MBP-10 depth from cache
@@ -1254,23 +991,21 @@ impl HistoricalDataManager {
         ));
 
         // Convert date to time OffsetDateTime (start of day UTC)
+        let start_naive = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| DatabentoError::Config(format!("Invalid start date: {}", date)))?;
         let start_time = OffsetDateTime::from_unix_timestamp(
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                date.and_hms_opt(0, 0, 0).unwrap(),
-                chrono::Utc,
-            )
-            .timestamp(),
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(start_naive, chrono::Utc)
+                .timestamp(),
         )
         .map_err(|e| DatabentoError::Config(format!("Invalid start time: {}", e)))?;
 
+        let end_naive = (date + chrono::Duration::days(1))
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| DatabentoError::Config(format!("Invalid end date: {}", date)))?;
         let end_time = OffsetDateTime::from_unix_timestamp(
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                (date + chrono::Duration::days(1))
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
-                chrono::Utc,
-            )
-            .timestamp(),
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(end_naive, chrono::Utc)
+                .timestamp(),
         )
         .map_err(|e| DatabentoError::Config(format!("Invalid end time: {}", e)))?;
 
@@ -1284,9 +1019,8 @@ impl HistoricalDataManager {
             .build();
 
         // Download to temp file with retry on transient errors
-        let max_retries = 3u32;
         let mut last_err = None;
-        for attempt in 0..max_retries {
+        for attempt in 0..FETCH_MAX_RETRIES {
             match self.client.timeseries().get_range_to_file(&params).await {
                 Ok(_) => {
                     last_err = None;
@@ -1300,20 +1034,17 @@ impl HistoricalDataManager {
                         || err_str.contains("503")
                         || err_str.contains("timeout");
 
-                    if is_retriable && attempt + 1 < max_retries {
+                    if is_retriable && attempt + 1 < FETCH_MAX_RETRIES {
                         let delay = 1u64 << attempt; // 1s, 2s
                         log::warn!(
                             "Databento API error (attempt {}/{}), \
                              retrying in {}s: {}",
                             attempt + 1,
-                            max_retries,
+                            FETCH_MAX_RETRIES,
                             delay,
                             err_str
                         );
-                        tokio::time::sleep(
-                            std::time::Duration::from_secs(delay),
-                        )
-                        .await;
+                        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                         last_err = Some(e);
                     } else {
                         return Err(DatabentoError::from(e));
@@ -1325,7 +1056,7 @@ impl HistoricalDataManager {
             return Err(DatabentoError::from(e));
         }
 
-        log::info!("Downloaded {} ({:?}) for {}", symbol, schema, date);
+        log::debug!("Downloaded {} ({:?}) for {}", symbol, schema, date);
 
         // Move to cache
         self.cache.store(symbol, schema, date, &temp_path).await?;
@@ -1346,7 +1077,10 @@ impl HistoricalDataManager {
     }
 
     /// Get cached date ranges for a symbol
-    pub async fn get_cached_date_ranges(&self, symbol: &str) -> Result<Vec<chrono::NaiveDate>, DatabentoError> {
+    pub async fn get_cached_date_ranges(
+        &self,
+        symbol: &str,
+    ) -> Result<Vec<chrono::NaiveDate>, DatabentoError> {
         use tokio::fs;
 
         let safe_symbol = symbol.replace('.', "-");
@@ -1360,15 +1094,21 @@ impl HistoricalDataManager {
         }
 
         // Walk through schema directories
-        let mut schema_entries = fs::read_dir(&symbol_dir)
-            .await
-            .map_err(|e| DatabentoError::Cache(format!("Failed to read symbol cache dir: {}", e)))?;
+        let mut schema_entries = fs::read_dir(&symbol_dir).await.map_err(|e| {
+            DatabentoError::Cache(format!("Failed to read symbol cache dir: {}", e))
+        })?;
 
-        while let Some(schema_entry) = schema_entries.next_entry()
+        while let Some(schema_entry) = schema_entries
+            .next_entry()
             .await
             .map_err(|e| DatabentoError::Cache(format!("Failed to read schema entry: {}", e)))?
         {
-            if !schema_entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+            if !schema_entry
+                .file_type()
+                .await
+                .map(|t| t.is_dir())
+                .unwrap_or(false)
+            {
                 continue;
             }
 
@@ -1377,16 +1117,18 @@ impl HistoricalDataManager {
                 .await
                 .map_err(|e| DatabentoError::Cache(format!("Failed to read schema dir: {}", e)))?;
 
-            while let Some(date_entry) = date_entries.next_entry()
+            while let Some(date_entry) = date_entries
+                .next_entry()
                 .await
                 .map_err(|e| DatabentoError::Cache(format!("Failed to read date entry: {}", e)))?
             {
                 // Parse date from filename (format: YYYY-MM-DD.dbn.zst)
                 if let Some(filename) = date_entry.file_name().to_str()
                     && let Some(date_str) = filename.strip_suffix(".dbn.zst")
-                        && let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                            dates.push(date);
-                        }
+                    && let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                {
+                    dates.push(date);
+                }
             }
         }
 
@@ -1408,7 +1150,7 @@ impl HistoricalDataManager {
     ) -> Result<Vec<crate::types::OpenInterest>, DatabentoError> {
         let (start, end) = range;
 
-        log::info!("fetch_open_interest: {} from {} to {}", symbol, start, end);
+        log::debug!("fetch_open_interest: {} from {} to {}", symbol, start, end);
 
         // Check cost estimate for date range
         if let Some(warning) = self
@@ -1431,7 +1173,7 @@ impl HistoricalDataManager {
             .date_time_range((start_time, end_time))
             .build();
 
-        log::info!("Fetching Statistics data for open interest...");
+        log::debug!("Fetching Statistics data for open interest...");
 
         // Get decoder for the data
         let mut decoder = self.client.timeseries().get_range(&params).await?;
@@ -1440,8 +1182,7 @@ impl HistoricalDataManager {
         let mut open_interest_data = Vec::new();
 
         // Decode statistics records
-        let oi_stat_type: u16 =
-            databento::dbn::StatType::OpenInterest.into();
+        let oi_stat_type: u16 = databento::dbn::StatType::OpenInterest.into();
         while let Some(stat) = decoder.decode_record::<databento::dbn::StatMsg>().await? {
             if stat.stat_type == oi_stat_type {
                 // Use ts_ref as the reference timestamp for the statistic
@@ -1462,7 +1203,7 @@ impl HistoricalDataManager {
         }
 
         log::info!(
-            "✓ fetch_open_interest COMPLETE: {} data points for {}",
+            "fetch_open_interest complete: {} data points for {}",
             open_interest_data.len(),
             symbol
         );
@@ -1571,8 +1312,9 @@ fn aggregate_minutes(bars_1m: Vec<Kline>, minutes: u32) -> Vec<Kline> {
 
 /// Aggregate a group of bars into one bar
 fn aggregate_group(bars: &[Kline], time: u64) -> Kline {
-    let open = bars.first().unwrap().open;
-    let close = bars.last().unwrap().close;
+    debug_assert!(!bars.is_empty(), "aggregate_group called with empty bars");
+    let open = bars.first().expect("aggregate_group: empty bars").open;
+    let close = bars.last().expect("aggregate_group: empty bars").close;
     let high = bars
         .iter()
         .map(|b| b.high)

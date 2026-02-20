@@ -58,7 +58,7 @@ pub fn merge_segments(
         a.time
             .0
             .cmp(&b.time.0)
-            .then_with(|| a.price.to_units().cmp(&b.price.to_units()))
+            .then_with(|| a.price.units().cmp(&b.price.units()))
     });
 
     // Deduplicate: remove trades that are within tolerance at the same price
@@ -87,7 +87,7 @@ fn dedup_trades(trades: Vec<crate::domain::Trade>) -> Vec<crate::domain::Trade> 
     for trade in trades.into_iter().skip(1) {
         let last = result.last().unwrap();
         let time_diff = trade.time.0.abs_diff(last.time.0);
-        let same_price = trade.price.to_units() == last.price.to_units();
+        let same_price = trade.price.units() == last.price.units();
 
         if time_diff <= DEDUP_TOLERANCE_MS && same_price {
             // Duplicate within tolerance — skip
@@ -147,11 +147,7 @@ fn detect_gaps(
     // Gap from last trade to expected end
     let last_time = trades[trades.len() - 1].time;
     if expected_end.0 > last_time.0 + MIN_GAP_DURATION_MS {
-        gaps.push(DataGap::new(
-            last_time,
-            expected_end,
-            DataGapKind::NoData,
-        ));
+        gaps.push(DataGap::new(last_time, expected_end, DataGapKind::NoData));
     }
 
     gaps
@@ -173,11 +169,7 @@ mod tests {
 
     #[test]
     fn test_merge_empty_segments() {
-        let result = merge_segments(
-            vec![],
-            Timestamp(0),
-            Timestamp(100_000),
-        );
+        let result = merge_segments(vec![], Timestamp(0), Timestamp(100_000));
         assert!(result.trades.is_empty());
         assert_eq!(result.gaps.len(), 1);
         assert_eq!(result.gaps[0].kind, DataGapKind::NoData);
@@ -198,11 +190,7 @@ mod tests {
             trades,
         };
 
-        let result = merge_segments(
-            vec![segment],
-            Timestamp(1000),
-            Timestamp(3000),
-        );
+        let result = merge_segments(vec![segment], Timestamp(1000), Timestamp(3000));
 
         assert_eq!(result.trades.len(), 3);
         assert!(result.gaps.is_empty());
@@ -235,11 +223,7 @@ mod tests {
             ],
         };
 
-        let result = merge_segments(
-            vec![seg_a, seg_b],
-            Timestamp(1000),
-            Timestamp(3000),
-        );
+        let result = merge_segments(vec![seg_a, seg_b], Timestamp(1000), Timestamp(3000));
 
         // 1000@100, 2000@101, 3000@102, 3000@103 = 4 unique
         assert_eq!(result.trades.len(), 4);
@@ -260,11 +244,7 @@ mod tests {
             ],
         };
 
-        let result = merge_segments(
-            vec![segment],
-            Timestamp(0),
-            Timestamp(100_000),
-        );
+        let result = merge_segments(vec![segment], Timestamp(0), Timestamp(100_000));
 
         assert_eq!(result.trades.len(), 3);
         // Gaps: 0->10000 (leading), 10000->60000 (middle), 61000->100000 (trailing)
@@ -285,11 +265,7 @@ mod tests {
             trades,
         };
 
-        let result = merge_segments(
-            vec![segment],
-            Timestamp(0),
-            Timestamp(end_time),
-        );
+        let result = merge_segments(vec![segment], Timestamp(0), Timestamp(end_time));
 
         assert_eq!(result.trades.len(), 20);
         assert!(result.gaps.is_empty());

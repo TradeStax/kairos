@@ -1,15 +1,26 @@
-use super::{Content, Effect, Event, State};
+use super::{Content, ContextMenuAction, ContextMenuKind, Effect, Event, State};
 use crate::{
     chart,
-    modal::{self, pane::Modal},
+    modals::{self, pane::Modal},
     screen::dashboard::panel,
 };
-use data::{
-    ChartBasis, ChartConfig, ChartType, ContentKind, DateRange, Timeframe,
-};
+use data::{ChartBasis, ChartConfig, ChartType, ContentKind, DateRange, Timeframe};
 
 impl State {
     pub fn update(&mut self, msg: Event) -> Option<Effect> {
+        // Dismiss context menu on meaningful interactions (not passive mouse movement)
+        if self.context_menu.is_some()
+            && !matches!(
+                msg,
+                Event::ContextMenuAction(_)
+                    | Event::DismissContextMenu
+                    | Event::ChartInteraction(chart::Message::CrosshairMoved)
+                    | Event::ChartInteraction(chart::Message::BoundsChanged(_))
+            )
+        {
+            self.context_menu = None;
+        }
+
         match msg {
             Event::ShowModal(requested_modal) => {
                 return self.show_modal_with_focus(requested_modal);
@@ -21,9 +32,8 @@ impl State {
                 self.content = Content::placeholder(kind);
 
                 if !matches!(kind, ContentKind::Starter) {
-                    let modal = Modal::MiniTickersList(
-                        crate::modal::pane::tickers::MiniPanel::new(),
-                    );
+                    let modal =
+                        Modal::MiniTickersList(crate::modals::pane::tickers::MiniPanel::new());
 
                     if let Some(effect) = self.show_modal_with_focus(modal) {
                         return Some(effect);
@@ -31,12 +41,44 @@ impl State {
                 }
             }
             Event::ChartInteraction(msg) => {
+                // Clear indicator selection on active chart interactions
+                if !matches!(
+                    msg,
+                    chart::Message::IndicatorClicked(_)
+                        | chart::Message::CrosshairMoved
+                        | chart::Message::BoundsChanged(_)
+                        | chart::Message::ContextMenu(_, _)
+                ) {
+                    self.selected_indicator = None;
+                }
+
                 match msg {
-                    chart::Message::DrawingClick(point) => {
-                        self.handle_drawing_click(point);
+                    chart::Message::IndicatorClicked(panel_index) => {
+                        let resolved = self.content.indicator_at_panel(panel_index);
+                        // Toggle: clicking the already-selected indicator
+                        // deselects it.
+                        if self.selected_indicator == resolved {
+                            self.selected_indicator = None;
+                        } else {
+                            self.selected_indicator = resolved;
+                        }
                     }
-                    chart::Message::DrawingMove(point) => {
-                        self.handle_drawing_move(point);
+                    chart::Message::DrawingClick(point, shift_held) => {
+                        if self.handle_drawing_click(point, shift_held) {
+                            return Some(Effect::DrawingToolChanged(data::DrawingTool::None));
+                        }
+                    }
+                    chart::Message::DrawingMove(point, shift_held) => {
+                        self.handle_drawing_move(point, shift_held);
+                    }
+                    chart::Message::ClonePlacementMove(point) => {
+                        self.handle_clone_move(point);
+                    }
+                    chart::Message::ClonePlacementConfirm(point) => {
+                        self.handle_clone_confirm(point);
+                    }
+                    chart::Message::ClonePlacementCancel => {
+                        self.handle_clone_cancel();
                     }
                     chart::Message::DrawingCancel => {
                         self.handle_drawing_cancel();
@@ -44,28 +86,62 @@ impl State {
                     chart::Message::DrawingDelete => {
                         self.handle_drawing_delete();
                     }
+                    chart::Message::DrawingSelect(id) => {
+                        self.handle_drawing_select(id);
+                    }
+                    chart::Message::DrawingDeselect => {
+                        self.handle_drawing_deselect();
+                    }
+                    chart::Message::DrawingDrag(point, shift_held) => {
+                        self.handle_drawing_drag(point, shift_held);
+                    }
+                    chart::Message::DrawingHandleDrag(point, handle_index, shift_held) => {
+                        self.handle_drawing_handle_drag(point, handle_index, shift_held);
+                    }
+                    chart::Message::DrawingDragEnd => {
+                        self.handle_drawing_drag_end();
+                    }
+                    chart::Message::DrawingDoubleClick(id) => {
+                        self.handle_open_drawing_properties(id);
+                    }
+                    chart::Message::ContextMenu(position, drawing_id) => {
+                        self.modal = None;
+
+                        // Use hit-tested drawing, or fall back to
+                        // currently selected drawing
+                        let effective_id = drawing_id.or_else(|| self.get_selected_drawing_id());
+
+                        if let Some(id) = effective_id {
+                            self.selected_indicator = None;
+                            let locked = self.get_drawing_locked(id);
+                            self.context_menu = Some(ContextMenuKind::Drawing {
+                                position,
+                                id,
+                                locked,
+                            });
+                        } else if let Some(indicator) = self.selected_indicator {
+                            self.context_menu = Some(ContextMenuKind::Indicator {
+                                position,
+                                indicator,
+                            });
+                        } else {
+                            self.context_menu = Some(ContextMenuKind::Chart { position });
+                        }
+                    }
                     chart::Message::CrosshairMoved => {
                         // Optimize crosshair updates when a drawing tool is active:
                         // Only clear the main crosshair cache, skip indicator caches
                         use crate::chart::Chart;
                         match &mut self.content {
-                            Content::Kline {
-                                chart: Some(c), ..
-                            } => {
-                                if c.drawings.active_tool()
-                                    != data::DrawingTool::None
-                                {
+                            Content::Kline { chart: Some(c), .. } => {
+                                if c.drawings.active_tool() != data::DrawingTool::None {
                                     c.mut_state().cache.clear_crosshair();
                                 } else {
                                     chart::update(c, &msg);
                                 }
                             }
-                            Content::Heatmap {
-                                chart: Some(c), ..
-                            } => {
-                                if c.drawings.active_tool()
-                                    != data::DrawingTool::None
-                                {
+                            Content::Heatmap { chart: Some(c), .. } => {
+                                if c.drawings.active_tool() != data::DrawingTool::None {
                                     c.mut_state().cache.clear_crosshair();
                                 } else {
                                     chart::update(c, &msg);
@@ -74,21 +150,15 @@ impl State {
                             _ => {}
                         }
                     }
-                    _ => {
-                        match &mut self.content {
-                            Content::Heatmap {
-                                chart: Some(c), ..
-                            } => {
-                                chart::update(c, &msg);
-                            }
-                            Content::Kline {
-                                chart: Some(c), ..
-                            } => {
-                                chart::update(c, &msg);
-                            }
-                            _ => {}
+                    _ => match &mut self.content {
+                        Content::Heatmap { chart: Some(c), .. } => {
+                            chart::update(c, &msg);
                         }
-                    }
+                        Content::Kline { chart: Some(c), .. } => {
+                            chart::update(c, &msg);
+                        }
+                        _ => {}
+                    },
                 }
             }
             Event::PanelInteraction(msg) => match &mut self.content {
@@ -107,38 +177,16 @@ impl State {
             Event::ReorderIndicator(e) => {
                 self.content.reorder_indicators(&e);
             }
-            Event::ClusterKindSelected(kind) => {
-                if let Content::Kline {
-                    chart, kind: cur, ..
-                } = &mut self.content
+            Event::FootprintStudyChanged(new_config) => {
+                if let Content::Kline { chart, .. } = &mut self.content
                     && let Some(c) = chart
                 {
-                    c.set_cluster_kind(kind);
-                    *cur = c.kind().clone();
-                }
-            }
-            Event::ClusterScalingSelected(scaling) => {
-                if let Content::Kline { chart, kind, .. } = &mut self.content
-                    && let Some(c) = chart
-                {
-                    c.set_cluster_scaling(scaling);
-                    *kind = c.kind().clone();
+                    c.set_footprint(new_config);
                 }
             }
             Event::StudyConfigurator(study_msg) => match study_msg {
-                modal::pane::settings::study::StudyMessage::Footprint(m) => {
-                    if let Content::Kline { chart, kind, .. } =
-                        &mut self.content
-                        && let Some(c) = chart
-                    {
-                        c.update_study_configurator(m);
-                        *kind = c.kind().clone();
-                    }
-                }
-                modal::pane::settings::study::StudyMessage::Heatmap(m) => {
-                    if let Content::Heatmap {
-                        chart, studies, ..
-                    } = &mut self.content
+                modals::pane::settings::study::StudyMessage::Heatmap(m) => {
+                    if let Content::Heatmap { chart, studies, .. } = &mut self.content
                         && let Some(c) = chart
                     {
                         c.update_study_configurator(m);
@@ -147,9 +195,7 @@ impl State {
                             .iter()
                             .map(|s| match s {
                                 crate::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                                    data::domain::chart_ui_types::heatmap::HeatmapStudy::VolumeProfile(
-                                        *kind,
-                                    )
+                                    data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
                                 }
                             })
                             .collect();
@@ -157,38 +203,25 @@ impl State {
                 }
             },
             Event::StreamModifierChanged(message) => {
-                if let Some(Modal::StreamModifier(modifier)) =
-                    self.modal.take()
-                {
+                if let Some(Modal::StreamModifier(modifier)) = self.modal.take() {
                     let mut modifier = modifier;
 
                     if let Some(action) = modifier.update(message) {
                         match action {
-                            modal::stream::Action::TabSelected(tab) => {
+                            modals::stream::Action::TabSelected(tab) => {
                                 modifier.tab = tab;
                             }
-                            modal::stream::Action::BasisSelected(
-                                new_basis,
-                            ) => {
+                            modals::stream::Action::BasisSelected(new_basis) => {
                                 modifier.update_kind_with_basis(new_basis);
-                                self.settings.selected_basis =
-                                    Some(new_basis);
+                                self.settings.selected_basis = Some(new_basis);
 
                                 match &mut self.content {
-                                    Content::Heatmap {
-                                        chart: Some(c), ..
-                                    } => {
+                                    Content::Heatmap { chart: Some(c), .. } => {
                                         c.set_basis(new_basis);
                                     }
-                                    Content::Kline {
-                                        chart: Some(c), ..
-                                    } => {
-                                        if let Some(ticker) =
-                                            self.ticker_info
-                                        {
-                                            c.switch_basis(
-                                                new_basis, ticker,
-                                            );
+                                    Content::Kline { chart: Some(c), .. } => {
+                                        if let Some(ticker) = self.ticker_info {
+                                            c.switch_basis(new_basis, ticker);
                                         }
                                     }
                                     Content::Comparison(_) => {}
@@ -207,25 +240,17 @@ impl State {
                     && let Some(action) = chart.update(message)
                 {
                     match action {
-                        chart::comparison::Action::SeriesColorChanged(
-                            t, color,
-                        ) => {
+                        chart::comparison::Action::SeriesColorChanged(t, color) => {
                             chart.set_series_color(t, color);
                         }
-                        chart::comparison::Action::SeriesNameChanged(
-                            t, name,
-                        ) => {
+                        chart::comparison::Action::SeriesNameChanged(t, name) => {
                             chart.set_series_name(t, name);
                         }
                         chart::comparison::Action::OpenSeriesEditor => {
                             self.modal = Some(Modal::Settings);
                         }
-                        chart::comparison::Action::RemoveSeries(
-                            ticker_info,
-                        ) => {
-                            if let Content::Comparison(Some(chart)) =
-                                &mut self.content
-                            {
+                        chart::comparison::Action::RemoveSeries(ticker_info) => {
+                            if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
                                 log::info!(
                                     "Removed ticker {:?} from comparison chart",
@@ -237,21 +262,14 @@ impl State {
                 }
             }
             Event::MiniTickersListInteraction(message) => {
-                if let Some(Modal::MiniTickersList(ref mut mini_panel)) =
-                    self.modal
+                if let Some(Modal::MiniTickersList(ref mut mini_panel)) = self.modal
                     && let Some(action) = mini_panel.update(message)
                 {
-                    self.modal = Some(Modal::MiniTickersList(
-                        mini_panel.clone(),
-                    ));
+                    self.modal = Some(Modal::MiniTickersList(mini_panel.clone()));
 
-                    let crate::modal::pane::tickers::Action::RowSelected(
-                        sel,
-                    ) = action;
+                    let crate::modals::pane::tickers::Action::RowSelected(sel) = action;
                     match sel {
-                        crate::modal::pane::tickers::RowSelection::Add(
-                            ticker_info,
-                        ) => {
+                        crate::modals::pane::tickers::RowSelection::Add(ticker_info) => {
                             log::info!(
                                 "Adding ticker {:?} to comparison chart",
                                 ticker_info.ticker
@@ -260,13 +278,10 @@ impl State {
                             let basis = self
                                 .settings
                                 .selected_basis
-                                .unwrap_or(ChartBasis::Time(
-                                    Timeframe::M5,
-                                ));
+                                .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
                             let date_range = DateRange::new(
-                                chrono::Local::now().date_naive()
-                                    - chrono::Duration::days(7),
+                                chrono::Local::now().date_naive() - chrono::Duration::days(7),
                                 chrono::Local::now().date_naive(),
                             );
 
@@ -282,12 +297,8 @@ impl State {
                                 ticker_info,
                             });
                         }
-                        crate::modal::pane::tickers::RowSelection::Remove(
-                            ticker_info,
-                        ) => {
-                            if let Content::Comparison(Some(chart)) =
-                                &mut self.content
-                            {
+                        crate::modals::pane::tickers::RowSelection::Remove(ticker_info) => {
+                            if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
                                 log::info!(
                                     "Removed ticker {:?} from comparison chart",
@@ -295,52 +306,125 @@ impl State {
                                 );
                             }
                         }
-                        crate::modal::pane::tickers::RowSelection::Switch(
-                            ti,
-                        ) => {
-                            return Some(
-                                Effect::SwitchTickersInGroup(ti),
-                            );
+                        crate::modals::pane::tickers::RowSelection::Switch(ti) => {
+                            return Some(Effect::SwitchTickersInGroup(ti));
                         }
                     }
                 }
             }
             Event::DataManagementInteraction(message) => {
-                if let Some(Modal::DataManagement(ref mut panel)) =
-                    self.modal
-                    && let Some(action) = panel.update(message) {
-                        self.modal =
-                            Some(Modal::DataManagement(panel.clone()));
+                if let Some(Modal::DataManagement(ref mut panel)) = self.modal
+                    && let Some(action) = panel.update(message)
+                {
+                    self.modal = Some(Modal::DataManagement(panel.clone()));
 
-                        match action {
-                            crate::modal::pane::download::data_management::Action::EstimateRequested { ticker, schema, date_range } => {
-                                log::info!("Estimate requested: {:?} {:?} {:?}", ticker, schema, date_range);
-                                return Some(Effect::EstimateDataCost { ticker, schema, date_range });
-                            }
-                            crate::modal::pane::download::data_management::Action::DownloadRequested { ticker, schema, date_range } => {
-                                log::info!("Download requested: {:?} {:?} {:?}", ticker, schema, date_range);
-                                return Some(Effect::DownloadData { ticker, schema, date_range });
-                            }
+                    match action {
+                        crate::modals::download::data_management::Action::EstimateRequested {
+                            ticker,
+                            schema,
+                            date_range,
+                        } => {
+                            log::info!(
+                                "Estimate requested: {:?} {:?} {:?}",
+                                ticker,
+                                schema,
+                                date_range
+                            );
+                            return Some(Effect::EstimateDataCost {
+                                ticker,
+                                schema,
+                                date_range,
+                            });
+                        }
+                        crate::modals::download::data_management::Action::DownloadRequested {
+                            ticker,
+                            schema,
+                            date_range,
+                        } => {
+                            log::info!(
+                                "Download requested: {:?} {:?} {:?}",
+                                ticker,
+                                schema,
+                                date_range
+                            );
+                            return Some(Effect::DownloadData {
+                                ticker,
+                                schema,
+                                date_range,
+                            });
                         }
                     }
+                }
+            }
+            Event::DismissContextMenu => {
+                self.context_menu = None;
+                self.selected_indicator = None;
+            }
+            Event::ContextMenuAction(action) => {
+                self.context_menu = None;
+                self.selected_indicator = None;
+                match action {
+                    ContextMenuAction::RebuildChart => {
+                        return self.rebuild_current_chart();
+                    }
+                    ContextMenuAction::CenterLastPrice => {
+                        self.center_last_price();
+                    }
+                    ContextMenuAction::OpenIndicators => {
+                        self.modal = Some(Modal::Indicators);
+                    }
+                    ContextMenuAction::DeleteDrawing(id) => {
+                        self.handle_drawing_context_delete(id);
+                    }
+                    ContextMenuAction::ToggleLockDrawing(id) => {
+                        self.handle_drawing_toggle_lock(id);
+                    }
+                    ContextMenuAction::CloneDrawing(id) => {
+                        self.handle_drawing_clone(id);
+                    }
+                    ContextMenuAction::OpenDrawingProperties(id) => {
+                        self.handle_open_drawing_properties(id);
+                    }
+                    ContextMenuAction::RemoveIndicator(indicator) => {
+                        self.content.toggle_indicator(indicator);
+                    }
+                }
+            }
+            Event::DrawingPropertiesChanged(message) => {
+                if let Some(Modal::DrawingProperties(ref mut modal)) = self.modal {
+                    let mut modal = modal.clone();
+                    if let Some(action) = modal.update(message) {
+                        match action {
+                            crate::modals::drawing_properties::Action::Applied(id, update) => {
+                                self.apply_drawing_style(id, &update);
+                                let snapshot = modal.before_snapshot().clone();
+                                self.finalize_drawing_properties(id, snapshot);
+                                self.modal = None;
+                            }
+                            crate::modals::drawing_properties::Action::Cancelled(id, original) => {
+                                self.apply_drawing_style(id, &original);
+                                self.modal = None;
+                            }
+                        }
+                    } else {
+                        // No action yet — apply live preview
+                        let id = modal.drawing_id();
+                        let update = modal.build_update();
+                        self.apply_drawing_style(id, &update);
+                        self.modal = Some(Modal::DrawingProperties(modal));
+                    }
+                }
             }
         }
         None
     }
 
-    fn show_modal_with_focus(
-        &mut self,
-        requested_modal: Modal,
-    ) -> Option<Effect> {
+    fn show_modal_with_focus(&mut self, requested_modal: Modal) -> Option<Effect> {
         let should_toggle_close = match (&self.modal, &requested_modal) {
-            (
-                Some(Modal::StreamModifier(open)),
-                Modal::StreamModifier(req),
-            ) => open.view_mode == req.view_mode,
-            (Some(open), req) => {
-                core::mem::discriminant(open)
-                    == core::mem::discriminant(req)
+            (Some(Modal::StreamModifier(open)), Modal::StreamModifier(req)) => {
+                open.view_mode == req.view_mode
             }
+            (Some(open), req) => core::mem::discriminant(open) == core::mem::discriminant(req),
             _ => false,
         };
 

@@ -6,12 +6,12 @@
 //! - Number of bars/ticks
 
 use crate::chart::core::ViewState;
-use crate::component::primitives::AZERET_MONO;
+use crate::components::primitives::AZERET_MONO;
+use crate::style::tokens;
 use data::ChartBasis;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, Text};
-use crate::style::tokens;
 use iced::{Alignment, Point, Size};
 
 const TEXT_SIZE: f32 = tokens::text::BODY;

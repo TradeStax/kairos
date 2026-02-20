@@ -44,8 +44,7 @@ pub mod traits;
 // Re-export traits for convenience
 pub use traits::{
     CacheCoverageReport, DepthRepository, OptionChainRepository, OptionContractRepository,
-    OptionSnapshotRepository, RepositoryError, RepositoryResult, RepositoryStats,
-    TradeRepository,
+    OptionSnapshotRepository, RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
 };
 
 pub use composite::{CompositeTradeRepository, FeedRepo};

@@ -59,6 +59,7 @@ pub trait KlineIndicatorImpl {
     }
 
     /// Handle basis changes (recalculate if needed)
+    #[allow(dead_code)]
     fn on_basis_change(&mut self, candles: &[Candle], basis: ChartBasis) {
         self.rebuild_from_candles(candles, basis);
     }

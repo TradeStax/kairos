@@ -1,9 +1,8 @@
-use iced::{keyboard, Subscription};
 use futures::stream::StreamExt;
+use iced::{Subscription, keyboard};
 
 use super::{ChartMessage, DownloadMessage, Message};
 use crate::window;
-
 
 /// Rithmic streaming event monitor
 /// Drains ALL events from the global buffer every 50ms
@@ -24,13 +23,7 @@ fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
 
         Some((events, ()))
     })
-    .flat_map(|events| {
-        futures::stream::iter(
-            events
-                .into_iter()
-                .map(Message::RithmicStreamEvent),
-        )
-    })
+    .flat_map(|events| futures::stream::iter(events.into_iter().map(Message::RithmicStreamEvent)))
 }
 
 /// Replay engine event monitor
@@ -52,13 +45,7 @@ fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
 
         Some((events, ()))
     })
-    .flat_map(|events| {
-        futures::stream::iter(
-            events
-                .into_iter()
-                .map(Message::ReplayEvent),
-        )
-    })
+    .flat_map(|events| futures::stream::iter(events.into_iter().map(Message::ReplayEvent)))
 }
 
 /// Download progress monitoring subscription
@@ -93,22 +80,18 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
 /// Only active during drag operations on the floating replay panel
 fn replay_drag_subscription() -> Subscription<Message> {
     iced::event::listen_with(|event, _status, _id| match event {
-        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(
-            Message::Replay(crate::modal::replay_manager::Message::DragMove(position)),
-        ),
-        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
-            iced::mouse::Button::Left,
-        )) => Some(Message::Replay(
-            crate::modal::replay_manager::Message::DragEnd,
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Replay(
+            crate::modals::replay::Message::DragMove(position),
         )),
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+            Some(Message::Replay(crate::modals::replay::Message::DragEnd))
+        }
         _ => None,
     })
 }
 
 /// Build the main application subscription
-pub fn build_subscription(
-    replay_is_dragging: bool,
-) -> Subscription<Message> {
+pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
     let window_events = window::events().map(Message::WindowEvent);
 
     let tick = iced::time::every(std::time::Duration::from_millis(100)).map(Message::Tick);

@@ -1,6 +1,8 @@
 use super::cache::CacheManager;
 use super::client::MassiveClient;
-use super::decoder::{parse_array_results, parse_single_result, MassiveOptionSnapshot, MassiveContractMetadata};
+use super::decoder::{
+    MassiveContractMetadata, MassiveOptionSnapshot, parse_array_results, parse_single_result,
+};
 use super::mapper::{convert_chain_response, convert_contract_response, convert_snapshot_response};
 use super::{MassiveConfig, MassiveError, MassiveResult};
 use chrono::NaiveDate;
@@ -47,17 +49,28 @@ impl HistoricalOptionsManager {
         underlying_ticker: &str,
         date: NaiveDate,
     ) -> MassiveResult<OptionChain> {
-        log::info!("Fetching option chain for {} on {}", underlying_ticker, date);
+        log::debug!(
+            "Fetching option chain for {} on {}",
+            underlying_ticker,
+            date
+        );
 
         // Check cache first
         if self.config.cache_enabled
-            && self.cache.has_cached("chains", underlying_ticker, date).await {
-                log::info!("✓ Cache hit for {} chain on {}", underlying_ticker, date);
-                return self.cache.load("chains", underlying_ticker, Some(date)).await;
-            }
+            && self
+                .cache
+                .has_cached("chains", underlying_ticker, date)
+                .await
+        {
+            log::debug!("Cache hit for {} chain on {}", underlying_ticker, date);
+            return self
+                .cache
+                .load("chains", underlying_ticker, Some(date))
+                .await;
+        }
 
         // Fetch from API
-        log::info!("⬇ Fetching {} chain from API...", underlying_ticker);
+        log::debug!("Fetching {} chain from API...", underlying_ticker);
 
         let url = format!(
             "https://api.polygon.io/v3/snapshot/options/{}",
@@ -88,10 +101,7 @@ impl HistoricalOptionsManager {
 
         let chain = convert_chain_response(underlying_ticker.to_string(), date, snapshots)?;
 
-        log::info!(
-            "✓ Fetched chain with {} contracts",
-            chain.contract_count()
-        );
+        log::debug!("Fetched chain with {} contracts", chain.contract_count());
 
         // Cache result
         if self.config.cache_enabled {
@@ -112,7 +122,7 @@ impl HistoricalOptionsManager {
         date_range: &DateRange,
     ) -> MassiveResult<Vec<OptionChain>> {
         let total_days = date_range.num_days();
-        log::info!(
+        log::debug!(
             "Fetching {} days of option chains for {}",
             total_days,
             underlying_ticker
@@ -122,9 +132,9 @@ impl HistoricalOptionsManager {
         let gaps = self.find_chain_gaps(underlying_ticker, date_range).await?;
 
         if gaps.is_empty() {
-            log::info!("✓ All {} days cached", total_days);
+            log::debug!("All {} days cached", total_days);
         } else {
-            log::info!(
+            log::debug!(
                 "Found {} gaps totaling {} days to fetch",
                 gaps.len(),
                 gaps.iter().map(|g| g.num_days()).sum::<i64>()
@@ -132,7 +142,7 @@ impl HistoricalOptionsManager {
 
             // Fetch missing data
             for (gap_idx, gap) in gaps.iter().enumerate() {
-                log::info!(
+                log::debug!(
                     "Fetching gap {}/{}: {} days ({} to {})",
                     gap_idx + 1,
                     gaps.len(),
@@ -144,10 +154,10 @@ impl HistoricalOptionsManager {
                 for date in gap.dates() {
                     match self.fetch_option_chain(underlying_ticker, date).await {
                         Ok(_) => {
-                            log::debug!("✓ Fetched chain for {}", date);
+                            log::debug!("Fetched chain for {}", date);
                         }
                         Err(e) => {
-                            log::error!("✗ Failed to fetch chain for {}: {}", date, e);
+                            log::error!("FAILED: Failed to fetch chain for {}: {}", date, e);
                             // Continue with other dates
                         }
                     }
@@ -156,19 +166,23 @@ impl HistoricalOptionsManager {
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                 }
 
-                log::info!("✓ Gap {}/{} complete", gap_idx + 1, gaps.len());
+                log::debug!("Gap {}/{} complete", gap_idx + 1, gaps.len());
             }
         }
 
         // Load all data from cache
         let mut chains = Vec::new();
         for date in date_range.dates() {
-            if let Ok(chain) = self.cache.load("chains", underlying_ticker, Some(date)).await {
+            if let Ok(chain) = self
+                .cache
+                .load("chains", underlying_ticker, Some(date))
+                .await
+            {
                 chains.push(chain);
             }
         }
 
-        log::info!("✓ Loaded {} chains total", chains.len());
+        log::info!("Loaded {} chains total", chains.len());
 
         Ok(chains)
     }
@@ -213,7 +227,7 @@ impl HistoricalOptionsManager {
         &self,
         underlying_ticker: &str,
     ) -> MassiveResult<Vec<OptionContract>> {
-        log::info!("Fetching contracts metadata for {}", underlying_ticker);
+        log::debug!("Fetching contracts metadata for {}", underlying_ticker);
 
         // Check cache first (contracts change less frequently)
         if self.config.cache_enabled
@@ -221,13 +235,13 @@ impl HistoricalOptionsManager {
                 .cache
                 .load::<Vec<OptionContract>>("contracts", underlying_ticker, None)
                 .await
-            {
-                log::info!("✓ Cache hit for {} contracts", underlying_ticker);
-                return Ok(contracts);
-            }
+        {
+            log::debug!("Cache hit for {} contracts", underlying_ticker);
+            return Ok(contracts);
+        }
 
         // Fetch from API
-        log::info!("⬇ Fetching contracts from API...");
+        log::debug!("Fetching contracts from API...");
 
         let url = format!(
             "https://api.polygon.io/v3/reference/options/contracts\
@@ -259,7 +273,7 @@ impl HistoricalOptionsManager {
             }
         }
 
-        log::info!("✓ Fetched {} contracts", contracts.len());
+        log::info!("Fetched {} contracts", contracts.len());
 
         // Cache result
         if self.config.cache_enabled {
@@ -285,7 +299,10 @@ impl HistoricalOptionsManager {
         let mut gap_start: Option<NaiveDate> = None;
 
         for date in date_range.dates() {
-            let has_cache = self.cache.has_cached("chains", underlying_ticker, date).await;
+            let has_cache = self
+                .cache
+                .has_cached("chains", underlying_ticker, date)
+                .await;
 
             if !has_cache {
                 // Start or continue gap
@@ -380,15 +397,9 @@ mod tests {
 
     #[test]
     fn test_extract_underlying() {
-        assert_eq!(
-            extract_underlying("O:AAPL240119C00150000").unwrap(),
-            "AAPL"
-        );
+        assert_eq!(extract_underlying("O:AAPL240119C00150000").unwrap(), "AAPL");
         assert_eq!(extract_underlying("O:SPY240119P00450000").unwrap(), "SPY");
-        assert_eq!(
-            extract_underlying("O:TSLA240315C00200000").unwrap(),
-            "TSLA"
-        );
+        assert_eq!(extract_underlying("O:TSLA240315C00200000").unwrap(), "TSLA");
         assert_eq!(extract_underlying("O:AMD240119C00100000").unwrap(), "AMD");
 
         // Invalid formats

@@ -5,9 +5,7 @@
 //! as the rest of the codebase.
 
 use crate::types::{Depth, Trade, TradeSide};
-use flowsurface_data::domain::{
-    Price, Quantity, Side, Timestamp, Trade as DomainTrade,
-};
+use flowsurface_data::domain::{Price, Quantity, Side, Timestamp, Trade as DomainTrade};
 use rithmic_rs::rti::messages::RithmicMessage;
 
 /// Convert a Rithmic LastTrade message to an exchange Trade
@@ -89,9 +87,7 @@ pub fn map_to_domain_trade(msg: &RithmicMessage) -> Option<DomainTrade> {
 ///
 /// BBO contains: bid_price, bid_size, ask_price, ask_size, plus
 /// timestamp fields (ssboe, usecs)
-pub fn map_bbo_to_exchange_depth(
-    msg: &RithmicMessage,
-) -> Option<(u64, Depth)> {
+pub fn map_bbo_to_exchange_depth(msg: &RithmicMessage) -> Option<(u64, Depth)> {
     match msg {
         RithmicMessage::BestBidOffer(bbo) => {
             let ssboe = bbo.ssboe? as u64;
@@ -100,16 +96,12 @@ pub fn map_bbo_to_exchange_depth(
 
             let mut depth = Depth::new(time_ms);
 
-            if let (Some(bid_price), Some(bid_size)) =
-                (bbo.bid_price, bbo.bid_size)
-            {
+            if let (Some(bid_price), Some(bid_size)) = (bbo.bid_price, bbo.bid_size) {
                 let price_units = Price::from_f64(bid_price).units();
                 depth.bids.insert(price_units, bid_size as f32);
             }
 
-            if let (Some(ask_price), Some(ask_size)) =
-                (bbo.ask_price, bbo.ask_size)
-            {
+            if let (Some(ask_price), Some(ask_size)) = (bbo.ask_price, bbo.ask_size) {
                 let price_units = Price::from_f64(ask_price).units();
                 depth.asks.insert(price_units, ask_size as f32);
             }
@@ -123,9 +115,7 @@ pub fn map_bbo_to_exchange_depth(
 /// Convert a Rithmic OrderBook message to exchange Depth
 ///
 /// OrderBook contains arrays of bid_price, bid_size, ask_price, ask_size
-pub fn map_orderbook_to_exchange_depth(
-    msg: &RithmicMessage,
-) -> Option<(u64, Depth)> {
+pub fn map_orderbook_to_exchange_depth(msg: &RithmicMessage) -> Option<(u64, Depth)> {
     match msg {
         RithmicMessage::OrderBook(ob) => {
             let ssboe = ob.ssboe? as u64;
@@ -151,17 +141,13 @@ pub fn map_orderbook_to_exchange_depth(
             }
 
             // Process bid levels
-            for (price, size) in
-                ob.bid_price.iter().zip(ob.bid_size.iter())
-            {
+            for (price, size) in ob.bid_price.iter().zip(ob.bid_size.iter()) {
                 let price_units = Price::from_f64(*price).units();
                 depth.bids.insert(price_units, *size as f32);
             }
 
             // Process ask levels
-            for (price, size) in
-                ob.ask_price.iter().zip(ob.ask_size.iter())
-            {
+            for (price, size) in ob.ask_price.iter().zip(ob.ask_size.iter()) {
                 let price_units = Price::from_f64(*price).units();
                 depth.asks.insert(price_units, *size as f32);
             }
@@ -177,9 +163,7 @@ pub fn map_orderbook_to_exchange_depth(
 }
 
 /// Convert historical tick responses to domain trades
-pub fn map_tick_replay_to_trades(
-    responses: &[rithmic_rs::RithmicResponse],
-) -> Vec<DomainTrade> {
+pub fn map_tick_replay_to_trades(responses: &[rithmic_rs::RithmicResponse]) -> Vec<DomainTrade> {
     responses
         .iter()
         .filter_map(|r| map_to_domain_trade(&r.message))

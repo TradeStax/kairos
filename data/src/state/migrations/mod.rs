@@ -3,7 +3,7 @@
 //! This module contains all state migrations for upgrading between schema versions.
 //! Each migration transforms the AppState from one version to the next.
 
-use crate::state::app_state::AppState;
+use crate::state::app::AppState;
 use crate::state::persistence::{PersistenceResult, StateMigration};
 
 /// Register all migrations with the registry

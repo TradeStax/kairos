@@ -1,8 +1,8 @@
 //! Utility functions for formatting, math, and time operations
 
 pub mod formatting;
+pub mod logging;
 pub mod math;
-pub mod path;
 pub mod time;
 
 // Re-export commonly used functions

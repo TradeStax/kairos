@@ -1,16 +1,15 @@
 use super::super::{Content, Event, Message, State};
 use crate::{
-    component::display::tooltip::button_with_tooltip,
-    component::primitives::{Icon, icon_text},
-    modal::pane::Modal,
+    components::display::tooltip::button_with_tooltip,
+    components::primitives::{Icon, icon_text},
+    modals::pane::Modal,
     style::{self, tokens},
 };
 use iced::{
-    Element, Length,
+    Element, Length, Theme,
     alignment::Vertical,
     padding,
     widget::{button, pane_grid, row, tooltip},
-    Theme,
 };
 
 impl State {

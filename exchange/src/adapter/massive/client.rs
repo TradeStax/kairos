@@ -195,8 +195,7 @@ impl MassiveClient {
                             e,
                             self.config.retry_delay_ms
                         );
-                        tokio::time::sleep(Duration::from_millis(self.config.retry_delay_ms))
-                            .await;
+                        tokio::time::sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
                         continue;
                     } else {
                         return Err(MassiveError::Http(e));

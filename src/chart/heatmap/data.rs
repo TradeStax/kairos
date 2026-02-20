@@ -118,14 +118,19 @@ impl HeatmapData {
     ///
     /// This processes the snapshot into depth runs, bucketing by the chart basis.
     /// Each price level gets a run for the duration of the bucket.
-    pub fn add_depth_snapshot(&mut self, snapshot: &DepthSnapshot, basis: ChartBasis, _tick_size: DataPrice) {
+    pub fn add_depth_snapshot(
+        &mut self,
+        snapshot: &DepthSnapshot,
+        basis: ChartBasis,
+        _tick_size: DataPrice,
+    ) {
         let time = snapshot.time.to_millis();
         let bucket_time = self.bucket_time(time, basis);
         let bucket_duration = self.bucket_duration(bucket_time, basis);
 
         // Process bids (buy orders)
         for (price, qty) in &snapshot.bids {
-            let price_units = price.to_units();
+            let price_units = price.units();
             self.depth_by_price
                 .entry(price_units)
                 .or_default()
@@ -139,7 +144,7 @@ impl HeatmapData {
 
         // Process asks (sell orders)
         for (price, qty) in &snapshot.asks {
-            let price_units = price.to_units();
+            let price_units = price.units();
             self.depth_by_price
                 .entry(price_units)
                 .or_default()
@@ -161,10 +166,7 @@ impl HeatmapData {
         let time = trade.time.to_millis();
         let bucket_time = self.bucket_time(time, basis);
 
-        let entry = self
-            .trades_by_time
-            .entry(bucket_time)
-            .or_default();
+        let entry = self.trades_by_time.entry(bucket_time).or_default();
 
         let qty = trade.quantity.value() as f32;
         let is_sell = trade.is_sell();
@@ -200,7 +202,7 @@ impl HeatmapData {
     fn bucket_time(&self, time: u64, basis: ChartBasis) -> u64 {
         match basis {
             ChartBasis::Time(timeframe) => {
-                let interval = timeframe.to_millis();
+                let interval = timeframe.to_milliseconds();
                 (time / interval) * interval
             }
             ChartBasis::Tick(_) => {
@@ -235,7 +237,7 @@ impl HeatmapData {
     /// For tick-based charts with candle map, returns actual duration to next candle
     fn bucket_duration(&self, time: u64, basis: ChartBasis) -> u64 {
         match basis {
-            ChartBasis::Time(timeframe) => timeframe.to_millis(),
+            ChartBasis::Time(timeframe) => timeframe.to_milliseconds(),
             ChartBasis::Tick(_) => {
                 // Try to get actual candle duration from map
                 if let Some(ref candle_map) = self.candle_time_map {
@@ -264,8 +266,8 @@ impl HeatmapData {
         highest: DataPrice,
         lowest: DataPrice,
     ) -> impl Iterator<Item = (&i64, &Vec<DepthRun>)> {
-        let highest_units = highest.to_units();
-        let lowest_units = lowest.to_units();
+        let highest_units = highest.units();
+        let lowest_units = lowest.units();
 
         // OPTIMIZATION: BTreeMap::range() gives us O(log n) price filtering
         self.depth_by_price
@@ -287,8 +289,8 @@ impl HeatmapData {
         lowest: DataPrice,
         latest_time: u64,
     ) -> impl Iterator<Item = (DataPrice, &DepthRun)> {
-        let highest_units = highest.to_units();
-        let lowest_units = lowest.to_units();
+        let highest_units = highest.units();
+        let lowest_units = lowest.units();
 
         self.depth_by_price
             .range(lowest_units..=highest_units)
@@ -353,6 +355,7 @@ impl Default for HeatmapData {
 }
 
 /// Quantity scales for rendering
+#[derive(Debug, Clone, Copy)]
 pub struct QtyScale {
     pub max_trade_qty: f32,
     pub max_aggr_volume: f32,

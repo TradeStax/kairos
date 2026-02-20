@@ -98,7 +98,10 @@ impl ComparisonChart {
             ChartBasis::Tick(tick_count) => {
                 // For tick basis, estimate equivalent timeframe for display
                 // This is approximate - tick charts use candle indices, not time
-                log::info!("ComparisonChart: Using tick basis ({}T) - timestamps from candle data", tick_count);
+                log::info!(
+                    "ComparisonChart: Using tick basis ({}T) - timestamps from candle data",
+                    tick_count
+                );
                 // Use M1 as default timeframe for axis labeling
                 Timeframe::M1
             }
@@ -106,10 +109,8 @@ impl ComparisonChart {
 
         let cfg = config.unwrap_or_default();
 
-        let color_map: FxHashMap<String, iced::Color> =
-            cfg.colors.iter().cloned().collect();
-        let name_map: FxHashMap<String, String> =
-            cfg.names.iter().cloned().collect();
+        let color_map: FxHashMap<String, iced::Color> = cfg.colors.iter().cloned().collect();
+        let name_map: FxHashMap<String, String> = cfg.names.iter().cloned().collect();
 
         let mut series = Vec::with_capacity(tickers_data.len());
         let mut series_index = FxHashMap::default();
@@ -249,7 +250,12 @@ impl ComparisonChart {
             .find(|(t, _)| t == &ticker_str)
             .map(|(_, c)| *c)
             .unwrap_or_else(|| default_color_for(ticker_info));
-        let name = self.config.names.iter().find(|(t, _)| t == &ticker_str).map(|(_, n)| n.clone());
+        let name = self
+            .config
+            .names
+            .iter()
+            .find(|(t, _)| t == &ticker_str)
+            .map(|(_, n)| n.clone());
 
         // Convert ChartData candles to points
         // Works for both time and tick basis - uses actual candle timestamps
@@ -290,7 +296,11 @@ impl ComparisonChart {
             self.series.remove(idx);
 
             // Remove from original data
-            if let Some(pos) = self.original_data.iter().position(|(t, _)| t == ticker_info) {
+            if let Some(pos) = self
+                .original_data
+                .iter()
+                .position(|(t, _)| t == ticker_info)
+            {
                 self.original_data.remove(pos);
             }
 
@@ -352,9 +362,10 @@ impl ComparisonChart {
             // Restore original data
             for (ticker_info, original_points) in &self.original_data {
                 if let Some(idx) = self.series_index.get(ticker_info)
-                    && let Some(series) = self.series.get_mut(*idx) {
-                        series.points = original_points.clone();
-                    }
+                    && let Some(series) = self.series.get_mut(*idx)
+                {
+                    series.points = original_points.clone();
+                }
             }
         }
 
@@ -391,9 +402,7 @@ impl ComparisonChart {
             .collect()
     }
 
-    // ========================================================================
-    // Private methods
-    // ========================================================================
+    // ── Private methods ────────────────────────────────────────────────
 
     fn open_editor_for_ticker(&mut self, ticker_info: FuturesTickerInfo) -> Option<Action> {
         self.series_editor.show_config_for = Some(ticker_info);
@@ -420,7 +429,12 @@ impl ComparisonChart {
 
     fn upsert_config_color(&mut self, ticker_info: FuturesTickerInfo, color: iced::Color) {
         let ticker_str = ticker_info.ticker.as_str().to_string();
-        if let Some((_, c)) = self.config.colors.iter_mut().find(|(t, _)| t == &ticker_str) {
+        if let Some((_, c)) = self
+            .config
+            .colors
+            .iter_mut()
+            .find(|(t, _)| t == &ticker_str)
+        {
             *c = color;
         } else {
             self.config.colors.push((ticker_str, color));
@@ -432,9 +446,7 @@ impl ComparisonChart {
     }
 }
 
-// ============================================================================
-// Normalization
-// ============================================================================
+// ── Normalization ─────────────────────────────────────────────────────
 
 /// Normalize all series to start at 100
 ///
@@ -457,7 +469,10 @@ fn normalize_series(series: &mut [Series]) {
 
         // Validate non-zero, non-NaN
         if first_close <= 0.0 || !first_close.is_finite() {
-            log::warn!("Cannot normalize series with invalid first price: {}", first_close);
+            log::warn!(
+                "Cannot normalize series with invalid first price: {}",
+                first_close
+            );
             continue;
         }
 
@@ -471,9 +486,7 @@ fn normalize_series(series: &mut [Series]) {
     }
 }
 
-// ============================================================================
-// Color Generation
-// ============================================================================
+// ── Color Generation ──────────────────────────────────────────────────
 
 /// Generate a default color for a ticker using deterministic hashing
 fn default_color_for(ticker: &FuturesTickerInfo) -> iced::Color {
@@ -495,13 +508,16 @@ fn default_color_for(ticker: &FuturesTickerInfo) -> iced::Color {
     data::config::theme::from_hsv_degrees(hue, s.min(1.0), v.min(1.0))
 }
 
-// ============================================================================
-// Compatibility Layer (Temporary Bridge)
-// ============================================================================
+// ── Compatibility Layer (Temporary Bridge) ────────────────────────────
 // TODO: Remove once TickerInfo is fully migrated to FuturesTickerInfo
 
 pub(crate) fn ticker_info_to_old_format(info: FuturesTickerInfo) -> TickerInfo {
-    TickerInfo::new(info.ticker, info.tick_size, info.min_qty, info.contract_size)
+    TickerInfo::new(
+        info.ticker,
+        info.tick_size,
+        info.min_qty,
+        info.contract_size,
+    )
 }
 
 pub(crate) fn old_format_to_ticker_info(info: &TickerInfo) -> FuturesTickerInfo {

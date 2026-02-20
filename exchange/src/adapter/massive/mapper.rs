@@ -1,10 +1,10 @@
 use super::decoder::*;
 use super::{MassiveError, MassiveResult};
-use flowsurface_data::domain::{
-    ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType, Price,
-    Quantity, Timestamp,
-};
 use chrono::NaiveDate;
+use flowsurface_data::domain::{
+    ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType, Price, Quantity,
+    Timestamp,
+};
 
 /// Convert Massive snapshot to domain OptionSnapshot
 pub fn convert_snapshot_response(
@@ -51,9 +51,7 @@ pub fn convert_snapshot_response(
     // Fill in IV and OI
     snapshot.implied_volatility = massive_snapshot.implied_volatility;
     snapshot.open_interest = massive_snapshot.open_interest;
-    snapshot.break_even_price = massive_snapshot
-        .break_even_price
-        .map(Price::from_f64);
+    snapshot.break_even_price = massive_snapshot.break_even_price.map(Price::from_f64);
 
     // Fill in underlying price
     if let Some(underlying) = massive_snapshot.underlying_asset {
@@ -87,12 +85,8 @@ pub fn convert_contract_response(
     let expiration_date = NaiveDate::parse_from_str(&expiration_str, "%Y-%m-%d")
         .map_err(|e| MassiveError::DateTime(format!("Invalid expiration date: {}", e)))?;
 
-    let contract_type = parse_contract_type(
-        massive_contract
-            .contract_type
-            .as_deref()
-            .unwrap_or("other"),
-    );
+    let contract_type =
+        parse_contract_type(massive_contract.contract_type.as_deref().unwrap_or("other"));
 
     let exercise_style = parse_exercise_style(
         massive_contract
@@ -138,9 +132,10 @@ pub fn convert_chain_response(
 
     // Get underlying price from first snapshot
     if let Some(first) = massive_snapshots.first()
-        && let Some(ref underlying) = first.underlying_asset {
-            chain.underlying_price = underlying.price.map(Price::from_f64);
-        }
+        && let Some(ref underlying) = first.underlying_asset
+    {
+        chain.underlying_price = underlying.price.map(Price::from_f64);
+    }
 
     // Convert each snapshot
     for massive_snapshot in massive_snapshots {
@@ -343,22 +338,19 @@ mod tests {
 
     #[test]
     fn test_convert_chain_response() {
-        let massive_snapshots = vec![
-            create_test_snapshot(),
-            {
-                let mut put_snapshot = create_test_snapshot();
-                put_snapshot.ticker = "O:AAPL240119P00150000".to_string();
-                put_snapshot.details = Some(ContractDetails {
-                    contract_type: Some("put".to_string()),
-                    exercise_style: Some("american".to_string()),
-                    expiration_date: Some("2024-01-19".to_string()),
-                    shares_per_contract: Some(100),
-                    strike_price: Some(150.0),
-                    underlying_ticker: Some("AAPL".to_string()),
-                });
-                put_snapshot
-            },
-        ];
+        let massive_snapshots = vec![create_test_snapshot(), {
+            let mut put_snapshot = create_test_snapshot();
+            put_snapshot.ticker = "O:AAPL240119P00150000".to_string();
+            put_snapshot.details = Some(ContractDetails {
+                contract_type: Some("put".to_string()),
+                exercise_style: Some("american".to_string()),
+                expiration_date: Some("2024-01-19".to_string()),
+                shares_per_contract: Some(100),
+                strike_price: Some(150.0),
+                underlying_ticker: Some("AAPL".to_string()),
+            });
+            put_snapshot
+        }];
 
         let date = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
         let result = convert_chain_response("AAPL".to_string(), date, massive_snapshots);

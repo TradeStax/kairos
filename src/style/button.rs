@@ -7,7 +7,7 @@ use iced::{
 
 use super::tokens;
 
-// ── Generic ─────────────────────────────────────────────────────────
+// ── Generic ───────────────────────────────────────────────────────────
 // Used across many components — the standard button "variants".
 
 pub fn primary(theme: &Theme, status: Status) -> Style {
@@ -135,7 +135,32 @@ pub fn list_item(theme: &Theme, status: Status) -> Style {
     }
 }
 
-// ── Toggles ─────────────────────────────────────────────────────────
+/// List item with optional selected highlight
+pub fn list_item_selected(theme: &Theme, status: Status, is_selected: bool) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.background.weak.color.into()),
+            Status::Pressed => Some(palette.background.strong.color.into()),
+            Status::Active | Status::Disabled => {
+                if is_selected {
+                    Some(palette.background.weak.color.into())
+                } else {
+                    None
+                }
+            }
+        },
+        border: Border {
+            radius: tokens::radius::MD.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+// ── Toggles ───────────────────────────────────────────────────────────
 
 pub fn bordered_toggle(theme: &Theme, status: Status, is_active: bool) -> Style {
     let palette = theme.extended_palette();
@@ -240,7 +265,26 @@ pub fn tab_inactive(theme: &Theme, status: Status) -> Style {
     }
 }
 
-// ── Menus & Lists ───────────────────────────────────────────────────
+// ── Menus & Lists ─────────────────────────────────────────────────────
+
+pub fn menu_bar_item(theme: &Theme, status: Status, is_open: bool) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            _ if is_open => Some(palette.background.strong.color.into()),
+            Status::Hovered => Some(palette.background.weak.color.into()),
+            Status::Pressed => Some(palette.background.strong.color.into()),
+            Status::Active | Status::Disabled => None,
+        },
+        border: Border {
+            radius: tokens::radius::SM.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
 
 pub fn menu_body(theme: &Theme, status: Status, is_selected: bool) -> Style {
     let palette = theme.extended_palette();
@@ -297,7 +341,7 @@ pub fn pick_list_item(theme: &Theme, status: Status) -> Style {
     }
 }
 
-// ── Domain-specific ─────────────────────────────────────────────────
+// ── Domain-specific ───────────────────────────────────────────────────
 
 pub fn confirm(theme: &Theme, status: Status, is_active: bool) -> Style {
     let palette = theme.extended_palette();
@@ -359,6 +403,47 @@ pub fn cancel(theme: &Theme, status: Status, is_active: bool) -> Style {
     }
 }
 
+// ── Window Controls ───────────────────────────────────────────────────
+
+pub fn window_control(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: palette.background.base.text,
+        background: match status {
+            Status::Hovered => Some(palette.background.strong.color.into()),
+            Status::Pressed => Some(palette.background.strongest.color.into()),
+            Status::Active | Status::Disabled => None,
+        },
+        border: Border {
+            radius: tokens::radius::SM.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+pub fn window_close(theme: &Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+
+    Style {
+        text_color: match status {
+            Status::Hovered | Status::Pressed => iced::Color::WHITE,
+            _ => palette.background.base.text,
+        },
+        background: match status {
+            Status::Hovered => Some(palette.danger.base.color.into()),
+            Status::Pressed => Some(palette.danger.strong.color.into()),
+            Status::Active | Status::Disabled => None,
+        },
+        border: Border {
+            radius: tokens::radius::SM.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 pub fn layout_name(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 
@@ -379,4 +464,3 @@ pub fn layout_name(theme: &Theme, status: Status) -> Style {
         ..Default::default()
     }
 }
-

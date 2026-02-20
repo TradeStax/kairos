@@ -3,45 +3,55 @@
 //! This module contains the canvas::Program implementation for HeatmapChart
 //! and all rendering-related functions.
 
-use crate::chart::{Chart, Interaction, Message, ViewState};
-use crate::chart::drawing;
-use crate::component::primitives::AZERET_MONO;
-use super::{HeatmapChart, VisualConfig};
 use super::data::HeatmapData;
 use super::trades::{
-    TradeRenderingMode, render_sparse_trades, render_dense_trades,
-    SPARSE_MODE_THRESHOLD, MAX_RENDER_BUDGET,
+    MAX_RENDER_BUDGET, SPARSE_MODE_THRESHOLD, TradeRenderingMode, render_dense_trades,
+    render_sparse_trades,
 };
-use data::{ChartBasis, HeatmapIndicator, Price as DataPrice};
+use super::{HeatmapChart, VisualConfig};
+use crate::chart::drawing;
+use crate::chart::perf::{LodCalculator, LodLevel};
+use crate::chart::{Chart, ChartState, Interaction, Message, ViewState};
+use crate::components::primitives::AZERET_MONO;
 use data::util::abbr_large_numbers;
+use data::{ChartBasis, HeatmapIndicator, Price as DataPrice};
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Geometry};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 // Re-export HeatmapStudy and ProfileKind from data module
-pub use data::domain::chart_ui_types::heatmap::{HeatmapStudy, ProfileKind};
+pub use data::domain::chart::heatmap::{HeatmapStudy, ProfileKind};
 
 impl canvas::Program<Message> for HeatmapChart {
-    type State = Interaction;
+    type State = ChartState;
 
     fn update(
         &self,
-        interaction: &mut Interaction,
+        state: &mut ChartState,
         event: &Event,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        crate::chart::canvas_interaction(self, interaction, event, bounds, cursor)
+        crate::chart::canvas_interaction(
+            self,
+            &mut state.interaction,
+            event,
+            bounds,
+            cursor,
+            &mut state.last_selection_click,
+            &mut state.shift_held,
+        )
     }
 
     fn draw(
         &self,
-        interaction: &Interaction,
+        state: &ChartState,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
+        let interaction = &state.interaction;
         let chart = self.state();
 
         if bounds.width == 0.0 {
@@ -72,6 +82,21 @@ impl canvas::Program<Message> for HeatmapChart {
                 return;
             }
 
+            // Calculate LOD level for adaptive rendering quality
+            let visible_data_count: usize = self
+                .heatmap_data
+                .trades_by_time
+                .range(earliest..=latest)
+                .map(|(_, dp)| dp.grouped_trades.len())
+                .sum();
+            let lod = LodCalculator::new(
+                chart.scaling,
+                chart.cell_width,
+                visible_data_count,
+                region.width,
+            );
+            let lod_level = lod.calculate_lod();
+
             let cell_height = chart.cell_height;
             let qty_scales = self.calc_qty_scales(earliest, latest, highest, lowest);
 
@@ -79,7 +104,7 @@ impl canvas::Program<Message> for HeatmapChart {
             let (max_aggr_volume, max_trade_qty) =
                 (qty_scales.max_aggr_volume, qty_scales.max_trade_qty);
 
-            let volume_indicator = self.indicators[HeatmapIndicator::Volume].is_some();
+            let volume_indicator = self.indicators[HeatmapIndicator::Volume];
 
             // Draw Depth Heatmap
             draw_depth_heatmap(
@@ -94,6 +119,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 cell_height,
                 max_depth_qty,
                 self.visual_config.order_size_filter,
+                lod_level,
             );
 
             // Draw Latest Orderbook Bars
@@ -139,11 +165,14 @@ impl canvas::Program<Message> for HeatmapChart {
             }
 
             // Draw Volume Profile Study
-            if let Some(profile_kind) = self.studies.iter().map(|study| {
-                match study {
+            if let Some(profile_kind) = self
+                .studies
+                .iter()
+                .map(|study| match study {
                     HeatmapStudy::VolumeProfile(profile) => profile,
-                }
-            }).next() {
+                })
+                .next()
+            {
                 draw_volume_profile(
                     frame,
                     &region,
@@ -158,20 +187,49 @@ impl canvas::Program<Message> for HeatmapChart {
 
             // Draw data gap markers
             if !self.chart_data.gaps.is_empty() {
-                crate::chart::overlay::draw_gap_markers(frame, chart, &self.chart_data.gaps, &region);
+                crate::chart::overlay::draw_gap_markers(
+                    frame,
+                    chart,
+                    &self.chart_data.gaps,
+                    &region,
+                );
             }
         });
 
-        // Crosshair layer (includes drawings)
+        // Drawings + crosshair layers
         if !self.is_empty() {
+            // Drawings cache layer - completed drawings only
+            let drawings_layer = chart.cache.drawings.draw(renderer, bounds_size, |frame| {
+                drawing::render::draw_completed_drawings(
+                    frame,
+                    chart,
+                    &self.drawings,
+                    bounds_size,
+                    palette,
+                );
+            });
+
             let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
-                // Draw all completed drawings and pending preview
-                drawing::render::draw_drawings(frame, chart, &self.drawings, bounds_size, palette);
+                // Draw overlay elements (selection handles + pending preview)
+                drawing::render::draw_overlay_drawings(
+                    frame,
+                    chart,
+                    &self.drawings,
+                    bounds_size,
+                    palette,
+                );
 
                 if let Some(cursor_position) = cursor.position_in(bounds) {
                     // Draw ruler if active
                     if let Interaction::Ruler { start: Some(start) } = interaction {
-                        crate::chart::overlay::draw_ruler(chart, frame, palette, bounds_size, *start, cursor_position);
+                        crate::chart::overlay::draw_ruler(
+                            chart,
+                            frame,
+                            palette,
+                            bounds_size,
+                            *start,
+                            cursor_position,
+                        );
                     }
 
                     // Draw crosshair
@@ -192,7 +250,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 }
             });
 
-            vec![heatmap, crosshair]
+            vec![heatmap, drawings_layer, crosshair]
         } else {
             vec![heatmap]
         }
@@ -200,14 +258,14 @@ impl canvas::Program<Message> for HeatmapChart {
 
     fn mouse_interaction(
         &self,
-        interaction: &Interaction,
+        state: &ChartState,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        match interaction {
+        match &state.interaction {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
-            Interaction::Drawing { .. } => {
+            Interaction::Drawing { .. } | Interaction::PlacingClone => {
                 if cursor.is_over(bounds) {
                     mouse::Interaction::Crosshair
                 } else {
@@ -254,12 +312,21 @@ fn draw_depth_heatmap(
     cell_height: f32,
     max_depth_qty: f32,
     order_size_filter: f32,
+    lod_level: LodLevel,
 ) {
-    for (price_units, runs) in
-        heatmap_data.iter_depth_filtered(earliest, latest, highest, lowest)
+    let decimation = lod_level.decimation_factor();
+
+    for (level_idx, (price_units, runs)) in heatmap_data
+        .iter_depth_filtered(earliest, latest, highest, lowest)
+        .enumerate()
     {
+        // At Low LOD, skip price levels via decimation
+        if decimation > 1 && !level_idx.is_multiple_of(decimation) {
+            continue;
+        }
+
         let price = DataPrice::from_units(*price_units);
-        let y_position = chart.price_to_y(exchange::util::Price::from_units(price.to_units()));
+        let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
 
         for run in runs.iter() {
             if run.qty <= order_size_filter {
@@ -316,7 +383,7 @@ fn draw_latest_orderbook(
     if !max_qty.is_infinite() && max_qty > 0.0 {
         // Draw bars
         for (price, run) in latest_runs {
-            let y_position = chart.price_to_y(exchange::util::Price::from_units(price.to_units()));
+            let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
             let bar_width = (run.qty() / max_qty) * 50.0;
 
             frame.fill_rectangle(
@@ -377,7 +444,9 @@ fn draw_trade_markers(
     let effective_mode = match visual_config.trade_rendering_mode {
         TradeRenderingMode::Sparse => {
             // Even in sparse mode, switch to dense if LOD is low
-            if matches!(lod_level, crate::chart::perf::lod::LodLevel::Low) && visible_trade_count > SPARSE_MODE_THRESHOLD {
+            if matches!(lod_level, crate::chart::perf::lod::LodLevel::Low)
+                && visible_trade_count > SPARSE_MODE_THRESHOLD
+            {
                 TradeRenderingMode::Dense
             } else {
                 TradeRenderingMode::Sparse
@@ -385,7 +454,9 @@ fn draw_trade_markers(
         }
         TradeRenderingMode::Dense => TradeRenderingMode::Dense,
         TradeRenderingMode::Auto => {
-            if visible_trade_count > SPARSE_MODE_THRESHOLD || matches!(lod_level, crate::chart::perf::lod::LodLevel::Low) {
+            if visible_trade_count > SPARSE_MODE_THRESHOLD
+                || matches!(lod_level, crate::chart::perf::lod::LodLevel::Low)
+            {
                 TradeRenderingMode::Dense
             } else {
                 TradeRenderingMode::Sparse
@@ -516,9 +587,12 @@ pub fn draw_volume_profile(
             let latest = chart.x_to_interval(region.x + region.width);
             earliest..=latest
         }
-        ProfileKind::FixedWindow { candles: datapoints } | ProfileKind::Fixed(datapoints) => {
+        ProfileKind::FixedWindow {
+            candles: datapoints,
+        }
+        | ProfileKind::Fixed(datapoints) => {
             let basis_interval: u64 = match basis {
-                ChartBasis::Time(timeframe) => timeframe.to_millis(),
+                ChartBasis::Time(timeframe) => timeframe.to_milliseconds(),
                 ChartBasis::Tick(_) => return,
             };
 
@@ -538,8 +612,8 @@ pub fn draw_volume_profile(
     let last_tick = highest.round_to_side_step(true, step_as_price);
 
     let num_ticks = match exchange::util::Price::steps_between_inclusive(
-        exchange::util::Price::from_units(first_tick.to_units()),
-        exchange::util::Price::from_units(last_tick.to_units()),
+        exchange::util::Price::from_units(first_tick.units()),
+        exchange::util::Price::from_units(last_tick.units()),
         step,
     ) {
         Some(n) => n,
@@ -590,16 +664,16 @@ pub fn draw_volume_profile(
 
                     let first_tick_price: DataPrice = first_tick;
                     let last_tick_price: DataPrice = last_tick;
-                    let grouped_price_units = grouped_price.to_units();
+                    let grouped_price_units = grouped_price.units();
 
-                    if grouped_price_units < first_tick_price.to_units()
-                        || grouped_price_units > last_tick_price.to_units()
+                    if grouped_price_units < first_tick_price.units()
+                        || grouped_price_units > last_tick_price.units()
                     {
                         return;
                     }
 
-                    let index = ((grouped_price_units - first_tick_price.to_units())
-                        / step.units) as usize;
+                    let index =
+                        ((grouped_price_units - first_tick_price.units()) / step.units) as usize;
 
                     if let Some(entry) = profile.get_mut(index) {
                         if trade.is_sell {
@@ -620,10 +694,11 @@ pub fn draw_volume_profile(
             if *buy_v > 0.0 || *sell_v > 0.0 {
                 let price: DataPrice = first_tick;
                 let price = price.add_steps(index as i64, step_as_price);
-                let y_position = chart.price_to_y(exchange::util::Price::from_units(price.to_units()));
+                let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
 
                 let next_price = price.add_steps(1, step_as_price);
-                let next_y_position = chart.price_to_y(exchange::util::Price::from_units(next_price.to_units()));
+                let next_y_position =
+                    chart.price_to_y(exchange::util::Price::from_units(next_price.units()));
                 let bar_height = (next_y_position - y_position).abs();
 
                 crate::chart::draw_volume_bar(
