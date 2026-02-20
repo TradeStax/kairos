@@ -382,8 +382,22 @@ impl State {
                                 value,
                             } => {
                                 self.content.update_study_parameter(
-                                    &study_id, &key, value,
+                                    &study_id, &key, value.clone(),
                                 );
+                                // Reload chart data when days_to_load changes
+                                if study_id == "big_trades"
+                                    && key == "days_to_load"
+                                    && let study::ParameterValue::Integer(
+                                        days,
+                                    ) = value
+                                {
+                                    self.modal =
+                                        Some(Modal::IndicatorManager(
+                                            manager,
+                                        ));
+                                    return self
+                                        .rebuild_chart_with_days(days);
+                                }
                             }
                             Action::OpenBigTradesDebug => {
                                 self.modal = Some(Modal::BigTradesDebug);

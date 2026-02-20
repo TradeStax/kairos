@@ -637,6 +637,49 @@ impl State {
         }
     }
 
+    /// Rebuild the current chart with a specific number of days
+    pub(super) fn rebuild_chart_with_days(
+        &mut self,
+        days: i64,
+    ) -> Option<Effect> {
+        let ticker_info = self.ticker_info?;
+        let kind = self.content.kind();
+
+        match kind {
+            ContentKind::CandlestickChart | ContentKind::HeatmapChart => {}
+            _ => return None,
+        };
+
+        let date_range = DateRange::last_n_days(days.max(1));
+
+        self.content =
+            Content::new_for_kind(kind, ticker_info, &self.settings);
+        self.chart_data = None;
+
+        let days_total = date_range.num_days() as usize;
+        self.loading_status = LoadingStatus::LoadingFromCache {
+            schema: DataSchema::Trades,
+            days_total,
+            days_loaded: 0,
+            items_loaded: 0,
+        };
+
+        let basis = self
+            .settings
+            .selected_basis
+            .unwrap_or(ChartBasis::Time(Timeframe::M5));
+
+        Some(Effect::LoadChart {
+            config: ChartConfig {
+                ticker: ticker_info.ticker,
+                basis,
+                date_range,
+                chart_type: kind.to_chart_type(),
+            },
+            ticker_info,
+        })
+    }
+
     /// Rebuild the current chart by re-requesting data load
     pub(super) fn rebuild_current_chart(&mut self) -> Option<Effect> {
         let ticker_info = self.ticker_info?;

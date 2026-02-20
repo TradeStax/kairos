@@ -302,15 +302,14 @@ impl canvas::Program<Message> for KlineChart {
                         study::StudyPlacement::Overlay | study::StudyPlacement::Background
                     )
                 {
-                    let bubble_scale =
-                        study.config().get_float("bubble_scale", 1.0) as f32;
+                    let marker_config = study.marker_render_config();
                     crate::chart::study_renderer::render_study_output(
                         frame,
                         output,
                         chart,
                         bounds_size,
                         placement,
-                        bubble_scale,
+                        marker_config.as_ref(),
                     );
                 }
             }
