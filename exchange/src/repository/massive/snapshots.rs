@@ -1,8 +1,8 @@
 use super::convert_massive_error;
 use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig};
 use chrono::NaiveDate;
-use flowsurface_data::domain::{DateRange, OptionSnapshot};
-use flowsurface_data::repository::{OptionSnapshotRepository, RepositoryResult, RepositoryStats};
+use kairos_data::domain::{DateRange, OptionSnapshot};
+use kairos_data::repository::{OptionSnapshotRepository, RepositoryResult, RepositoryStats};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

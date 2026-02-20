@@ -1,564 +1,682 @@
-<svg width="400" height="100" xmlns="http://www.w3.org/2000/svg">
-  <text x="10" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="300" fill="currentColor">
-    FLOWSURFACE
-  </text>
-  <text x="10" y="70" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="300" fill="#666666">
-    Exchange Layer
-  </text>
-  <line x1="10" y1="85" x2="350" y2="85" stroke="#999999" stroke-width="1"/>
-</svg>
+<img src="../assets/illustrations/xchange-header.svg" alt="Exchange Layer Header" style="max-width: 300px; width: 100%;" />
 
-The exchange layer provides market data integration, caching, and adapter implementations for external data sources. Currently features a complete Databento adapter for CME Globex futures markets with intelligent caching and cost optimization.
+I/O adapter and repository layer for the Kairos futures trading platform. Provides concrete implementations of data-layer repository traits by connecting to external market data providers — **Databento** (historical CME futures), **Rithmic** (real-time CME futures streaming), and **Massive/Polygon** (US equity options). All network I/O, caching, rate limiting, and protocol translation lives here.
 
 ## Architecture
-
-```
-exchange/
-├── adapter/        # Exchange-specific adapters
-│   └── databento/  # Databento API integration
-├── repository/     # Repository implementations
-├── config.rs       # Configuration management
-└── types.rs        # Exchange-specific types
-```
-
-### Data Flow
-
 ```mermaid
 flowchart LR
-    API[Databento API] --> Cache[Cache Layer]
-    Cache --> Repo[Repository]
+    A["Data Layer<br/>(trait definitions)"] --> B["Exchange Layer<br/>(this crate)"]
+    B --> C["Databento API<br/>(.dbn.zst cache)"]
+    B --> D["Rithmic R|Protocol<br/>(real-time stream)"]
+    B --> E["Polygon API<br/>(.json.zst cache)"]
 
-    Cache --> Fetcher[Fetcher]
-    Fetcher --> DataLayer[Data Layer]
-
-    style API fill:#2a2a2a,stroke:#444,color:#fff
-    style Cache fill:#1a1a1a,stroke:#444,color:#fff
-    style Repo fill:#2a2a2a,stroke:#444,color:#fff
-    style Fetcher fill:#1a1a1a,stroke:#444,color:#fff
-    style DataLayer fill:#2a2a2a,stroke:#444,color:#fff
+    style A stroke:#C8C8C8,stroke-width:2px
+    style B stroke:#51CDA0,stroke-width:2px
+    style C stroke:#C8C8C8,stroke-width:2px
+    style D stroke:#C8C8C8,stroke-width:2px
+    style E stroke:#C8C8C8,stroke-width:2px
 ```
 
-## Databento Integration
+Repository trait definitions live in `kairos-data`; this crate provides the concrete implementations that perform actual I/O.
 
-### Configuration
+<details>
+<summary><strong>Module Overview</strong></summary>
 
-The exchange layer provides two configuration approaches:
+| Module | Purpose |
+|--------|---------|
+| `adapter/databento/` | CME Globex historical futures — Databento API client, fetcher, per-day caching, DBN decoding |
+| `adapter/rithmic/` | CME Globex real-time streaming — Rithmic ticker/history plant connections, message mapping |
+| `adapter/massive/` | US equity options — Polygon Massive API client, rate limiting, JSON.zst caching |
+| `adapter/error.rs` | `AdapterError` — fetch, parse, connection, invalid request variants |
+| `adapter/event.rs` | `Event` enum — historical + live events (depth, kline, trade, connect/disconnect) |
+| `adapter/stream.rs` | `StreamKind`, `PersistStreamKind`, `ResolvedStream`, `UniqueStreams` — stream configuration and deduplication |
+| `repository/databento/` | `DatabentoTradeRepository`, `DatabentoDepthRepository` — cached historical futures |
+| `repository/rithmic/` | `RithmicTradeRepository`, `RithmicDepthRepository` — real-time and historical tick data |
+| `repository/massive/` | `MassiveChainRepository`, `MassiveContractRepository`, `MassiveSnapshotRepository` — options data |
+| `types.rs` | Exchange-specific market data types: `Trade`, `Kline`, `Depth`, `OpenInterest`, `TickerInfo` |
+| `util.rs` | Fixed-point `Price` / `PriceStep` arithmetic, `Power10` generic, timestamp conversion |
+| `error.rs` | Top-level `Error` enum with `AppError` trait + `error!` macro |
 
-#### Simple Configuration (for adapter)
+</details>
+
+## Adapters
+
+Three provider adapters, each with its own client, fetcher, mapper, and cache layer.
+
+<details>
+<summary><strong>Databento (Historical Futures)</strong></summary>
+
+Fetches historical CME Globex market data via the Databento API. Supports OHLCV, trades, MBP-10 depth, and open interest schemas with intelligent per-day caching in `.dbn.zst` format.
+
+```rust
+let config = DatabentoConfig::from_secrets()?;  // OS keyring → file → env var
+let mut manager = HistoricalDataManager::new(config).await?;
+
+// Cached trade fetch with progress
+let trades = manager.fetch_trades_cached_with_progress(
+    "ES.c.0",
+    (start, end),
+    |done, total, day, from_cache| { /* update UI */ },
+).await?;
+
+// Cached depth fetch (MBP-10)
+let depth = manager.fetch_mbp10_cached("ES.c.0", (start, end)).await?;
+
+// OHLCV with automatic timeframe aggregation
+let candles = manager.fetch_ohlcv("NQ.c.0", Timeframe::M5, (start, end)).await?;
+```
+
+**Supported Continuous Contracts:**
+
+| Symbol | Instrument | Tick Size | Multiplier |
+|--------|-----------|-----------|------------|
+| `ES.c.0` | E-mini S&P 500 | 0.25 | 50 |
+| `NQ.c.0` | E-mini Nasdaq-100 | 0.25 | 20 |
+| `YM.c.0` | E-mini Dow | 1.0 | 5 |
+| `RTY.c.0` | E-mini Russell 2000 | 0.1 | 50 |
+| `ZN.c.0` | 10-Year T-Note | 0.015625 | 1000 |
+| `ZB.c.0` | 30-Year T-Bond | 0.03125 | 1000 |
+| `ZT.c.0` | 2-Year T-Note | 0.0078125 | 2000 |
+| `ZF.c.0` | 5-Year T-Note | 0.0078125 | 1000 |
+| `GC.c.0` | Gold | 0.10 | 100 |
+| `SI.c.0` | Silver | 0.005 | 5000 |
+| `CL.c.0` | Crude Oil | 0.01 | 1000 |
+| `NG.c.0` | Natural Gas | 0.001 | 10000 |
+
+**Configuration:**
+
 ```rust
 pub struct DatabentoConfig {
     pub api_key: String,
-    pub dataset: Dataset,            // Enum type (not String)
-    pub cache_enabled: bool,         // Default: true
-    pub cache_max_days: u32,         // Default: 30
-    pub auto_backfill: bool,         // Default: false
-    pub cache_dir: PathBuf,          // Default: "./cache/databento"
+    pub dataset: Dataset,              // Default: GlbxMdp3 (CME Globex)
+    pub cache_enabled: bool,           // Default: true
+    pub cache_max_days: u32,           // Default: 90
+    pub auto_backfill: bool,           // Default: false
+    pub cache_dir: PathBuf,
     pub warn_on_expensive_calls: bool, // Default: true
 }
 ```
 
-#### Production Configuration (with builder)
-```rust
-pub struct Config {
-    pub databento: DatabentoConfig,
-    pub fetching: FetchingConfig,
-    pub cache: CacheConfig,
-    pub cost: CostConfig,
-    pub network: NetworkConfig,
-    pub validation: ValidationConfig,
-}
+**Cost Awareness:**
+
+| Schema | Cost (1-10) | Description |
+|--------|------------|-------------|
+| MBO | 10 | Very expensive — full order-by-order |
+| MBP-10 | 3 | Moderate — 10-level book snapshots |
+| Trades | 2 | Low — trade executions only |
+| OHLCV | 1 | Very cheap — 1-minute bars |
+
+**Cache Structure:**
 ```
-
-### Cost Optimization
-
-Schema cost scale (1-10, 10 being most expensive):
-
-| Schema | Cost | Use Case |
-|--------|------|----------|
-| OHLCV-1D | 1 | Daily bars |
-| Trades | 2 | Tick data |
-| MBP-1 | 2 | Best bid/ask |
-| MBP-10 | 3 | 10-level depth |
-| MBO | 10 | Full order book |
-
-### Intelligent Caching
-
-Per-day caching strategy minimizes API calls:
-
-```
-cache/
-└── databento/
+cache/databento/
+└── ES-c-0/
+    ├── ohlcv1m/
+    │   └── 2024-01-15.dbn.zst
     ├── trades/
-    │   └── ES-c-0/  # Note: dots replaced with dashes
-    │       ├── 2024-01-01.dbn.zst  # Databento binary format with Zstd compression
-    │       └── 2024-01-02.dbn.zst
+    │   └── 2024-01-15.dbn.zst
     └── mbp10/
-        └── ES-c-0/
-            └── 2024-01-01.dbn.zst
+        └── 2024-01-15.dbn.zst
 ```
 
-**Cache Format:** Files use `.dbn.zst` extension (Databento's native binary format with Zstd compression), not Parquet. This provides optimal performance and compatibility with the Databento SDK.
+**Fetch Workflow:**
+1. Identify cached days (per-day granularity)
+2. Find gaps (consecutive uncached date ranges)
+3. Fetch each gap from Databento API
+4. Save each day individually as `.dbn.zst`
+5. Load all days from cache
+6. Filter to exact datetime range
+7. Aggregate OHLCV to target timeframe if needed
 
-## API Reference
+</details>
 
-### Historical Data Manager
+<details>
+<summary><strong>Rithmic (Real-Time Futures)</strong></summary>
+
+Real-time CME Globex streaming via the Rithmic R|Protocol. Connects to ticker and history plants for live market data and historical tick replay.
 
 ```rust
-let mut manager = HistoricalDataManager::new(config).await?;
+let (config, rithmic_config) = RithmicConfig::from_feed_config(&feed, &password)?;
+let mut client = RithmicClient::new(config, status_tx);
 
-// Fetch trades (automatically cached)
-let trades = manager.fetch_trades_cached("ES.c.0", (start, end)).await?;
+client.connect(rithmic_config).await?;
+client.subscribe("ESH25", "CME").await?;
 
-// Fetch order book snapshots
-let snapshots = manager.fetch_mbp10_cached("NQ.c.0", (start, end)).await?;
-
-// Fetch OHLCV bars (note: timeframe is a Timeframe enum, not string)
-use exchange::domain::Timeframe;
-let bars = manager.fetch_ohlcv("CL.c.0", Timeframe::H1, (start, end)).await?;
-
-// Fetch open interest (undocumented feature)
-let open_interest = manager.fetch_open_interest("ES.c.0", (start, end)).await?;
-
-// Cache management
-let stats = manager.cache_stats().await?;
-println!("Cache size: {} MB", stats.total_size / 1_000_000);
-
-// Clean up old cache files
-let removed = manager.cleanup_cache().await?;
-println!("Removed {} old cache files", removed);
+// Take handle for streaming
+let handle = client.take_ticker_handle().unwrap();
+let stream = RithmicStream::new(handle);
+stream.run(stream_kind, event_tx).await;
 ```
 
-### WebSocket Client
+**Configuration:**
 
-Two WebSocket implementations are available:
-
-#### Basic WebSocket Client
 ```rust
-let mut client = DatabentoWebSocketClient::new(config);
-
-// Connect and subscribe
-client.connect().await?;
-client.subscribe(StreamKind::DepthAndTrades { ticker_info }).await?;
-
-// Process events
-while let Some(event) = client.event_rx.recv().await {
-    match event {
-        Event::Trade(trade) => process_trade(trade),
-        Event::DepthUpdate(depth) => process_depth(depth),
-        _ => {}
-    }
+pub struct RithmicConfig {
+    pub env: RithmicEnv,                  // Demo / Live / Test
+    pub connect_strategy: ConnectStrategy,
+    pub auto_reconnect: bool,             // Default: true
+    pub cache_dir: PathBuf,
 }
 ```
 
-#### Enhanced WebSocket Client (Production)
-```rust
-// Features automatic reconnection, health monitoring, and graceful error recovery
-let mut client = EnhancedWebSocketClient::new(config, reconnection_config);
+**Client Methods:**
 
-// Connection configuration
-pub struct ReconnectionConfig {
-    pub enabled: bool,                  // Default: true
-    pub initial_delay_ms: u64,          // Default: 1000
-    pub max_delay_ms: u64,              // Default: 30000
-    pub max_attempts: u32,              // Default: 10
-    pub backoff_multiplier: f32,        // Default: 1.5
-    pub health_check_interval_secs: u64, // Default: 30
-    pub max_idle_secs: u64,             // Default: 60
-}
+| Method | Description |
+|--------|-------------|
+| `connect(config)` | Connect and authenticate ticker + history plants |
+| `subscribe(symbol, exchange)` | Subscribe to real-time market data |
+| `unsubscribe(symbol, exchange)` | Unsubscribe from symbol |
+| `get_front_month(symbol, exchange)` | Get front-month contract for rolling futures |
+| `load_ticks(symbol, exchange, start, end)` | Historical tick data via history plant |
+| `disconnect()` | Graceful disconnect |
 
-// Monitor connection health
-let health = client.connection_health();
-match health.state {
-    ConnectionState::Connected => println!("Connected"),
-    ConnectionState::Reconnecting { attempt } => println!("Reconnecting (attempt {})", attempt),
-    ConnectionState::Failed => println!("Connection failed"),
-    _ => {}
-}
+**Streaming Events:**
 
-// Process events with automatic recovery
-while let Some(event) = client.event_rx.recv().await {
-    // Handle events - connection will automatically recover on failure
-}
+The `RithmicStream` loop receives `RithmicMessage` types and converts them:
+- `LastTrade` → `Event::TradeReceived` (aggressor: 1=Buy, 2=Sell)
+- `BestBidOffer` → `Event::DepthReceived` (BBO only)
+- `OrderBook` → `Event::DepthReceived` (multi-level)
+- `ConnectionError` / `HeartbeatTimeout` → `Event::ConnectionLost`
+
+**Timestamp Conversion:**
+```
+ssboe (seconds since epoch) + usecs (microsecond offset)
+→ time_ms = ssboe * 1000 + (usecs + 500) / 1000
 ```
 
-### Repository Implementations
+</details>
 
-```rust
-// Trade repository
-let trade_repo = DatabentoTradeRepository::new(config).await?;
-let trades = trade_repo.get_trades(&ticker, &date_range).await?;
+<details>
+<summary><strong>Massive / Polygon (Options Data)</strong></summary>
 
-// Depth repository
-let depth_repo = DatabentoDepthRepository::new(config).await?;
-let depth = depth_repo.get_depth(&ticker, &date_range).await?;
-```
-
-## Configuration Management
-
-### Configuration Profiles
+US equity options data via the Polygon Massive API. Provides option chains, contract metadata, and market snapshots with rate limiting and compressed caching.
 
 ```rust
-// Development
-let config = Config::for_profile(ConfigProfile::Development);
-
-// Staging
-let config = Config::for_profile(ConfigProfile::Staging);
-
-// Production
-let config = Config::for_profile(ConfigProfile::Production);
-```
-
-### Configuration Builder
-
-```rust
-let config = ConfigBuilder::new(ConfigProfile::Production)
-    .with_api_key(api_key)
-    .with_cache_dir("./cache")
-    .with_cache_size(10000) // 10GB
-    .with_daily_budget(500.0)
-    .strict()
-    .validate()?
-    .build();
-```
-
-### Validation
-
-Comprehensive validation ensures configuration integrity:
-
-```rust
-config.validate()?; // Validates all settings
-
-// Individual validations
-config.databento.validate()?;     // API key, timeouts
-config.cache.validate()?;          // Permissions, size
-config.cost.validate()?;           // Budget limits
-config.network.validate()?;        // Timeout consistency
-```
-
-## Supported Instruments
-
-CME Globex futures with automatic configuration:
-
-| Symbol | Product | Tick Size | Multiplier |
-|--------|---------|-----------|------------|
-| ES.c.0 | E-mini S&P 500 | 0.25 | 50 |
-| NQ.c.0 | E-mini Nasdaq | 0.25 | 20 |
-| YM.c.0 | E-mini Dow | 1.0 | 5 |
-| RTY.c.0 | Russell 2000 | 0.1 | 50 |
-| ZN.c.0 | 10-Year T-Note | 0.015625 | 1000 |
-| GC.c.0 | Gold | 0.10 | 100 |
-| CL.c.0 | Crude Oil | 0.01 | 1000 |
-
-## Performance Metrics
-
-### Cache Performance
-
-| Operation | Time | Description |
-|-----------|------|-------------|
-| Cache hit | <1ms | Local file read |
-| Cache miss | 100-500ms | API fetch + cache write |
-| Gap detection | 5ms | Date range analysis |
-| Cleanup | 50ms/GB | Old file removal |
-
-### Memory Usage
-
-| Data Type | Memory/Million | Compression |
-|-----------|----------------|-------------|
-| Trades | 80MB | 60% with Parquet |
-| MBP-10 | 240MB | 70% with Parquet |
-| OHLCV | 20MB | 50% with Parquet |
-
-## Cost Management
-
-### Daily Budget Tracking
-
-```rust
-let usage = manager.get_daily_usage().await?;
-println!("Today's cost: ${:.2}", usage.cost);
-println!("Remaining budget: ${:.2}", config.cost.daily_budget - usage.cost);
-```
-
-### Cost Warnings
-
-```rust
-if config.cost.warn_on_expensive {
-    let estimate = config.cost.estimate_cost("MBO", 30);
-    if estimate > config.cost.max_cost_per_request {
-        // Warning: expensive operation
-    }
-}
-```
-
-## Price Utilities
-
-The exchange layer provides fixed-point arithmetic for accurate financial calculations:
-
-```rust
-pub struct Price {
-    pub units: i64,  // atomic units (10^-8 precision)
-}
-
-impl Price {
-    pub const PRICE_SCALE: i32 = 8;
-
-    // Conversions
-    pub fn to_f32_lossy(self) -> f32;
-    pub fn from_f32_lossy(v: f32) -> Self;
-
-    // Rounding
-    pub fn round_to_step(self, step: PriceStep) -> Self;
-    pub fn round_to_min_tick(self, min_tick: MinTicksize) -> Self;
-    pub fn round_to_side_step(self, is_sell_or_bid: bool, step: PriceStep) -> Self;
-
-    // Arithmetic
-    pub fn add_steps(self, steps: i64, step: PriceStep) -> Self;
-    pub fn steps_between_inclusive(low: Price, high: Price, step: PriceStep) -> Option<usize>;
-}
-```
-
-## Error Handling
-
-Three error types handle different concerns:
-
-```rust
-// Main error type (error.rs)
-pub enum Error {
-    Fetch(String),
-    Parse(String),
-    Config(String),
-    Cache(String),
-    Symbol(String),
-    Validation(String),
-    Databento(#[from] databento::Error),
-    Dbn(#[from] databento::dbn::Error),
-    Io(#[from] std::io::Error),
-}
-
-// Adapter error (adapter/mod.rs)
-pub enum AdapterError {
-    FetchError(#[from] reqwest::Error),
-    ParseError(String),
-    InvalidRequest(String),
-}
-
-// Databento-specific error (adapter/databento/mod.rs)
-pub enum DatabentoError {
-    Api(#[from] databento::Error),
-    Dbn(#[from] databento::dbn::Error),
-    SymbolNotFound(String),
-    InvalidInstrumentId(u32),
-    Cache(String),
-    Config(String),
-}
-```
-
-All error types include helper methods for error classification:
-```rust
-impl Error {
-    pub fn user_message(&self) -> String;  // UI-safe messages
-    pub fn is_retriable(&self) -> bool;    // Retry logic
-    pub fn severity(&self) -> Severity;    // Logging levels
-}
-```
-
-## Testing
-
-```bash
-# Unit tests
-cargo test --package flowsurface-exchange
-
-# Integration tests (requires API key)
-DATABENTO_API_KEY=your_key cargo test --package flowsurface-exchange -- --ignored
-
-# Note: Mock feature is not currently implemented
-```
-
-## Environment Variables
-
-```bash
-# Required
-export DATABENTO_API_KEY=your_api_key
-
-# Optional
-export FLOWSURFACE_PROFILE=production  # development|staging|production
-export FLOWSURFACE_CACHE_DIR=/custom/cache/path
-export RUST_LOG=flowsurface_exchange=debug
-```
-
-## Massive (Polygon) Options Integration
-
-The exchange layer now includes a complete Massive API adapter for US options market data.
-
-### Configuration
-
-```rust
-use flowsurface_exchange::MassiveConfig;
-
-// From environment variable
-let config = MassiveConfig::from_env()?;
-
-// Or create manually
-let config = MassiveConfig::new("your_polygon_api_key".to_string());
-
-// Customize settings
-config.cache_enabled = true;
-config.cache_max_days = 90;
-config.rate_limit_per_minute = 5;
-config.timeout_secs = 30;
-
-// Validate
-config.validate()?;
-```
-
-### Historical Options Manager
-
-```rust
-use flowsurface_exchange::HistoricalOptionsManager;
-
+let config = MassiveConfig::from_secrets()?;
 let manager = HistoricalOptionsManager::new(config).await?;
 
-// Fetch option chain with Greeks and IV
+// Fetch option chain for a single day
 let chain = manager.fetch_option_chain("AAPL", date).await?;
-println!("Loaded {} contracts", chain.contract_count());
 
-// Fetch multiple days with gap detection
+// Fetch chains for a date range (with gap detection)
 let chains = manager.fetch_option_chains("SPY", &date_range).await?;
-println!("Loaded {} days of chains", chains.len());
 
-// Fetch contract metadata
-let contracts = manager.fetch_contracts_metadata("TSLA").await?;
-println!("Found {} available contracts", contracts.len());
+// Single contract snapshot
+let snapshot = manager.fetch_contract_snapshot("O:AAPL240119C00150000", date).await?;
 
-// Cache statistics
-let stats = manager.cache_stats().await?;
-println!("Cache size: {}", stats.size_human_readable());
-
-// Cleanup old cache files
-let removed = manager.cleanup_cache().await?;
-println!("Removed {} old files", removed);
+// Contract metadata
+let contracts = manager.fetch_contracts_metadata("AAPL").await?;
 ```
 
-### Repository Implementations
+**Configuration:**
 
 ```rust
-use flowsurface_exchange::{MassiveSnapshotRepository, MassiveChainRepository, MassiveContractRepository};
-
-// Create repositories
-let snapshot_repo = MassiveSnapshotRepository::new(config.clone()).await?;
-let chain_repo = MassiveChainRepository::new(config.clone()).await?;
-let contract_repo = MassiveContractRepository::new(config).await?;
-
-// Use repository traits
-use flowsurface_data::repository::{OptionSnapshotRepository, OptionChainRepository};
-
-// Fetch chain
-let chain = chain_repo.get_chain("AAPL", date).await?;
-
-// Fetch filtered chain
-let near_atm_chain = chain_repo.get_chain_by_strike_range(
-    "AAPL",
-    date,
-    145.0,  // min strike
-    155.0,  // max strike
-).await?;
-
-// Fetch specific expiration
-let march_chain = chain_repo.get_chain_by_expiration(
-    "AAPL",
-    date,
-    NaiveDate::from_ymd_opt(2024, 3, 15).unwrap(),
-).await?;
-
-// Get contracts
-let all_contracts = contract_repo.get_contracts("AAPL").await?;
-let active_only = contract_repo.get_active_contracts("AAPL", today).await?;
+pub struct MassiveConfig {
+    pub api_key: String,
+    pub cache_enabled: bool,           // Default: true
+    pub cache_max_days: u32,           // Default: 90
+    pub cache_dir: PathBuf,
+    pub rate_limit_per_minute: u32,    // Default: 5
+    pub timeout_secs: u64,             // Default: 30
+    pub max_retries: u32,              // Default: 3
+    pub retry_delay_ms: u64,           // Default: 1000
+}
 ```
 
-### Caching Strategy
+**Contract Ticker Format:**
+```
+O:AAPL240119C00150000
+├─ O:         prefix
+├─ AAPL       underlying ticker
+├─ 240119     expiration (YYMMDD)
+├─ C          call (or P for put)
+└─ 00150000   strike price (8-digit fixed format)
+```
 
-**Directory Structure:**
+**API Endpoints:**
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /v3/snapshot/options/{underlying}` | All option chains for ticker |
+| `GET /v3/snapshot/options/{underlying}/{contract}` | Single contract snapshot |
+| `GET /v3/reference/options/contracts?underlying_ticker={ticker}` | Contract metadata |
+
+**Rate Limiting:** Built-in `RateLimiter` tracks requests within a sliding window. Automatically waits when limit is reached. Handles HTTP 429 responses with retry.
+
+**Cache Structure:**
 ```
 cache/massive/
 ├── chains/
-│   ├── AAPL/
-│   │   ├── 2024-01-01.json.zst
-│   │   └── 2024-01-02.json.zst
-│   └── SPY/
-│       └── 2024-01-01.json.zst
+│   └── AAPL/
+│       └── 2024-01-15.json.zst
 ├── snapshots/
-│   └── TSLA/
-│       └── 2024-01-01.json.zst
+│   └── AAPL/
+│       └── 2024-01-15.json.zst
 └── contracts/
     └── AAPL/
         └── metadata.json.zst
 ```
 
-**Features:**
-- Per-day JSON caching with Zstandard compression (~60% size reduction)
-- Automatic gap detection minimizes API calls
-- Configurable max age for cache files
-- Cache statistics and cleanup utilities
+</details>
 
-### Rate Limiting
+## Streaming & Events
 
-```rust
-// Configure rate limit
-let config = MassiveConfig {
-    rate_limit_per_minute: 5,  // 5 requests per minute
-    warn_on_rate_limits: true,
-    ..Default::default()
-};
+<details>
+<summary><strong>Event, StreamKind, ResolvedStream</strong></summary>
 
-// Client automatically:
-// - Tracks requests in 60-second window
-// - Waits when limit reached
-// - Respects Retry-After headers
-// - Logs warnings when approaching limits
-```
-
-### Error Handling
+**Event** — unified event type for all adapter output:
 
 ```rust
-use flowsurface_exchange::MassiveError;
+pub enum Event {
+    // Historical data
+    HistoricalDepth(u64, Arc<Depth>, Box<[Trade]>),
+    HistoricalKline(Kline),
 
-match manager.fetch_option_chain("INVALID", date).await {
-    Ok(chain) => println!("Success: {} contracts", chain.contract_count()),
-    Err(MassiveError::SymbolNotFound(symbol)) => {
-        eprintln!("Symbol '{}' not found", symbol);
-    }
-    Err(MassiveError::RateLimit(msg)) => {
-        eprintln!("Rate limited: {}", msg);
-    }
-    Err(MassiveError::Auth(msg)) => {
-        eprintln!("Authentication failed: {}", msg);
-    }
-    Err(e) => {
-        eprintln!("Error: {}", e.user_message());
-        if e.is_retriable() {
-            println!("This error can be retried");
-        }
-    }
+    // Connection lifecycle
+    Connected(FuturesVenue),
+    Disconnected(FuturesVenue, String),
+    ConnectionLost,
+
+    // Live data
+    DepthReceived(StreamKind, u64, Arc<Depth>, Box<[Trade]>),
+    KlineReceived(StreamKind, Kline),
+    TradeReceived(StreamKind, Trade),
 }
 ```
 
-### Performance
+**StreamKind** — runtime stream configuration (with resolved `FuturesTickerInfo`):
 
-| Operation | Time | Description |
-|-----------|------|-------------|
-| First chain fetch | 1-3s | API fetch + cache write |
-| Cached chain load | <100ms | Local JSON decompression |
-| Gap detection | <10ms | File system check |
-| Contract metadata | 500ms-1s | One-time API fetch, cached indefinitely |
+```rust
+pub enum StreamKind {
+    Kline { ticker_info: FuturesTickerInfo, timeframe: Timeframe },
+    DepthAndTrades { ticker_info: FuturesTickerInfo, depth_aggr: StreamTicksize, push_freq: PushFrequency },
+}
+```
 
-### Environment Variables
+**PersistStreamKind** — serializable counterpart for layout persistence:
+
+```rust
+pub enum PersistStreamKind {
+    Kline(PersistKline),             // ticker + timeframe
+    DepthAndTrades(PersistDepth),    // ticker + depth aggregation + push frequency
+}
+```
+
+**ResolvedStream** — two-phase resolution from serialized config to runtime:
+
+```rust
+pub enum ResolvedStream {
+    Waiting(Vec<PersistStreamKind>),  // Not yet resolved (missing ticker info)
+    Ready(Vec<StreamKind>),           // Runtime-ready
+}
+```
+
+**UniqueStreams** — deduplicates streams across multiple panes:
+
+```rust
+let mut streams = UniqueStreams::from(pane_streams.into_iter());
+streams.depth_streams();  // Vec<(TickerInfo, Ticksize, PushFrequency)>
+streams.kline_streams();  // Vec<(TickerInfo, Timeframe)>
+```
+
+</details>
+
+## Repository Implementations
+
+Concrete implementations of traits defined in `kairos-data/src/repository/traits.rs`.
+
+```mermaid
+flowchart TB
+    subgraph Traits["Defined in kairos-data"]
+        TR["TradeRepository"]
+        DR["DepthRepository"]
+        OCR["OptionChainRepository"]
+        OConR["OptionContractRepository"]
+        OSR["OptionSnapshotRepository"]
+    end
+    subgraph Impls["Implemented in kairos-exchange"]
+        DT["DatabentoTradeRepository"]
+        DD["DatabentoDepthRepository"]
+        RT["RithmicTradeRepository"]
+        RD["RithmicDepthRepository"]
+        MC["MassiveChainRepository"]
+        MCo["MassiveContractRepository"]
+        MS["MassiveSnapshotRepository"]
+    end
+
+    TR -.-> DT
+    TR -.-> RT
+    DR -.-> DD
+    DR -.-> RD
+    OCR -.-> MC
+    OConR -.-> MCo
+    OSR -.-> MS
+
+    style Traits stroke:#51CDA0,stroke-width:2px
+    style Impls stroke:#C8C8C8,stroke-width:2px
+```
+
+<details>
+<summary><strong>Databento Repositories</strong></summary>
+
+**DatabentoTradeRepository** — cached historical trade data with progress reporting and Databento-specific extensions.
+
+```rust
+let repo = DatabentoTradeRepository::new(config).await?;
+
+// Standard trait methods
+let trades = repo.get_trades(&ticker, &date_range).await?;
+let has = repo.has_trades(&ticker, date).await?;
+let gaps = repo.find_gaps(&ticker, &date_range).await?;
+
+// Databento-specific extensions
+let coverage = repo.check_cache_coverage_databento(&ticker, schema, &range).await?;
+let downloaded = repo.prefetch_to_cache_databento(&ticker, schema, &range).await?;
+let cost_usd = repo.get_actual_cost_databento(&ticker, schema, &range).await?;
+let symbols = repo.list_cached_symbols_databento().await?;
+```
+
+Databento-specific methods (default implementations return errors for non-Databento repos):
+
+| Method | Purpose |
+|--------|---------|
+| `check_cache_coverage_databento` | Report cached vs uncached days for a schema |
+| `prefetch_to_cache_databento` | Download missing days without loading into memory |
+| `prefetch_to_cache_databento_with_progress` | Prefetch with `(processed, total)` callback |
+| `get_actual_cost_databento` | Query real Databento API for USD cost estimate |
+| `list_cached_symbols_databento` | List all symbols with cached data |
+
+**DatabentoDepthRepository** — MBP-10 depth with adaptive decimation to prevent UI freezes.
+
+Decimation thresholds:
+
+| Snapshots | Keep Every Nth | Reduction |
+|-----------|---------------|-----------|
+| 200K+ | 50th | ~98% |
+| 100K-200K | 30th | ~97% |
+| 50K-100K | 15th | ~93% |
+| 10K-50K | 5th | ~80% |
+| < 10K | all | 0% |
+
+</details>
+
+<details>
+<summary><strong>Rithmic Repositories</strong></summary>
+
+**RithmicTradeRepository** — historical tick replay and real-time trade data.
+
+```rust
+let repo = RithmicTradeRepository::new(client.clone(), "CME");
+let trades = repo.get_trades(&ticker, &date_range).await?;
+```
+
+- `has_trades()` always returns `true` (assumes available if connected)
+- `find_gaps()` returns empty (no caching layer)
+- `store_trades()` is a no-op (read-only)
+
+**RithmicDepthRepository** — placeholder for future historical depth support.
+
+- All depth queries return `NotFound` — depth is available via real-time streaming only
+- `has_depth()` always returns `false`
+
+</details>
+
+<details>
+<summary><strong>Massive Repositories</strong></summary>
+
+**MassiveChainRepository** — option chain queries with strike/expiration filtering.
+
+```rust
+let repo = MassiveChainRepository::new(config).await?;
+let chain = repo.get_chain("AAPL", date).await?;
+let filtered = repo.get_chain_by_strike_range("SPY", date, 440.0, 460.0).await?;
+let by_exp = repo.get_chain_by_expiration("AAPL", date, expiration).await?;
+```
+
+**MassiveContractRepository** — contract metadata, search, and filtering.
+
+```rust
+let repo = MassiveContractRepository::new(config).await?;
+let all = repo.get_contracts("AAPL").await?;
+let active = repo.get_active_contracts("AAPL", today).await?;
+let contract = repo.get_contract("O:AAPL240119C00150000").await?;
+let results = repo.search_contracts(
+    Some("SPY"), Some(expiration), Some(400.0), Some(500.0), false
+).await?;
+```
+
+**MassiveSnapshotRepository** — market data snapshots with partial failure tolerance.
+
+```rust
+let repo = MassiveSnapshotRepository::new(config).await?;
+let snapshots = repo.get_snapshots("AAPL", &date_range).await?;
+let snapshot = repo.get_snapshot("O:AAPL240119C00150000", date).await?;
+```
+
+`get_snapshots_for_contracts()` continues on individual failures — logs warnings but returns all successful fetches.
+
+</details>
+
+## Exchange Types
+
+<details>
+<summary><strong>Trade, Kline, Depth, OpenInterest</strong></summary>
+
+**Trade** — individual market trade execution:
+
+```rust
+pub struct Trade {
+    pub time: u64,        // Milliseconds since epoch
+    pub price: f32,
+    pub qty: f32,
+    pub side: TradeSide,  // Buy | Sell
+}
+```
+
+**Kline** — OHLCV candle with separate buy/sell volume:
+
+```rust
+pub struct Kline {
+    pub time: u64,
+    pub open: f32,
+    pub high: f32,
+    pub low: f32,
+    pub close: f32,
+    pub volume: f32,
+    pub buy_volume: f32,
+    pub sell_volume: f32,
+}
+```
+
+**Depth** — order book snapshot with `BTreeMap<i64, f32>` for bids/asks (price units → quantity):
+
+```rust
+let depth = Depth::new(timestamp);
+depth.update_bid(price, qty);       // Insert if qty > 0, remove if 0
+depth.best_bid();                    // Option<(Price, f32)>
+depth.best_ask();                    // Option<(Price, f32)>
+depth.top_bids(10);                  // Vec<(Price, f32)> — highest first
+depth.top_asks(10);                  // Vec<(Price, f32)> — lowest first
+```
+
+**OpenInterest** — open interest snapshot:
+
+```rust
+pub struct OpenInterest {
+    pub time: u64,
+    pub open_interest: f32,
+}
+```
+
+**TickerInfo** — ticker metadata with contract specifications:
+
+```rust
+let info = TickerInfo::new(ticker, 0.25, 1.0, 50.0);
+info.to_domain();        // → FuturesTickerInfo
+info.market_type();      // → "futures"
+info.exchange();         // → FuturesVenue
+```
+
+</details>
+
+## Fixed-Point Arithmetic
+
+<details>
+<summary><strong>Price, PriceStep, Power10</strong></summary>
+
+**Price** — `i64` with 10^-8 precision. Same representation as `kairos_data::Price` — zero-cost conversion between layers.
+
+```rust
+let price = Price::from_f32(4525.75);
+price.round_to_step(step);                      // Round to nearest step
+price.floor_to_step(step);                       // Floor to step
+price.ceil_to_step(step);                        // Ceil to step
+price.round_to_side_step(is_sell_or_bid, step);  // Side-biased rounding
+price.add_steps(4, step);                        // +4 step increments
+Price::steps_between_inclusive(low, high, step);  // Count steps in range
+```
+
+**PriceStep** — step size in atomic units:
+
+```rust
+let step = PriceStep::from_f32_lossy(0.25);  // ES tick size
+step.to_f32_lossy();                           // → 0.25
+```
+
+**Power10** — generic power-of-10 type with compile-time bounds:
+
+```rust
+type MinTicksize = Power10<-8, 2>;     // 10^-8 to 10^2
+type ContractSize = Power10<-4, 6>;    // 10^-4 to 10^6
+type MinQtySize = Power10<-6, 8>;      // 10^-6 to 10^8
+```
+
+</details>
+
+## Error Handling
+
+<details>
+<summary><strong>Error Hierarchy</strong></summary>
+
+**Top-Level Error** — unified exchange error with `AppError` trait:
+
+| Variant | Retriable | Severity | Description |
+|---------|-----------|----------|-------------|
+| `Fetch(String)` | Yes | Recoverable | API/network errors |
+| `Parse(String)` | No | Warning | Malformed responses |
+| `Config(String)` | No | Critical | Missing API keys, invalid settings |
+| `Cache(String)` | No | Warning | I/O failures, corruption |
+| `Symbol(String)` | No | Info | Not found, invalid format |
+| `Validation(String)` | No | Info | Missing fields, out of range |
+| `Databento(Error)` | Yes | Recoverable | Databento API errors |
+| `Dbn(Error)` | No | Critical | Corrupted/incompatible data |
+| `Rithmic(Error)` | Yes | Recoverable | Rithmic protocol errors |
+| `Io(Error)` | Yes | Recoverable | File system errors |
+
+**Convenience Macro:**
+
+```rust
+use kairos_exchange::error;
+
+return Err(error!(fetch: "API returned {}", status));
+return Err(error!(config: "Missing API key for {}", provider));
+return Err(error!(symbol: "{} not found", ticker));
+```
+
+**Adapter-Level Errors:**
+
+| Type | Variants |
+|------|----------|
+| `AdapterError` | `FetchError`, `ParseError`, `InvalidRequest`, `ConnectionError` |
+| `DatabentoError` | `Api`, `Dbn`, `SymbolNotFound`, `InvalidInstrumentId`, `Cache`, `Config` |
+| `RithmicError` | `Connection`, `Auth`, `Subscription`, `Data`, `Config` |
+| `MassiveError` | `Api`, `Http`, `RateLimit`, `Parse`, `Cache`, `SymbolNotFound`, `InvalidContractTicker`, `Config`, `Io`, `Json`, `DateTime`, `InvalidData`, `Timeout`, `Auth` |
+
+</details>
+
+## Type Conversions
+
+<details>
+<summary><strong>Price, Timestamp, Side Mapping</strong></summary>
+
+**Price Conversions:**
+
+| Source | Precision | Conversion |
+|--------|-----------|------------|
+| Databento | 10^-9 (i64) | Divide by 10 → domain 10^-8 |
+| Rithmic | f64 | `Price::from_f64()` |
+| Massive | f64 | `Price::from_f64()` |
+| Exchange `Price` ↔ Data `Price` | Both 10^-8 (i64) | Zero-cost `From` impl |
+
+**Timestamp Conversions:**
+
+| Source | Format | Conversion |
+|--------|--------|------------|
+| Databento `ts_event` | Nanoseconds | `÷ 1_000_000` → milliseconds |
+| Rithmic `ssboe + usecs` | Seconds + microseconds | `ssboe * 1000 + (usecs + 500) / 1000` |
+| Massive `last_updated` | Nanoseconds | `÷ 1_000_000` → milliseconds |
+
+**Side / Aggressor Mapping:**
+
+| Source | Buy | Sell |
+|--------|-----|------|
+| Databento | `Side::Bid` | `Side::Ask` |
+| Rithmic | aggressor = `1` | aggressor = `2` |
+
+</details>
+
+## Provider Comparison
+
+| Aspect | Databento | Rithmic | Massive |
+|--------|-----------|---------|---------|
+| **Data** | Historical futures | Real-time futures | Options data |
+| **Source** | Databento API | Rithmic R\|Protocol | Polygon API |
+| **Schemas** | OHLCV, Trades, MBP-10 | Streaming messages | JSON snapshots |
+| **Caching** | Per-day `.dbn.zst` | None | Per-day `.json.zst` |
+| **Rate Limiting** | Implicit (API limits) | Connection-based | Explicit (5 req/min) |
+| **Cost Model** | Per-schema (1-10 scale) | Monthly subscription | Per-request |
+| **Retries** | 3 on transient errors | Built-in reconnect | 3 + exponential backoff |
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABENTO_API_KEY` | Databento API key (env fallback) |
+| `MASSIVE_API_KEY` | Polygon/Massive API key (env fallback) |
+| `RITHMIC_PASSWORD` | Rithmic password (env fallback) |
+| `KAIROS_DATA_PATH` | Override data/cache directory |
+
+## Dependencies
+
+<details>
+<summary><strong>Dependency List</strong></summary>
+
+| Crate | Purpose |
+|-------|---------|
+| `databento` | Databento API client and DBN format decoding |
+| `rithmic-rs` | Rithmic R\|Protocol client (ticker/history plants) |
+| `reqwest` | HTTP client for Polygon API (with `rustls-tls`) |
+| `zstd` | Zstandard compression for Massive cache files |
+| `tokio` | Async runtime (rt, macros, fs) |
+| `async-trait` | Async trait support |
+| `serde`, `serde_json` | Serialization |
+| `chrono` | Date/time handling |
+| `time` | Timestamp conversions (macros, formatting, parsing) |
+| `dirs-next` | Cross-platform directory paths |
+| `toml` | Configuration parsing |
+| `thiserror` | Error derive macros |
+| `rustc-hash` | Fast hashing for stream deduplication |
+| `log` | Logging facade |
+| `kairos-data` | Domain types and repository trait definitions |
+
+</details>
+
+## Testing
 
 ```bash
-# Required for options data
-export MASSIVE_API_KEY=your_polygon_api_key
-
-# Optional
-export FLOWSURFACE_CACHE_DIR=/custom/cache/path
-export RUST_LOG=flowsurface_exchange=debug
+cargo test --package kairos-exchange            # All tests
+cargo test --package kairos-exchange -- massive  # Options tests only
+cargo clippy --package kairos-exchange           # Lint
+cargo fmt --check                                # Format check
 ```
 
 ## License

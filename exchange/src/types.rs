@@ -4,8 +4,57 @@
 //! Domain types (FuturesTicker, Timeframe, etc.) are now in data::domain::futures.
 
 use crate::util::{Price, PriceStep};
-use flowsurface_data::domain::FuturesTicker;
+use kairos_data::domain::FuturesTicker;
 use serde::{Deserialize, Serialize};
+
+// ── Download Schema ─────────────────────────────────────────────────
+
+/// Databento download schema selection.
+///
+/// Wraps the Databento-specific schema variants used for historical data
+/// downloads, providing a stable API boundary so callers don't depend on
+/// the third-party `databento` crate directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DownloadSchema {
+    Trades,
+    Mbp10,
+    Mbp1,
+    Ohlcv1M,
+    Tbbo,
+    Mbo,
+}
+
+impl DownloadSchema {
+    /// Convert to the u16 discriminant used by Databento's Schema enum.
+    pub fn as_discriminant(self) -> u16 {
+        self.to_databento_schema() as u16
+    }
+
+    /// Convert to the underlying `databento::dbn::Schema`.
+    pub fn to_databento_schema(self) -> databento::dbn::Schema {
+        match self {
+            Self::Trades => databento::dbn::Schema::Trades,
+            Self::Mbp10 => databento::dbn::Schema::Mbp10,
+            Self::Mbp1 => databento::dbn::Schema::Mbp1,
+            Self::Ohlcv1M => databento::dbn::Schema::Ohlcv1M,
+            Self::Tbbo => databento::dbn::Schema::Tbbo,
+            Self::Mbo => databento::dbn::Schema::Mbo,
+        }
+    }
+}
+
+impl std::fmt::Display for DownloadSchema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Trades => write!(f, "Trades"),
+            Self::Mbp10 => write!(f, "MBP-10"),
+            Self::Mbp1 => write!(f, "MBP-1"),
+            Self::Ohlcv1M => write!(f, "OHLCV-1M"),
+            Self::Tbbo => write!(f, "TBBO"),
+            Self::Mbo => write!(f, "MBO"),
+        }
+    }
+}
 use std::collections::BTreeMap;
 
 // ── Market Data Types ─────────────────────────────────────────────────
@@ -94,26 +143,26 @@ impl Depth {
     }
 
     pub fn get_bid_qty(&self, price: Price) -> f32 {
-        self.bids.get(&price.units).copied().unwrap_or(0.0)
+        self.bids.get(&price.units()).copied().unwrap_or(0.0)
     }
 
     pub fn get_ask_qty(&self, price: Price) -> f32 {
-        self.asks.get(&price.units).copied().unwrap_or(0.0)
+        self.asks.get(&price.units()).copied().unwrap_or(0.0)
     }
 
     pub fn update_bid(&mut self, price: Price, qty: f32) {
         if qty > 0.0 {
-            self.bids.insert(price.units, qty);
+            self.bids.insert(price.units(), qty);
         } else {
-            self.bids.remove(&price.units);
+            self.bids.remove(&price.units());
         }
     }
 
     pub fn update_ask(&mut self, price: Price, qty: f32) {
         if qty > 0.0 {
-            self.asks.insert(price.units, qty);
+            self.asks.insert(price.units(), qty);
         } else {
-            self.asks.remove(&price.units);
+            self.asks.remove(&price.units());
         }
     }
 
@@ -199,8 +248,8 @@ impl TickerInfo {
     }
 
     /// Convert to domain FuturesTickerInfo
-    pub fn to_domain(&self) -> flowsurface_data::domain::FuturesTickerInfo {
-        flowsurface_data::domain::FuturesTickerInfo::new(
+    pub fn to_domain(&self) -> kairos_data::domain::FuturesTickerInfo {
+        kairos_data::domain::FuturesTickerInfo::new(
             self.ticker,
             self.min_ticksize.to_f32_lossy(),
             self.min_qty,
@@ -209,7 +258,7 @@ impl TickerInfo {
     }
 
     /// From domain FuturesTickerInfo
-    pub fn from_domain(info: flowsurface_data::domain::FuturesTickerInfo) -> Self {
+    pub fn from_domain(info: kairos_data::domain::FuturesTickerInfo) -> Self {
         Self {
             ticker: info.ticker,
             min_ticksize: PriceStep::from_f32(info.tick_size),
@@ -224,7 +273,7 @@ impl TickerInfo {
     }
 
     /// Get exchange/venue
-    pub fn exchange(&self) -> flowsurface_data::domain::FuturesVenue {
+    pub fn exchange(&self) -> kairos_data::domain::FuturesVenue {
         self.ticker.venue
     }
 }

@@ -30,7 +30,7 @@ pub enum RithmicError {
     Config(String),
 }
 
-use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+use kairos_data::domain::error::{AppError, ErrorSeverity};
 
 impl AppError for RithmicError {
     fn user_message(&self) -> String {
@@ -98,7 +98,7 @@ impl Default for RithmicConfig {
     fn default() -> Self {
         let cache_dir = dirs_next::cache_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("flowsurface")
+            .join("kairos")
             .join("rithmic");
 
         Self {
@@ -134,7 +134,7 @@ impl RithmicConfig {
     /// variables, then overrides user/password/system_name from the feed
     /// config and stored password.
     pub fn from_feed_config(
-        feed_config: &flowsurface_data::feed::RithmicFeedConfig,
+        feed_config: &kairos_data::feed::RithmicFeedConfig,
         password: &str,
     ) -> Result<(Self, rithmic_rs::RithmicConfig), RithmicError> {
         // Validate required fields
@@ -149,9 +149,9 @@ impl RithmicConfig {
         }
 
         let env = match feed_config.environment {
-            flowsurface_data::feed::RithmicEnvironment::Demo => rithmic_rs::RithmicEnv::Demo,
-            flowsurface_data::feed::RithmicEnvironment::Live => rithmic_rs::RithmicEnv::Live,
-            flowsurface_data::feed::RithmicEnvironment::Test => rithmic_rs::RithmicEnv::Test,
+            kairos_data::feed::RithmicEnvironment::Demo => rithmic_rs::RithmicEnv::Demo,
+            kairos_data::feed::RithmicEnvironment::Live => rithmic_rs::RithmicEnv::Live,
+            kairos_data::feed::RithmicEnvironment::Test => rithmic_rs::RithmicEnv::Test,
         };
 
         // Load base config from environment variables (URLs, account IDs)

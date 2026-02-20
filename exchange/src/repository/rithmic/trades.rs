@@ -5,8 +5,8 @@
 
 use crate::adapter::rithmic::{RithmicClient, mapper};
 use chrono::NaiveDate;
-use flowsurface_data::domain::{DateRange, FuturesTicker, Trade};
-use flowsurface_data::repository::{
+use kairos_data::domain::{DateRange, FuturesTicker, Trade};
+use kairos_data::repository::{
     RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
 };
 use std::sync::Arc;

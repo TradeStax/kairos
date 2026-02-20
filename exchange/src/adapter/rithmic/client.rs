@@ -4,7 +4,7 @@
 //! Provides market data subscriptions and historical data retrieval.
 
 use super::{RithmicConfig, RithmicError};
-use flowsurface_data::feed::FeedStatus;
+use kairos_data::feed::FeedStatus;
 use rithmic_rs::{
     RithmicHistoryPlant, RithmicHistoryPlantHandle, RithmicTickerPlant, RithmicTickerPlantHandle,
 };

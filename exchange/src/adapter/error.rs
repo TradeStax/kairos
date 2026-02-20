@@ -1,6 +1,6 @@
 //! Adapter-level error type for exchange operations.
 
-use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+use kairos_data::domain::error::{AppError, ErrorSeverity};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AdapterError {

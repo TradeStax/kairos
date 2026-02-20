@@ -1,4 +1,4 @@
-//! Flowsurface Exchange Layer
+//! Kairos Exchange Layer
 //!
 //! Adapter layer providing market data from external sources.
 //!
@@ -16,16 +16,17 @@
 
 pub mod adapter;
 pub mod error;
+pub mod ext;
 pub mod repository;
 pub mod types;
 pub mod util;
 
 // Re-export error types
 pub use error::{Error, ExchangeResult};
-pub use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+pub use kairos_data::domain::error::{AppError, ErrorSeverity};
 
 // Re-export domain types from data layer (futures, timeframe, etc.)
-pub use flowsurface_data::domain::{
+pub use kairos_data::domain::{
     ContractSpec, ContractType, FuturesTicker, FuturesTickerInfo, FuturesVenue, TickerStats,
     Timeframe,
 };
@@ -53,26 +54,9 @@ pub use adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError
 
 // Re-export Rithmic adapter
 pub use adapter::rithmic::{RithmicClient, RithmicConfig, RithmicError, RithmicStream};
-pub use rithmic_rs::{self, RithmicEnv};
 
-// Re-export Databento Schema for UI access
-pub use databento::dbn::Schema as DatabentoSchema;
+// Re-export download schema wrapper (replaces direct databento::dbn::Schema re-export)
+pub use types::DownloadSchema;
 
-/// Push frequency for orderbook updates
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize,
-)]
-pub enum PushFrequency {
-    #[default]
-    ServerDefault,
-    Custom(Timeframe),
-}
-
-impl std::fmt::Display for PushFrequency {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PushFrequency::ServerDefault => write!(f, "Server Default"),
-            PushFrequency::Custom(tf) => write!(f, "{}", tf),
-        }
-    }
-}
+// Re-export PushFrequency from its canonical location in adapter::stream
+pub use adapter::stream::PushFrequency;

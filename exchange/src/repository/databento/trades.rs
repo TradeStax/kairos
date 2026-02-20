@@ -8,9 +8,9 @@ use crate::types::TradeSide;
 use chrono::NaiveDate;
 use databento::dbn::Schema;
 use databento::historical::metadata::GetCostParams;
-use flowsurface_data::domain::chart::{DataSchema, LoadingStatus};
-use flowsurface_data::domain::{DateRange, FuturesTicker, Price, Quantity, Side, Timestamp, Trade};
-use flowsurface_data::repository::{
+use kairos_data::domain::chart::{DataSchema, LoadingStatus};
+use kairos_data::domain::{DateRange, FuturesTicker, Price, Quantity, Side, Timestamp, Trade};
+use kairos_data::repository::{
     RepositoryError, RepositoryResult, RepositoryStats, TradeRepository,
 };
 use std::sync::Arc;
@@ -263,13 +263,16 @@ impl TradeRepository for DatabentoTradeRepository {
         // Return default stats - cache statistics can be queried separately via HistoricalDataManager
         Ok(RepositoryStats::new())
     }
+}
 
-    async fn check_cache_coverage_databento(
+#[async_trait::async_trait]
+impl kairos_data::repository::DownloadRepository for DatabentoTradeRepository {
+    async fn check_cache_coverage(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
-    ) -> RepositoryResult<flowsurface_data::repository::CacheCoverageReport> {
+    ) -> RepositoryResult<kairos_data::repository::CacheCoverageReport> {
         let schema = schema_from_discriminant(schema_discriminant)?;
         let manager = self.manager.lock().await;
         let symbol = ticker.as_str();
@@ -277,7 +280,6 @@ impl TradeRepository for DatabentoTradeRepository {
         let mut cached_days = Vec::new();
         let mut uncached_days = Vec::new();
 
-        // Check each day in the range
         for date in date_range.dates() {
             if manager.cache.has_cached(symbol, schema, date).await {
                 cached_days.push(date);
@@ -294,36 +296,32 @@ impl TradeRepository for DatabentoTradeRepository {
 
             for (i, &date) in uncached_days.iter().enumerate().skip(1) {
                 if date == gap_end + chrono::Duration::days(1) {
-                    // Extend current gap
                     gap_end = date;
                 } else {
-                    // Save previous gap and start new one
                     gaps.push((gap_start, gap_end));
                     gap_start = date;
                     gap_end = date;
                 }
 
-                // Handle last gap
                 if i == uncached_days.len() - 1 {
                     gaps.push((gap_start, gap_end));
                 }
             }
 
-            // Handle single uncached day
             if uncached_days.len() == 1 {
                 gaps.push((gap_start, gap_end));
             }
         }
 
-        Ok(flowsurface_data::repository::CacheCoverageReport {
+        Ok(kairos_data::repository::CacheCoverageReport {
             cached_count: cached_days.len(),
             uncached_count: uncached_days.len(),
             gaps,
-            cached_dates: cached_days, // Return list of cached dates
+            cached_dates: cached_days,
         })
     }
 
-    async fn prefetch_to_cache_databento(
+    async fn prefetch_to_cache(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
@@ -335,7 +333,6 @@ impl TradeRepository for DatabentoTradeRepository {
 
         let mut downloaded = 0;
 
-        // Download each uncached day
         for date in date_range.dates() {
             if !manager.cache.has_cached(symbol, schema, date).await {
                 log::debug!("Downloading {} for {} (schema: {:?})", date, symbol, schema);
@@ -344,11 +341,19 @@ impl TradeRepository for DatabentoTradeRepository {
                     .fetch_to_cache(symbol, schema, date)
                     .await
                     .map_err(|e| {
-                        RepositoryError::Remote(format!("Download failed for {}: {:?}", date, e))
+                        RepositoryError::Remote(format!(
+                            "Download failed for {}: {:?}",
+                            date, e
+                        ))
                     })?;
 
                 downloaded += 1;
-                log::debug!("Successfully cached {}/{} for {}", date, schema, symbol);
+                log::debug!(
+                    "Successfully cached {}/{} for {}",
+                    date,
+                    schema,
+                    symbol
+                );
             }
         }
 
@@ -362,7 +367,7 @@ impl TradeRepository for DatabentoTradeRepository {
         Ok(downloaded)
     }
 
-    async fn prefetch_to_cache_databento_with_progress(
+    async fn prefetch_to_cache_with_progress(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
@@ -384,7 +389,6 @@ impl TradeRepository for DatabentoTradeRepository {
             schema
         );
 
-        // Download each day (including already cached - for accurate progress)
         for date in date_range.dates() {
             if !manager.cache.has_cached(symbol, schema, date).await {
                 log::debug!("Downloading {} for {} (schema: {:?})", date, symbol, schema);
@@ -393,16 +397,23 @@ impl TradeRepository for DatabentoTradeRepository {
                     .fetch_to_cache(symbol, schema, date)
                     .await
                     .map_err(|e| {
-                        RepositoryError::Remote(format!("Download failed for {}: {:?}", date, e))
+                        RepositoryError::Remote(format!(
+                            "Download failed for {}: {:?}",
+                            date, e
+                        ))
                     })?;
 
                 downloaded += 1;
-                log::debug!("Successfully cached {}/{} for {}", date, schema, symbol);
+                log::debug!(
+                    "Successfully cached {}/{} for {}",
+                    date,
+                    schema,
+                    symbol
+                );
             } else {
                 log::debug!("Skipping {} - already cached", date);
             }
 
-            // Update progress after each day (downloaded or skipped)
             processed += 1;
             progress_callback(processed, total_days);
         }
@@ -417,50 +428,49 @@ impl TradeRepository for DatabentoTradeRepository {
         Ok(downloaded)
     }
 
-    async fn get_actual_cost_databento(
+    async fn get_download_cost(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> RepositoryResult<f64> {
-        log::debug!("get_actual_cost_databento called for {:?}", ticker);
+        log::debug!("get_download_cost called for {:?}", ticker);
 
         let schema = schema_from_discriminant(schema_discriminant)?;
         let mut manager = self.manager.lock().await;
         let symbol = ticker.as_str();
 
-        log::debug!(
-            "About to call Databento API with symbol={}, schema={:?}",
-            symbol,
-            schema
-        );
-
         // Convert DateRange to chrono DateTime (UTC start/end of day)
-        // NOTE: Databento API uses exclusive end times, so end = (end_date + 1 day) at 00:00:00
+        // NOTE: Databento API uses exclusive end times
         let start = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
             date_range
                 .start
                 .and_hms_opt(0, 0, 0)
-                .ok_or_else(|| RepositoryError::InvalidData("Invalid start date".to_string()))?,
+                .ok_or_else(|| {
+                    RepositoryError::InvalidData("Invalid start date".to_string())
+                })?,
             chrono::Utc,
         );
         let end = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
             (date_range.end + chrono::Duration::days(1))
                 .and_hms_opt(0, 0, 0)
-                .ok_or_else(|| RepositoryError::InvalidData("Invalid end date".to_string()))?,
+                .ok_or_else(|| {
+                    RepositoryError::InvalidData("Invalid end date".to_string())
+                })?,
             chrono::Utc,
         );
 
-        // Convert to time::OffsetDateTime for Databento API
         let start_time = OffsetDateTime::from_unix_timestamp(start.timestamp())
-            .map_err(|e| RepositoryError::InvalidData(format!("Invalid start time: {}", e)))?;
+            .map_err(|e| {
+                RepositoryError::InvalidData(format!("Invalid start time: {}", e))
+            })?;
         let end_time = OffsetDateTime::from_unix_timestamp(end.timestamp())
-            .map_err(|e| RepositoryError::InvalidData(format!("Invalid end time: {}", e)))?;
+            .map_err(|e| {
+                RepositoryError::InvalidData(format!("Invalid end time: {}", e))
+            })?;
 
-        // Determine symbol type (continuous, parent, or raw)
         let stype = crate::adapter::databento::mapper::determine_stype(symbol);
 
-        // Build cost request parameters
         let cost_params = GetCostParams::builder()
             .dataset(manager.config.dataset)
             .symbols(vec![symbol])
@@ -469,7 +479,6 @@ impl TradeRepository for DatabentoTradeRepository {
             .date_time_range((start_time, end_time))
             .build();
 
-        // Call real Databento cost API
         log::info!(
             "Calling Databento cost API: symbol={}, schema={:?}, range={:?} to {:?}",
             symbol,
@@ -477,20 +486,11 @@ impl TradeRepository for DatabentoTradeRepository {
             date_range.start,
             date_range.end
         );
-        log::debug!(
-            "Cost params: dataset={:?}, symbols=[{}], date_time_range={:?} to {:?}",
-            manager.config.dataset,
-            symbol,
-            start_time,
-            end_time
-        );
 
-        let cost_result = manager.client.metadata().get_cost(&cost_params).await;
-
-        match cost_result {
+        match manager.client.metadata().get_cost(&cost_params).await {
             Ok(cost_usd) => {
                 log::info!(
-                    "Databento cost API SUCCESS: ${:.4} USD for {} from {} to {}",
+                    "Databento cost API: ${:.4} USD for {} from {} to {}",
                     cost_usd,
                     symbol,
                     date_range.start,
@@ -499,11 +499,7 @@ impl TradeRepository for DatabentoTradeRepository {
                 Ok(cost_usd)
             }
             Err(e) => {
-                log::error!("Databento cost API FAILED: {:?}", e);
-                log::error!("  Symbol: {}", symbol);
-                log::error!("  Schema: {:?}", schema);
-                log::error!("  Dataset: {:?}", manager.config.dataset);
-                log::error!("  Date range: {} to {}", date_range.start, date_range.end);
+                log::error!("Databento cost API failed: {:?}", e);
                 Err(RepositoryError::Remote(format!(
                     "Databento cost API failed: {:?}",
                     e
@@ -512,7 +508,7 @@ impl TradeRepository for DatabentoTradeRepository {
         }
     }
 
-    async fn list_cached_symbols_databento(
+    async fn list_cached_symbols(
         &self,
     ) -> RepositoryResult<std::collections::HashSet<String>> {
         let manager = self.manager.lock().await;
@@ -520,7 +516,12 @@ impl TradeRepository for DatabentoTradeRepository {
             .cache
             .list_cached_symbols()
             .await
-            .map_err(|e| RepositoryError::Cache(format!("Failed to list cached symbols: {:?}", e)))
+            .map_err(|e| {
+                RepositoryError::Cache(format!(
+                    "Failed to list cached symbols: {:?}",
+                    e
+                ))
+            })
     }
 }
 

@@ -6,7 +6,7 @@ use super::decoder::{
 use super::mapper::{convert_chain_response, convert_contract_response, convert_snapshot_response};
 use super::{MassiveConfig, MassiveError, MassiveResult};
 use chrono::NaiveDate;
-use flowsurface_data::domain::{DateRange, OptionChain, OptionContract, OptionSnapshot};
+use kairos_data::domain::{DateRange, OptionChain, OptionContract, OptionSnapshot};
 use std::sync::Arc;
 
 /// Historical options data manager
@@ -430,7 +430,7 @@ mod tests {
         let test_chain = OptionChain::new(
             "TEST".to_string(),
             NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-            flowsurface_data::domain::Timestamp(0),
+            kairos_data::domain::Timestamp(0),
         );
 
         manager

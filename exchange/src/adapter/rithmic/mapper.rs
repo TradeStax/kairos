@@ -5,7 +5,7 @@
 //! as the rest of the codebase.
 
 use crate::types::{Depth, Trade, TradeSide};
-use flowsurface_data::domain::{Price, Quantity, Side, Timestamp, Trade as DomainTrade};
+use kairos_data::domain::{Price, Quantity, Side, Timestamp, Trade as DomainTrade};
 use rithmic_rs::rti::messages::RithmicMessage;
 
 /// Convert a Rithmic LastTrade message to an exchange Trade

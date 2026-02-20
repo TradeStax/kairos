@@ -51,7 +51,7 @@ impl Default for DatabentoConfig {
     fn default() -> Self {
         let cache_dir = dirs_next::cache_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("flowsurface")
+            .join("kairos")
             .join("databento");
 
         Self {
@@ -67,20 +67,6 @@ impl Default for DatabentoConfig {
 }
 
 impl DatabentoConfig {
-    /// Create a new configuration with API key from environment
-    pub fn from_env() -> Result<Self, AdapterError> {
-        let api_key = std::env::var("DATABENTO_API_KEY").map_err(|_| {
-            AdapterError::InvalidRequest(
-                "DATABENTO_API_KEY environment variable not set".to_string(),
-            )
-        })?;
-
-        Ok(Self {
-            api_key,
-            ..Default::default()
-        })
-    }
-
     /// Create a new configuration with explicit API key
     pub fn with_api_key(api_key: String) -> Self {
         Self {
@@ -89,19 +75,20 @@ impl DatabentoConfig {
         }
     }
 
-    /// Create configuration from SecretsManager (keyring with env fallback)
-    pub fn from_secrets() -> Result<Self, AdapterError> {
-        use flowsurface_data::{ApiKeyStatus, ApiProvider, SecretsManager};
-
-        let secrets = SecretsManager::new();
-        match secrets.get_api_key(ApiProvider::Databento) {
-            ApiKeyStatus::FromKeyring(key) | ApiKeyStatus::FromEnv(key) => {
-                Ok(Self::with_api_key(key))
-            }
-            ApiKeyStatus::NotConfigured => Err(AdapterError::InvalidRequest(
+    /// Create configuration from environment variable (DATABENTO_API_KEY).
+    /// For keyring/UI-configured keys, use `with_api_key` with the key from the GUI crate's SecretsManager.
+    pub fn from_env() -> Result<Self, AdapterError> {
+        let key = std::env::var(kairos_data::ApiProvider::Databento.env_var()).map_err(|_| {
+            AdapterError::InvalidRequest(
                 "Databento API key not configured. Set via UI or DATABENTO_API_KEY environment variable.".to_string(),
-            )),
+            )
+        })?;
+        if key.is_empty() {
+            return Err(AdapterError::InvalidRequest(
+                "DATABENTO_API_KEY is empty.".to_string(),
+            ));
         }
+        Ok(Self::with_api_key(key))
     }
 
     /// Check if a schema is expensive
@@ -179,7 +166,7 @@ pub enum DatabentoError {
     Config(String),
 }
 
-use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+use kairos_data::domain::error::{AppError, ErrorSeverity};
 
 impl AppError for DatabentoError {
     fn user_message(&self) -> String {
@@ -244,7 +231,7 @@ impl From<DatabentoError> for AdapterError {
 
 #[cfg(test)]
 mod tests {
-    use flowsurface_data::domain::ContractType;
+    use kairos_data::domain::ContractType;
 
     #[test]
     fn test_contract_type_parse_continuous() {

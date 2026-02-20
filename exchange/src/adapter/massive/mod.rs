@@ -87,7 +87,7 @@ fn default_cache_max_days() -> u32 {
 fn default_cache_dir() -> PathBuf {
     dirs_next::cache_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("flowsurface")
+        .join("kairos")
         .join("massive")
 }
 
@@ -127,25 +127,18 @@ impl MassiveConfig {
         }
     }
 
-    /// Create from environment variable
+    /// Create configuration from environment variable (MASSIVE_API_KEY).
+    /// For keyring/UI-configured keys, use `new` with the key from the GUI crate's SecretsManager.
     pub fn from_env() -> Result<Self, MassiveError> {
-        let api_key = std::env::var("MASSIVE_API_KEY")
-            .map_err(|_| MassiveError::Config("MASSIVE_API_KEY not set".to_string()))?;
-
-        Ok(Self::new(api_key))
-    }
-
-    /// Create configuration from SecretsManager (keyring with env fallback)
-    pub fn from_secrets() -> Result<Self, MassiveError> {
-        use flowsurface_data::{ApiKeyStatus, ApiProvider, SecretsManager};
-
-        let secrets = SecretsManager::new();
-        match secrets.get_api_key(ApiProvider::Massive) {
-            ApiKeyStatus::FromKeyring(key) | ApiKeyStatus::FromEnv(key) => Ok(Self::new(key)),
-            ApiKeyStatus::NotConfigured => Err(MassiveError::Config(
+        let key = std::env::var(kairos_data::ApiProvider::Massive.env_var()).map_err(|_| {
+            MassiveError::Config(
                 "Massive API key not configured. Set via UI or MASSIVE_API_KEY environment variable.".to_string(),
-            )),
+            )
+        })?;
+        if key.is_empty() {
+            return Err(MassiveError::Config("MASSIVE_API_KEY is empty.".to_string()));
         }
+        Ok(Self::new(key))
     }
 
     /// Validate configuration
@@ -284,8 +277,8 @@ impl MassiveError {
     }
 
     /// Get error severity
-    pub fn severity(&self) -> flowsurface_data::domain::error::ErrorSeverity {
-        use flowsurface_data::domain::error::ErrorSeverity;
+    pub fn severity(&self) -> kairos_data::domain::error::ErrorSeverity {
+        use kairos_data::domain::error::ErrorSeverity;
         match self {
             MassiveError::Config(_) | MassiveError::Auth(_) => ErrorSeverity::Critical,
             MassiveError::SymbolNotFound(_) | MassiveError::InvalidContractTicker(_) => {
@@ -338,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_error_severity() {
-        use flowsurface_data::domain::error::ErrorSeverity;
+        use kairos_data::domain::error::ErrorSeverity;
 
         let auth_err = MassiveError::Auth("test".to_string());
         assert_eq!(auth_err.severity(), ErrorSeverity::Critical);

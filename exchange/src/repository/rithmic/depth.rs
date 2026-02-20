@@ -5,8 +5,8 @@
 //! historical depth can be fetched from the history plant if needed.
 
 use chrono::NaiveDate;
-use flowsurface_data::domain::{DateRange, DepthSnapshot, FuturesTicker};
-use flowsurface_data::repository::{
+use kairos_data::domain::{DateRange, DepthSnapshot, FuturesTicker};
+use kairos_data::repository::{
     DepthRepository, RepositoryError, RepositoryResult, RepositoryStats,
 };
 

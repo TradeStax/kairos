@@ -1,6 +1,6 @@
 [package]
-name = "flowsurface-exchange"
-description = "Databento adapter for futures market data in Flowsurface"
+name = "kairos-exchange"
+description = "Exchange adapters (Databento, Rithmic, Massive) for market data in Kairos"
 version = "0.1.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
@@ -23,7 +23,7 @@ databento = "0.22"
 time = { version = "0.3", features = ["macros", "formatting", "parsing"] }
 dirs-next = "2.0"
 toml = "0.8"
-flowsurface-data = { path = "../data" }
+kairos-data = { path = "../data" }
 async-trait = "0.1"
 
 # Rithmic integration

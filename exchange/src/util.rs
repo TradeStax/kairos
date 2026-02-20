@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+// Re-export the canonical Price type from the data crate.
+pub use kairos_data::Price;
+
 pub type ContractSize = Power10<-4, 6>;
 pub type MinTicksize = Power10<-8, 2>;
 pub type MinQtySize = Power10<-6, 8>;
@@ -87,43 +90,69 @@ impl PriceStep {
     pub fn from_f32(step: f32) -> Self {
         Self::from_f32_lossy(step)
     }
+
+    /// Convert to a Price with the same units value
+    pub fn to_price(self) -> Price {
+        Price::from_units(self.units)
+    }
 }
 
-/// Fixed atomic unit scale: 10^-PRICE_SCALE is the smallest stored fraction.
-/// MinTicksize has range [-8, 2], e.g. PRICE_SCALE = 8 to represent 10^-8 atomic units.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
-pub struct Price {
-    /// number of atomic units (atomic unit = 10^-PRICE_SCALE)
-    pub units: i64,
+impl From<PriceStep> for Price {
+    fn from(step: PriceStep) -> Self {
+        Price::from_units(step.units)
+    }
 }
 
-impl Price {
-    /// number of decimal places of the atomic unit (10^-8)
-    pub const PRICE_SCALE: i32 = 8;
+/// Extension trait adding exchange-specific formatting methods to `Price`.
+///
+/// Provides formatting with `Power10` precision and rounding to `MinTicksize`.
+/// For PriceStep-based operations (round_to_step, add_steps, etc.), use
+/// `step.into()` to convert PriceStep to Price and call the inherent methods.
+pub trait PriceExt {
+    /// Format price as string with the given `Power10` precision
+    fn fmt_with_precision<const MIN: i8, const MAX: i8>(
+        self,
+        precision: Power10<MIN, MAX>,
+    ) -> String;
 
+    /// Write formatted price into the given writer
+    fn fmt_into<const MIN: i8, const MAX: i8, W: core::fmt::Write>(
+        self,
+        precision: Power10<MIN, MAX>,
+        out: &mut W,
+    ) -> core::fmt::Result;
+
+    /// Round to the nearest multiple of the provided min ticksize
+    fn round_to_min_tick(self, min_tick: MinTicksize) -> Self;
+}
+
+impl PriceExt for Price {
     #[inline]
-    pub fn to_string<const MIN: i8, const MAX: i8>(self, precision: Power10<MIN, MAX>) -> String {
+    fn fmt_with_precision<const MIN: i8, const MAX: i8>(
+        self,
+        precision: Power10<MIN, MAX>,
+    ) -> String {
         let mut out = String::with_capacity(24);
         self.fmt_into(precision, &mut out).unwrap();
         out
     }
 
     #[inline]
-    pub fn fmt_into<const MIN: i8, const MAX: i8, W: core::fmt::Write>(
+    fn fmt_into<const MIN: i8, const MAX: i8, W: core::fmt::Write>(
         self,
         precision: Power10<MIN, MAX>,
         out: &mut W,
     ) -> core::fmt::Result {
-        let scale_u = Self::PRICE_SCALE as u32;
+        let scale_u = Price::PRICE_SCALE as u32;
 
         // number of atomic units for the given decade step: 10^(PRICE_SCALE + power)
-        let exp = (Self::PRICE_SCALE + precision.power as i32) as u32;
-        debug_assert!(Self::PRICE_SCALE + precision.power as i32 >= 0);
+        let exp = (Price::PRICE_SCALE + precision.power as i32) as u32;
+        debug_assert!(Price::PRICE_SCALE + precision.power as i32 >= 0);
         let unit = 10i64
             .checked_pow(exp)
-            .expect("Price::to_string unit overflow");
+            .expect("Price::fmt_into unit overflow");
 
-        let u = self.units;
+        let u = self.units();
         let half = unit / 2;
         let rounded_units = if u >= 0 {
             ((u + half).div_euclid(unit)) * unit
@@ -155,172 +184,65 @@ impl Price {
         write!(out, ".{:0width$}", frac_part, width = decimals as usize)
     }
 
-    /// Lossy: convert price to f32, may lose precision if going beyond `PRICE_SCALE`
-    pub fn to_f32_lossy(self) -> f32 {
-        let scale = 10f32.powi(Self::PRICE_SCALE);
-        (self.units as f32) / scale
-    }
-
-    /// Lossy: create Price from f32 (rounds to nearest atomic unit)
-    pub fn from_f32_lossy(v: f32) -> Self {
-        let scale = 10f32.powi(Self::PRICE_SCALE);
-        let u = (v * scale).round() as i64;
-        Self { units: u }
-    }
-
-    pub fn from_f32(v: f32) -> Self {
-        Self::from_f32_lossy(v)
-    }
-
-    pub fn to_f32(self) -> f32 {
-        self.to_f32_lossy()
-    }
-
-    pub fn round_to_step(self, step: PriceStep) -> Self {
-        let unit = step.units;
-        if unit <= 1 {
-            return self;
-        }
-        let half = unit / 2;
-        let rounded = ((self.units + half).div_euclid(unit)) * unit;
-        Self { units: rounded }
-    }
-
-    /// Floor to multiple of an arbitrary step
-    fn floor_to_step(self, step: PriceStep) -> Self {
-        let unit = step.units;
-        if unit <= 1 {
-            return self;
-        }
-        let floored = (self.units.div_euclid(unit)) * unit;
-        Self { units: floored }
-    }
-
-    /// Ceil to multiple of an arbitrary step
-    fn ceil_to_step(self, step: PriceStep) -> Self {
-        let unit = step.units;
-        if unit <= 1 {
-            return self;
-        }
-        let added = self.units.checked_add(unit - 1).unwrap_or_else(|| {
-            if self.units.is_negative() {
-                i64::MIN
-            } else {
-                i64::MAX
-            }
-        });
-
-        let ceiled = (added.div_euclid(unit)) * unit;
-        Self { units: ceiled }
-    }
-
-    /// Group with arbitrary step (e.g. sells floor, buys ceil)
-    pub fn round_to_side_step(self, is_sell_or_bid: bool, step: PriceStep) -> Self {
-        if is_sell_or_bid {
-            self.floor_to_step(step)
-        } else {
-            self.ceil_to_step(step)
-        }
-    }
-
-    /// Create Price from raw atomic units (no rounding) — internal only
-    pub fn from_units(units: i64) -> Self {
-        Self { units }
-    }
-
-    /// Returns the atomic-unit count that corresponds to one min tick (min_tick / atomic_unit)
-    fn min_tick_units(min_tick: MinTicksize) -> i64 {
-        let exp = Self::PRICE_SCALE + (min_tick.power as i32);
+    fn round_to_min_tick(self, min_tick: MinTicksize) -> Self {
+        let exp = Price::PRICE_SCALE + (min_tick.power as i32);
         assert!(exp >= 0, "PRICE_SCALE must be >= -min_tick.power");
-        10i64
+        let unit = 10i64
             .checked_pow(exp as u32)
-            .expect("min_tick_units overflowed")
-    }
-
-    /// Round this Price to the nearest multiple of the provided min_ticksize
-    pub fn round_to_min_tick(self, min_tick: MinTicksize) -> Self {
-        let unit = Self::min_tick_units(min_tick);
+            .expect("min_tick_units overflowed");
         if unit <= 1 {
             return self;
         }
         let half = unit / 2;
-        let rounded = ((self.units + half).div_euclid(unit)) * unit;
-        Self { units: rounded }
-    }
-
-    pub fn add_steps(self, steps: i64, step: PriceStep) -> Self {
-        Self::from_units(
-            self.units
-                .checked_add(steps.saturating_mul(step.units))
-                .expect("add_steps overflowed"),
-        )
-    }
-
-    /// Number of step increments between low..=high (inclusive), or None if invalid.
-    pub fn steps_between_inclusive(low: Price, high: Price, step: PriceStep) -> Option<usize> {
-        if high.units < low.units || step.units <= 0 {
-            return None;
-        }
-        let span = high.units.checked_sub(low.units)?;
-        Some((span / step.units) as usize + 1)
-    }
-}
-
-impl std::ops::Add for Price {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            units: self
-                .units
-                .checked_add(rhs.units)
-                .expect("Price add overflowed"),
-        }
-    }
-}
-
-impl std::ops::Div<i64> for Price {
-    type Output = Self;
-
-    fn div(self, rhs: i64) -> Self::Output {
-        Self {
-            units: self.units.div_euclid(rhs),
-        }
-    }
-}
-
-// Conversion between exchange::util::Price and data::domain::Price
-impl From<flowsurface_data::Price> for Price {
-    fn from(price: flowsurface_data::Price) -> Self {
-        // Both use same i64 units with 10^-8 precision
-        Self {
-            units: price.units(),
-        }
-    }
-}
-
-impl From<Price> for flowsurface_data::Price {
-    fn from(price: Price) -> Self {
-        flowsurface_data::Price::from_units(price.units)
-    }
-}
-
-impl std::ops::Sub for Price {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            units: self
-                .units
-                .checked_sub(rhs.units)
-                .expect("Price sub overflowed"),
-        }
+        let rounded = ((self.units() + half).div_euclid(unit)) * unit;
+        Price::from_units(rounded)
     }
 }
 
 /// Convert a millisecond Unix timestamp to a chrono DateTime<Utc>
 pub fn ms_to_datetime(ms: u64) -> Option<chrono::DateTime<chrono::Utc>> {
     chrono::DateTime::from_timestamp((ms / 1000) as i64, ((ms % 1000) * 1_000_000) as u32)
+}
+
+#[cfg(test)]
+mod price_overflow_tests {
+    use super::*;
+
+    #[test]
+    fn add_saturates_on_overflow() {
+        let max = Price::from_units(i64::MAX);
+        let one = Price::from_units(1);
+        assert_eq!((max + one).units(), i64::MAX);
+    }
+
+    #[test]
+    fn sub_saturates_on_overflow() {
+        let min = Price::from_units(i64::MIN);
+        let one = Price::from_units(1);
+        assert_eq!((min - one).units(), i64::MIN);
+    }
+
+    #[test]
+    fn checked_add_returns_none_on_overflow() {
+        let max = Price::from_units(i64::MAX);
+        let one = Price::from_units(1);
+        assert!(max.checked_add(one).is_none());
+    }
+
+    #[test]
+    fn checked_sub_returns_none_on_overflow() {
+        let min = Price::from_units(i64::MIN);
+        let one = Price::from_units(1);
+        assert!(min.checked_sub(one).is_none());
+    }
+
+    #[test]
+    fn add_steps_saturates_on_overflow() {
+        let max = Price::from_units(i64::MAX);
+        let step = PriceStep { units: 100 };
+        let result = max.add_steps(1, step.into());
+        assert_eq!(result.units(), i64::MAX);
+    }
 }
 
 #[cfg(test)]
@@ -339,7 +261,7 @@ mod manual_printouts {
 
         println!("orig (f32)        = {:0.9}", orig);
         println!("orig bits         = 0x{:08x}", orig.to_bits());
-        println!("price units       = {}", p.units);
+        println!("price units       = {}", p.units());
         println!("expected units    = {}", expected_units);
         println!("back (from units) = {:0.9}", back);
         println!("expected back     = {:0.9}", expected_back);

@@ -2,7 +2,7 @@
 //!
 //! Provides unified error types with proper context and user-friendly messages.
 
-use flowsurface_data::domain::error::{AppError, ErrorSeverity};
+use kairos_data::domain::error::{AppError, ErrorSeverity};
 
 /// Result type alias for exchange operations
 pub type ExchangeResult<T> = std::result::Result<T, Error>;
@@ -64,6 +64,18 @@ impl From<crate::adapter::databento::DatabentoError> for Error {
             }
             DatabentoError::Cache(s) => Error::Cache(s),
             DatabentoError::Config(s) => Error::Config(s),
+        }
+    }
+}
+
+impl From<crate::adapter::error::AdapterError> for Error {
+    fn from(err: crate::adapter::error::AdapterError) -> Self {
+        use crate::adapter::error::AdapterError;
+        match err {
+            AdapterError::FetchError(e) => Error::Fetch(e.to_string()),
+            AdapterError::ParseError(msg) => Error::Parse(msg),
+            AdapterError::InvalidRequest(msg) => Error::Validation(msg),
+            AdapterError::ConnectionError(msg) => Error::Fetch(msg),
         }
     }
 }

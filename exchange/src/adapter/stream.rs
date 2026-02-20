@@ -5,10 +5,29 @@
 //! runtime-only fields). [`UniqueStreams`] collects and deduplicates streams,
 //! and [`StreamSpecs`] summarizes active depth and kline subscriptions.
 
-use crate::{FuturesTicker, FuturesTickerInfo, FuturesVenue, PushFrequency, Timeframe};
+use crate::{FuturesTicker, FuturesTickerInfo, FuturesVenue, Timeframe};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+
+/// Push frequency for orderbook updates
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize,
+)]
+pub enum PushFrequency {
+    #[default]
+    ServerDefault,
+    Custom(Timeframe),
+}
+
+impl std::fmt::Display for PushFrequency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PushFrequency::ServerDefault => write!(f, "Server Default"),
+            PushFrequency::Custom(tf) => write!(f, "{}", tf),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum StreamKind {

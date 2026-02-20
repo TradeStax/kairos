@@ -7,7 +7,7 @@ pub use contracts::MassiveContractRepository;
 pub use snapshots::MassiveSnapshotRepository;
 
 use crate::adapter::massive::MassiveError;
-use flowsurface_data::repository::RepositoryError;
+use kairos_data::repository::RepositoryError;
 
 /// Convert a MassiveError into a RepositoryError
 pub(crate) fn convert_massive_error(e: MassiveError) -> RepositoryError {

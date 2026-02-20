@@ -1,7 +1,7 @@
 use super::decoder::*;
 use super::{MassiveError, MassiveResult};
 use chrono::NaiveDate;
-use flowsurface_data::domain::{
+use kairos_data::domain::{
     ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType, Price, Quantity,
     Timestamp,
 };

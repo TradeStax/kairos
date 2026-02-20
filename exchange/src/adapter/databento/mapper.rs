@@ -22,9 +22,7 @@ pub fn convert_databento_price(databento_price: i64) -> Price {
     // Databento uses nanosecond precision (10^-9)
     // Our Price type uses 10^-8 precision
     // So divide by 10 to convert
-    Price {
-        units: databento_price / 10,
-    }
+    Price::from_units(databento_price / 10)
 }
 
 // ============================================================================

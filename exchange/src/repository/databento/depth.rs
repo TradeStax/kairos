@@ -5,8 +5,8 @@
 
 use crate::adapter::databento::{DatabentoConfig, HistoricalDataManager};
 use chrono::NaiveDate;
-use flowsurface_data::domain::{DateRange, DepthSnapshot, FuturesTicker, Price, Timestamp};
-use flowsurface_data::repository::{
+use kairos_data::domain::{DateRange, DepthSnapshot, FuturesTicker, Price, Timestamp};
+use kairos_data::repository::{
     DepthRepository, RepositoryError, RepositoryResult, RepositoryStats,
 };
 use std::sync::Arc;
@@ -41,7 +41,7 @@ impl DatabentoDepthRepository {
 
     /// Convert exchange::types::Depth to domain::DepthSnapshot
     fn convert_depth_snapshot(time: u64, depth: &crate::types::Depth) -> DepthSnapshot {
-        use flowsurface_data::domain::Quantity;
+        use kairos_data::domain::Quantity;
         use std::collections::BTreeMap;
 
         // Convert bids (exchange uses i64 keys, domain uses Price keys)
