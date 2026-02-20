@@ -71,6 +71,59 @@ pub struct TradeMarkerDebug {
     pub vwap_denominator: f64,
 }
 
+/// Shape used for rendering trade markers.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum MarkerShape {
+    #[default]
+    Circle,
+    Square,
+    TextOnly,
+}
+
+impl std::fmt::Display for MarkerShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MarkerShape::Circle => write!(f, "Circle"),
+            MarkerShape::Square => write!(f, "Square"),
+            MarkerShape::TextOnly => write!(f, "Text Only"),
+        }
+    }
+}
+
+/// Configuration for how trade markers are rendered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkerRenderConfig {
+    pub shape: MarkerShape,
+    pub hollow: bool,
+    pub std_dev: f32,
+    pub min_size: f32,
+    pub max_size: f32,
+    pub min_opacity: f32,
+    pub max_opacity: f32,
+    pub show_text: bool,
+    pub text_size: f32,
+    pub text_color: SerializableColor,
+}
+
+impl Default for MarkerRenderConfig {
+    fn default() -> Self {
+        Self {
+            shape: MarkerShape::Circle,
+            hollow: false,
+            std_dev: 2.5,
+            min_size: 6.0,
+            max_size: 40.0,
+            min_opacity: 0.4,
+            max_opacity: 1.0,
+            show_text: true,
+            text_size: 11.0,
+            text_color: SerializableColor::new(1.0, 1.0, 1.0, 1.0),
+        }
+    }
+}
+
 /// A series of connected line points.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LineSeries {

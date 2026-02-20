@@ -20,6 +20,6 @@ pub mod volume;
 
 pub use config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
 pub use error::StudyError;
-pub use output::StudyOutput;
+pub use output::{MarkerRenderConfig, MarkerShape, StudyOutput};
 pub use registry::{StudyInfo, StudyRegistry};
 pub use traits::{Study, StudyCategory, StudyInput, StudyPlacement};

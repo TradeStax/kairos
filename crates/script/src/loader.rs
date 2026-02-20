@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// Discovers indicator script files from bundled and user directories.
 pub struct ScriptLoader {
-    /// Bundled scripts directory (e.g., assets/scripts/)
+    /// Bundled indicators directory (e.g., assets/indicators/)
     bundled_dir: Option<PathBuf>,
     /// User scripts directory (e.g., ~/.kairos/scripts/)
     user_dir: PathBuf,
@@ -35,7 +35,7 @@ impl ScriptLoader {
 
     /// Default user scripts directory.
     pub fn default_user_dir() -> PathBuf {
-        crate::path::data_path(Some("scripts"))
+        crate::path::data_path(Some("indicators"))
     }
 
     /// Find the bundled scripts directory relative to the executable.
@@ -43,7 +43,7 @@ impl ScriptLoader {
         // Try relative to executable
         if let Ok(exe) = std::env::current_exe() {
             let exe_dir = exe.parent()?;
-            let bundled = exe_dir.join("assets").join("scripts");
+            let bundled = exe_dir.join("assets").join("indicators");
             if bundled.is_dir() {
                 return Some(bundled);
             }

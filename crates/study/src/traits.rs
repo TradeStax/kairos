@@ -1,6 +1,6 @@
 use crate::config::{ParameterDef, ParameterValue, StudyConfig};
 use crate::error::StudyError;
-use crate::output::StudyOutput;
+use crate::output::{MarkerRenderConfig, StudyOutput};
 use data::{Candle, ChartBasis, Price, Trade};
 
 /// Core trait for all technical studies and indicators.
@@ -44,6 +44,11 @@ pub trait Study: Send + Sync {
 
     /// Reset all computed data
     fn reset(&mut self);
+
+    /// Optional render configuration for trade marker studies.
+    fn marker_render_config(&self) -> Option<MarkerRenderConfig> {
+        None
+    }
 
     /// Clone this study into a new boxed instance
     fn clone_study(&self) -> Box<dyn Study>;

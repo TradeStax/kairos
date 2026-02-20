@@ -6,26 +6,37 @@
 
 use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
 use crate::error::StudyError;
-use crate::output::{StudyOutput, TradeMarker, TradeMarkerDebug};
+use crate::output::{
+    MarkerRenderConfig, MarkerShape, StudyOutput, TradeMarker,
+    TradeMarkerDebug,
+};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
 
-const DEFAULT_MIN_CONTRACTS: i64 = 50;
+const DEFAULT_DAYS_TO_LOAD: i64 = 1;
+const DEFAULT_FILTER_MIN: i64 = 50;
+const DEFAULT_FILTER_MAX: i64 = 0;
 const DEFAULT_AGGREGATION_WINDOW_MS: i64 = 40;
-const DEFAULT_BUBBLE_SCALE: f64 = 1.0;
 
-const DEFAULT_BUY_COLOR: SerializableColor = SerializableColor {
+const DEFAULT_ASK_COLOR: SerializableColor = SerializableColor {
     r: 0.0,
     g: 0.8,
     b: 0.4,
     a: 0.7,
 };
 
-const DEFAULT_SELL_COLOR: SerializableColor = SerializableColor {
+const DEFAULT_BID_COLOR: SerializableColor = SerializableColor {
     r: 0.9,
     g: 0.2,
     b: 0.2,
     a: 0.7,
+};
+
+const DEFAULT_TEXT_COLOR: SerializableColor = SerializableColor {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
 };
 
 pub struct BigTradesStudy {
@@ -41,19 +52,37 @@ pub struct BigTradesStudy {
 impl BigTradesStudy {
     pub fn new() -> Self {
         let params = vec![
+            // ── Data Settings ────────────────────────────────
             ParameterDef {
-                key: "min_contracts",
-                label: "Min Contracts",
-                description: "Minimum contracts to display",
+                key: "days_to_load",
+                label: "Days to Load",
+                description: "Number of days of trade data to analyze",
+                kind: ParameterKind::Integer { min: 1, max: 30 },
+                default: ParameterValue::Integer(DEFAULT_DAYS_TO_LOAD),
+            },
+            ParameterDef {
+                key: "filter_min",
+                label: "Filter Min",
+                description: "Minimum contracts to display (0 = none)",
                 kind: ParameterKind::Integer {
-                    min: 1,
-                    max: 10000,
+                    min: 0,
+                    max: 100000,
                 },
-                default: ParameterValue::Integer(DEFAULT_MIN_CONTRACTS),
+                default: ParameterValue::Integer(DEFAULT_FILTER_MIN),
+            },
+            ParameterDef {
+                key: "filter_max",
+                label: "Filter Max",
+                description: "Maximum contracts to display (0 = none)",
+                kind: ParameterKind::Integer {
+                    min: 0,
+                    max: 100000,
+                },
+                default: ParameterValue::Integer(DEFAULT_FILTER_MAX),
             },
             ParameterDef {
                 key: "aggregation_window_ms",
-                label: "Aggregation Window (ms)",
+                label: "Aggregation Window",
                 description: "Max ms gap between fills to merge",
                 kind: ParameterKind::Integer {
                     min: 10,
@@ -61,38 +90,121 @@ impl BigTradesStudy {
                 },
                 default: ParameterValue::Integer(DEFAULT_AGGREGATION_WINDOW_MS),
             },
+            // ── Style / General ──────────────────────────────
             ParameterDef {
-                key: "buy_color",
-                label: "Buy Color",
-                description: "Buy bubble color",
-                kind: ParameterKind::Color,
-                default: ParameterValue::Color(DEFAULT_BUY_COLOR),
-            },
-            ParameterDef {
-                key: "sell_color",
-                label: "Sell Color",
-                description: "Sell bubble color",
-                kind: ParameterKind::Color,
-                default: ParameterValue::Color(DEFAULT_SELL_COLOR),
-            },
-            ParameterDef {
-                key: "bubble_scale",
-                label: "Bubble Scale",
-                description: "Bubble size multiplier",
-                kind: ParameterKind::Float {
-                    min: 0.5,
-                    max: 3.0,
-                    step: 0.1,
+                key: "marker_shape",
+                label: "Marker Shape",
+                description: "Shape used for markers",
+                kind: ParameterKind::Choice {
+                    options: &["Circle", "Square", "Text Only"],
                 },
-                default: ParameterValue::Float(DEFAULT_BUBBLE_SCALE),
+                default: ParameterValue::Choice("Circle".to_string()),
             },
             ParameterDef {
-                key: "show_labels",
-                label: "Show Labels",
-                description: "Show contract count text",
+                key: "hollow",
+                label: "Hollow Fill",
+                description: "Draw markers as outlines only",
+                kind: ParameterKind::Boolean,
+                default: ParameterValue::Boolean(false),
+            },
+            ParameterDef {
+                key: "show_text",
+                label: "Show Text",
+                description: "Show contract count text on markers",
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(true),
             },
+            // ── Style / Size ─────────────────────────────────
+            ParameterDef {
+                key: "std_dev",
+                label: "Std Dev",
+                description: "Standard deviations for size normalization",
+                kind: ParameterKind::Float {
+                    min: 0.5,
+                    max: 5.0,
+                    step: 0.1,
+                },
+                default: ParameterValue::Float(2.5),
+            },
+            ParameterDef {
+                key: "min_size",
+                label: "Min Size",
+                description: "Minimum marker radius in pixels",
+                kind: ParameterKind::Float {
+                    min: 2.0,
+                    max: 60.0,
+                    step: 1.0,
+                },
+                default: ParameterValue::Float(6.0),
+            },
+            ParameterDef {
+                key: "max_size",
+                label: "Max Size",
+                description: "Maximum marker radius in pixels",
+                kind: ParameterKind::Float {
+                    min: 10.0,
+                    max: 100.0,
+                    step: 1.0,
+                },
+                default: ParameterValue::Float(40.0),
+            },
+            // ── Style / Color ────────────────────────────────
+            ParameterDef {
+                key: "min_opacity",
+                label: "Min Opacity",
+                description: "Opacity for smallest markers",
+                kind: ParameterKind::Float {
+                    min: 0.0,
+                    max: 1.0,
+                    step: 0.05,
+                },
+                default: ParameterValue::Float(0.4),
+            },
+            ParameterDef {
+                key: "max_opacity",
+                label: "Max Opacity",
+                description: "Opacity for largest markers",
+                kind: ParameterKind::Float {
+                    min: 0.0,
+                    max: 1.0,
+                    step: 0.05,
+                },
+                default: ParameterValue::Float(1.0),
+            },
+            ParameterDef {
+                key: "ask_color",
+                label: "Ask Color",
+                description: "Color for ask-side (sell) markers",
+                kind: ParameterKind::Color,
+                default: ParameterValue::Color(DEFAULT_ASK_COLOR),
+            },
+            ParameterDef {
+                key: "bid_color",
+                label: "Bid Color",
+                description: "Color for bid-side (buy) markers",
+                kind: ParameterKind::Color,
+                default: ParameterValue::Color(DEFAULT_BID_COLOR),
+            },
+            // ── Style / Text ─────────────────────────────────
+            ParameterDef {
+                key: "text_size",
+                label: "Text Size",
+                description: "Font size for marker labels",
+                kind: ParameterKind::Float {
+                    min: 6.0,
+                    max: 20.0,
+                    step: 0.5,
+                },
+                default: ParameterValue::Float(11.0),
+            },
+            ParameterDef {
+                key: "text_color",
+                label: "Text Color",
+                description: "Color for marker label text",
+                kind: ParameterKind::Color,
+                default: ParameterValue::Color(DEFAULT_TEXT_COLOR),
+            },
+            // ── Debug ────────────────────────────────────────
             ParameterDef {
                 key: "show_debug",
                 label: "Show Debug",
@@ -120,16 +232,19 @@ impl BigTradesStudy {
     /// Read current parameters from config.
     fn read_params(&self) -> ComputeParams {
         ComputeParams {
-            min_contracts: self
+            filter_min: self
                 .config
-                .get_int("min_contracts", DEFAULT_MIN_CONTRACTS) as f64,
+                .get_int("filter_min", DEFAULT_FILTER_MIN) as f64,
+            filter_max: self
+                .config
+                .get_int("filter_max", DEFAULT_FILTER_MAX) as f64,
             window_ms: self
                 .config
                 .get_int("aggregation_window_ms", DEFAULT_AGGREGATION_WINDOW_MS)
                 as u64,
-            buy_color: self.config.get_color("buy_color", DEFAULT_BUY_COLOR),
-            sell_color: self.config.get_color("sell_color", DEFAULT_SELL_COLOR),
-            show_labels: self.config.get_bool("show_labels", true),
+            ask_color: self.config.get_color("ask_color", DEFAULT_ASK_COLOR),
+            bid_color: self.config.get_color("bid_color", DEFAULT_BID_COLOR),
+            show_text: self.config.get_bool("show_text", true),
             show_debug: self.config.get_bool("show_debug", false),
         }
     }
@@ -229,11 +344,12 @@ impl Default for BigTradesStudy {
 
 /// Parameters extracted from config for a compute pass.
 struct ComputeParams {
-    min_contracts: f64,
+    filter_min: f64,
+    filter_max: f64,
     window_ms: u64,
-    buy_color: SerializableColor,
-    sell_color: SerializableColor,
-    show_labels: bool,
+    ask_color: SerializableColor,
+    bid_color: SerializableColor,
+    show_text: bool,
     show_debug: bool,
 }
 
@@ -343,16 +459,20 @@ fn flush_block(
     basis: &data::ChartBasis,
     candle_boundaries: &Option<Vec<(u64, u64)>>,
 ) {
-    if block.total_qty < params.min_contracts {
+    if params.filter_min > 0.0 && block.total_qty < params.filter_min {
+        return;
+    }
+    if params.filter_max > 0.0 && block.total_qty > params.filter_max {
         return;
     }
 
+    // is_buy (bid-side) maps to bid_color, !is_buy (ask-side) maps to ask_color
     let color = if block.is_buy {
-        params.buy_color
+        params.bid_color
     } else {
-        params.sell_color
+        params.ask_color
     };
-    let label = if params.show_labels {
+    let label = if params.show_text {
         Some(format_contracts(block.total_qty))
     } else {
         None
@@ -591,6 +711,30 @@ impl Study for BigTradesStudy {
         &self.output
     }
 
+    fn marker_render_config(&self) -> Option<MarkerRenderConfig> {
+        let shape_str = self.config.get_choice("marker_shape", "Circle");
+        let shape = match shape_str {
+            "Square" => MarkerShape::Square,
+            "Text Only" => MarkerShape::TextOnly,
+            _ => MarkerShape::Circle,
+        };
+
+        Some(MarkerRenderConfig {
+            shape,
+            hollow: self.config.get_bool("hollow", false),
+            std_dev: self.config.get_float("std_dev", 2.5) as f32,
+            min_size: self.config.get_float("min_size", 6.0) as f32,
+            max_size: self.config.get_float("max_size", 40.0) as f32,
+            min_opacity: self.config.get_float("min_opacity", 0.4) as f32,
+            max_opacity: self.config.get_float("max_opacity", 1.0) as f32,
+            show_text: self.config.get_bool("show_text", true),
+            text_size: self.config.get_float("text_size", 11.0) as f32,
+            text_color: self
+                .config
+                .get_color("text_color", DEFAULT_TEXT_COLOR),
+        })
+    }
+
     fn reset(&mut self) {
         self.output = StudyOutput::Empty;
         self.processed_trade_count = 0;
@@ -712,7 +856,7 @@ mod tests {
 
         study
             .set_parameter(
-                "min_contracts",
+                "filter_min",
                 ParameterValue::Integer(50),
             )
             .unwrap();
@@ -741,7 +885,7 @@ mod tests {
     fn test_vwap_precision() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
         let candles = vec![make_candle(1000, 100.0)];
         let trades = vec![
@@ -770,7 +914,7 @@ mod tests {
     fn test_gap_exceeding_window_creates_two_markers() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(50))
+            .set_parameter("filter_min", ParameterValue::Integer(50))
             .unwrap();
         study
             .set_parameter(
@@ -797,7 +941,7 @@ mod tests {
     fn test_side_change_creates_separate_markers() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(50))
+            .set_parameter("filter_min", ParameterValue::Integer(50))
             .unwrap();
 
         let candles = vec![make_candle(1000, 100.0)];
@@ -819,7 +963,7 @@ mod tests {
     fn test_continuous_burst_merges_with_previous_fill_window() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
         study
             .set_parameter(
@@ -854,7 +998,7 @@ mod tests {
     fn test_zero_quantity_trades_skipped() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(50))
+            .set_parameter("filter_min", ParameterValue::Integer(50))
             .unwrap();
         study
             .set_parameter(
@@ -897,13 +1041,13 @@ mod tests {
         let candles = vec![make_candle(1000, 100.0)];
         let trades = vec![make_trade(1000, 100.0, 30.0, Side::Buy)];
 
-        // Default min_contracts=50, so 30 contracts won't show
+        // Default filter_min=50, so 30 contracts won't show
         study.compute(&study_input(&candles, &trades));
         assert!(matches!(study.output(), StudyOutput::Empty));
 
         // Lower threshold to 20
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(20))
+            .set_parameter("filter_min", ParameterValue::Integer(20))
             .unwrap();
         study.compute(&study_input(&candles, &trades));
         assert!(matches!(study.output(), StudyOutput::Markers(_)));
@@ -913,25 +1057,25 @@ mod tests {
     fn test_clone_study_produces_independent_copy() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(10))
+            .set_parameter("filter_min", ParameterValue::Integer(10))
             .unwrap();
 
         let cloned = study.clone_study();
         assert_eq!(cloned.id(), "big_trades");
-        assert_eq!(cloned.config().get_int("min_contracts", 50), 10);
+        assert_eq!(cloned.config().get_int("filter_min", 50), 10);
 
         // Mutating original doesn't affect clone
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(99))
+            .set_parameter("filter_min", ParameterValue::Integer(99))
             .unwrap();
-        assert_eq!(cloned.config().get_int("min_contracts", 50), 10);
+        assert_eq!(cloned.config().get_int("filter_min", 50), 10);
     }
 
     #[test]
     fn test_debug_annotations_populated() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
         study
             .set_parameter("show_debug", ParameterValue::Boolean(true))
@@ -958,7 +1102,7 @@ mod tests {
     fn test_incremental_append() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(50))
+            .set_parameter("filter_min", ParameterValue::Integer(50))
             .unwrap();
 
         let candles = vec![make_candle(1000, 100.0)];
@@ -990,7 +1134,7 @@ mod tests {
     fn test_time_based_marker_snaps_to_candle_open() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
 
         // M5 candles: open at 0, 300_000, 600_000
@@ -1031,7 +1175,7 @@ mod tests {
     fn test_time_based_marker_snaps_to_correct_candle() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
 
         // M5 candles
@@ -1069,7 +1213,7 @@ mod tests {
     fn test_tick_based_marker_uses_candle_index() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
 
         // 3 tick candles
@@ -1108,7 +1252,7 @@ mod tests {
     fn test_time_based_candle_boundary_splits_block() {
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
         // Use a long aggregation window so only the candle boundary
         // causes the split, not the time gap.
@@ -1160,7 +1304,7 @@ mod tests {
         // x-mapping already handles index assignment independently.
         let mut study = BigTradesStudy::new();
         study
-            .set_parameter("min_contracts", ParameterValue::Integer(1))
+            .set_parameter("filter_min", ParameterValue::Integer(1))
             .unwrap();
         study
             .set_parameter(
@@ -1204,5 +1348,71 @@ mod tests {
             "contracts: {}",
             m[0].contracts
         );
+    }
+
+    #[test]
+    fn test_filter_max_excludes_large_trades() {
+        let mut study = BigTradesStudy::new();
+        study
+            .set_parameter("filter_min", ParameterValue::Integer(1))
+            .unwrap();
+        study
+            .set_parameter("filter_max", ParameterValue::Integer(50))
+            .unwrap();
+
+        let candles = vec![make_candle(1000, 100.0)];
+        // One trade below max (30), one above max (60)
+        let trades = vec![
+            make_trade(1000, 100.0, 30.0, Side::Buy),
+            make_trade(2000, 100.0, 60.0, Side::Sell),
+        ];
+        study.compute(&study_input(&candles, &trades));
+
+        let output = study.output();
+        assert!(
+            matches!(output, StudyOutput::Markers(_)),
+            "Expected Markers"
+        );
+        let StudyOutput::Markers(m) = output else { unreachable!() };
+        assert_eq!(m.len(), 1, "filter_max should exclude 60-lot trade");
+        assert!(
+            (m[0].contracts - 30.0).abs() < f64::EPSILON,
+            "contracts: {}",
+            m[0].contracts
+        );
+    }
+
+    #[test]
+    fn test_filter_max_zero_means_no_upper_limit() {
+        let mut study = BigTradesStudy::new();
+        study
+            .set_parameter("filter_min", ParameterValue::Integer(1))
+            .unwrap();
+        // filter_max=0 means no upper limit (default)
+
+        let candles = vec![make_candle(1000, 100.0)];
+        let trades =
+            vec![make_trade(1000, 100.0, 10000.0, Side::Buy)];
+        study.compute(&study_input(&candles, &trades));
+
+        let output = study.output();
+        assert!(
+            matches!(output, StudyOutput::Markers(_)),
+            "Expected Markers with no upper filter"
+        );
+    }
+
+    #[test]
+    fn test_marker_render_config() {
+        let study = BigTradesStudy::new();
+        let config = study
+            .marker_render_config()
+            .expect("Big Trades should return MarkerRenderConfig");
+        assert_eq!(config.shape, MarkerShape::Circle);
+        assert!(!config.hollow);
+        assert!(config.show_text);
+        assert!((config.std_dev - 2.5).abs() < f32::EPSILON);
+        assert!((config.min_size - 6.0).abs() < f32::EPSILON);
+        assert!((config.max_size - 40.0).abs() < f32::EPSILON);
     }
 }
