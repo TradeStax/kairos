@@ -18,6 +18,7 @@ mod profile;
 use crate::chart::ViewState;
 use iced::Size;
 use iced::widget::canvas::Frame;
+use study::output::MarkerRenderConfig;
 use study::{StudyOutput, StudyPlacement};
 
 /// Render a study output onto a chart canvas frame.
@@ -30,7 +31,7 @@ pub fn render_study_output(
     state: &ViewState,
     bounds: Size,
     placement: StudyPlacement,
-    bubble_scale: f32,
+    marker_config: Option<&MarkerRenderConfig>,
 ) {
     match output {
         StudyOutput::Lines(lines) => {
@@ -66,7 +67,9 @@ pub fn render_study_output(
             profile::render_profile(frame, profile_data, state, bounds);
         }
         StudyOutput::Markers(m) => {
-            markers::render_markers(frame, m, state, bounds, bubble_scale);
+            let default_config = MarkerRenderConfig::default();
+            let config = marker_config.unwrap_or(&default_config);
+            markers::render_markers(frame, m, state, bounds, config);
         }
         StudyOutput::Clusters(_) | StudyOutput::Empty => {}
     }

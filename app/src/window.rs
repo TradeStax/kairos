@@ -6,7 +6,7 @@ use iced::{Point, Size, Subscription, Task, window};
 pub use iced::window::{Id, Position, Settings, close, open};
 use iced_futures::MaybeSend;
 
-const ICON_RGBA: &[u8] = include_bytes!("../assets/icons/icon_32x32.rgba");
+const ICON_RGBA: &[u8] = include_bytes!("../../assets/icons/icon_32x32.rgba");
 const ICON_SIZE: u32 = 32;
 
 pub fn icon() -> Option<window::Icon> {

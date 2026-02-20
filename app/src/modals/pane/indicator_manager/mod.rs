@@ -85,6 +85,27 @@ impl SettingsTab {
         SettingsTab::Style,
         SettingsTab::Display,
     ];
+
+    /// Returns the tabs to show for a specific study.
+    pub fn tabs_for_study(study_id: &str) -> &'static [SettingsTab] {
+        match study_id {
+            "big_trades" => &[
+                SettingsTab::Parameters,
+                SettingsTab::Style,
+            ],
+            _ => Self::ALL,
+        }
+    }
+
+    /// Returns the display label for a tab, customized per study.
+    pub fn label_for_study(&self, study_id: &str) -> &'static str {
+        match (study_id, self) {
+            ("big_trades", SettingsTab::Parameters) => "Data Settings",
+            (_, SettingsTab::Parameters) => "Parameters",
+            (_, SettingsTab::Style) => "Style",
+            (_, SettingsTab::Display) => "Display",
+        }
+    }
 }
 
 impl std::fmt::Display for SettingsTab {
