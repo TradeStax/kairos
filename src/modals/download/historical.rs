@@ -10,7 +10,7 @@ use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, row, space, text, text_input},
+    widget::{button, column, container, row, space, text},
 };
 
 /// Historical download modal state
@@ -19,9 +19,6 @@ pub struct HistoricalDownloadModal {
     selected_ticker_idx: usize,
     selected_schema_idx: usize,
     calendar: DateRangeCalendar,
-
-    api_key_input: String,
-    api_key_stored: bool,
 
     cache_status: Option<CacheStatus>,
     actual_cost_usd: Option<f64>,
@@ -36,7 +33,6 @@ pub enum HistoricalDownloadMessage {
     TickerSelected(usize),
     SchemaSelected(usize),
     Calendar(CalendarMessage),
-    SetApiKey(String),
     ShowConfirm,
     ConfirmDownload,
     CancelDownload,
@@ -46,31 +42,23 @@ pub enum HistoricalDownloadMessage {
 pub enum Action {
     EstimateRequested {
         ticker: FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: DateRange,
     },
     DownloadRequested {
         ticker: FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: DateRange,
-    },
-    ApiKeySaved {
-        provider: data::ApiProvider,
-        key: String,
     },
     Closed,
 }
 
 impl HistoricalDownloadModal {
     pub fn new() -> Self {
-        let api_key_stored = data::SecretsManager::new().has_api_key(data::ApiProvider::Databento);
-
         Self {
             selected_ticker_idx: 0,
             selected_schema_idx: 0,
             calendar: DateRangeCalendar::new(),
-            api_key_input: String::new(),
-            api_key_stored,
             cache_status: None,
             actual_cost_usd: None,
             has_valid_selection: false,
@@ -108,9 +96,6 @@ impl HistoricalDownloadModal {
                     return self.trigger_estimation();
                 }
             }
-            HistoricalDownloadMessage::SetApiKey(key) => {
-                self.api_key_input = key;
-            }
             HistoricalDownloadMessage::ShowConfirm => {
                 if self.actual_cost_usd.is_some() {
                     self.show_confirm = true;
@@ -118,25 +103,6 @@ impl HistoricalDownloadModal {
             }
             HistoricalDownloadMessage::ConfirmDownload => {
                 self.show_confirm = false;
-
-                // Save API key if entered
-                if !self.api_key_input.is_empty() {
-                    let key = self.api_key_input.clone();
-                    self.api_key_stored = true;
-                    self.api_key_input.clear();
-                    let num_days = (self.calendar.end_date - self.calendar.start_date)
-                        .num_days()
-                        .max(0)
-                        + 1;
-                    self.download_progress = DownloadProgress::Downloading {
-                        current_day: 0,
-                        total_days: num_days as usize,
-                    };
-                    return Some(Action::ApiKeySaved {
-                        provider: data::ApiProvider::Databento,
-                        key,
-                    });
-                }
 
                 let num_days = (self.calendar.end_date - self.calendar.start_date)
                     .num_days()
@@ -267,39 +233,12 @@ impl HistoricalDownloadModal {
         let cache_line: Element<'_, HistoricalDownloadMessage> =
             views::cache_status_display(&self.download_progress, self.cache_status.as_ref());
 
-        // API key field
-        let api_key_section: Element<'_, HistoricalDownloadMessage> = if self.api_key_stored {
-            row![
-                text("API Key:").size(tokens::text::BODY),
-                text("saved")
-                    .size(tokens::text::BODY)
-                    .style(|theme: &iced::Theme| {
-                        iced::widget::text::Style {
-                            color: Some(theme.extended_palette().success.base.color),
-                        }
-                    }),
-            ]
-            .spacing(tokens::spacing::SM)
-            .into()
-        } else {
-            column![
-                text("API Key").size(tokens::text::BODY),
-                text_input("Enter Databento API key", &self.api_key_input,)
-                    .on_input(HistoricalDownloadMessage::SetApiKey)
-                    .secure(true)
-                    .size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .into()
-        };
-
         let progress_section: Option<Element<'_, HistoricalDownloadMessage>> =
             views::download_progress_section(&self.download_progress);
 
         // Action buttons
         let is_downloading = matches!(self.download_progress, DownloadProgress::Downloading { .. });
         let can_download = self.has_valid_selection
-            && (self.api_key_stored || !self.api_key_input.is_empty())
             && !is_downloading
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
@@ -339,7 +278,6 @@ impl HistoricalDownloadModal {
             schema_section,
             calendar_section.into(),
             cache_line,
-            api_key_section,
         ];
 
         if let Some(progress) = progress_section {

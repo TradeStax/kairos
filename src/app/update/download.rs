@@ -3,14 +3,15 @@ use iced::Task;
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
-use super::super::{DownloadMessage, Flowsurface, Message, get_download_progress};
+use super::super::{DownloadMessage, Kairos, Message};
+use super::super::globals::get_download_progress;
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_estimate_data_cost(
         &mut self,
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     ) -> Task<Message> {
         log::info!("EstimateDataCost message received");
@@ -31,7 +32,7 @@ impl Flowsurface {
             return Task::none();
         };
 
-        let schema_discriminant = schema as u16;
+        let schema_discriminant = schema.as_discriminant();
         Task::perform(
             async move {
                 log::info!("Async block entered, about to call service");
@@ -88,7 +89,12 @@ impl Flowsurface {
                         .layout_manager
                         .active_layout_id()
                         .map(|id| id.unique)
-                        .unwrap_or_else(|| self.layout_manager.layouts.first().unwrap().id.unique);
+                        .or_else(|| self.layout_manager.layouts.first().map(|l| l.id.unique));
+
+                    let Some(layout_id) = layout_id else {
+                        log::error!("No layout available for DataCostEstimated");
+                        return Task::none();
+                    };
 
                     return Task::done(Message::Dashboard {
                         layout_id: Some(layout_id),
@@ -117,7 +123,7 @@ impl Flowsurface {
         &mut self,
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     ) -> Task<Message> {
         let Some(service) = self.market_data_service.clone() else {
@@ -130,12 +136,12 @@ impl Flowsurface {
             return Task::none();
         };
 
-        let schema_discriminant = schema as u16;
+        let schema_discriminant = schema.as_discriminant();
         let ticker_clone = ticker;
         let date_range_clone = date_range;
 
         {
-            let mut progress = get_download_progress().lock().unwrap();
+            let mut progress = data::lock_or_recover(get_download_progress());
             progress.insert(pane_id, (0, date_range.num_days() as usize));
         }
 
@@ -217,7 +223,7 @@ impl Flowsurface {
         result: Result<usize, String>,
     ) -> Task<Message> {
         {
-            let mut progress = get_download_progress().lock().unwrap();
+            let mut progress = data::lock_or_recover(get_download_progress());
             progress.remove(&pane_id);
         }
 
@@ -252,7 +258,7 @@ impl Flowsurface {
                 self.tickers_info = super::super::build_tickers_info(ticker_symbols);
                 log::info!(
                     "Updated ticker list with {} tickers",
-                    self.downloaded_tickers.lock().unwrap().count()
+                    data::lock_or_recover(&self.downloaded_tickers).count()
                 );
 
                 if pane_id == uuid::Uuid::nil() {
@@ -281,7 +287,12 @@ impl Flowsurface {
                         .layout_manager
                         .active_layout_id()
                         .map(|id| id.unique)
-                        .unwrap_or_else(|| self.layout_manager.layouts.first().unwrap().id.unique);
+                        .or_else(|| self.layout_manager.layouts.first().map(|l| l.id.unique));
+
+                    let Some(layout_id) = layout_id else {
+                        log::error!("No layout available for DataDownloadComplete");
+                        return Task::none();
+                    };
 
                     return Task::done(Message::Dashboard {
                         layout_id: Some(layout_id),
@@ -296,6 +307,39 @@ impl Flowsurface {
                 log::error!("Failed to download data: {}", e);
                 self.notifications
                     .push(Toast::error(format!("Download failed: {}", e)));
+            }
+        }
+        Task::none()
+    }
+
+    pub(crate) fn handle_api_key_setup(
+        &mut self,
+        msg: crate::modals::download::ApiKeySetupMessage,
+    ) -> Task<Message> {
+        if let Some(modal) = &mut self.api_key_setup_modal
+            && let Some(action) = modal.update(msg)
+        {
+            match action {
+                crate::modals::download::api_key_modal::Action::Saved {
+                    provider,
+                    key,
+                } => {
+                    let secrets = crate::infra::secrets::SecretsManager::new();
+                    if let Err(e) = secrets.set_api_key(provider, &key) {
+                        log::warn!("Failed to save API key: {}", e);
+                        self.notifications
+                            .push(Toast::error(format!("Failed to save API key: {}", e)));
+                        return Task::none();
+                    }
+                    log::info!("API key saved for {:?}", provider);
+                    self.api_key_setup_modal = None;
+                    self.historical_download_modal =
+                        Some(crate::modals::download::HistoricalDownloadModal::new());
+                    return Task::done(Message::ReinitializeService(provider));
+                }
+                crate::modals::download::api_key_modal::Action::Closed => {
+                    self.api_key_setup_modal = None;
+                }
             }
         }
         Task::none()
@@ -322,7 +366,7 @@ impl Flowsurface {
                         ));
                         return Task::none();
                     };
-                    let schema_discriminant = schema as u16;
+                    let schema_discriminant = schema.as_discriminant();
                     return Task::perform(
                         async move {
                             service
@@ -347,11 +391,11 @@ impl Flowsurface {
                             .push(Toast::error("Databento API key required".to_string()));
                         return Task::none();
                     };
-                    let schema_discriminant = schema as u16;
+                    let schema_discriminant = schema.as_discriminant();
                     let download_id = uuid::Uuid::new_v4();
                     self.historical_download_id = Some(download_id);
                     {
-                        let mut progress = get_download_progress().lock().unwrap();
+                        let mut progress = data::lock_or_recover(get_download_progress());
                         progress.insert(download_id, (0, date_range.num_days() as usize));
                     }
                     let ticker_clone = ticker;
@@ -380,15 +424,6 @@ impl Flowsurface {
                             })
                         },
                     );
-                }
-                crate::modals::download::historical::Action::ApiKeySaved { provider, key } => {
-                    let secrets = data::SecretsManager::new();
-                    if let Err(e) = secrets.set_api_key(provider, &key) {
-                        log::warn!("Failed to save API key: {}", e);
-                    } else {
-                        log::info!("API key saved for {:?}", provider);
-                        return Task::done(Message::ReinitializeService(provider));
-                    }
                 }
                 crate::modals::download::historical::Action::Closed => {
                     self.historical_download_modal = None;

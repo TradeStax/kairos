@@ -3,9 +3,9 @@ use iced::Task;
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
-use super::super::{ChartMessage, Flowsurface, Message, services};
+use super::super::{ChartMessage, Kairos, Message, services};
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_data_feeds(
         &mut self,
         msg: crate::modals::data_feeds::DataFeedsMessage,
@@ -38,8 +38,15 @@ impl Flowsurface {
                     return self.handle_feeds_updated(feed_manager);
                 }
                 crate::modals::data_feeds::Action::OpenHistoricalDownload => {
-                    self.historical_download_modal =
-                        Some(crate::modals::download::HistoricalDownloadModal::new());
+                    let has_key = crate::infra::secrets::SecretsManager::new()
+                        .has_api_key(data::config::secrets::ApiProvider::Databento);
+                    if has_key {
+                        self.historical_download_modal =
+                            Some(crate::modals::download::HistoricalDownloadModal::new());
+                    } else {
+                        self.api_key_setup_modal =
+                            Some(crate::modals::download::ApiKeySetupModal::new());
+                    }
                     return Task::none();
                 }
                 crate::modals::data_feeds::Action::LoadPreview(feed_id, info) => {
@@ -75,8 +82,8 @@ impl Flowsurface {
         feed_id: data::FeedId,
         mut feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
-        let secrets = data::SecretsManager::new();
-        if !secrets.has_api_key(data::ApiProvider::Databento) {
+        let secrets = crate::infra::secrets::SecretsManager::new();
+        if !secrets.has_api_key(data::config::secrets::ApiProvider::Databento) {
             self.data_feeds_modal.sync_snapshot(&feed_manager);
             self.notifications.push(Toast::error(
                 "Databento API key not configured. Set it in connection \
@@ -139,8 +146,8 @@ impl Flowsurface {
         feed_id: data::FeedId,
         mut feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
-        let secrets = data::SecretsManager::new();
-        let password_status = secrets.get_api_key(data::ApiProvider::Rithmic);
+        let secrets = crate::infra::secrets::SecretsManager::new();
+        let password_status = secrets.get_api_key(data::config::secrets::ApiProvider::Rithmic);
 
         let Some(password) = password_status.key() else {
             self.data_feeds_modal.sync_snapshot(&feed_manager);
@@ -152,10 +159,13 @@ impl Flowsurface {
             return Task::none();
         };
 
-        let feed = feed_manager.get(feed_id).unwrap();
-        let rithmic_config = match &feed.config {
-            data::feed::FeedConfig::Rithmic(cfg) => cfg.clone(),
-            _ => unreachable!(),
+        let Some(feed) = feed_manager.get(feed_id) else {
+            log::warn!("Rithmic feed {} not found in feed manager", feed_id);
+            return Task::none();
+        };
+        let Some(rithmic_config) = feed.rithmic_config().cloned() else {
+            log::warn!("Feed {} is not a Rithmic feed", feed_id);
+            return Task::none();
         };
         let password = password.to_string();
 
@@ -204,6 +214,7 @@ impl Flowsurface {
         self.rithmic_trade_repo = None;
         self.rithmic_depth_repo = None;
         self.rithmic_feed_id = None;
+        super::super::globals::set_rithmic_active(false);
 
         if let Some(client) = client {
             feed_manager.set_status(feed_id, data::FeedStatus::Disconnected);
@@ -416,7 +427,7 @@ impl Flowsurface {
     fn apply_rithmic_connected(&mut self, feed_id: data::FeedId) -> Task<Message> {
         // Take service result from global staging
         let service_result = {
-            let mut staging = super::super::get_rithmic_service_staging()
+            let mut staging = super::super::globals::get_rithmic_service_staging()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             staging.take()
@@ -434,6 +445,7 @@ impl Flowsurface {
         self.rithmic_trade_repo = Some(sr.trade_repo);
         self.rithmic_depth_repo = Some(sr.depth_repo);
         self.rithmic_feed_id = Some(feed_id);
+        super::super::globals::set_rithmic_active(true);
 
         let mut feed_manager = self
             .data_feed_manager
@@ -455,7 +467,7 @@ impl Flowsurface {
         )));
 
         let client = sr.client.clone();
-        let events_buf = super::super::get_rithmic_events().clone();
+        let events_buf = super::super::globals::get_rithmic_events().clone();
 
         Task::perform(
             rithmic_streaming_task(client, events_buf, subscribed_tickers),
@@ -492,6 +504,7 @@ impl Flowsurface {
                 });
             }
             exchange::Event::ConnectionLost => {
+                super::super::globals::set_rithmic_active(false);
                 return self.handle_rithmic_connection_lost();
             }
             _ => {}
@@ -561,7 +574,7 @@ async fn rithmic_init_and_stage(
 
     match result {
         Ok(Ok(service_result)) => {
-            let mut staging = super::super::get_rithmic_service_staging()
+            let mut staging = super::super::globals::get_rithmic_service_staging()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             *staging = Some(service_result);

@@ -40,7 +40,6 @@ impl State {
         self.compose_stack_view(
             base,
             id,
-            None,
             compact_controls,
             || column![].into(),
             None,

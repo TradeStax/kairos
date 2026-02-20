@@ -3,21 +3,20 @@
 mod app;
 mod chart;
 mod components;
-mod error;
+mod infra;
 mod layout;
-mod logger;
 mod modals;
 mod screen;
 mod style;
 mod window;
 
-use app::Flowsurface;
+use app::Kairos;
 use std::borrow::Cow;
 
 fn main() {
-    logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
+    infra::logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
 
-    let _ = iced::daemon(Flowsurface::new, Flowsurface::update, Flowsurface::view)
+    let _ = iced::daemon(Kairos::new, Kairos::update, Kairos::view)
         .settings(iced::Settings {
             antialiasing: true,
             fonts: vec![
@@ -27,9 +26,9 @@ fn main() {
             default_text_size: iced::Pixels(12.0),
             ..Default::default()
         })
-        .title(Flowsurface::title)
-        .theme(Flowsurface::theme)
-        .scale_factor(Flowsurface::scale_factor)
-        .subscription(Flowsurface::subscription)
+        .title(Kairos::title)
+        .theme(Kairos::theme)
+        .scale_factor(Kairos::scale_factor)
+        .subscription(Kairos::subscription)
         .run();
 }

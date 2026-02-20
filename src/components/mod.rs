@@ -1,7 +1,6 @@
-#![allow(unused_imports)]
 // ── Component Library ─────────────────────────────────────────────────
 //
-// Reusable UI components for the Flowsurface application, organized
+// Reusable UI components for the Kairos application, organized
 // into six categories. Each sub-module groups related components by
 // purpose; the top-level re-exports below provide a flat, ergonomic
 // API so consumers can write:
@@ -110,6 +109,7 @@
 
 // ── Sub-modules ───────────────────────────────────────────────────────
 
+pub mod chrome;
 pub mod display;
 pub mod form;
 pub mod input;
@@ -120,64 +120,42 @@ pub mod primitives;
 // ── Display re-exports ────────────────────────────────────────────────
 
 pub use display::empty_state::EmptyStateBuilder;
-pub use display::key_value::KeyValueBuilder;
-pub use display::loading_status::loading_status_display;
 pub use display::progress_bar::ProgressBarBuilder;
-pub use display::status_dot::{status_badge, status_dot, status_row};
+pub use display::status_dot::{status_badge, status_dot};
 pub use display::toast::{self, Notification, Toast};
-pub use display::tooltip::{
-    DEFAULT_TOOLTIP_DELAY, TooltipPosition, button_with_tooltip, tooltip, tooltip_with_delay,
-};
+pub use display::tooltip::{TooltipPosition, button_with_tooltip, tooltip};
 
 // ── Form re-exports ───────────────────────────────────────────────────
 
-pub use form::form_field::FormFieldBuilder;
-pub use form::form_row::form_row;
 pub use form::form_section::FormSectionBuilder;
 
 // ── Input re-exports ──────────────────────────────────────────────────
 
 pub use input::checkbox_field::CheckboxFieldBuilder;
 pub use input::color_picker::color_picker;
-pub use input::combo_select::combo_select;
-pub use input::dropdown::DropdownBuilder;
 pub use input::link_group_button::link_group_button;
-pub use input::multi_select::multi_select;
-pub use input::numeric_field::NumericFieldBuilder;
-pub use input::radio_group::RadioGroupBuilder;
 pub use input::search_field::SearchFieldBuilder;
 pub use input::secure_field::SecureFieldBuilder;
 pub use input::slider_field::{SliderFieldBuilder, classic_slider_row, labeled_slider};
-pub use input::stepper::StepperBuilder;
-pub use input::text_field::TextFieldBuilder;
-pub use input::toggle_button::ToggleButtonBuilder;
 pub use input::toggle_switch::toggle_switch;
 pub use input::volume_trackbar::volume_trackbar;
 
 // ── Layout re-exports ─────────────────────────────────────────────────
 
-pub use layout::button_grid::button_grid;
 pub use layout::button_group::ButtonGroupBuilder;
-pub use layout::card::{CardBuilder, CardKind};
-pub use layout::collapsible::collapsible;
 pub use layout::decorate::decorate;
 pub use layout::dragger_row::dragger_row;
-pub use layout::interactive_card::InteractiveCardBuilder;
-pub use layout::list_item::ListItemBuilder;
-pub use layout::multi_split::{DRAG_SIZE, MultiSplit};
+pub use layout::multi_split::DRAG_SIZE;
 pub use layout::reorderable_list::{self as reorderable_list, DragEvent};
 pub use layout::scrollable_content::scrollable_content;
 pub use layout::section_header::SectionHeaderBuilder;
-pub use layout::split_section::split_section;
-pub use layout::toolbar::{ToolbarItem, toolbar};
 
 // ── Overlay re-exports ────────────────────────────────────────────────
 
 pub use overlay::confirm_dialog::{ConfirmDialog, ConfirmDialogBuilder};
 pub use overlay::context_menu::context_menu;
-pub use overlay::dropdown_menu::DropdownMenuBuilder;
 pub use overlay::form_modal::FormModalBuilder;
-pub use overlay::modal_shell::{ModalKind, ModalShell, chart_modal, dashboard_modal};
+pub use overlay::modal_shell::{chart_modal, dashboard_modal};
 
 // ── Primitive re-exports ──────────────────────────────────────────────
 

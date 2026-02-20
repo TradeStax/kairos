@@ -339,7 +339,8 @@ where
             let half_txt = TEXT_SIZE * 0.5;
             py_local = py_local.clamp(half_txt, plot_height - half_txt);
 
-            let is_color_dark = data::config::theme::is_dark(s.color());
+            let is_color_dark =
+                data::config::theme::is_dark_rgba(crate::style::theme_bridge::iced_color_to_rgba(s.color()));
             let text_color = if is_color_dark {
                 Color::WHITE
             } else {

@@ -332,7 +332,7 @@ impl DrawingManager {
             }
             for point in &mut drawing.points {
                 point.time = (point.time as i64 + delta_time).max(0) as u64;
-                point.price = exchange::util::Price::from_units(point.price.units + delta_price);
+                point.price = exchange::util::Price::from_units(point.price.units() + delta_price);
             }
         }
     }
@@ -389,7 +389,7 @@ impl DrawingManager {
     pub fn update_drag(&mut self, id: DrawingId, new_point: DrawingPoint) {
         if let Some(last) = self.last_drag_point {
             let dt = new_point.time as i64 - last.time as i64;
-            let dp = new_point.price.units - last.price.units;
+            let dp = new_point.price.units() - last.price.units();
             self.move_drawing(id, dt, dp);
             self.last_drag_point = Some(new_point);
         }
@@ -529,7 +529,7 @@ impl DrawingManager {
         let original_points = drawing.points.clone();
         let n = original_points.len().max(1) as i64;
         let center_time = original_points.iter().map(|p| p.time as i64).sum::<i64>() / n;
-        let center_price = original_points.iter().map(|p| p.price.units).sum::<i64>() / n;
+        let center_price = original_points.iter().map(|p| p.price.units()).sum::<i64>() / n;
 
         self.clone_placement = Some(ClonePlacement {
             drawing,
@@ -543,11 +543,11 @@ impl DrawingManager {
     pub fn update_clone_position(&mut self, cursor: DrawingPoint) {
         if let Some(ref mut placement) = self.clone_placement {
             let dt = cursor.time as i64 - placement.center_time;
-            let dp = cursor.price.units - placement.center_price;
+            let dp = cursor.price.units() - placement.center_price;
             for (i, point) in placement.drawing.points.iter_mut().enumerate() {
                 point.time = (placement.original_points[i].time as i64 + dt).max(0) as u64;
                 point.price = exchange::util::Price::from_units(
-                    placement.original_points[i].price.units + dp,
+                    placement.original_points[i].price.units() + dp,
                 );
             }
         }

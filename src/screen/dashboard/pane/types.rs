@@ -6,8 +6,7 @@ use crate::{
     screen::dashboard::panel,
 };
 use data::{
-    ChartConfig, ChartData, ContentKind, DrawingId, LinkGroup, LoadingStatus, Settings,
-    UiIndicator, VisualConfig,
+    ChartConfig, ChartData, ContentKind, DrawingId, LinkGroup, LoadingStatus, Settings, VisualConfig,
 };
 use exchange::FuturesTickerInfo;
 use iced::{Point, widget::pane_grid};
@@ -32,19 +31,13 @@ pub enum ContextMenuKind {
         id: DrawingId,
         locked: bool,
     },
-    /// Right-clicked while an indicator is selected
-    Indicator {
-        position: Point,
-        indicator: UiIndicator,
-    },
 }
 
 impl ContextMenuKind {
     pub fn position(&self) -> Point {
         match self {
             ContextMenuKind::Chart { position }
-            | ContextMenuKind::Drawing { position, .. }
-            | ContextMenuKind::Indicator { position, .. } => *position,
+            | ContextMenuKind::Drawing { position, .. } => *position,
         }
     }
 }
@@ -55,7 +48,6 @@ pub enum ContextMenuAction {
     RebuildChart,
     CenterLastPrice,
     OpenIndicators,
-    RemoveIndicator(UiIndicator),
     DeleteDrawing(DrawingId),
     ToggleLockDrawing(DrawingId),
     CloneDrawing(DrawingId),
@@ -86,7 +78,7 @@ pub enum Event {
     ContentSelected(ContentKind),
     ChartInteraction(chart::Message),
     PanelInteraction(panel::Message),
-    ToggleIndicator(UiIndicator),
+    ToggleStudy(String),
     DeleteNotification(usize),
     ReorderIndicator(crate::components::layout::reorderable_list::DragEvent),
     DataManagementInteraction(crate::modals::download::DataManagementMessage),
@@ -98,6 +90,8 @@ pub enum Event {
     ContextMenuAction(ContextMenuAction),
     DismissContextMenu,
     DrawingPropertiesChanged(crate::modals::drawing_properties::Message),
+    IndicatorManagerInteraction(crate::modals::pane::indicator_manager::Message),
+    OpenIndicatorManager,
 }
 
 pub struct State {
@@ -116,8 +110,6 @@ pub struct State {
     pub replay_backup: Option<ChartData>,
     /// Active right-click context menu
     pub context_menu: Option<ContextMenuKind>,
-    /// Currently selected indicator panel (for context menu)
-    pub selected_indicator: Option<UiIndicator>,
 }
 
 impl State {
@@ -164,7 +156,6 @@ impl Default for State {
             feed_id: None,
             replay_backup: None,
             context_menu: None,
-            selected_indicator: None,
         }
     }
 }

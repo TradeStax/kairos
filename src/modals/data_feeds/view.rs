@@ -345,7 +345,8 @@ impl DataFeedsModal {
     }
 
     fn view_databento_fields(&self) -> Element<'_, DataFeedsMessage> {
-        let has_saved_key = data::SecretsManager::new().has_api_key(data::ApiProvider::Databento);
+        let has_saved_key =
+            crate::infra::secrets::SecretsManager::new().has_api_key(data::ApiProvider::Databento);
         let key_placeholder = if has_saved_key {
             "API key saved (leave blank to keep)"
         } else {
@@ -440,7 +441,8 @@ impl DataFeedsModal {
         .spacing(tokens::spacing::XS);
 
         let password_field = {
-            let has_saved = data::SecretsManager::new().has_api_key(data::ApiProvider::Rithmic);
+            let has_saved =
+                crate::infra::secrets::SecretsManager::new().has_api_key(data::ApiProvider::Rithmic);
             let placeholder = if has_saved {
                 "Password saved (leave blank to keep)"
             } else {

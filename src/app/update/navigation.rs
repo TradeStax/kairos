@@ -6,9 +6,11 @@ use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
 use crate::window;
 
-use super::super::{ChartMessage, DownloadMessage, Flowsurface, Message, menu_bar};
+use crate::components::chrome::menu_bar;
 
-impl Flowsurface {
+use super::super::{ChartMessage, DownloadMessage, Kairos, Message};
+
+impl Kairos {
     pub(crate) fn handle_menu_bar(&mut self, msg: menu_bar::Message) -> Task<Message> {
         // Pre-fill save dialog name when opening
         if matches!(msg, menu_bar::Message::SaveLayout) {
@@ -43,7 +45,10 @@ impl Flowsurface {
     pub(crate) fn handle_tick(&mut self, now: std::time::Instant) -> Task<Message> {
         let main_window_id = self.main_window.id;
 
-        self.active_dashboard_mut()
+        let Some(dashboard) = self.active_dashboard_mut() else {
+            return Task::none();
+        };
+        dashboard
             .tick(now, main_window_id)
             .map(move |msg| Message::Dashboard {
                 layout_id: None,
@@ -55,7 +60,9 @@ impl Flowsurface {
         match event {
             window::Event::CloseRequested(window) => {
                 let main_window = self.main_window.id;
-                let dashboard = self.active_dashboard_mut();
+                let Some(dashboard) = self.active_dashboard_mut() else {
+                    return window::close(window);
+                };
 
                 if window != main_window {
                     dashboard.popout.remove(&window);
@@ -98,9 +105,7 @@ impl Flowsurface {
             self.historical_download_id = None;
         } else if self.sidebar.active_menu().is_some() {
             self.sidebar.set_menu(None);
-        } else {
-            let dashboard = self.active_dashboard_mut();
-
+        } else if let Some(dashboard) = self.active_dashboard_mut() {
             if dashboard.go_back(main_window) {
             } else if dashboard.focus.is_some() {
                 dashboard.focus = None;
@@ -180,7 +185,7 @@ impl Flowsurface {
     }
 
     pub(crate) fn handle_data_folder_requested(&mut self) {
-        if let Err(err) = data::open_data_folder() {
+        if let Err(err) = crate::infra::platform::open_data_folder() {
             self.notifications
                 .push(Toast::error(format!("Failed to open data folder: {err}")));
         }

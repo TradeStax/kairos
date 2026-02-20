@@ -66,6 +66,7 @@ pub mod layout {
     pub const MODAL_WIDTH_SM: f32 = 220.0; // connections_menu
     pub const MODAL_WIDTH_MD: f32 = 360.0; // data_management
     pub const MODAL_WIDTH_LG: f32 = 420.0; // historical_download
+    pub const MODAL_WIDTH_XL: f32 = 880.0; // indicator_manager
     pub const CONFIRM_DIALOG_WIDTH: f32 = 340.0;
     pub const SCROLLBAR_WIDTH: f32 = 4.0;
     pub const SLIDER_HEIGHT: f32 = 24.0;

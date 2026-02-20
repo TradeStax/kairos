@@ -2,6 +2,7 @@ pub mod button;
 mod canvas;
 mod container;
 pub mod palette;
+pub(crate) mod theme_bridge;
 #[allow(dead_code)]
 pub mod tokens;
 mod widget;

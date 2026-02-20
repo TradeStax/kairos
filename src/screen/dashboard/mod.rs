@@ -1,5 +1,6 @@
-mod layout;
-mod loading;
+mod chart_loading;
+mod feed_management;
+mod pane_management;
 pub mod pane;
 pub mod panel;
 pub mod sidebar;
@@ -44,7 +45,7 @@ pub enum Message {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     },
     DataCostEstimated {
@@ -59,7 +60,7 @@ pub enum Message {
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     },
     DataDownloadProgress {
@@ -127,13 +128,13 @@ pub enum Event {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     },
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     },
     PaneClosed {

@@ -58,6 +58,19 @@ impl LodLevel {
     }
 }
 
+/// Scaling threshold below which we force Low LOD (very zoomed out).
+const LOW_LOD_SCALING_THRESHOLD: f32 = 0.5;
+/// Scaling threshold below which we force Medium LOD (moderately zoomed out).
+const MEDIUM_LOD_SCALING_THRESHOLD: f32 = 1.0;
+/// Items-per-pixel density above which we force Low LOD.
+const LOW_LOD_DENSITY_THRESHOLD: f32 = 5.0;
+/// Items-per-pixel density above which we force Medium LOD.
+const MEDIUM_LOD_DENSITY_THRESHOLD: f32 = 2.0;
+/// Visible item count above which we force Low LOD.
+const LOW_LOD_ITEM_COUNT_THRESHOLD: usize = 10_000;
+/// Visible item count above which we force Medium LOD.
+const MEDIUM_LOD_ITEM_COUNT_THRESHOLD: usize = 5_000;
+
 /// LOD calculator based on viewport and data characteristics
 pub struct LodCalculator {
     /// Current scaling factor (zoom level)
@@ -108,14 +121,17 @@ impl LodCalculator {
         let item_count = self.visible_item_count;
 
         // Decision logic
-        if self.scaling < 0.5 || items_per_pixel > 5.0 || item_count > 10_000 {
-            // Very zoomed out, very dense data, or too many items
+        if self.scaling < LOW_LOD_SCALING_THRESHOLD
+            || items_per_pixel > LOW_LOD_DENSITY_THRESHOLD
+            || item_count > LOW_LOD_ITEM_COUNT_THRESHOLD
+        {
             LodLevel::Low
-        } else if self.scaling < 1.0 || items_per_pixel > 2.0 || item_count > 5_000 {
-            // Moderately zoomed out, moderate density, or many items
+        } else if self.scaling < MEDIUM_LOD_SCALING_THRESHOLD
+            || items_per_pixel > MEDIUM_LOD_DENSITY_THRESHOLD
+            || item_count > MEDIUM_LOD_ITEM_COUNT_THRESHOLD
+        {
             LodLevel::Medium
         } else {
-            // Zoomed in, sparse data, or reasonable item count
             LodLevel::High
         }
     }

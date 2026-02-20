@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 /// Get the drawings file path for a chart
 pub fn drawings_path(ticker: &str, basis: &str) -> PathBuf {
-    let mut path = data::data_path(Some("drawings"));
+    let mut path = crate::infra::platform::data_path(Some("drawings"));
     path.push(format!("{}_{}.json", ticker, basis));
     path
 }

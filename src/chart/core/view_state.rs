@@ -165,11 +165,11 @@ impl ViewState {
     pub fn price_to_y(&self, price: Price) -> f32 {
         if self.tick_size.units == 0 {
             let one = Self::price_unit() as f32;
-            let delta_units = (self.base_price_y.units - price.units) as f32;
+            let delta_units = (self.base_price_y.units() - price.units()) as f32;
             return (delta_units / one) * self.cell_height;
         }
 
-        let delta_units = self.base_price_y.units - price.units;
+        let delta_units = self.base_price_y.units() - price.units();
         let ticks = (delta_units as f32) / (self.tick_size.units as f32);
         ticks * self.cell_height
     }
@@ -179,12 +179,12 @@ impl ViewState {
         if self.tick_size.units == 0 {
             let one = Self::price_unit() as f32;
             let delta_units = ((y / self.cell_height) * one).round() as i64;
-            return Price::from_units(self.base_price_y.units - delta_units);
+            return Price::from_units(self.base_price_y.units() - delta_units);
         }
 
         let ticks: f32 = y / self.cell_height;
         let delta_units = (ticks * self.tick_size.units as f32).round() as i64;
-        Price::from_units(self.base_price_y.units - delta_units)
+        Price::from_units(self.base_price_y.units() - delta_units)
     }
 
     /// Get the current layout configuration

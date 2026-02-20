@@ -9,7 +9,7 @@ use crate::style::{self, tokens};
 use data::config::panel::ladder::Config;
 use data::{DepthSnapshot, Side, Trade};
 use exchange::TickerInfo;
-use exchange::util::{Price as ExPrice, PriceStep};
+use exchange::util::{Price as ExPrice, PriceExt, PriceStep};
 
 use iced::widget::canvas::{self, Path, Stroke, Text};
 use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
@@ -105,12 +105,12 @@ impl Ladder {
 
         for (price, qty) in &depth.bids {
             let ex_price = ExPrice::from(*price);
-            ex_bids.insert(ex_price.units, qty.0 as f32);
+            ex_bids.insert(ex_price.units(), qty.0 as f32);
         }
 
         for (price, qty) in &depth.asks {
             let ex_price = ExPrice::from(*price);
-            ex_asks.insert(ex_price.units, qty.0 as f32);
+            ex_asks.insert(ex_price.units(), qty.0 as f32);
         }
 
         // Calculate raw spread
@@ -131,13 +131,13 @@ impl Ladder {
         if self.config.show_chase_tracker {
             let max_int = CHASE_MIN_INTERVAL.as_millis() as u64;
             self.chase_tracker_mut(Side::Bid).update(
-                raw_best_bid.map(|p| p.units),
+                raw_best_bid.map(|p| p.units()),
                 true,
                 update_t,
                 max_int,
             );
             self.chase_tracker_mut(Side::Ask).update(
-                raw_best_ask.map(|p| p.units),
+                raw_best_ask.map(|p| p.units()),
                 false,
                 update_t,
                 max_int,
@@ -241,7 +241,7 @@ impl Ladder {
     fn format_price(&self, price: ExPrice) -> String {
         let precision_f32 = self.ticker_info.min_ticksize.to_f32_lossy();
         let precision = exchange::util::MinTicksize::from(precision_f32);
-        price.to_string(precision)
+        price.fmt_with_precision(precision)
     }
 
     fn format_quantity(&self, qty: f32) -> String {
@@ -366,7 +366,7 @@ impl canvas::Program<Message> for Ladder {
                                 spread_row = Some((visible_row.y, visible_row.y + ROW_HEIGHT));
 
                                 let spread = spread.round_to_min_tick(min_ticksize);
-                                let content = format!("Spread: {}", spread.to_string(min_ticksize));
+                                let content = format!("Spread: {}", spread.fmt_with_precision(min_ticksize));
                                 frame.fill_text(Text {
                                     content,
                                     position: Point::new(
@@ -775,8 +775,8 @@ impl Ladder {
     ) {
         let radius = CHASE_CIRCLE_RADIUS;
         if let Some((start_p_units, end_p_units, alpha)) = tracker.segment() {
-            let start_p = ExPrice::from_units(start_p_units).round_to_side_step(is_bid, grid.tick);
-            let end_p = ExPrice::from_units(end_p_units).round_to_side_step(is_bid, grid.tick);
+            let start_p = ExPrice::from_units(start_p_units).round_to_side_step(is_bid, grid.tick.into());
+            let end_p = ExPrice::from_units(end_p_units).round_to_side_step(is_bid, grid.tick.into());
 
             let color = color.scale_alpha(alpha);
             let stroke_w = 2.0;
@@ -810,15 +810,15 @@ impl Ladder {
     fn build_price_grid(&self) -> Option<PriceGrid> {
         let best_bid = match (self.best_price(Side::Bid), self.best_price(Side::Ask)) {
             (Some(bb), _) => bb,
-            (None, Some(ba)) => ba.add_steps(-1, self.tick_size),
+            (None, Some(ba)) => ba.add_steps(-1, self.tick_size.into()),
             (None, None) => {
                 let (min_t, max_t) = self.trades.price_range()?;
                 let steps =
-                    ExPrice::steps_between_inclusive(min_t, max_t, self.tick_size).unwrap_or(1);
-                max_t.add_steps(-(steps as i64 / 2), self.tick_size)
+                    ExPrice::steps_between_inclusive(min_t, max_t, self.tick_size.into()).unwrap_or(1);
+                max_t.add_steps(-(steps as i64 / 2), self.tick_size.into())
             }
         };
-        let best_ask = best_bid.add_steps(1, self.tick_size);
+        let best_ask = best_bid.add_steps(1, self.tick_size.into());
 
         Some(PriceGrid {
             best_bid,
@@ -917,10 +917,10 @@ impl Ladder {
         let scroll = self.scroll_px;
 
         let idx = if price >= grid.best_ask {
-            let steps = ExPrice::steps_between_inclusive(grid.best_ask, price, grid.tick)?;
+            let steps = ExPrice::steps_between_inclusive(grid.best_ask, price, grid.tick.into())?;
             -(steps as i32)
         } else if price <= grid.best_bid {
-            let steps = ExPrice::steps_between_inclusive(price, grid.best_bid, grid.tick)?;
+            let steps = ExPrice::steps_between_inclusive(price, grid.best_bid, grid.tick.into())?;
             steps as i32
         } else {
             return Some(mid_screen_y - scroll);
@@ -952,10 +952,10 @@ impl PriceGrid {
         }
         if idx > 0 {
             let off = (idx - 1) as i64; // 1 => best_bid, 2 => best_bid - 1 tick
-            Some(self.best_bid.add_steps(-off, self.tick))
+            Some(self.best_bid.add_steps(-off, self.tick.into()))
         } else {
             let off = (-1 - idx) as i64; // -1 => best_ask, -2 => best_ask + 1 tick
-            Some(self.best_ask.add_steps(off, self.tick))
+            Some(self.best_ask.add_steps(off, self.tick.into()))
         }
     }
 
@@ -986,7 +986,7 @@ impl GroupedDepth {
 
         for (price_units, qty) in raw.iter() {
             let price = ExPrice::from_units(*price_units);
-            let grouped_price = price.round_to_side_step(side == Side::Bid, tick_step);
+            let grouped_price = price.round_to_side_step(side == Side::Bid, tick_step.into());
             *self.orders.entry(grouped_price).or_insert(0.0) += *qty;
         }
     }
@@ -1027,7 +1027,7 @@ impl TradeStore {
     ) {
         self.trades.push((time, price, qty, is_sell));
 
-        let grouped_price = price.round_to_step(step);
+        let grouped_price = price.round_to_step(step.into());
         if is_sell {
             *self.grouped_sell.entry(grouped_price).or_insert(0.0) += qty;
         } else {
@@ -1063,7 +1063,7 @@ impl TradeStore {
         self.grouped_sell.clear();
 
         for &(_, price, qty, is_sell) in &self.trades {
-            let grouped_price = price.round_to_step(step);
+            let grouped_price = price.round_to_step(step.into());
             if is_sell {
                 *self.grouped_sell.entry(grouped_price).or_insert(0.0) += qty;
             } else {

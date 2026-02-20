@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod empty_state;
 pub mod key_value;
 pub mod loading_status;

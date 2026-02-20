@@ -2,15 +2,18 @@ mod chart;
 mod download;
 mod feeds;
 mod navigation;
+#[cfg(feature = "options")]
 mod options;
 mod preferences;
 mod replay;
 
 use iced::Task;
 
-use super::{ChartMessage, DownloadMessage, Flowsurface, Message, OptionsMessage};
+#[cfg(feature = "options")]
+use super::OptionsMessage;
+use super::{ChartMessage, DownloadMessage, Kairos, Message};
 
-impl Flowsurface {
+impl Kairos {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // Chart data loading (sub-enum)
@@ -36,6 +39,7 @@ impl Flowsurface {
             },
 
             // Options data loading (sub-enum)
+            #[cfg(feature = "options")]
             Message::Options(msg) => match msg {
                 OptionsMessage::OptionChainLoaded { pane_id, result } => {
                     self.handle_option_chain_loaded(pane_id, result);
@@ -80,6 +84,9 @@ impl Flowsurface {
                     result,
                 } => {
                     return self.handle_download_complete(pane_id, ticker, date_range, result);
+                }
+                DownloadMessage::ApiKeySetup(msg) => {
+                    return self.handle_api_key_setup(msg);
                 }
                 DownloadMessage::HistoricalDownload(msg) => {
                     return self.handle_historical_download(msg);

@@ -72,7 +72,7 @@ impl SavedState {
             sidebar,
             theme: data::Theme::default(),
             custom_theme: None,
-            downloaded_tickers: (*downloaded_tickers.lock().unwrap()).clone(),
+            downloaded_tickers: (*data::lock_or_recover(&downloaded_tickers)).clone(),
             data_feeds: data::DataFeedManager::default(),
         }
     }
@@ -118,9 +118,10 @@ impl From<&Dashboard> for data::Dashboard {
 
 impl From<&pane::State> for data::Pane {
     fn from(pane: &pane::State) -> Self {
-        // Clone settings and sync drawings from chart
+        // Clone settings and sync drawings + studies from chart
         let mut settings = pane.settings.clone();
         settings.drawings = pane.content.serialize_drawings();
+        settings.studies = pane.content.serialize_studies();
 
         data::Pane::Content {
             kind: pane.content.kind(),
@@ -156,8 +157,8 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                 },
                 data::ContentKind::CandlestickChart => pane::Content::Kline {
                     chart: None,
-                    indicators: vec![],
                     layout: data::ViewConfig::default(),
+                    study_ids: vec![],
                 },
                 data::ContentKind::TimeAndSales => pane::Content::TimeAndSales(None),
                 data::ContentKind::Ladder => pane::Content::Ladder(None),
@@ -176,7 +177,8 @@ pub fn load_saved_state_without_registry(
 ) -> SavedState {
     let downloaded_tickers =
         std::sync::Arc::new(std::sync::Mutex::new(data::DownloadedTickersRegistry::new()));
-    match data::load_state("app-state.json") {
+    let state_dir = crate::infra::platform::data_path(None);
+    match data::load_state(state_dir.as_path(), "app-state.json") {
         Ok(state) => {
             // AppState persists layout metadata (names, IDs) but not the full
             // Dashboard tree (pane splits, chart configs). To complete this:

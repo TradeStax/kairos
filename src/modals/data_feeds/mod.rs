@@ -320,7 +320,7 @@ impl DataFeedsModal {
                     if provider == Some(FeedProvider::Databento)
                         && !self.edit_form.api_key.is_empty()
                     {
-                        let secrets = data::SecretsManager::new();
+                        let secrets = crate::infra::secrets::SecretsManager::new();
                         if let Err(e) = secrets
                             .set_api_key(data::ApiProvider::Databento, &self.edit_form.api_key)
                         {
@@ -330,7 +330,7 @@ impl DataFeedsModal {
                     if provider == Some(FeedProvider::Rithmic)
                         && !self.edit_form.password.is_empty()
                     {
-                        let secrets = data::SecretsManager::new();
+                        let secrets = crate::infra::secrets::SecretsManager::new();
                         if let Err(e) = secrets
                             .set_api_key(data::ApiProvider::Rithmic, &self.edit_form.password)
                         {

@@ -50,7 +50,9 @@ impl TickerSeriesEditor {
                     return None;
                 }
                 self.show_config_for = Some(ticker);
-                self.editing_color = Some(data::config::theme::to_hsva(applied_color));
+                self.editing_color = Some(data::config::theme::rgba_to_hsva(
+                    crate::style::theme_bridge::iced_color_to_rgba(applied_color),
+                ));
                 self.editing_name = applied_name;
                 None
             }
@@ -59,7 +61,9 @@ impl TickerSeriesEditor {
                 if let Some(t) = self.show_config_for {
                     return Some(Action::SeriesColorChanged(
                         t,
-                        data::config::theme::from_hsva(hsva),
+                        crate::style::theme_bridge::rgba_to_iced_color(
+                            data::config::theme::hsva_to_rgba(hsva),
+                        ),
                     ));
                 }
                 None
@@ -110,7 +114,11 @@ impl TickerSeriesEditor {
             if is_open {
                 let hsva_in = self
                     .editing_color
-                    .unwrap_or_else(|| data::config::theme::to_hsva(applied));
+                    .unwrap_or_else(|| {
+                        data::config::theme::rgba_to_hsva(crate::style::theme_bridge::iced_color_to_rgba(
+                            applied,
+                        ))
+                    });
                 inner_col = inner_col.push(color_picker(hsva_in, Message::ColorChangedHsva, 280.0));
 
                 let label_name = self

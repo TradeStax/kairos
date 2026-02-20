@@ -73,18 +73,3 @@ where
     ]
     .into()
 }
-
-/// Backward-compatible wrapper: same signature as the old `dashboard_modal`.
-pub fn dashboard_modal<'a, Message>(
-    base: impl Into<Element<'a, Message>>,
-    content: impl Into<Element<'a, Message>>,
-    on_blur: Message,
-    padding: padding::Padding,
-    align_y: Alignment,
-    align_x: Alignment,
-) -> Element<'a, Message>
-where
-    Message: Clone + 'a,
-{
-    positioned_overlay(base, content, on_blur, padding, align_y, align_x)
-}

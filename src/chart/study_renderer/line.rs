@@ -47,9 +47,16 @@ fn render_single_line(
         return;
     }
 
-    let color: Color = series.color.into();
+    let color: Color = crate::style::theme_bridge::rgba_to_iced_color(series.color);
+    // Divide width by scaling so lines maintain a consistent
+    // screen-pixel thickness regardless of zoom level.
+    let effective_width = if state.scaling > f32::EPSILON {
+        series.width / state.scaling
+    } else {
+        series.width
+    };
     let stroke = Stroke {
-        width: series.width,
+        width: effective_width,
         line_dash: line_dash_for_style(&series.style),
         ..Stroke::default()
     };

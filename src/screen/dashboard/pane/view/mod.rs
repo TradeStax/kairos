@@ -187,7 +187,6 @@ impl State {
                     self.compose_stack_view(
                         base,
                         id,
-                        None,
                         compact_controls,
                         settings_modal,
                         None,
@@ -198,7 +197,6 @@ impl State {
                     self.compose_stack_view(
                         base,
                         id,
-                        None,
                         compact_controls,
                         || column![].into(),
                         None,
@@ -229,7 +227,6 @@ impl State {
                     self.compose_stack_view(
                         base,
                         id,
-                        None,
                         compact_controls,
                         settings_modal,
                         None,
@@ -240,7 +237,6 @@ impl State {
                     self.compose_stack_view(
                         base,
                         id,
-                        None,
                         compact_controls,
                         || column![].into(),
                         None,
@@ -269,13 +265,10 @@ impl State {
                 }
                 body
             }
-            Content::Kline {
-                chart, indicators, ..
-            } => {
+            Content::Kline { chart, .. } => {
                 let (body, extras) = self.view_kline_body(
                     id,
                     chart,
-                    indicators,
                     modifier,
                     compact_controls,
                     uninitialized_base,

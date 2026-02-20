@@ -66,23 +66,22 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
     };
 
     // Draw value area background if present
-    if let Some((vah_idx, val_idx)) = profile.value_area {
-        if let (Some(vah_level), Some(val_level)) =
+    if let Some((vah_idx, val_idx)) = profile.value_area
+        && let (Some(vah_level), Some(val_level)) =
             (profile.levels.get(vah_idx), profile.levels.get(val_idx))
-        {
-            let y_vah = state.price_to_y(Price::from_f32_lossy(vah_level.price as f32));
-            let y_val = state.price_to_y(Price::from_f32_lossy(val_level.price as f32));
+    {
+        let y_vah = state.price_to_y(Price::from_f32_lossy(vah_level.price as f32));
+        let y_val = state.price_to_y(Price::from_f32_lossy(val_level.price as f32));
 
-            let top = y_vah.min(y_val);
-            let height = (y_vah - y_val).abs();
+        let top = y_vah.min(y_val);
+        let height = (y_vah - y_val).abs();
 
-            if height > 0.0 {
-                frame.fill_rectangle(
-                    Point::new(-bounds.width, top),
-                    Size::new(bounds.width * 3.0, height),
-                    VALUE_AREA_COLOR,
-                );
-            }
+        if height > 0.0 {
+            frame.fill_rectangle(
+                Point::new(-bounds.width, top),
+                Size::new(bounds.width * 3.0, height),
+                VALUE_AREA_COLOR,
+            );
         }
     }
 

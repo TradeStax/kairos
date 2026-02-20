@@ -109,7 +109,11 @@ impl ComparisonChart {
 
         let cfg = config.unwrap_or_default();
 
-        let color_map: FxHashMap<String, iced::Color> = cfg.colors.iter().cloned().collect();
+        let color_map: FxHashMap<String, iced::Color> = cfg
+            .colors
+            .iter()
+            .map(|(s, r)| (s.clone(), crate::style::theme_bridge::rgba_to_iced_color(*r)))
+            .collect();
         let name_map: FxHashMap<String, String> = cfg.names.iter().cloned().collect();
 
         let mut series = Vec::with_capacity(tickers_data.len());
@@ -248,7 +252,7 @@ impl ComparisonChart {
             .colors
             .iter()
             .find(|(t, _)| t == &ticker_str)
-            .map(|(_, c)| *c)
+            .map(|(_, r)| crate::style::theme_bridge::rgba_to_iced_color(*r))
             .unwrap_or_else(|| default_color_for(ticker_info));
         let name = self
             .config
@@ -381,7 +385,7 @@ impl ComparisonChart {
             let futures_info = old_format_to_ticker_info(&s.ticker_info);
             let ticker_str = futures_info.ticker.as_str().to_string();
 
-            colors.push((ticker_str.clone(), s.color));
+            colors.push((ticker_str.clone(), crate::style::theme_bridge::iced_color_to_rgba(s.color)));
             if let Some(name) = &s.name {
                 names.push((ticker_str, name.clone()));
             }
@@ -409,7 +413,9 @@ impl ComparisonChart {
 
         if let Some(idx) = self.series_index.get(&ticker_info) {
             self.series_editor.editing_color =
-                Some(data::config::theme::to_hsva(self.series[*idx].color));
+                Some(data::config::theme::rgba_to_hsva(crate::style::theme_bridge::iced_color_to_rgba(
+                    self.series[*idx].color,
+                )));
             self.series_editor.editing_name = self.series[*idx].name.clone();
         } else {
             self.series_editor.editing_color = None;
@@ -429,15 +435,16 @@ impl ComparisonChart {
 
     fn upsert_config_color(&mut self, ticker_info: FuturesTickerInfo, color: iced::Color) {
         let ticker_str = ticker_info.ticker.as_str().to_string();
+        let rgba = crate::style::theme_bridge::iced_color_to_rgba(color);
         if let Some((_, c)) = self
             .config
             .colors
             .iter_mut()
             .find(|(t, _)| t == &ticker_str)
         {
-            *c = color;
+            *c = rgba;
         } else {
-            self.config.colors.push((ticker_str, color));
+            self.config.colors.push((ticker_str, rgba));
         }
     }
 
@@ -505,7 +512,9 @@ fn default_color_for(ticker: &FuturesTickerInfo) -> iced::Color {
     let s = 0.60 + (((seed >> 8) & 0xFF) as f32 / 255.0) * 0.25; // 0.60..=0.85
     let v = 0.85 + (((seed >> 16) & 0x7F) as f32 / 127.0) * 0.10; // 0.85..=0.95
 
-    data::config::theme::from_hsv_degrees(hue, s.min(1.0), v.min(1.0))
+    crate::style::theme_bridge::rgba_to_iced_color(
+        data::config::theme::from_hsv_degrees_rgba(hue, s.min(1.0), v.min(1.0)),
+    )
 }
 
 // ── Compatibility Layer (Temporary Bridge) ────────────────────────────

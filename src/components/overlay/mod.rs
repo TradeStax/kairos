@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod confirm_dialog;
 pub mod context_menu;
 pub mod dropdown_menu;

@@ -7,29 +7,22 @@ use crate::screen::dashboard::Dashboard;
 use crate::window;
 use data::state::WindowSpec;
 
-use super::{Flowsurface, Message};
+use super::{Kairos, Message};
 
-impl Flowsurface {
-    pub fn active_dashboard(&self) -> &Dashboard {
-        let active_layout = self
-            .layout_manager
-            .active_layout_id()
-            .expect("No active layout");
+impl Kairos {
+    pub fn active_dashboard(&self) -> Option<&Dashboard> {
+        let active_layout = self.layout_manager.active_layout_id()?;
         self.layout_manager
             .get(active_layout.unique)
             .map(|layout| &layout.dashboard)
-            .expect("No active dashboard")
     }
 
-    pub fn active_dashboard_mut(&mut self) -> &mut Dashboard {
-        let active_layout = self
-            .layout_manager
-            .active_layout_id()
-            .expect("No active layout");
+    pub fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
+        let active_layout = self.layout_manager.active_layout_id()?;
+        let unique = active_layout.unique;
         self.layout_manager
-            .get_mut(active_layout.unique)
+            .get_mut(unique)
             .map(|layout| &mut layout.dashboard)
-            .expect("No active dashboard")
     }
 
     pub fn load_layout(
@@ -55,14 +48,16 @@ impl Flowsurface {
     }
 
     pub fn save_state_to_disk(&mut self, windows: &HashMap<window::Id, WindowSpec>) {
-        self.active_dashboard_mut()
-            .popout
-            .iter_mut()
-            .for_each(|(id, (_, window_spec))| {
-                if let Some(new_window_spec) = windows.get(id) {
-                    *window_spec = new_window_spec.clone();
-                }
-            });
+        if let Some(dashboard) = self.active_dashboard_mut() {
+            dashboard
+                .popout
+                .iter_mut()
+                .for_each(|(id, (_, window_spec))| {
+                    if let Some(new_window_spec) = windows.get(id) {
+                        *window_spec = new_window_spec.clone();
+                    }
+                });
+        }
 
         let main_window_spec = windows
             .iter()
@@ -99,12 +94,15 @@ impl Flowsurface {
         let state = data::AppState::from_parts(
             layout_manager_clone,
             self.theme.clone(),
-            self.theme_editor.custom_theme.clone().map(data::Theme),
+            self.theme_editor
+                .custom_theme
+                .clone()
+                .map(crate::style::theme_bridge::iced_theme_to_data),
             main_window_spec,
             self.timezone,
             self.sidebar.state.clone(),
             self.ui_scale_factor,
-            self.downloaded_tickers.lock().unwrap().clone(),
+            data::lock_or_recover(&self.downloaded_tickers).clone(),
             self.data_feed_manager
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -112,7 +110,8 @@ impl Flowsurface {
         );
 
         // Save state using the persistence module
-        if let Err(e) = data::save_state(&state, "app-state.json") {
+        let state_dir = crate::infra::platform::data_path(None);
+        if let Err(e) = data::save_state(&state, state_dir.as_path(), "app-state.json") {
             log::error!("Failed to save application state: {}", e);
         } else {
             log::info!("Application state persisted successfully");
@@ -121,8 +120,10 @@ impl Flowsurface {
 
     #[allow(dead_code)]
     pub fn restart(&mut self) -> Task<Message> {
-        let mut windows_to_close: Vec<window::Id> =
-            self.active_dashboard().popout.keys().copied().collect();
+        let mut windows_to_close: Vec<window::Id> = self
+            .active_dashboard()
+            .map(|d| d.popout.keys().copied().collect())
+            .unwrap_or_default();
         windows_to_close.push(self.main_window.id);
 
         let close_windows = Task::batch(
@@ -132,7 +133,7 @@ impl Flowsurface {
                 .collect::<Vec<_>>(),
         );
 
-        let (new_state, init_task) = Flowsurface::new();
+        let (new_state, init_task) = Kairos::new();
         *self = new_state;
 
         close_windows.chain(init_task)
@@ -181,10 +182,8 @@ impl Flowsurface {
 
         let active_popout_keys = self
             .active_dashboard()
-            .popout
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
+            .map(|d| d.popout.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         let window_tasks = Task::batch(
             active_popout_keys

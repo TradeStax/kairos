@@ -37,7 +37,7 @@ pub fn render_histogram(
     for bar in bars {
         let sx = state.interval_to_x(bar.x);
         let left = sx - bar_width / 2.0;
-        let color: Color = bar.color.into();
+        let color: Color = crate::style::theme_bridge::rgba_to_iced_color(bar.color);
 
         match placement {
             StudyPlacement::Overlay | StudyPlacement::Background => {

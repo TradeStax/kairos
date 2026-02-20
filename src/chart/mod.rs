@@ -8,24 +8,16 @@ pub mod comparison;
 pub mod core;
 pub mod drawing;
 pub mod heatmap;
-pub mod indicator;
 pub mod overlay;
 pub mod perf;
 pub(crate) mod scale;
-#[allow(dead_code)]
-pub(crate) mod study;
-#[allow(dead_code)]
 pub mod study_renderer;
 
 // Re-export KlineChart for backwards compatibility
 
 // Re-export core types for public API
-pub use core::{
-    Caches, Chart, ChartState, Interaction, PlotConstants, ViewState, canvas_interaction,
-};
+pub use core::{Chart, ChartState, Interaction, PlotConstants, ViewState, canvas_interaction};
 
-use crate::components::display::tooltip::tooltip;
-use crate::components::layout::multi_split::MultiSplit;
 use crate::style;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
@@ -33,7 +25,7 @@ use scale::{AxisLabelsX, AxisLabelsY};
 use iced::widget::canvas::{Canvas, Frame};
 use iced::{
     Alignment, Element, Length, Point, Rectangle, Size, Theme, Vector,
-    widget::{button, center, column, container, mouse_area, row, rule, text},
+    widget::{button, center, column, container, mouse_area, row, rule, text, tooltip},
 };
 
 use crate::style::tokens;
@@ -89,7 +81,7 @@ pub enum Message {
 
 /// Chart action for side effects
 pub enum Action {
-    ErrorOccurred(crate::error::InternalError),
+    ErrorOccurred(crate::infra::error::InternalError),
 }
 
 /// Update chart state based on message
@@ -328,9 +320,7 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
 /// Render chart view
 pub fn view<'a, T: Chart>(
     chart: &'a T,
-    indicators: &'a [T::IndicatorKind],
     timezone: data::UserTimezone,
-    selected_indicator_panel: Option<usize>,
 ) -> Element<'a, Message> {
     if chart.is_empty() {
         return center(text("Waiting for data...").size(16)).into();
@@ -385,7 +375,7 @@ pub fn view<'a, T: Chart>(
 
     let y_labels_width = state.y_labels_width();
 
-    let content = {
+    let content: Element<'_, Message> = {
         let axis_labels_y = Canvas::new(AxisLabelsY {
             labels_cache: &state.cache.y_labels,
             translation_y: state.translation.y,
@@ -401,7 +391,7 @@ pub fn view<'a, T: Chart>(
         .width(Length::Fill)
         .height(Length::Fill);
 
-        let main_chart: Element<_> = row![
+        row![
             container(Canvas::new(chart).width(Length::Fill).height(Length::Fill))
                 .width(Length::FillPortion(10))
                 .height(Length::FillPortion(120)),
@@ -413,44 +403,7 @@ pub fn view<'a, T: Chart>(
             .width(y_labels_width)
             .height(Length::FillPortion(120))
         ]
-        .into();
-
-        let indicator_elems = chart.view_indicators(indicators);
-
-        if indicator_elems.is_empty() {
-            main_chart
-        } else {
-            let wrapped: Vec<Element<_>> = indicator_elems
-                .into_iter()
-                .enumerate()
-                .map(|(i, elem)| {
-                    let is_selected = selected_indicator_panel == Some(i);
-                    let styled: Element<_> = container(elem)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .style(move |theme: &Theme| {
-                            if is_selected {
-                                style::selected_indicator(theme)
-                            } else {
-                                container::Style::default()
-                            }
-                        })
-                        .into();
-                    mouse_area(styled)
-                        .on_press(Message::IndicatorClicked(i))
-                        .into()
-                })
-                .collect();
-
-            let panels = std::iter::once(main_chart)
-                .chain(wrapped)
-                .collect::<Vec<_>>();
-
-            MultiSplit::new(panels, &state.layout.splits, |index, position| {
-                Message::SplitDragged(index, position)
-            })
-            .into()
-        }
+        .into()
     };
 
     column![
@@ -471,21 +424,33 @@ pub fn view<'a, T: Chart>(
     .into()
 }
 
+/// Volume quantities and colors for a buy/sell bar.
+pub struct VolumeBarSpec {
+    pub buy_qty: f32,
+    pub sell_qty: f32,
+    pub max_qty: f32,
+    pub buy_color: iced::Color,
+    pub sell_color: iced::Color,
+    pub alpha: f32,
+}
+
 /// Draw a volume bar with buy/sell proportions
 pub fn draw_volume_bar(
     frame: &mut Frame,
     start_x: f32,
     start_y: f32,
-    buy_qty: f32,
-    sell_qty: f32,
-    max_qty: f32,
+    spec: &VolumeBarSpec,
     bar_length: f32,
     thickness: f32,
-    buy_color: iced::Color,
-    sell_color: iced::Color,
-    bar_color_alpha: f32,
     horizontal: bool,
 ) {
+    let buy_qty = spec.buy_qty;
+    let sell_qty = spec.sell_qty;
+    let max_qty = spec.max_qty;
+    let buy_color = spec.buy_color;
+    let sell_color = spec.sell_color;
+    let bar_color_alpha = spec.alpha;
+
     let total_qty = buy_qty + sell_qty;
     if total_qty <= 0.0 || max_qty <= 0.0 {
         return;

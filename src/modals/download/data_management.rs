@@ -11,7 +11,7 @@ use crate::components::layout::scrollable_content::scrollable_content;
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
 use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};
-use exchange::DatabentoSchema;
+use exchange::DownloadSchema;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, space, text},
@@ -44,12 +44,12 @@ pub enum DataManagementMessage {
 pub enum Action {
     EstimateRequested {
         ticker: FuturesTicker,
-        schema: DatabentoSchema,
+        schema: DownloadSchema,
         date_range: DateRange,
     },
     DownloadRequested {
         ticker: FuturesTicker,
-        schema: DatabentoSchema,
+        schema: DownloadSchema,
         date_range: DateRange,
     },
 }

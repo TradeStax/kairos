@@ -5,13 +5,19 @@ use super::{ChartMessage, DownloadMessage, Message};
 use crate::window;
 
 /// Rithmic streaming event monitor
-/// Drains ALL events from the global buffer every 50ms
+/// Drains ALL events from the global buffer every 50ms.
+/// Sleeps longer (500ms) when no Rithmic feed is active.
 fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
     futures::stream::unfold((), |_| async {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let interval = if super::globals::is_rithmic_active() {
+            std::time::Duration::from_millis(50)
+        } else {
+            std::time::Duration::from_millis(500)
+        };
+        tokio::time::sleep(interval).await;
 
         let events: Vec<exchange::Event> = {
-            if let Ok(mut buf) = super::get_rithmic_events().lock() {
+            if let Ok(mut buf) = super::globals::get_rithmic_events().lock() {
                 if buf.is_empty() {
                     return Some((Vec::new(), ()));
                 }
@@ -27,13 +33,19 @@ fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
 }
 
 /// Replay engine event monitor
-/// Drains ALL events from the global buffer every 50ms
+/// Drains ALL events from the global buffer every 50ms.
+/// Sleeps longer (500ms) when no replay session is active.
 fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
     futures::stream::unfold((), |_| async {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let interval = if super::globals::is_replay_active() {
+            std::time::Duration::from_millis(50)
+        } else {
+            std::time::Duration::from_millis(500)
+        };
+        tokio::time::sleep(interval).await;
 
         let events: Vec<data::services::ReplayEvent> = {
-            if let Ok(mut buf) = super::get_replay_events().lock() {
+            if let Ok(mut buf) = super::globals::get_replay_events().lock() {
                 if buf.is_empty() {
                     return Some((Vec::new(), ()));
                 }
@@ -55,7 +67,7 @@ pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Messag
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages: Vec<Message> = {
-            if let Ok(progress) = super::get_download_progress().lock() {
+            if let Ok(progress) = super::globals::get_download_progress().lock() {
                 progress
                     .iter()
                     .map(|(&pane_id, &(current, total))| {

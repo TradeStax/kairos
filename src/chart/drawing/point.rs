@@ -79,7 +79,7 @@ impl DrawingPoint {
     #[allow(clippy::wrong_self_convention)]
     pub fn to_serializable(&self) -> SerializablePoint {
         SerializablePoint {
-            price_units: self.price.units,
+            price_units: self.price.units(),
             time: self.time,
             snapped: self.snapped,
         }

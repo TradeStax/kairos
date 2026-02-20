@@ -22,6 +22,14 @@ use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 // Re-export HeatmapStudy and ProfileKind from data module
 pub use data::domain::chart::heatmap::{HeatmapStudy, ProfileKind};
 
+/// Base font size in pixels for chart labels, scaled by 1/chart.scaling.
+const CHART_LABEL_BASE_PX: f32 = 9.0;
+
+/// Compute the text size for chart labels at the current zoom level.
+fn chart_text_size(scaling: f32) -> f32 {
+    CHART_LABEL_BASE_PX / scaling
+}
+
 impl canvas::Program<Message> for HeatmapChart {
     type State = ChartState;
 
@@ -75,8 +83,8 @@ impl canvas::Program<Message> for HeatmapChart {
             let (highest_exch, lowest_exch) = chart.price_range(&region);
 
             // Convert exchange::util::Price to data::Price
-            let highest = DataPrice::from_units(highest_exch.units);
-            let lowest = DataPrice::from_units(lowest_exch.units);
+            let highest = DataPrice::from_units(highest_exch.units());
+            let lowest = DataPrice::from_units(lowest_exch.units());
 
             if latest < earliest {
                 return;
@@ -147,6 +155,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 cell_height,
                 max_trade_qty,
                 &self.visual_config,
+                visible_data_count,
             );
 
             // Draw Volume Indicator
@@ -164,7 +173,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 );
             }
 
-            // Draw Volume Profile Study
+            // Draw Volume Profile Study (using cached profile)
             if let Some(profile_kind) = self
                 .studies
                 .iter()
@@ -173,16 +182,28 @@ impl canvas::Program<Message> for HeatmapChart {
                 })
                 .next()
             {
-                draw_volume_profile(
-                    frame,
-                    &region,
-                    profile_kind,
-                    palette,
-                    chart,
-                    &self.heatmap_data,
-                    (bounds.width / chart.scaling) * 0.1,
-                    self.basis,
-                );
+                if let Some((time_range, first_tick, last_tick, step_units, num_ticks)) =
+                    volume_profile_params(&region, profile_kind, chart, self.basis)
+                {
+                    self.get_or_compute_volume_profile(
+                        time_range,
+                        first_tick,
+                        last_tick,
+                        step_units,
+                        num_ticks,
+                    );
+                    let cache = self.volume_profile_cache.borrow();
+                    if let Some((_, ref profile)) = *cache {
+                        render_volume_profile(
+                            frame,
+                            &region,
+                            palette,
+                            chart,
+                            profile,
+                            (bounds.width / chart.scaling) * 0.1,
+                        );
+                    }
+                }
             }
 
             // Draw data gap markers
@@ -394,7 +415,7 @@ fn draw_latest_orderbook(
         }
 
         // Draw max quantity label
-        let text_size = 9.0 / chart.scaling;
+        let text_size = chart_text_size(chart.scaling);
         let text_content = abbr_large_numbers(max_qty);
         let text_position = Point::new(50.0, region.y);
 
@@ -423,14 +444,8 @@ fn draw_trade_markers(
     cell_height: f32,
     max_trade_qty: f32,
     visual_config: &VisualConfig,
+    visible_trade_count: usize,
 ) {
-    // Count total visible trades for density calculation
-    let visible_trade_count: usize = heatmap_data
-        .trades_by_time
-        .range(earliest..=latest)
-        .map(|(_, dp)| dp.grouped_trades.len())
-        .sum();
-
     // Calculate LOD level for adaptive quality
     let lod_calc = crate::chart::perf::lod::LodCalculator::new(
         chart.scaling,
@@ -524,25 +539,28 @@ fn draw_volume_indicator(
 
         let (buy_volume, sell_volume) = (dp.buy_volume, dp.sell_volume);
 
+        let spec = crate::chart::VolumeBarSpec {
+            buy_qty: buy_volume,
+            sell_qty: sell_volume,
+            max_qty: max_aggr_volume,
+            buy_color: palette.success.base.color,
+            sell_color: palette.danger.base.color,
+            alpha: 1.0,
+        };
         crate::chart::draw_volume_bar(
             frame,
             x_position,
             (region.y + region.height) - area_height,
-            buy_volume,
-            sell_volume,
-            max_aggr_volume,
+            &spec,
             area_height,
             bar_width,
-            palette.success.base.color,
-            palette.danger.base.color,
-            1.0,
             false,
         );
     }
 
     // Draw max volume label
     if max_aggr_volume > 0.0 {
-        let text_size = 9.0 / chart.scaling;
+        let text_size = chart_text_size(chart.scaling);
         let text_content = abbr_large_numbers(max_aggr_volume);
         let text_width = (text_content.len() as f32 * text_size) / 1.5;
 
@@ -562,25 +580,27 @@ fn draw_volume_indicator(
     }
 }
 
-/// Draw volume profile on the left side of the chart
+/// Compute volume profile parameters from the viewport.
+///
+/// Returns `None` if the profile cannot be computed (e.g. tick basis
+/// with fixed window, or too many ticks).
 #[allow(clippy::too_many_arguments)]
-pub fn draw_volume_profile(
-    frame: &mut canvas::Frame,
+fn volume_profile_params(
     region: &Rectangle,
     kind: &ProfileKind,
-    palette: &Extended,
     chart: &ViewState,
-    heatmap_data: &HeatmapData,
-    area_width: f32,
     basis: ChartBasis,
-) {
+) -> Option<(
+    std::ops::RangeInclusive<u64>,
+    DataPrice,
+    DataPrice,
+    i64,
+    usize,
+)> {
     let (highest_exch, lowest_exch) = chart.price_range(region);
+    let highest = DataPrice::from_units(highest_exch.units());
+    let lowest = DataPrice::from_units(lowest_exch.units());
 
-    // Convert to data::Price
-    let highest = DataPrice::from_units(highest_exch.units);
-    let lowest = DataPrice::from_units(lowest_exch.units);
-
-    // Calculate time range based on profile kind
     let time_range = match kind {
         ProfileKind::VisibleRange => {
             let earliest = chart.x_to_interval(region.x);
@@ -593,13 +613,14 @@ pub fn draw_volume_profile(
         | ProfileKind::Fixed(datapoints) => {
             let basis_interval: u64 = match basis {
                 ChartBasis::Time(timeframe) => timeframe.to_milliseconds(),
-                ChartBasis::Tick(_) => return,
+                ChartBasis::Tick(_) => return None,
             };
 
             let latest = chart
                 .latest_x
                 .min(chart.x_to_interval(region.x + region.width));
-            let earliest = latest.saturating_sub((*datapoints as u64) * basis_interval);
+            let earliest =
+                latest.saturating_sub((*datapoints as u64) * basis_interval);
 
             earliest..=latest
         }
@@ -611,28 +632,43 @@ pub fn draw_volume_profile(
     let first_tick = lowest.round_to_side_step(false, step_as_price);
     let last_tick = highest.round_to_side_step(true, step_as_price);
 
-    let num_ticks = match exchange::util::Price::steps_between_inclusive(
+    let num_ticks = exchange::util::Price::steps_between_inclusive(
         exchange::util::Price::from_units(first_tick.units()),
         exchange::util::Price::from_units(last_tick.units()),
-        step,
-    ) {
-        Some(n) => n,
-        None => return,
-    };
+        step.into(),
+    )?;
 
     if num_ticks > 4096 {
-        return;
+        return None;
     }
+
+    Some((time_range, first_tick, last_tick, step.units, num_ticks))
+}
+
+/// Render a precomputed volume profile on the left side of the chart.
+#[allow(clippy::too_many_arguments)]
+pub fn render_volume_profile(
+    frame: &mut canvas::Frame,
+    region: &Rectangle,
+    palette: &Extended,
+    chart: &ViewState,
+    profile: &super::data::VolumeProfile,
+    area_width: f32,
+) {
+    let step_as_price = DataPrice::from_units(profile.step_units);
+    let first_tick = DataPrice::from_units(profile.first_tick_units);
 
     // Draw background gradient
     let min_segment_width = 2.0;
-    let segments = ((area_width / min_segment_width).floor() as usize).clamp(10, 40);
+    let segments =
+        ((area_width / min_segment_width).floor() as usize).clamp(10, 40);
 
     for i in 0..segments {
         let segment_width = area_width / segments as f32;
         let segment_x = region.x + (i as f32 * segment_width);
 
-        let alpha = 0.95 - (0.85 * (i as f32 / (segments - 1) as f32).powf(2.0));
+        let alpha =
+            0.95 - (0.85 * (i as f32 / (segments - 1) as f32).powf(2.0));
 
         frame.fill_rectangle(
             Point::new(segment_x, region.y),
@@ -641,78 +677,40 @@ pub fn draw_volume_profile(
         );
     }
 
-    // Build volume profile
-    let mut profile = vec![(0.0f32, 0.0f32); num_ticks];
-    let mut max_aggr_volume = 0.0f32;
+    // Draw volume bars from precomputed profile
+    let max_aggr_volume = profile.max_aggr_volume;
 
-    heatmap_data
-        .trades_by_time
-        .range(time_range)
-        .for_each(|(_, dp)| {
-            dp.grouped_trades
-                .iter()
-                .filter(|trade| {
-                    let trade_price: DataPrice = trade.price;
-                    trade_price >= lowest && trade_price <= highest
-                })
-                .for_each(|trade| {
-                    let grouped_price = if trade.is_sell {
-                        trade.price.round_to_side_step(true, step_as_price)
-                    } else {
-                        trade.price.round_to_side_step(false, step_as_price)
-                    };
-
-                    let first_tick_price: DataPrice = first_tick;
-                    let last_tick_price: DataPrice = last_tick;
-                    let grouped_price_units = grouped_price.units();
-
-                    if grouped_price_units < first_tick_price.units()
-                        || grouped_price_units > last_tick_price.units()
-                    {
-                        return;
-                    }
-
-                    let index =
-                        ((grouped_price_units - first_tick_price.units()) / step.units) as usize;
-
-                    if let Some(entry) = profile.get_mut(index) {
-                        if trade.is_sell {
-                            entry.1 += trade.qty;
-                        } else {
-                            entry.0 += trade.qty;
-                        }
-                        max_aggr_volume = max_aggr_volume.max(entry.0 + entry.1);
-                    }
-                });
-        });
-
-    // Draw volume bars
     profile
+        .profile
         .iter()
         .enumerate()
         .for_each(|(index, (buy_v, sell_v))| {
             if *buy_v > 0.0 || *sell_v > 0.0 {
-                let price: DataPrice = first_tick;
-                let price = price.add_steps(index as i64, step_as_price);
-                let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
+                let price = first_tick.add_steps(index as i64, step_as_price);
+                let y_position = chart
+                    .price_to_y(exchange::util::Price::from_units(price.units()));
 
                 let next_price = price.add_steps(1, step_as_price);
-                let next_y_position =
-                    chart.price_to_y(exchange::util::Price::from_units(next_price.units()));
+                let next_y_position = chart.price_to_y(
+                    exchange::util::Price::from_units(next_price.units()),
+                );
                 let bar_height = (next_y_position - y_position).abs();
 
+                let spec = crate::chart::VolumeBarSpec {
+                    buy_qty: *buy_v,
+                    sell_qty: *sell_v,
+                    max_qty: max_aggr_volume,
+                    buy_color: palette.success.weak.color,
+                    sell_color: palette.danger.weak.color,
+                    alpha: 1.0,
+                };
                 crate::chart::draw_volume_bar(
                     frame,
                     region.x,
                     y_position,
-                    *buy_v,
-                    *sell_v,
-                    max_aggr_volume,
+                    &spec,
                     area_width,
                     bar_height,
-                    palette.success.weak.color,
-                    palette.danger.weak.color,
-                    1.0,
                     true,
                 );
             }
@@ -720,7 +718,7 @@ pub fn draw_volume_profile(
 
     // Draw max volume label
     if max_aggr_volume > 0.0 {
-        let text_size = 9.0 / chart.scaling;
+        let text_size = chart_text_size(chart.scaling);
         let text_content = abbr_large_numbers(max_aggr_volume);
 
         let text_position = Point::new(region.x + area_width, region.y);

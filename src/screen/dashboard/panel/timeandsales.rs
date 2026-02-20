@@ -4,8 +4,9 @@ use crate::style::tokens;
 use data::Trade;
 pub use data::config::panel::timeandsales::Config;
 use data::config::panel::timeandsales::{HistAgg, StackedBar, StackedBarRatio, TradeEntry};
-use data::config::theme::{darken, lighten};
+use data::config::theme::{darken_rgba, lighten_rgba};
 use exchange::TickerInfo;
+use exchange::util::PriceExt;
 
 use iced::widget::canvas::{self, Text};
 use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
@@ -462,10 +463,11 @@ impl canvas::Program<Message> for TimeAndSales {
                     0.02
                 };
 
+                let bg_rgba = crate::style::theme_bridge::iced_color_to_rgba(bg_color);
                 let mut text_color = if palette.is_dark {
-                    lighten(bg_color, bg_color_alpha.max(0.1))
+                    crate::style::theme_bridge::rgba_to_iced_color(lighten_rgba(bg_rgba, bg_color_alpha.max(0.1)))
                 } else {
-                    darken(bg_color, (bg_color_alpha * 0.8).max(0.1))
+                    crate::style::theme_bridge::rgba_to_iced_color(darken_rgba(bg_rgba, (bg_color_alpha * 0.8).max(0.1)))
                 };
 
                 if is_scroll_paused
@@ -504,7 +506,7 @@ impl canvas::Program<Message> for TimeAndSales {
                     self.ticker_info.min_ticksize.to_f32_lossy(),
                 );
                 let trade_price = create_text(
-                    exchange_price.to_string(precision),
+                    exchange_price.fmt_with_precision(precision),
                     Point {
                         x: row_width * 0.67,
                         y: y_position,

@@ -72,7 +72,7 @@ fn render_band_line(
         return;
     }
 
-    let color: Color = series.color.into();
+    let color: Color = crate::style::theme_bridge::rgba_to_iced_color(series.color);
     let stroke = Stroke::with_color(
         Stroke {
             width: series.width,
@@ -107,7 +107,7 @@ fn render_band_fill(
 ) {
     // Build upper and lower screen points with matching x positions.
     // Use the upper series color for the fill.
-    let fill_color: Color = upper.color.into();
+    let fill_color: Color = crate::style::theme_bridge::rgba_to_iced_color(upper.color);
     let fill_color = fill_color.scale_alpha(fill_opacity);
 
     // Collect upper points

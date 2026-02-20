@@ -89,25 +89,6 @@ pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
     }
 }
 
-// ── Chart Indicator Selection ─────────────────────────────────────────
-
-pub fn selected_indicator(theme: &Theme) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        border: Border {
-            width: tokens::border::THIN,
-            color: palette
-                .primary
-                .strong
-                .color
-                .scale_alpha(tokens::alpha::MEDIUM),
-            ..Default::default()
-        },
-        ..Default::default()
-    }
-}
-
 // ── Modals ────────────────────────────────────────────────────────────
 
 pub fn chart_modal(theme: &Theme) -> Style {

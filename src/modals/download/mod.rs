@@ -1,11 +1,13 @@
 //! Download subsystem - shared types and re-exports for data management
 //! and historical download modals.
 
+pub mod api_key_modal;
 pub mod data_management;
 pub mod historical;
 pub mod views;
 
 // Convenience re-exports
+pub use api_key_modal::{ApiKeySetupMessage, ApiKeySetupModal};
 pub use data_management::{DataManagementMessage, DataManagementPanel};
 pub use historical::{HistoricalDownloadMessage, HistoricalDownloadModal};
 
@@ -27,13 +29,13 @@ pub const FUTURES_PRODUCTS: &[(&str, &str)] = &[
 ];
 
 /// Schemas with display names and cost rating
-pub const SCHEMAS: &[(exchange::DatabentoSchema, &str, u8)] = &[
-    (exchange::DatabentoSchema::Trades, "Trades", 2),
-    (exchange::DatabentoSchema::Mbp10, "MBP-10 (10 Levels)", 3),
-    (exchange::DatabentoSchema::Mbp1, "MBP-1 (Top of Book)", 2),
-    (exchange::DatabentoSchema::Ohlcv1M, "OHLCV-1M", 1),
-    (exchange::DatabentoSchema::Tbbo, "TBBO (Top BBO)", 2),
-    (exchange::DatabentoSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
+pub const SCHEMAS: &[(exchange::DownloadSchema, &str, u8)] = &[
+    (exchange::DownloadSchema::Trades, "Trades", 2),
+    (exchange::DownloadSchema::Mbp10, "MBP-10 (10 Levels)", 3),
+    (exchange::DownloadSchema::Mbp1, "MBP-1 (Top of Book)", 2),
+    (exchange::DownloadSchema::Ohlcv1M, "OHLCV-1M", 1),
+    (exchange::DownloadSchema::Tbbo, "TBBO (Top BBO)", 2),
+    (exchange::DownloadSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
 ];
 
 /// Cache coverage status for a date range
@@ -70,7 +72,7 @@ impl DownloadConfig {
         data::FuturesTicker::new(sym, exchange::FuturesVenue::CMEGlobex)
     }
 
-    pub fn schema_from_idx(idx: usize) -> exchange::DatabentoSchema {
+    pub fn schema_from_idx(idx: usize) -> exchange::DownloadSchema {
         SCHEMAS[idx].0
     }
 

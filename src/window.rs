@@ -6,6 +6,13 @@ use iced::{Point, Size, Subscription, Task, window};
 pub use iced::window::{Id, Position, Settings, close, open};
 use iced_futures::MaybeSend;
 
+const ICON_RGBA: &[u8] = include_bytes!("../assets/icons/icon_32x32.rgba");
+const ICON_SIZE: u32 = 32;
+
+pub fn icon() -> Option<window::Icon> {
+    window::icon::from_rgba(ICON_RGBA.to_vec(), ICON_SIZE, ICON_SIZE).ok()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Window {
     pub id: Id,
@@ -109,6 +116,7 @@ where
 pub fn settings() -> Settings {
     Settings {
         decorations: false,
+        icon: icon(),
         min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
@@ -124,6 +132,7 @@ pub fn settings() -> Settings {
             titlebar_transparent: true,
             fullsize_content_view: true,
         },
+        icon: icon(),
         min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
@@ -133,6 +142,7 @@ pub fn settings() -> Settings {
 pub fn settings() -> Settings {
     Settings {
         decorations: false,
+        icon: icon(),
         min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }

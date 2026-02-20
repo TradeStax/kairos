@@ -1,8 +1,6 @@
 use crate::chart::drawing;
-use crate::chart::indicator::kline::OverlayLine;
-use crate::chart::indicator::plot::{AnySeries, Series};
 use crate::chart::perf::{LodCalculator, LodIteratorExt};
-use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE, ViewState};
+use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE};
 use crate::components::primitives::AZERET_MONO;
 use data::state::pane::CandleStyle;
 use data::util::count_decimals;
@@ -10,12 +8,15 @@ use data::{Candle, ChartBasis, FootprintType, Trade};
 use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Event, Geometry, Path, Stroke};
+use iced::widget::canvas::{self, Event, Geometry};
 use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
 
 use super::KlineChart;
 use super::candle::draw_candle;
-use super::footprint::{ContentGaps, draw_clusters, effective_cluster_qty, should_show_text};
+use super::footprint::{
+    ClusterLayout, ClusterStyle, ContentGaps, draw_clusters, effective_cluster_qty,
+    should_show_text,
+};
 
 const MAX_TEXT_SIZE: f32 = 14.0;
 const TEXT_SIZE_PADDING: f32 = 2.0;
@@ -75,12 +76,17 @@ impl canvas::Program<Message> for KlineChart {
 
             // Calculate LOD level for adaptive rendering quality
             let visible_candle_count = match &self.basis {
-                ChartBasis::Time(_) => self
-                    .chart_data
-                    .candles
-                    .iter()
-                    .filter(|c| c.time.0 >= earliest && c.time.0 <= latest)
-                    .count(),
+                ChartBasis::Time(_) => {
+                    let first = self
+                        .chart_data
+                        .candles
+                        .partition_point(|c| c.time.0 < earliest);
+                    let last = self
+                        .chart_data
+                        .candles
+                        .partition_point(|c| c.time.0 <= latest);
+                    last.saturating_sub(first)
+                }
                 ChartBasis::Tick(_) => {
                     let ea = earliest as usize;
                     let la = latest as usize;
@@ -103,16 +109,11 @@ impl canvas::Program<Message> for KlineChart {
                         let first = self
                             .chart_data
                             .candles
-                            .iter()
-                            .position(|c| c.time.0 >= earliest)
-                            .unwrap_or(0);
+                            .partition_point(|c| c.time.0 < earliest);
                         let last = self
                             .chart_data
                             .candles
-                            .iter()
-                            .rposition(|c| c.time.0 <= latest)
-                            .map(|i| i + 1)
-                            .unwrap_or(candle_count);
+                            .partition_point(|c| c.time.0 <= latest);
                         (first, last)
                     }
                     ChartBasis::Tick(_) => {
@@ -165,6 +166,12 @@ impl canvas::Program<Message> for KlineChart {
                 };
 
                 // Render footprint from cache
+                let cluster_style = ClusterStyle {
+                    palette,
+                    text_size,
+                    show_text,
+                };
+
                 let cache = self.footprint_cache.borrow();
                 match &self.basis {
                     ChartBasis::Tick(_) => {
@@ -186,25 +193,25 @@ impl canvas::Program<Message> for KlineChart {
                                         footprint,
                                         fp_config.study_type,
                                     );
+                                    let cluster_layout = ClusterLayout {
+                                        x_position,
+                                        cell_width: chart.cell_width,
+                                        cell_height: chart.cell_height,
+                                        candle_width,
+                                        candle_position: fp_config.candle_position,
+                                        spacing: content_spacing,
+                                    };
                                     draw_clusters(
                                         frame,
                                         price_to_y,
-                                        x_position,
-                                        chart.cell_width,
-                                        chart.cell_height,
-                                        candle_width,
+                                        &cluster_layout,
+                                        &cluster_style,
                                         cluster_scaling,
-                                        palette,
-                                        text_size,
-                                        self.tick_size(),
-                                        show_text,
                                         candle,
                                         footprint,
                                         fp_config.study_type,
                                         fp_config.scaling,
-                                        fp_config.candle_position,
                                         fp_config.mode,
-                                        content_spacing,
                                     );
                                 }
                             });
@@ -225,25 +232,25 @@ impl canvas::Program<Message> for KlineChart {
                                             footprint,
                                             fp_config.study_type,
                                         );
+                                        let cluster_layout = ClusterLayout {
+                                            x_position,
+                                            cell_width: chart.cell_width,
+                                            cell_height: chart.cell_height,
+                                            candle_width,
+                                            candle_position: fp_config.candle_position,
+                                            spacing: content_spacing,
+                                        };
                                         draw_clusters(
                                             frame,
                                             price_to_y,
-                                            x_position,
-                                            chart.cell_width,
-                                            chart.cell_height,
-                                            candle_width,
+                                            &cluster_layout,
+                                            &cluster_style,
                                             cluster_scaling,
-                                            palette,
-                                            text_size,
-                                            self.tick_size(),
-                                            show_text,
                                             candle,
                                             footprint,
                                             fp_config.study_type,
                                             fp_config.scaling,
-                                            fp_config.candle_position,
                                             fp_config.mode,
-                                            content_spacing,
                                         );
                                     }
                                 });
@@ -285,21 +292,15 @@ impl canvas::Program<Message> for KlineChart {
                 );
             }
 
-            // Draw overlay indicators (SMA, EMA, Bollinger Bands)
-            for (_kind, indi_opt) in &self.indicators {
-                if let Some(indi) = indi_opt {
-                    let lines = indi.overlay_lines();
-                    for line in &lines {
-                        draw_overlay_line(frame, chart, self.basis, line, earliest, latest);
-                    }
-                }
-            }
-
-            // Render overlay studies (Big Trades bubbles, etc.)
+            // Render overlay and background studies
             for study in &self.studies {
                 let output = study.output();
-                if matches!(study.placement(), study::StudyPlacement::Overlay)
-                    && !matches!(output, study::StudyOutput::Empty)
+                let placement = study.placement();
+                if !matches!(output, study::StudyOutput::Empty)
+                    && matches!(
+                        placement,
+                        study::StudyPlacement::Overlay | study::StudyPlacement::Background
+                    )
                 {
                     let bubble_scale =
                         study.config().get_float("bubble_scale", 1.0) as f32;
@@ -308,7 +309,7 @@ impl canvas::Program<Message> for KlineChart {
                         output,
                         chart,
                         bounds_size,
-                        study.placement(),
+                        placement,
                         bubble_scale,
                     );
                 }
@@ -420,45 +421,6 @@ impl canvas::Program<Message> for KlineChart {
     }
 }
 
-/// Draw a single overlay indicator line on the main chart canvas.
-///
-/// Converts f32 price values → exchange `Price` → chart Y coordinates,
-/// using the same transforms as candle rendering.
-fn draw_overlay_line(
-    frame: &mut canvas::Frame,
-    chart: &ViewState,
-    basis: ChartBasis,
-    line: &OverlayLine<'_>,
-    earliest: u64,
-    latest: u64,
-) {
-    if line.data.is_empty() {
-        return;
-    }
-
-    let stroke = Stroke::with_color(
-        Stroke {
-            width: line.stroke_width,
-            ..Stroke::default()
-        },
-        line.color,
-    );
-
-    let series = AnySeries::for_basis(basis, line.data);
-    let mut prev: Option<(f32, f32)> = None;
-
-    series.for_each_in(earliest..=latest, |x, value| {
-        let sx = chart.interval_to_x(x) - (chart.cell_width / 2.0);
-        let price = Price::from_f32(*value);
-        let sy = chart.price_to_y(price);
-
-        if let Some((px, py)) = prev {
-            frame.stroke(&Path::line(Point::new(px, py), Point::new(sx, sy)), stroke);
-        }
-        prev = Some((sx, sy));
-    });
-}
-
 fn render_candles<F>(
     candles: &[Candle],
     trades: &[Trade],
@@ -554,8 +516,9 @@ fn draw_crosshair_tooltip(
 ) {
     let candle_opt = match basis {
         ChartBasis::Time(_) => candles
-            .iter()
-            .find(|c| c.time.0 == at_interval)
+            .binary_search_by_key(&at_interval, |c| c.time.0)
+            .ok()
+            .map(|i| &candles[i])
             .or_else(|| {
                 if candles.is_empty() {
                     None
@@ -584,10 +547,12 @@ fn draw_crosshair_tooltip(
         let change_color = if change_pct >= 0.0 {
             candle_style
                 .bull_body_color
+                .map(crate::style::theme_bridge::rgba_to_iced_color)
                 .unwrap_or(palette.success.base.color)
         } else {
             candle_style
                 .bear_body_color
+                .map(crate::style::theme_bridge::rgba_to_iced_color)
                 .unwrap_or(palette.danger.base.color)
         };
 

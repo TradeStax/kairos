@@ -28,8 +28,9 @@ impl DepthRun {
 /// Trade data point for a time bucket
 #[derive(Debug, Clone)]
 pub struct TradeDataPoint {
-    /// Grouped trades by price
-    pub grouped_trades: Vec<GroupedTrade>,
+    /// Grouped trades by (price_units, is_sell) -> qty
+    /// BTreeMap for O(log M) lookup instead of O(M) linear scan
+    pub grouped_trades: BTreeMap<(i64, bool), f32>,
     /// Total buy volume in bucket
     pub buy_volume: f32,
     /// Total sell volume in bucket
@@ -39,19 +40,22 @@ pub struct TradeDataPoint {
 impl Default for TradeDataPoint {
     fn default() -> Self {
         Self {
-            grouped_trades: Vec::new(),
+            grouped_trades: BTreeMap::new(),
             buy_volume: 0.0,
             sell_volume: 0.0,
         }
     }
 }
 
-/// A grouped trade at a specific price level
-#[derive(Debug, Clone, Copy)]
-pub struct GroupedTrade {
-    pub price: DataPrice,
-    pub qty: f32,
-    pub is_sell: bool,
+impl TradeDataPoint {
+    /// Iterate grouped trades as (price, qty, is_sell) tuples
+    pub fn iter_trades(&self) -> impl Iterator<Item = (DataPrice, f32, bool)> + '_ {
+        self.grouped_trades
+            .iter()
+            .map(|(&(price_units, is_sell), &qty)| {
+                (DataPrice::from_units(price_units), qty, is_sell)
+            })
+    }
 }
 
 /// Aggregated heatmap data structure
@@ -128,32 +132,50 @@ impl HeatmapData {
         let bucket_time = self.bucket_time(time, basis);
         let bucket_duration = self.bucket_duration(bucket_time, basis);
 
+        let new_until = bucket_time + bucket_duration;
+
         // Process bids (buy orders)
         for (price, qty) in &snapshot.bids {
             let price_units = price.units();
-            self.depth_by_price
-                .entry(price_units)
-                .or_default()
-                .push(DepthRun {
-                    start_time: bucket_time,
-                    until_time: bucket_time + bucket_duration,
-                    qty: qty.value() as f32,
-                    is_bid: true,
-                });
+            let qty_f32 = qty.value() as f32;
+            let runs = self.depth_by_price.entry(price_units).or_default();
+            // Coalesce with the last run if qty and side match and times are
+            // adjacent
+            if let Some(last) = runs.last_mut() {
+                if last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time
+                {
+                    last.until_time = new_until;
+                    continue;
+                }
+            }
+            runs.push(DepthRun {
+                start_time: bucket_time,
+                until_time: new_until,
+                qty: qty_f32,
+                is_bid: true,
+            });
         }
 
         // Process asks (sell orders)
         for (price, qty) in &snapshot.asks {
             let price_units = price.units();
-            self.depth_by_price
-                .entry(price_units)
-                .or_default()
-                .push(DepthRun {
-                    start_time: bucket_time,
-                    until_time: bucket_time + bucket_duration,
-                    qty: qty.value() as f32,
-                    is_bid: false,
-                });
+            let qty_f32 = qty.value() as f32;
+            let runs = self.depth_by_price.entry(price_units).or_default();
+            // Coalesce with the last run if qty and side match and times are
+            // adjacent
+            if let Some(last) = runs.last_mut() {
+                if !last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time
+                {
+                    last.until_time = new_until;
+                    continue;
+                }
+            }
+            runs.push(DepthRun {
+                start_time: bucket_time,
+                until_time: new_until,
+                qty: qty_f32,
+                is_bid: false,
+            });
         }
 
         self.latest_depth_time = time;
@@ -178,21 +200,12 @@ impl HeatmapData {
             entry.buy_volume += qty;
         }
 
-        // Group trades at the same price level
+        // Group trades at the same price level — O(log M) BTreeMap lookup
         let price_rounded = trade.price.round_to_step(tick_size);
-        if let Some(existing) = entry
+        *entry
             .grouped_trades
-            .iter_mut()
-            .find(|t| t.price == price_rounded && t.is_sell == is_sell)
-        {
-            existing.qty += qty;
-        } else {
-            entry.grouped_trades.push(GroupedTrade {
-                price: price_rounded,
-                qty,
-                is_sell,
-            });
-        }
+            .entry((price_rounded.units(), is_sell))
+            .or_insert(0.0) += qty;
     }
 
     /// Calculate bucket time based on chart basis
@@ -323,8 +336,8 @@ impl HeatmapData {
     pub fn max_trade_qty_in_range(&self, earliest: u64, latest: u64) -> f32 {
         self.trades_by_time
             .range(earliest..=latest)
-            .flat_map(|(_, dp)| dp.grouped_trades.iter())
-            .map(|trade| trade.qty)
+            .flat_map(|(_, dp)| dp.grouped_trades.values())
+            .copied()
             .fold(f32::MIN, f32::max)
             .max(1.0)
     }
@@ -360,4 +373,86 @@ pub struct QtyScale {
     pub max_trade_qty: f32,
     pub max_aggr_volume: f32,
     pub max_depth_qty: f32,
+}
+
+/// Cached volume profile data
+#[derive(Debug, Clone)]
+pub struct VolumeProfile {
+    /// Per-tick (buy_volume, sell_volume) pairs
+    pub profile: Vec<(f32, f32)>,
+    /// Maximum aggregate volume across all ticks
+    pub max_aggr_volume: f32,
+    /// First tick price (lowest rounded)
+    pub first_tick_units: i64,
+    /// Price step in units
+    pub step_units: i64,
+}
+
+/// Key identifying a specific volume profile computation
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumeProfileKey {
+    pub earliest: u64,
+    pub latest: u64,
+    pub first_tick_units: i64,
+    pub last_tick_units: i64,
+    pub step_units: i64,
+}
+
+impl HeatmapData {
+    /// Compute a volume profile for the given time and price range.
+    pub fn compute_volume_profile(
+        &self,
+        time_range: std::ops::RangeInclusive<u64>,
+        first_tick: DataPrice,
+        last_tick: DataPrice,
+        step_units: i64,
+        num_ticks: usize,
+    ) -> VolumeProfile {
+        let step_as_price = DataPrice::from_units(step_units);
+        let first_tick_units = first_tick.units();
+        let last_tick_units = last_tick.units();
+
+        let mut profile = vec![(0.0f32, 0.0f32); num_ticks];
+        let mut max_aggr_volume = 0.0f32;
+
+        self.trades_by_time
+            .range(time_range)
+            .for_each(|(_, dp)| {
+                for (&(price_units, is_sell), &qty) in &dp.grouped_trades {
+                    let price = DataPrice::from_units(price_units);
+                    let grouped_price = if is_sell {
+                        price.round_to_side_step(true, step_as_price)
+                    } else {
+                        price.round_to_side_step(false, step_as_price)
+                    };
+
+                    let grouped_units = grouped_price.units();
+                    if grouped_units < first_tick_units
+                        || grouped_units > last_tick_units
+                    {
+                        continue;
+                    }
+
+                    let index =
+                        ((grouped_units - first_tick_units) / step_units) as usize;
+
+                    if let Some(entry) = profile.get_mut(index) {
+                        if is_sell {
+                            entry.1 += qty;
+                        } else {
+                            entry.0 += qty;
+                        }
+                        max_aggr_volume =
+                            max_aggr_volume.max(entry.0 + entry.1);
+                    }
+                }
+            });
+
+        VolumeProfile {
+            profile,
+            max_aggr_volume,
+            first_tick_units,
+            step_units,
+        }
+    }
 }

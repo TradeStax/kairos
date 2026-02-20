@@ -11,12 +11,12 @@ pub enum Effect {
     FocusWidget(iced::widget::Id),
     EstimateDataCost {
         ticker: FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: DateRange,
     },
     DownloadData {
         ticker: FuturesTicker,
-        schema: exchange::DatabentoSchema,
+        schema: exchange::DownloadSchema,
         date_range: DateRange,
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)

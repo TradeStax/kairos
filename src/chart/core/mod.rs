@@ -9,7 +9,6 @@
 
 mod caches;
 mod interaction;
-#[allow(dead_code)]
 pub mod tokens;
 mod traits;
 mod view_state;

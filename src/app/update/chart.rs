@@ -4,9 +4,9 @@ use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
 use data::LoadingStatus;
 
-use super::super::{ChartMessage, Flowsurface, Message};
+use super::super::{ChartMessage, Kairos, Message};
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_load_chart_data(
         &mut self,
         layout_id: uuid::Uuid,
@@ -186,13 +186,8 @@ impl Flowsurface {
 
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    let guard = engine.lock().unwrap_or_else(|e| e.into_inner());
-                    tokio::runtime::Handle::current().block_on(guard.get_rebuild_trades())
-                })
-                .await
-                .ok()
-                .flatten()
+                let guard = engine.lock().await;
+                guard.get_rebuild_trades().await
             },
             move |trades| {
                 if let Some(trades) = trades {

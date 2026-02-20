@@ -148,7 +148,8 @@ impl Dashboard {
                         return (Task::none(), None);
                     }
 
-                    let _maybe_ticker_info = self
+                    // Find the ticker from an existing pane in this link group
+                    let group_ticker_info = self
                         .iter_all_panes(main_window.id)
                         .filter(|(w, p, _)| !(*w == window && *p == pane))
                         .find_map(|(_, _, other_state)| {
@@ -163,9 +164,19 @@ impl Dashboard {
                         state.link_group = group;
                         state.modal = None;
 
-                        // TODO: Handle ticker switching in link groups
-                        // For now, just set the link group without loading data
-                        // Will implement proper chart loading once pane.rs is refactored
+                        // If the group already has a ticker, switch this pane to it
+                        if let Some(ticker_info) = group_ticker_info {
+                            if state.ticker_info != Some(ticker_info) {
+                                let pane_id = state.unique_id();
+                                let task = self.switch_tickers_in_group(
+                                    main_window.id,
+                                    ticker_info,
+                                    None,
+                                    Some(pane_id),
+                                );
+                                return (task, None);
+                            }
+                        }
                     }
                 }
                 pane::Message::Popout => {
@@ -203,10 +214,8 @@ impl Dashboard {
                                 );
                                 (task, None)
                             }
-                            pane::Effect::FocusWidget(_id) => {
-                                // TODO: Implement widget focusing with the specific ID
-                                // For now, this effect is not critical for core functionality
-                                (Task::none(), None)
+                            pane::Effect::FocusWidget(id) => {
+                                (iced::widget::operation::focus(id), None)
                             }
                             pane::Effect::EstimateDataCost {
                                 ticker,

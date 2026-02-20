@@ -1,7 +1,46 @@
-use data::{ApiKeyStatus, ApiProvider, SecretsManager};
-use std::sync::Arc;
+use crate::infra::secrets::SecretsManager;
+use data::config::secrets::{ApiKeyStatus, ApiProvider};
+use std::sync::{Arc, OnceLock};
+
+/// Global script registry (initialized once at startup, then read-only).
+static SCRIPT_REGISTRY: OnceLock<script::ScriptRegistry> = OnceLock::new();
+
+/// Initialize the script engine and registry.
+///
+/// Discovers all bundled and user scripts, compiles them,
+/// and stores the registry in a global `OnceLock` for reuse.
+pub fn initialize_script_registry() {
+    SCRIPT_REGISTRY.get_or_init(|| {
+        match script::ScriptEngine::new() {
+            Ok(mut engine) => {
+                let registry = script::ScriptRegistry::new(&mut engine);
+                let count = registry.list().len();
+                log::info!("Script engine initialized: {} indicators loaded", count);
+                registry
+            }
+            Err(e) => {
+                log::error!("Failed to initialize script engine: {}", e);
+                // Return empty registry on failure - native studies still work
+                script::ScriptRegistry::empty()
+            }
+        }
+    });
+}
+
+/// Create a unified StudyRegistry that includes both native and scripted studies.
+///
+/// Call this instead of `StudyRegistry::new()` to get a registry with all
+/// available indicators.
+pub fn create_unified_registry() -> study::StudyRegistry {
+    let mut registry = study::StudyRegistry::new();
+    if let Some(script_registry) = SCRIPT_REGISTRY.get() {
+        script_registry.register_into(&mut registry);
+    }
+    registry
+}
 
 /// Initialize options services from environment or keyring
+#[cfg(feature = "options")]
 pub fn initialize_options_services() -> (
     Option<Arc<data::services::OptionsDataService>>,
     Arc<data::services::GexCalculationService>,
@@ -128,9 +167,10 @@ pub fn initialize_market_data_service() -> Option<MarketDataServiceResult> {
             (Ok(trade), Ok(depth)) => {
                 let trade_repo = Arc::new(trade);
                 let depth_repo = Arc::new(depth);
-                let service = Arc::new(data::MarketDataService::new(
+                let service = Arc::new(data::MarketDataService::with_download_repo(
                     trade_repo.clone(),
                     depth_repo.clone(),
+                    trade_repo.clone(),
                 ));
                 log::info!("Market data service initialized successfully");
                 Some(MarketDataServiceResult {
@@ -192,7 +232,7 @@ pub async fn initialize_rithmic_service(
 /// Returns None if market data result is not available
 pub fn create_replay_engine(
     market_data_result: Option<&MarketDataServiceResult>,
-) -> Option<Arc<std::sync::Mutex<data::services::ReplayEngine>>> {
+) -> Option<Arc<tokio::sync::Mutex<data::services::ReplayEngine>>> {
     let result = market_data_result?;
 
     // Replay uses trades only - depth data is too large to load historically
@@ -201,7 +241,7 @@ pub fn create_replay_engine(
         ..Default::default()
     };
 
-    Some(Arc::new(std::sync::Mutex::new(
+    Some(Arc::new(tokio::sync::Mutex::new(
         data::services::ReplayEngine::new(config, result.trade_repo.clone(), None),
     )))
 }

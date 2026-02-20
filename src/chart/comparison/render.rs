@@ -26,7 +26,10 @@ where
                 continue;
             }
 
-            let idx_right = pts.iter().position(|(x, _)| *x >= ctx.min_x);
+            let idx_right = {
+                let i = pts.partition_point(|(x, _)| *x < ctx.min_x);
+                if i < pts.len() { Some(i) } else { None }
+            };
             let y0 = match idx_right {
                 Some(0) => pts[0].1,
                 Some(i) => {

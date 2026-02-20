@@ -1,8 +1,8 @@
 use crate::components::display::toast::{Notification, Toast};
 
-use super::super::Flowsurface;
+use super::super::Kairos;
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_option_chain_loaded(
         &mut self,
         pane_id: uuid::Uuid,

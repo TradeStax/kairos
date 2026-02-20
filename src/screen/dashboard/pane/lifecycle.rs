@@ -27,13 +27,13 @@ impl State {
         match &mut self.content {
             Content::Kline {
                 chart,
-                indicators,
                 layout,
+                study_ids,
             } => {
                 // Get footprint config from visual settings
                 let footprint = self.settings.visual_config.as_ref().and_then(|vc| {
                     if let VisualConfig::Kline(cfg) = vc {
-                        cfg.footprint.clone()
+                        cfg.footprint
                     } else {
                         None
                     }
@@ -44,7 +44,6 @@ impl State {
                     basis,
                     ticker_info,
                     layout.clone(),
-                    indicators,
                     footprint,
                 );
                 if !self.settings.drawings.is_empty() {
@@ -55,6 +54,43 @@ impl State {
                 // Apply saved candle style from visual config
                 if let Some(VisualConfig::Kline(ref kline_cfg)) = self.settings.visual_config {
                     new_chart.set_candle_style(kline_cfg.candle_style.clone());
+                }
+                // Restore active studies with saved parameters
+                let registry = crate::app::services::create_unified_registry();
+                if !self.settings.studies.is_empty() {
+                    for cfg in &self.settings.studies {
+                        if let Some(mut s) = registry.create(&cfg.study_id) {
+                            // Deserialize saved JSON values back to ParameterValue
+                            for (key, json_val) in &cfg.parameters {
+                                if let Ok(pv) = serde_json::from_value::<study::ParameterValue>(
+                                    json_val.clone(),
+                                ) {
+                                    if let Err(e) = s.set_parameter(key, pv) {
+                                        log::warn!(
+                                            "Failed to set study parameter: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            new_chart.add_study(s);
+                        }
+                    }
+                    // Sync study_ids from saved configs
+                    *study_ids = self
+                        .settings
+                        .studies
+                        .iter()
+                        .filter(|c| c.enabled)
+                        .map(|c| c.study_id.clone())
+                        .collect();
+                } else {
+                    // Fallback: restore from study_ids without parameters
+                    for sid in study_ids.iter() {
+                        if let Some(s) = registry.create(sid) {
+                            new_chart.add_study(s);
+                        }
+                    }
                 }
                 *chart = Some(new_chart);
             }
@@ -72,18 +108,6 @@ impl State {
                         }
                     })
                     .collect();
-                log::info!(
-                    "Constructing HeatmapChart from chart_data: \
-                     {} trades, {} candles, {} depth snapshots",
-                    chart_data.trades.len(),
-                    chart_data.candles.len(),
-                    chart_data
-                        .depth_snapshots
-                        .as_ref()
-                        .map(|d| d.len())
-                        .unwrap_or(0)
-                );
-
                 let mut new_chart = HeatmapChart::from_chart_data(
                     chart_data,
                     basis,
@@ -98,23 +122,16 @@ impl State {
                         .load_drawings(self.settings.drawings.clone());
                 }
                 *chart = Some(new_chart);
-
-                log::info!("HeatmapChart construction COMPLETE");
             }
             Content::Comparison(chart_opt) => match chart_opt {
                 Some(chart) => {
                     if let Err(e) = chart.add_ticker(&ticker_info, chart_data) {
-                        log::warn!("Failed to add ticker to comparison: {}", e);
                         self.notifications.push(Toast::warn(format!(
                             "Failed to add {}: {}",
                             ticker_info.ticker.as_str(),
                             e
                         )));
                     } else {
-                        log::info!(
-                            "Added ticker {} to comparison chart",
-                            ticker_info.ticker.as_str()
-                        );
                         self.loading_status = LoadingStatus::Ready;
                     }
                 }
@@ -134,10 +151,6 @@ impl State {
                     );
                     *chart_opt = Some(new_chart);
                     self.loading_status = LoadingStatus::Ready;
-                    log::info!(
-                        "Created comparison chart with ticker {}",
-                        ticker_info.ticker.as_str()
-                    );
                 }
             },
             Content::TimeAndSales(_panel) => {}
@@ -153,15 +166,6 @@ impl State {
         kind: ContentKind,
         date_range: DateRange,
     ) -> Effect {
-        log::info!(
-            "PANE: set_content_with_range called with {:?} \
-             ContentKind::{:?}, range {} to {}",
-            ticker_info.ticker,
-            kind,
-            date_range.start,
-            date_range.end
-        );
-
         let basis = self
             .settings
             .selected_basis

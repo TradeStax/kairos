@@ -20,7 +20,6 @@ impl State {
         &'a self,
         base: Element<'a, Message>,
         pane: pane_grid::Pane,
-        indicator_modal: Option<Element<'a, Message>>,
         compact_controls: Option<Element<'a, Message>>,
         settings_modal: F,
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
@@ -94,13 +93,24 @@ impl State {
                 padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
                 Alignment::End,
             ),
-            Some(Modal::Indicators) => stack_modal(
-                base,
-                indicator_modal.unwrap_or_else(|| column![].into()),
-                on_blur,
-                padding::right(tokens::spacing::LG).left(tokens::spacing::LG),
-                Alignment::End,
-            ),
+            Some(Modal::IndicatorManager(manager)) => {
+                let content = manager.view().map(move |msg| {
+                    Message::PaneEvent(
+                        pane,
+                        Event::IndicatorManagerInteraction(msg),
+                    )
+                });
+                crate::modals::main_dialog_modal(
+                    base,
+                    content,
+                    Message::PaneEvent(
+                        pane,
+                        Event::IndicatorManagerInteraction(
+                            crate::modals::pane::indicator_manager::Message::Close,
+                        ),
+                    ),
+                )
+            }
             Some(Modal::Controls) => stack_modal(
                 base,
                 if let Some(controls) = compact_controls {
@@ -137,6 +147,22 @@ impl State {
                             crate::modals::drawing_properties::Message::Close,
                         ),
                     ),
+                )
+            }
+            Some(Modal::BigTradesDebug) => {
+                let (output, tick_size) = self
+                    .content
+                    .big_trades_debug_info()
+                    .unwrap_or((&study::StudyOutput::Empty, 0.25));
+                let content = modals::pane::settings::big_trades_debug_view(
+                    output, tick_size,
+                );
+                stack_modal(
+                    base,
+                    content,
+                    on_blur,
+                    padding::all(tokens::spacing::LG),
+                    Alignment::Center,
                 )
             }
             None => base,
@@ -210,26 +236,6 @@ impl State {
                             )),
                         ),
                     ]
-                }
-                ContextMenuKind::Indicator { indicator, .. } => {
-                    let indicator = *indicator;
-                    let mut items = vec![(
-                        format!("Remove {indicator}"),
-                        Some(Message::PaneEvent(
-                            pane,
-                            Event::ContextMenuAction(ContextMenuAction::RemoveIndicator(indicator)),
-                        )),
-                    )];
-
-                    items.push((
-                        "Indicators".into(),
-                        Some(Message::PaneEvent(
-                            pane,
-                            Event::ContextMenuAction(ContextMenuAction::OpenIndicators),
-                        )),
-                    ));
-
-                    items
                 }
             };
             let position = ctx_menu.position();

@@ -11,19 +11,6 @@ use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, LineDash, Path, Stroke, Text};
 use iced::{Color, Point, Size};
 
-/// Draw all drawings on the chart (renders everything in one pass)
-#[allow(dead_code)]
-pub fn draw_drawings(
-    frame: &mut Frame,
-    state: &ViewState,
-    drawings: &DrawingManager,
-    bounds: Size,
-    palette: &Extended,
-) {
-    draw_completed_drawings(frame, state, drawings, bounds, palette);
-    draw_overlay_drawings(frame, state, drawings, bounds, palette);
-}
-
 /// Draw only completed drawings (for the drawings cache layer)
 ///
 /// Renders all finalized drawings. This is cached separately from the
@@ -250,7 +237,7 @@ fn draw_single_drawing(
                 // Draw price delta label
                 let p1 = &drawing.points[0];
                 let p2 = &drawing.points[1];
-                let delta = p2.price.units - p1.price.units;
+                let delta = p2.price.units() - p1.price.units();
                 let label = format!(
                     "{}{:.2}",
                     if delta >= 0 { "+" } else { "" },
@@ -347,7 +334,8 @@ fn draw_single_drawing(
                         continue;
                     }
                     let level_y = screen_points[2].y + y_range * level.ratio as f32;
-                    let level_color: Color = level.color.into();
+                    let level_color: Color =
+                        crate::style::theme_bridge::rgba_to_iced_color(level.color);
                     let level_stroke =
                         create_stroke(level_color, stroke_width, drawing.style.line_style);
 
@@ -436,7 +424,7 @@ fn draw_single_drawing(
         }
         DrawingTool::PriceLabel => {
             if let Some(p) = screen_points.first() {
-                let price_units = drawing.points[0].price.units;
+                let price_units = drawing.points[0].price.units();
                 let label = format!("{:.2}", price_units as f64 / 1e8);
                 draw_label(frame, &label, *p, stroke_color);
             }
@@ -597,7 +585,8 @@ fn draw_fib_levels(
         }
 
         let level_y = p1.y + y_range * level.ratio as f32;
-        let level_color: Color = level.color.into();
+        let level_color: Color =
+            crate::style::theme_bridge::rgba_to_iced_color(level.color);
         let level_stroke = create_stroke(level_color, stroke_width, line_style);
 
         let (lx, rx) = if config.extend_lines {

@@ -86,12 +86,14 @@ impl Drawing {
 
     /// Get the stroke color as an iced Color
     pub fn stroke_color(&self) -> Color {
-        self.style.stroke_color.into()
+        crate::style::theme_bridge::rgba_to_iced_color(self.style.stroke_color)
     }
 
     /// Get the fill color as an iced Color (if any)
     pub fn fill_color(&self) -> Option<Color> {
-        self.style.fill_color.map(|c| c.into())
+        self.style
+            .fill_color
+            .map(crate::style::theme_bridge::rgba_to_iced_color)
     }
 
     /// Hit test: check if a screen point is near this drawing

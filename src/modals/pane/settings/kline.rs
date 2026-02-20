@@ -4,7 +4,7 @@ use crate::screen::dashboard::pane::{Event, Message};
 use crate::split_column;
 use crate::style::tokens;
 
-use data::config::theme::{from_hsva, to_hsva};
+use data::config::theme::{hsva_to_rgba, rgba_to_hsva};
 use data::state::pane::{CandleColorField, CandleStyle, KlineConfig, VisualConfig};
 use data::{CandlePosition, ClusterScaling, FootprintStudyConfig, FootprintType};
 
@@ -23,7 +23,74 @@ pub fn kline_cfg_view<'a>(
     footprint: Option<FootprintStudyConfig>,
     pane: pane_grid::Pane,
 ) -> Element<'a, Message> {
-    if footprint.is_none() {
+    if let Some(fp) = footprint {
+        // Footprint study settings
+        let type_picklist = pick_list(
+            FootprintType::ALL.to_vec(),
+            Some(fp.study_type),
+            move |new_type| {
+                let mut new_fp = fp.clone();
+                new_fp.study_type = new_type;
+                Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
+            },
+        );
+
+        let scaling_section = {
+            let picklist = pick_list(
+                ClusterScaling::ALL.to_vec(),
+                Some(fp.scaling),
+                move |new_scaling| {
+                    let mut new_fp = fp.clone();
+                    new_fp.scaling = new_scaling;
+                    Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
+                },
+            );
+
+            if let ClusterScaling::Hybrid { weight } = fp.scaling {
+                let hybrid_slider = slider(0.0..=1.0, weight, move |new_weight| {
+                    let mut new_fp = fp.clone();
+                    new_fp.scaling = ClusterScaling::Hybrid { weight: new_weight };
+                    Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
+                })
+                .step(0.05);
+
+                column![picklist, hybrid_slider,].spacing(tokens::spacing::MD)
+            } else {
+                column![picklist].spacing(tokens::spacing::MD)
+            }
+        };
+
+        let candle_pos_picklist = pick_list(
+            CandlePosition::ALL.to_vec(),
+            Some(fp.candle_position),
+            move |new_pos| {
+                let mut new_fp = fp.clone();
+                new_fp.candle_position = new_pos;
+                Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
+            },
+        );
+
+        let disable_btn = button(text("Disable footprint").size(12))
+            .on_press(Message::PaneEvent(pane, Event::FootprintStudyChanged(None)));
+
+        let content = split_column![
+            column![title("Data type"), type_picklist]
+                .spacing(tokens::spacing::MD),
+            column![title("Scaling"), scaling_section]
+                .spacing(tokens::spacing::MD),
+            column![title("Candle position"), candle_pos_picklist]
+                .spacing(tokens::spacing::MD),
+            row![
+                disable_btn,
+                space::horizontal(),
+                sync_all_button(pane, VisualConfig::Kline(cfg))
+            ]
+            .spacing(tokens::spacing::SM),
+            ; spacing = tokens::spacing::LG, align_x = Alignment::Start
+        ];
+
+        cfg_view_container(360, content)
+    } else {
         // Standard candlestick settings
         let editing = cfg.editing_color;
         let style = cfg.candle_style.clone();
@@ -120,14 +187,15 @@ pub fn kline_cfg_view<'a>(
 
         if let Some(field) = editing {
             let current_color = style.get_color(field);
-            let display_color = current_color.unwrap_or(default_for_field(field));
-            let hsva = to_hsva(display_color);
+            let display_rgba = current_color
+                .unwrap_or_else(|| crate::style::theme_bridge::iced_color_to_rgba(default_for_field(field)));
+            let hsva = rgba_to_hsva(display_rgba);
 
             let cfg_for_picker = cfg.clone();
             let picker = color_picker(
                 hsva,
                 move |new_hsva| {
-                    let new_color = from_hsva(new_hsva);
+                    let new_color = hsva_to_rgba(new_hsva);
                     let mut new_style = cfg_for_picker.candle_style.clone();
                     new_style.set_color(field, Some(new_color));
                     let mut new_cfg = cfg_for_picker.clone();
@@ -167,75 +235,6 @@ pub fn kline_cfg_view<'a>(
         } else {
             cfg_view_container(320, compact_col)
         }
-    } else {
-        // Footprint study settings
-        let fp = footprint.unwrap();
-
-        let type_picklist = pick_list(
-            FootprintType::ALL.to_vec(),
-            Some(fp.study_type),
-            move |new_type| {
-                let mut new_fp = fp.clone();
-                new_fp.study_type = new_type;
-                Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
-            },
-        );
-
-        let scaling_section = {
-            let picklist = pick_list(
-                ClusterScaling::ALL.to_vec(),
-                Some(fp.scaling),
-                move |new_scaling| {
-                    let mut new_fp = fp.clone();
-                    new_fp.scaling = new_scaling;
-                    Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
-                },
-            );
-
-            if let ClusterScaling::Hybrid { weight } = fp.scaling {
-                let hybrid_slider = slider(0.0..=1.0, weight, move |new_weight| {
-                    let mut new_fp = fp.clone();
-                    new_fp.scaling = ClusterScaling::Hybrid { weight: new_weight };
-                    Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
-                })
-                .step(0.05);
-
-                column![picklist, hybrid_slider,].spacing(tokens::spacing::MD)
-            } else {
-                column![picklist].spacing(tokens::spacing::MD)
-            }
-        };
-
-        let candle_pos_picklist = pick_list(
-            CandlePosition::ALL.to_vec(),
-            Some(fp.candle_position),
-            move |new_pos| {
-                let mut new_fp = fp.clone();
-                new_fp.candle_position = new_pos;
-                Message::PaneEvent(pane, Event::FootprintStudyChanged(Some(new_fp)))
-            },
-        );
-
-        let disable_btn = button(text("Disable footprint").size(12))
-            .on_press(Message::PaneEvent(pane, Event::FootprintStudyChanged(None)));
-
-        let content = split_column![
-            column![title("Data type"), type_picklist]
-                .spacing(tokens::spacing::MD),
-            column![title("Scaling"), scaling_section]
-                .spacing(tokens::spacing::MD),
-            column![title("Candle position"), candle_pos_picklist]
-                .spacing(tokens::spacing::MD),
-            row![
-                disable_btn,
-                space::horizontal(),
-                sync_all_button(pane, VisualConfig::Kline(cfg))
-            ]
-            .spacing(tokens::spacing::SM),
-            ; spacing = tokens::spacing::LG, align_x = Alignment::Start
-        ];
-
-        cfg_view_container(360, content)
     }
 }
 
@@ -250,13 +249,16 @@ fn color_swatch_row<'a>(
     cfg: &KlineConfig,
 ) -> Element<'a, Message> {
     let current_color = style.get_color(field);
-    let display_color = current_color.unwrap_or(default_for_field(field));
+    let display_rgba = current_color
+        .unwrap_or_else(|| crate::style::theme_bridge::iced_color_to_rgba(default_for_field(field)));
     let is_active = editing == Some(field);
     let is_custom = current_color.is_some();
 
     let swatch = button(space::horizontal().width(24).height(16))
         .style(move |_theme, _status| button::Style {
-            background: Some(display_color.into()),
+            background: Some(iced::Background::Color(
+                crate::style::theme_bridge::rgba_to_iced_color(display_rgba),
+            )),
             border: iced::border::rounded(3)
                 .width(if is_active { 2.0 } else { 1.0 })
                 .color(if is_active {

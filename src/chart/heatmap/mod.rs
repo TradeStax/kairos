@@ -28,12 +28,12 @@ mod render;
 pub mod trades;
 
 use crate::chart::{
-    Chart, Message, PlotConstants, ViewState, drawing::DrawingManager,
+    Chart, PlotConstants, ViewState, drawing::DrawingManager,
     scale::linear::PriceInfoLabel,
 };
 use crate::modals::pane::settings::study;
 
-use data::{HeatmapData, QtyScale};
+use data::{HeatmapData, QtyScale, VolumeProfile, VolumeProfileKey};
 
 use ::data::util::count_decimals;
 use ::data::{
@@ -42,10 +42,10 @@ use ::data::{
 };
 use exchange::FuturesTickerInfo;
 
-use iced::{Element, Vector};
+use iced::Vector;
 
 use enum_map::EnumMap;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
 // Re-export types from submodules
@@ -53,11 +53,6 @@ pub use render::HeatmapStudy;
 pub use trades::TradeRenderingMode;
 
 // ── Constants - Visual Configuration ──────────────────────────────────
-
-/// Minimum chart scaling factor
-const MIN_SCALING: f32 = 0.6;
-/// Maximum chart scaling factor
-const MAX_SCALING: f32 = 1.2;
 
 /// Maximum cell width in pixels
 const MAX_CELL_WIDTH: f32 = 12.0;
@@ -75,8 +70,6 @@ const DEFAULT_CELL_WIDTH: f32 = 3.0;
 // ── Chart Trait Implementation ────────────────────────────────────────
 
 impl Chart for HeatmapChart {
-    type IndicatorKind = HeatmapIndicator;
-
     fn state(&self) -> &ViewState {
         &self.chart
     }
@@ -91,10 +84,6 @@ impl Chart for HeatmapChart {
 
     fn invalidate_all(&mut self) {
         self.invalidate(None);
-    }
-
-    fn view_indicators(&'_ self, _indicators: &[Self::IndicatorKind]) -> Vec<Element<'_, Message>> {
-        vec![]
     }
 
     fn interval_keys(&self) -> Option<Vec<u64>> {
@@ -167,14 +156,6 @@ impl Chart for HeatmapChart {
 }
 
 impl PlotConstants for HeatmapChart {
-    fn min_scaling(&self) -> f32 {
-        MIN_SCALING
-    }
-
-    fn max_scaling(&self) -> f32 {
-        MAX_SCALING
-    }
-
     fn max_cell_width(&self) -> f32 {
         MAX_CELL_WIDTH
     }
@@ -268,6 +249,9 @@ pub struct HeatmapChart {
 
     /// Cached qty_scales to avoid recomputation when viewport hasn't changed
     qty_scale_cache: Cell<Option<(u64, u64, i64, i64, QtyScale)>>,
+
+    /// Cached volume profile to avoid recomputation in draw closure
+    volume_profile_cache: RefCell<Option<(VolumeProfileKey, VolumeProfile)>>,
 }
 
 impl HeatmapChart {
@@ -387,6 +371,7 @@ impl HeatmapChart {
             last_tick: Instant::now(),
             drawings: DrawingManager::new(),
             qty_scale_cache: Cell::new(None),
+            volume_profile_cache: RefCell::new(None),
         };
 
         // Set initial price and position
@@ -599,6 +584,7 @@ impl HeatmapChart {
 
         chart.cache.clear_all();
         self.qty_scale_cache.set(None);
+        self.volume_profile_cache.borrow_mut().take();
 
         if let Some(t) = now {
             self.last_tick = t;
@@ -648,5 +634,41 @@ impl HeatmapChart {
             .set(Some((key.0, key.1, key.2, key.3, result)));
 
         result
+    }
+
+    /// Get or compute the volume profile, using a RefCell cache keyed
+    /// on the time range and tick parameters. Callable from `&self`.
+    pub(crate) fn get_or_compute_volume_profile(
+        &self,
+        time_range: std::ops::RangeInclusive<u64>,
+        first_tick: DataPrice,
+        last_tick: DataPrice,
+        step_units: i64,
+        num_ticks: usize,
+    ) {
+        let key = VolumeProfileKey {
+            earliest: *time_range.start(),
+            latest: *time_range.end(),
+            first_tick_units: first_tick.units(),
+            last_tick_units: last_tick.units(),
+            step_units,
+        };
+
+        let needs_recompute = self
+            .volume_profile_cache
+            .borrow()
+            .as_ref()
+            .map_or(true, |(cached_key, _)| *cached_key != key);
+
+        if needs_recompute {
+            let profile = self.heatmap_data.compute_volume_profile(
+                time_range,
+                first_tick,
+                last_tick,
+                step_units,
+                num_ticks,
+            );
+            *self.volume_profile_cache.borrow_mut() = Some((key, profile));
+        }
     }
 }

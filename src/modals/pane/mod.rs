@@ -1,7 +1,7 @@
 use iced::{Alignment, Element, padding};
 
 pub mod calendar;
-pub mod indicators;
+pub mod indicator_manager;
 pub mod settings;
 pub mod stream;
 pub mod tickers;
@@ -12,8 +12,9 @@ pub enum Modal {
     MiniTickersList(tickers::MiniPanel),
     DataManagement(super::download::data_management::DataManagementPanel),
     DrawingProperties(super::drawing_properties::DrawingPropertiesModal),
+    IndicatorManager(indicator_manager::IndicatorManagerModal),
+    BigTradesDebug,
     Settings,
-    Indicators,
     LinkGroup,
     Controls,
 }

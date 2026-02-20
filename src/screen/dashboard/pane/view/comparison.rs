@@ -58,7 +58,6 @@ impl State {
             let body = self.compose_stack_view(
                 base,
                 id,
-                None,
                 compact_controls,
                 settings_modal,
                 Some(selected_tickers_static),
@@ -70,7 +69,6 @@ impl State {
             let body = self.compose_stack_view(
                 base,
                 id,
-                None,
                 compact_controls,
                 || column![].into(),
                 None,

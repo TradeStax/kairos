@@ -107,7 +107,9 @@ impl<Message> canvas::Program<Message> for PriceLineChart {
         for &(t, p) in &self.points[1..] {
             fill_builder.line_to(to_point(t, p));
         }
-        let last = self.points.last().unwrap();
+        let Some(last) = self.points.last() else {
+            return vec![frame.into_geometry()];
+        };
         let last_pt = to_point(last.0, last.1);
         fill_builder.line_to(iced::Point::new(last_pt.x, h));
         fill_builder.close();

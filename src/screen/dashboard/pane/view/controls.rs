@@ -58,10 +58,15 @@ impl State {
         {
             buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::ChartOutline, 12),
-                show_modal(Modal::Indicators),
+                Message::PaneEvent(pane, Event::OpenIndicatorManager),
                 Some("Indicators"),
                 tooltip_pos,
-                modal_btn_style(Modal::Indicators),
+                {
+                    let is_active = matches!(self.modal, Some(Modal::IndicatorManager(_)));
+                    move |theme: &Theme, status: button::Status| {
+                        style::button::transparent(theme, status, is_active)
+                    }
+                },
             ));
         }
 

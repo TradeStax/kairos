@@ -376,7 +376,9 @@ fn picker_hsva<'a, Message: 'a>(
                             shadow: iced::Shadow::default(),
                             snap: true,
                         },
-                        data::config::theme::from_hsva(color),
+                        crate::style::theme_bridge::rgba_to_iced_color(
+                            data::config::theme::hsva_to_rgba(color),
+                        ),
                     );
                 });
 
@@ -390,7 +392,9 @@ fn picker_hsva<'a, Message: 'a>(
                             shadow: iced::Shadow::default(),
                             snap: true,
                         },
-                        data::config::theme::from_hsva(hsva),
+                        crate::style::theme_bridge::rgba_to_iced_color(
+                            data::config::theme::hsva_to_rgba(hsva),
+                        ),
                     );
                 });
             },

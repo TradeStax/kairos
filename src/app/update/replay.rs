@@ -4,26 +4,26 @@ use crate::components::display::toast::Toast;
 use crate::modals::replay;
 use crate::screen::dashboard;
 
-use super::super::{Flowsurface, Message};
+use super::super::{Kairos, Message};
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_replay_message(&mut self, msg: replay::Message) -> Task<Message> {
         match msg {
             replay::Message::LoadData => {
+                super::super::globals::set_replay_active(true);
                 return self.replay_load_data();
             }
             replay::Message::Play => {
-                return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current().block_on(engine.play())
-                });
+                return self
+                    .replay_engine_action(|engine| Box::pin(engine.play()));
             }
             replay::Message::Pause => {
-                return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current().block_on(engine.pause())
-                });
+                return self
+                    .replay_engine_action(|engine| Box::pin(engine.pause()));
             }
             replay::Message::EndReplay => {
                 // Stop replay, restore chart data, hide controller
+                super::super::globals::set_replay_active(false);
                 self.replay_manager.data_loaded = false;
                 self.replay_manager.progress = 0.0;
                 self.replay_manager.position = 0;
@@ -33,9 +33,8 @@ impl Flowsurface {
 
                 self.exit_replay_on_all_panes();
 
-                return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current().block_on(engine.stop())
-                });
+                return self
+                    .replay_engine_action(|engine| Box::pin(engine.stop()));
             }
             replay::Message::CloseController => {
                 // Hide controller but keep replay playing
@@ -47,21 +46,19 @@ impl Flowsurface {
             replay::Message::SetSpeed(speed) => {
                 self.replay_manager.speed = speed;
                 return self.replay_engine_action(move |engine| {
-                    tokio::runtime::Handle::current().block_on(engine.set_speed(speed))
+                    Box::pin(engine.set_speed(speed))
                 });
             }
             replay::Message::Seek(progress) => {
                 return self.replay_seek(progress);
             }
             replay::Message::JumpForward => {
-                return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current().block_on(engine.jump(30_000))
-                });
+                return self
+                    .replay_engine_action(|engine| Box::pin(engine.jump(30_000)));
             }
             replay::Message::JumpBackward => {
-                return self.replay_engine_action(|engine| {
-                    tokio::runtime::Handle::current().block_on(engine.jump(-30_000))
-                });
+                return self
+                    .replay_engine_action(|engine| Box::pin(engine.jump(-30_000)));
             }
             other => {
                 // UI-only messages (SelectStream, SelectDate, etc.)
@@ -172,10 +169,16 @@ impl Flowsurface {
         Task::none()
     }
 
-    /// Run a synchronous action on the replay engine via spawn_blocking.
+    /// Run an async action on the replay engine via Task::perform.
     fn replay_engine_action<F>(&self, action: F) -> Task<Message>
     where
-        F: FnOnce(&mut data::services::ReplayEngine) -> Result<(), String> + Send + 'static,
+        F: for<'a> FnOnce(
+                &'a mut data::services::ReplayEngine,
+            )
+                -> std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>,
+                > + Send
+            + 'static,
     {
         let Some(engine) = self.replay_engine.clone() else {
             return Task::none();
@@ -183,12 +186,8 @@ impl Flowsurface {
 
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    let mut guard = engine.lock().unwrap_or_else(|e| e.into_inner());
-                    action(&mut guard)
-                })
-                .await
-                .map_err(|e| format!("Task join error: {}", e))?
+                let mut guard = engine.lock().await;
+                action(&mut guard).await
             },
             |result| match result {
                 Ok(()) => Message::Tick(std::time::Instant::now()),
@@ -209,7 +208,7 @@ impl Flowsurface {
 
         let ticker_info = stream.ticker_info;
         let date_range = stream.date_range;
-        let events_buf = super::super::get_replay_events().clone();
+        let events_buf = super::super::globals::get_replay_events().clone();
 
         // Compute the user-specified start timestamp from date + time fields
         let start_timestamp = self.compute_replay_start_timestamp();
@@ -220,38 +219,31 @@ impl Flowsurface {
 
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    let handle = tokio::runtime::Handle::current();
-                    let mut guard = engine.lock().unwrap_or_else(|e| e.into_inner());
+                let mut guard = engine.lock().await;
 
-                    // Take the event_rx and bridge to global buffer
-                    if let Some(rx) = guard.event_rx.take() {
-                        let buf = events_buf.clone();
-                        handle.spawn(async move {
-                            let mut rx = rx;
-                            while let Some(event) = rx.recv().await {
-                                if let Ok(mut b) = buf.lock() {
-                                    b.push(event);
-                                }
+                // Take the event_rx and bridge to global buffer
+                if let Some(rx) = guard.event_rx.take() {
+                    let buf = events_buf.clone();
+                    tokio::spawn(async move {
+                        let mut rx = rx;
+                        while let Some(event) = rx.recv().await {
+                            if let Ok(mut b) = buf.lock() {
+                                b.push(event);
                             }
-                        });
-                    }
-
-                    // Load data, seek to user-specified start, then play
-                    handle.block_on(async {
-                        guard.load_data(ticker_info, date_range).await?;
-
-                        // Seek to user-specified start time if provided
-                        if let Some(ts) = start_timestamp {
-                            guard.seek(ts).await?;
                         }
+                    });
+                }
 
-                        guard.play().await?;
-                        Ok::<(), String>(())
-                    })
-                })
-                .await
-                .map_err(|e| format!("Task join error: {}", e))?
+                // Load data, seek to user-specified start, then play
+                guard.load_data(ticker_info, date_range).await?;
+
+                // Seek to user-specified start time if provided
+                if let Some(ts) = start_timestamp {
+                    guard.seek(ts).await?;
+                }
+
+                guard.play().await?;
+                Ok::<(), String>(())
             },
             |result| match result {
                 Ok(()) => Message::ReplayEvent(data::services::ReplayEvent::PlaybackStarted),
@@ -291,12 +283,8 @@ impl Flowsurface {
 
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    let guard = engine.lock().unwrap_or_else(|e| e.into_inner());
-                    tokio::runtime::Handle::current().block_on(guard.compute_volume_histogram(200))
-                })
-                .await
-                .unwrap_or_default()
+                let guard = engine.lock().await;
+                guard.compute_volume_histogram(200).await
             },
             |buckets| Message::Replay(replay::Message::VolumeHistogramReady(buckets)),
         )
@@ -309,7 +297,9 @@ impl Flowsurface {
         };
         let ticker = stream.ticker_info.ticker;
 
-        let dashboard = self.active_dashboard_mut();
+        let Some(dashboard) = self.active_dashboard_mut() else {
+            return;
+        };
         for (_, state) in dashboard.panes.iter_mut() {
             if let Some(ti) = state.ticker_info {
                 if ti.ticker == ticker {
@@ -330,7 +320,9 @@ impl Flowsurface {
 
     /// Exit replay mode on all panes (restore original data).
     fn exit_replay_on_all_panes(&mut self) {
-        let dashboard = self.active_dashboard_mut();
+        let Some(dashboard) = self.active_dashboard_mut() else {
+            return;
+        };
         for (_, state) in dashboard.panes.iter_mut() {
             if state.is_replaying() {
                 state.exit_replay_mode();
@@ -356,8 +348,6 @@ impl Flowsurface {
         let end = range.end.to_millis();
         let timestamp = start + ((end - start) as f32 * progress) as u64;
 
-        self.replay_engine_action(move |engine| {
-            tokio::runtime::Handle::current().block_on(engine.seek(timestamp))
-        })
+        self.replay_engine_action(move |engine| Box::pin(engine.seek(timestamp)))
     }
 }

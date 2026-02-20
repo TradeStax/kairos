@@ -388,27 +388,45 @@ fn draw_box_mode(
 
 // ── Profile mode rendering (bars extending from candle) ───────────────
 
-#[allow(clippy::too_many_arguments)]
+/// Position and sizing parameters for cluster rendering.
+pub struct ClusterLayout {
+    pub x_position: f32,
+    pub cell_width: f32,
+    pub cell_height: f32,
+    pub candle_width: f32,
+    pub candle_position: CandlePosition,
+    pub spacing: ContentGaps,
+}
+
+/// Visual style parameters for cluster rendering.
+pub struct ClusterStyle<'a> {
+    pub palette: &'a Extended,
+    pub text_size: f32,
+    pub show_text: bool,
+}
+
 pub fn draw_clusters(
     frame: &mut canvas::Frame,
     price_to_y: impl Fn(Price) -> f32,
-    x_position: f32,
-    cell_width: f32,
-    cell_height: f32,
-    candle_width: f32,
+    layout: &ClusterLayout,
+    style: &ClusterStyle<'_>,
     max_cluster_qty: f32,
-    palette: &Extended,
-    text_size: f32,
-    _tick_size: f32,
-    show_text: bool,
     candle: &Candle,
     footprint: &BTreeMap<Price, TradeGroup>,
     study_type: FootprintType,
     scaling: ClusterScaling,
-    candle_position: CandlePosition,
     mode: FootprintMode,
-    spacing: ContentGaps,
 ) {
+    let x_position = layout.x_position;
+    let cell_width = layout.cell_width;
+    let cell_height = layout.cell_height;
+    let candle_width = layout.candle_width;
+    let candle_position = layout.candle_position;
+    let spacing = layout.spacing;
+    let palette = style.palette;
+    let text_size = style.text_size;
+    let show_text = style.show_text;
+
     let poc_price = find_poc(footprint);
     let text_set = text_budget_set(footprint, show_text);
     let should_label =

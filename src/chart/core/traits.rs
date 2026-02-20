@@ -4,17 +4,14 @@
 
 use super::ViewState;
 use crate::chart::Message;
-use data::{DrawingId, Indicator};
-use iced::{Element, Point, Size, Vector, widget::canvas};
+use data::DrawingId;
+use iced::{Point, Size, Vector, widget::canvas};
 
 /// Core trait for all chart types
 ///
 /// Provides common interface for chart operations including state access,
-/// cache invalidation, and indicator rendering.
+/// cache invalidation, and rendering.
 pub trait Chart: PlotConstants + canvas::Program<Message> {
-    /// The indicator type this chart supports
-    type IndicatorKind: Indicator;
-
     /// Get immutable reference to chart state
     fn state(&self) -> &ViewState;
 
@@ -26,9 +23,6 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
 
     /// Invalidate only the crosshair cache
     fn invalidate_crosshair(&mut self);
-
-    /// Render indicator elements for this chart
-    fn view_indicators(&'_ self, enabled: &[Self::IndicatorKind]) -> Vec<Element<'_, Message>>;
 
     /// Get interval keys for tick-based charts
     fn interval_keys(&self) -> Option<Vec<u64>>;
@@ -89,12 +83,6 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
 ///
 /// Each chart type can define its own limits for zooming and cell sizes.
 pub trait PlotConstants {
-    /// Minimum scaling factor (most zoomed out)
-    fn min_scaling(&self) -> f32;
-
-    /// Maximum scaling factor (most zoomed in)
-    fn max_scaling(&self) -> f32;
-
     /// Maximum cell width in pixels
     fn max_cell_width(&self) -> f32;
 

@@ -2,10 +2,7 @@ use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap
 use crate::components::layout::reorderable_list as column_drag;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
 
-use data::{
-    ContentKind, DrawingTool, HeatmapIndicator, KlineIndicator, Settings, UiIndicator, ViewConfig,
-    VisualConfig,
-};
+use data::{ContentKind, DrawingTool, HeatmapIndicator, Settings, ViewConfig, VisualConfig};
 use exchange::FuturesTickerInfo;
 use std::time::Instant;
 
@@ -21,8 +18,8 @@ pub enum Content {
     },
     Kline {
         chart: Option<KlineChart>,
-        indicators: Vec<KlineIndicator>,
         layout: ViewConfig,
+        study_ids: Vec<String>,
     },
     TimeAndSales(Option<TimeAndSales>),
     Ladder(Option<Ladder>),
@@ -48,11 +45,11 @@ impl Content {
             },
             ContentKind::CandlestickChart => Content::Kline {
                 chart: None,
-                indicators: vec![KlineIndicator::Volume],
                 layout: ViewConfig {
-                    splits: vec![0.8],
+                    splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
                 },
+                study_ids: vec![],
             },
             ContentKind::TimeAndSales => {
                 let state_config = settings
@@ -90,11 +87,11 @@ impl Content {
             ContentKind::Starter => Content::Starter,
             ContentKind::CandlestickChart => Content::Kline {
                 chart: None,
-                indicators: vec![KlineIndicator::Volume],
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
                 },
+                study_ids: vec![],
             },
             ContentKind::HeatmapChart => Content::Heatmap {
                 chart: None,
@@ -129,61 +126,60 @@ impl Content {
         }
     }
 
-    pub fn toggle_indicator(&mut self, indicator: UiIndicator) {
-        match (&mut *self, indicator) {
-            (
-                Content::Heatmap {
-                    chart, indicators, ..
-                },
-                UiIndicator::Heatmap(ind),
-            ) => {
-                let Some(chart) = chart else {
-                    return;
-                };
+    pub fn toggle_heatmap_indicator(&mut self, indicator: HeatmapIndicator) {
+        if let Content::Heatmap {
+            chart, indicators, ..
+        } = self
+        {
+            let Some(chart) = chart else {
+                return;
+            };
 
-                if indicators.contains(&ind) {
-                    indicators.retain(|i| i != &ind);
-                } else {
-                    indicators.push(ind);
-                }
-                chart.toggle_indicator(ind);
+            if indicators.contains(&indicator) {
+                indicators.retain(|i| i != &indicator);
+            } else {
+                indicators.push(indicator);
             }
-            (
-                Content::Kline {
-                    chart, indicators, ..
-                },
-                UiIndicator::Kline(ind),
-            ) => {
-                let Some(chart) = chart else {
-                    return;
-                };
+            chart.toggle_indicator(indicator);
+        }
+    }
 
-                if indicators.contains(&ind) {
-                    indicators.retain(|i| i != &ind);
-                } else {
-                    indicators.push(ind);
+    pub fn toggle_study(&mut self, study_id: &str) {
+        if let Content::Kline {
+            chart, study_ids, ..
+        } = self
+        {
+            if let Some(pos) = study_ids.iter().position(|id| id == study_id) {
+                study_ids.remove(pos);
+                if let Some(c) = chart {
+                    c.remove_study(study_id);
                 }
-                chart.toggle_indicator(ind);
-            }
-            (other, ind) => {
-                log::warn!(
-                    "indicator toggle on {ind:?} ignored for \
-                     {other} pane"
-                );
+            } else {
+                let registry = crate::app::services::create_unified_registry();
+                if let Some(study) = registry.create(study_id) {
+                    study_ids.push(study_id.to_string());
+                    if let Some(c) = chart {
+                        c.add_study(study);
+                    }
+                }
             }
         }
     }
 
+    pub fn update_study_parameter(
+        &mut self,
+        study_id: &str,
+        key: &str,
+        value: study::ParameterValue,
+    ) {
+        if let Content::Kline { chart: Some(c), .. } = self {
+            c.update_study_parameter(study_id, key, value);
+        }
+    }
+
     pub fn reorder_indicators(&mut self, event: &column_drag::DragEvent) {
-        match self {
-            Content::Heatmap { indicators, .. } => column_drag::reorder_vec(indicators, event),
-            Content::Kline { indicators, .. } => column_drag::reorder_vec(indicators, event),
-            Content::TimeAndSales(_)
-            | Content::Ladder(_)
-            | Content::Starter
-            | Content::Comparison(_) => {
-                log::warn!("indicator reorder ignored for {} pane", self);
-            }
+        if let Content::Heatmap { indicators, .. } = self {
+            column_drag::reorder_vec(indicators, event);
         }
     }
 
@@ -248,10 +244,8 @@ impl Content {
     }
 
     pub fn set_footprint_config(&mut self, config: Option<data::FootprintStudyConfig>) {
-        if let Content::Kline { chart, .. } = self {
-            if let Some(c) = chart {
-                c.set_footprint(config);
-            }
+        if let Content::Kline { chart: Some(c), .. } = self {
+            c.set_footprint(config);
         }
     }
 
@@ -277,36 +271,6 @@ impl Content {
                     .collect();
             }
             *previous = studies;
-        }
-    }
-
-    /// Resolve a panel index (among non-overlay indicators) to a `UiIndicator`.
-    pub fn indicator_at_panel(&self, panel_index: usize) -> Option<UiIndicator> {
-        match self {
-            Content::Kline { indicators, .. } => indicators
-                .iter()
-                .filter(|i| !i.is_overlay())
-                .nth(panel_index)
-                .map(|&i| UiIndicator::Kline(i)),
-            Content::Heatmap { indicators, .. } => indicators
-                .iter()
-                .nth(panel_index)
-                .map(|&i| UiIndicator::Heatmap(i)),
-            _ => None,
-        }
-    }
-
-    /// Panel index of the given indicator (among non-overlay panels).
-    pub fn indicator_panel_index(&self, target: &UiIndicator) -> Option<usize> {
-        match (self, target) {
-            (Content::Kline { indicators, .. }, UiIndicator::Kline(t)) => indicators
-                .iter()
-                .filter(|i| !i.is_overlay())
-                .position(|i| i == t),
-            (Content::Heatmap { indicators, .. }, UiIndicator::Heatmap(t)) => {
-                indicators.iter().position(|i| i == t)
-            }
-            _ => None,
         }
     }
 
@@ -402,6 +366,47 @@ impl Content {
             Content::Kline { chart: Some(c), .. } => Some(c.drawings.active_tool()),
             Content::Heatmap { chart: Some(c), .. } => Some(c.drawings.active_tool()),
             _ => None,
+        }
+    }
+
+    /// Get Big Trades study output and tick size for the debug modal.
+    pub fn big_trades_debug_info(&self) -> Option<(&study::StudyOutput, f32)> {
+        match self {
+            Content::Kline { chart: Some(c), .. } => {
+                let tick_size = c.tick_size();
+                c.studies()
+                    .iter()
+                    .find(|s| s.id() == "big_trades")
+                    .map(|s| (s.output(), tick_size))
+            }
+            _ => None,
+        }
+    }
+
+    /// Serialize active study configs for persistence
+    pub fn serialize_studies(&self) -> Vec<data::StudyInstanceConfig> {
+        match self {
+            Content::Kline { chart: Some(c), study_ids, .. } => {
+                c.studies()
+                    .iter()
+                    .map(|s| {
+                        let parameters = s
+                            .config()
+                            .values
+                            .iter()
+                            .filter_map(|(k, v)| {
+                                serde_json::to_value(v).ok().map(|jv| (k.clone(), jv))
+                            })
+                            .collect();
+                        data::StudyInstanceConfig {
+                            study_id: s.id().to_string(),
+                            enabled: study_ids.contains(&s.id().to_string()),
+                            parameters,
+                        }
+                    })
+                    .collect()
+            }
+            _ => vec![],
         }
     }
 

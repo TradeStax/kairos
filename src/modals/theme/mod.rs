@@ -61,7 +61,7 @@ pub struct ThemeEditor {
 impl ThemeEditor {
     pub fn new(custom_theme: Option<data::Theme>) -> Self {
         Self {
-            custom_theme: custom_theme.map(|theme| theme.0),
+            custom_theme: custom_theme.map(|t| crate::style::theme_bridge::theme_to_iced(&t)),
             component: Component::Background,
             hex_input: None,
             editing: None,
@@ -87,7 +87,8 @@ impl ThemeEditor {
                 self.editing = Some(hsva);
 
                 let mut new_palette = theme.palette();
-                let color = data::config::theme::from_hsva(hsva);
+                let rgba = data::config::theme::hsva_to_rgba(hsva);
+                let color = crate::style::theme_bridge::rgba_to_iced_color(rgba);
 
                 match self.component {
                     Component::Background => new_palette.background = color,
@@ -106,13 +107,16 @@ impl ThemeEditor {
             Message::ComponentChanged(component) => {
                 self.component = component;
                 let color = self.focused_color(theme);
-                self.editing = Some(data::config::theme::to_hsva(color));
+                self.editing = Some(data::config::theme::rgba_to_hsva(
+                    crate::style::theme_bridge::iced_color_to_rgba(color),
+                ));
                 None
             }
             Message::HexInput(input) => {
                 let mut action = None;
 
-                if let Some(color) = data::config::theme::hex_to_color(&input) {
+                if let Some(rgba) = data::config::theme::hex_to_rgba_safe(&input) {
+                    let color = crate::style::theme_bridge::rgba_to_iced_color(rgba);
                     let mut new_palette = theme.palette();
 
                     match self.component {
@@ -124,7 +128,7 @@ impl ThemeEditor {
                         Component::Warning => new_palette.warning = color,
                     }
 
-                    self.editing = Some(data::config::theme::to_hsva(color));
+                    self.editing = Some(data::config::theme::rgba_to_hsva(rgba));
 
                     let new_theme = iced_core::Theme::custom("Custom".to_string(), new_palette);
                     self.custom_theme = Some(new_theme.clone());
@@ -141,9 +145,9 @@ impl ThemeEditor {
 
     pub fn view(&self, theme: &iced_core::Theme) -> Element<'_, Message> {
         let color = self.focused_color(theme);
-        let hsva_in = self
-            .editing
-            .unwrap_or_else(|| data::config::theme::to_hsva(color));
+        let hsva_in = self.editing.unwrap_or_else(|| {
+            data::config::theme::rgba_to_hsva(crate::style::theme_bridge::iced_color_to_rgba(color))
+        });
 
         let close_editor = button(icon_text(Icon::Return, 11)).on_press(Message::CloseRequested);
 
@@ -151,14 +155,17 @@ impl ThemeEditor {
             || self
                 .hex_input
                 .as_deref()
-                .and_then(data::config::theme::hex_to_color)
+                .and_then(data::config::theme::hex_to_rgba_safe)
                 .is_some();
 
         let hex_input = iced::widget::text_input(
             "",
-            self.hex_input
-                .as_deref()
-                .unwrap_or(data::config::theme::color_to_hex(color).as_str()),
+            self.hex_input.as_deref().unwrap_or(
+                data::config::theme::rgba_to_hex_string(crate::style::theme_bridge::iced_color_to_rgba(
+                    color,
+                ))
+                .as_str(),
+            ),
         )
         .on_input(Message::HexInput)
         .width(80)

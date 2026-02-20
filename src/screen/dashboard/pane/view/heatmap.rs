@@ -1,6 +1,6 @@
 use crate::{
     chart,
-    modals::{self, ModifierKind, pane::Modal},
+    modals::{self, ModifierKind},
     screen::dashboard::pane::view::CompactControls,
 };
 use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
@@ -21,7 +21,7 @@ impl State {
         &'a self,
         id: iced::widget::pane_grid::Pane,
         chart_opt: &'a Option<chart::heatmap::HeatmapChart>,
-        indicators: &'a [data::HeatmapIndicator],
+        _indicators: &'a [data::HeatmapIndicator],
         modifier: Option<modals::stream::Modifier>,
         compact_controls: CompactControls<'a>,
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
@@ -46,10 +46,7 @@ impl State {
 
             extra.push(modifiers);
 
-            let selected_panel = self
-                .selected_indicator
-                .and_then(|ind| self.content.indicator_panel_index(&ind));
-            let base = chart::view(chart, indicators, timezone, selected_panel)
+            let base = chart::view(chart, timezone)
                 .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
             let settings_modal = || {
                 // Convert chart::heatmap::VisualConfig to data::HeatmapConfig
@@ -85,18 +82,9 @@ impl State {
                 )
             };
 
-            let indicator_modal = if self.modal == Some(Modal::Indicators) {
-                Some(modals::pane::indicators::content_row_heatmap(
-                    id, indicators, false, // Heatmap doesn't allow dragging
-                ))
-            } else {
-                None
-            };
-
             let body = self.compose_stack_view(
                 base,
                 id,
-                indicator_modal,
                 compact_controls,
                 settings_modal,
                 None,
@@ -108,7 +96,6 @@ impl State {
             let body = self.compose_stack_view(
                 base,
                 id,
-                None,
                 compact_controls,
                 || column![].into(),
                 None,

@@ -2,27 +2,23 @@ mod candle;
 mod footprint;
 mod render;
 
-use crate::chart::indicator::kline::KlineIndicatorImpl;
-use crate::chart::{Chart, Message, PlotConstants, ViewState, drawing::DrawingManager, indicator};
+use crate::chart::{Chart, PlotConstants, ViewState, drawing::DrawingManager};
 use data::state::pane::CandleStyle;
 use data::util::count_decimals;
 use data::{
-    Autoscale, Candle, ChartBasis, ChartData, FootprintStudyConfig, FootprintType, KlineIndicator,
+    Autoscale, Candle, ChartBasis, ChartData, FootprintStudyConfig, FootprintType,
     Price as DomainPrice, Side, Trade, ViewConfig,
 };
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 
-use iced::{Element, Vector};
+use iced::Vector;
 
-use enum_map::EnumMap;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
 impl Chart for KlineChart {
-    type IndicatorKind = KlineIndicator;
-
     fn state(&self) -> &ViewState {
         &self.chart
     }
@@ -33,37 +29,10 @@ impl Chart for KlineChart {
 
     fn invalidate_crosshair(&mut self) {
         self.chart.cache.clear_crosshair();
-        self.indicators
-            .values_mut()
-            .filter_map(Option::as_mut)
-            .for_each(|indi| indi.clear_crosshair_caches());
     }
 
     fn invalidate_all(&mut self) {
         self.invalidate();
-    }
-
-    fn view_indicators(&'_ self, enabled: &[Self::IndicatorKind]) -> Vec<Element<'_, Message>> {
-        let chart_state = self.state();
-        let visible_region = chart_state.visible_region(chart_state.bounds.size());
-        let (earliest, latest) = chart_state.interval_range(&visible_region);
-        if earliest > latest {
-            return vec![];
-        }
-
-        let mut elements = vec![];
-
-        for selected_indicator in enabled {
-            // Overlay indicators are drawn on the main chart canvas,
-            // not as separate panel elements.
-            if selected_indicator.is_overlay() {
-                continue;
-            }
-            if let Some(indi) = self.indicators[*selected_indicator].as_ref() {
-                elements.push(indi.element(chart_state, earliest..=latest));
-            }
-        }
-        elements
     }
 
     fn interval_keys(&self) -> Option<Vec<u64>> {
@@ -144,14 +113,6 @@ impl Chart for KlineChart {
 }
 
 impl PlotConstants for KlineChart {
-    fn min_scaling(&self) -> f32 {
-        if self.footprint.is_some() { 0.05 } else { 0.1 }
-    }
-
-    fn max_scaling(&self) -> f32 {
-        if self.footprint.is_some() { 2.0 } else { 5.0 }
-    }
-
     fn max_cell_width(&self) -> f32 {
         if self.footprint.is_some() {
             500.0
@@ -186,7 +147,6 @@ pub struct KlineChart {
     chart_data: ChartData,
     basis: ChartBasis,
     ticker_info: FuturesTickerInfo,
-    indicators: EnumMap<KlineIndicator, Option<Box<dyn KlineIndicatorImpl>>>,
     /// Active footprint study (None = standard candles)
     pub footprint: Option<FootprintStudyConfig>,
     last_tick: Instant,
@@ -198,6 +158,8 @@ pub struct KlineChart {
     pub(crate) candle_style: CandleStyle,
     /// Overlay studies (Big Trades, etc.)
     studies: Vec<Box<dyn study::Study>>,
+    /// Whether studies need recomputation on next invalidate
+    studies_dirty: bool,
 }
 
 /// Maximum total price levels stored across all cached footprints
@@ -244,7 +206,7 @@ impl FootprintCache {
         }
         let last_idx = self.entries.len() - 1;
         let entry = self.entries[last_idx].get_or_insert_with(BTreeMap::new);
-        let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size);
+        let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size.into());
         let group = entry.entry(price_rounded).or_insert(TradeGroup {
             buy_qty: 0.0,
             sell_qty: 0.0,
@@ -307,7 +269,7 @@ impl FootprintCache {
 
             let mut trades_map = BTreeMap::new();
             for trade in &trades[start_trade..end_trade] {
-                let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size);
+                let price_rounded = domain_to_exchange_price(trade.price).round_to_step(tick_size.into());
                 let entry = trades_map.entry(price_rounded).or_insert(TradeGroup {
                     buy_qty: 0.0,
                     sell_qty: 0.0,
@@ -345,7 +307,6 @@ impl KlineChart {
         basis: ChartBasis,
         ticker_info: FuturesTickerInfo,
         layout: ViewConfig,
-        enabled_indicators: &[KlineIndicator],
         footprint: Option<FootprintStudyConfig>,
     ) -> Self {
         let step = PriceStep::from_f32(ticker_info.tick_size);
@@ -381,10 +342,10 @@ impl KlineChart {
 
         let latest_x = chart_data.candles.last().map(|c| c.time.0).unwrap_or(0);
 
-        let low_rounded = scale_low.round_to_side_step(true, step);
-        let high_rounded = scale_high.round_to_side_step(false, step);
+        let low_rounded = scale_low.round_to_side_step(true, step.into());
+        let high_rounded = scale_high.round_to_side_step(false, step.into());
 
-        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step)
+        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step.into())
             .map(|n| n.saturating_sub(1))
             .unwrap_or(1)
             .max(1) as f32;
@@ -418,26 +379,18 @@ impl KlineChart {
         };
         chart.translation.x = x_translation;
 
-        // Initialize indicators
-        let mut indicators = EnumMap::default();
-        for &i in enabled_indicators {
-            let mut indi = indicator::kline::make_empty(i);
-            indi.rebuild_from_candles(&chart_data.candles, basis);
-            indicators[i] = Some(indi);
-        }
-
         KlineChart {
             chart,
             chart_data,
             basis,
             ticker_info,
-            indicators,
             footprint,
             last_tick: Instant::now(),
             footprint_cache: RefCell::new(FootprintCache::new()),
             drawings: DrawingManager::new(),
             candle_style: CandleStyle::default(),
             studies: Vec::new(),
+            studies_dirty: false,
         }
     }
 
@@ -490,10 +443,10 @@ impl KlineChart {
             (Price::from_f32(100.0), Price::from_f32(0.0))
         };
 
-        let low_rounded = scale_low.round_to_side_step(true, step);
-        let high_rounded = scale_high.round_to_side_step(false, step);
+        let low_rounded = scale_low.round_to_side_step(true, step.into());
+        let high_rounded = scale_high.round_to_side_step(false, step.into());
 
-        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step)
+        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step.into())
             .map(|n| n.saturating_sub(1))
             .unwrap_or(1)
             .max(1) as f32;
@@ -516,15 +469,10 @@ impl KlineChart {
             .map(|c| c.time.0)
             .unwrap_or(0);
 
-        // Rebuild indicators
-        self.indicators
-            .values_mut()
-            .filter_map(Option::as_mut)
-            .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles, new_basis));
-
         // Invalidate footprint cache
         self.invalidate_footprint_cache();
 
+        self.studies_dirty = true;
         self.invalidate();
     }
 
@@ -566,13 +514,6 @@ impl KlineChart {
 
         chart.cell_height *= new_tick_size / chart.tick_size.to_f32_lossy();
         chart.tick_size = step;
-
-        // No need to rebuild candles - they're independent of tick size
-        // Just notify indicators
-        self.indicators
-            .values_mut()
-            .filter_map(Option::as_mut)
-            .for_each(|indi| indi.on_ticksize_change(&self.chart_data.candles, self.basis));
 
         // Invalidate footprint cache since tick size changed
         self.invalidate_footprint_cache();
@@ -709,11 +650,11 @@ impl KlineChart {
         }
 
         chart.cache.clear_all();
-        for indi in self.indicators.values_mut().filter_map(Option::as_mut) {
-            indi.clear_all_caches();
-        }
 
-        self.recompute_studies();
+        if self.studies_dirty {
+            self.recompute_studies();
+            self.studies_dirty = false;
+        }
 
         self.last_tick = Instant::now();
     }
@@ -728,16 +669,16 @@ impl KlineChart {
         self.chart_data.candles.clear();
         self.invalidate_footprint_cache();
 
+        // Reset incremental study state for full recompute
+        for s in &mut self.studies {
+            s.reset();
+        }
+
         for trade in trades {
             self.append_trade(trade);
         }
 
-        // Rebuild indicators from the new candles
-        self.indicators
-            .values_mut()
-            .filter_map(Option::as_mut)
-            .for_each(|indi| indi.rebuild_from_candles(&self.chart_data.candles, self.basis));
-
+        self.studies_dirty = true;
         self.invalidate();
     }
 
@@ -754,8 +695,6 @@ impl KlineChart {
             Side::Sell | Side::Ask => (data::Volume(0.0), data::Volume(trade.quantity.0)),
         };
 
-        let mut new_candle = false;
-
         match self.basis {
             ChartBasis::Time(tf) => {
                 let interval = tf.to_milliseconds();
@@ -764,22 +703,20 @@ impl KlineChart {
                 }
                 let bucket_time = (trade.time.to_millis() / interval) * interval;
 
-                if let Some(last) = self.chart_data.candles.last_mut() {
-                    if last.time.0 == bucket_time {
-                        last.high = last.high.max(trade.price);
-                        last.low = last.low.min(trade.price);
-                        last.close = trade.price;
-                        last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
-                        last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
-                        self.chart.latest_x = last.time.0;
-                        // Incremental cache update instead of full invalidation
-                        self.footprint_cache
-                            .borrow_mut()
-                            .update_last(trade, self.chart.tick_size);
-                        return;
-                    }
+                if let Some(last) = self.chart_data.candles.last_mut()
+                    && last.time.0 == bucket_time
+                {
+                    last.high = last.high.max(trade.price);
+                    last.low = last.low.min(trade.price);
+                    last.close = trade.price;
+                    last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
+                    last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
+                    self.chart.latest_x = last.time.0;
+                    self.footprint_cache
+                        .borrow_mut()
+                        .update_last(trade, self.chart.tick_size);
+                    return;
                 }
-                // New candle period
                 self.chart_data.candles.push(Candle {
                     time: data::Timestamp::from_millis(bucket_time),
                     open: trade.price,
@@ -789,7 +726,6 @@ impl KlineChart {
                     buy_volume: buy_vol,
                     sell_volume: sell_vol,
                 });
-                new_candle = true;
             }
             ChartBasis::Tick(count) => {
                 let count = count as usize;
@@ -801,22 +737,20 @@ impl KlineChart {
                 let completed = if num_candles > 0 { num_candles - 1 } else { 0 };
                 let trades_in_current = num_trades.saturating_sub(completed * count);
 
-                if let Some(last) = self.chart_data.candles.last_mut() {
-                    if trades_in_current <= count {
-                        last.high = last.high.max(trade.price);
-                        last.low = last.low.min(trade.price);
-                        last.close = trade.price;
-                        last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
-                        last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
-                        self.chart.latest_x = last.time.0;
-                        // Incremental cache update
-                        self.footprint_cache
-                            .borrow_mut()
-                            .update_last(trade, self.chart.tick_size);
-                        return;
-                    }
+                if let Some(last) = self.chart_data.candles.last_mut()
+                    && trades_in_current <= count
+                {
+                    last.high = last.high.max(trade.price);
+                    last.low = last.low.min(trade.price);
+                    last.close = trade.price;
+                    last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
+                    last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
+                    self.chart.latest_x = last.time.0;
+                    self.footprint_cache
+                        .borrow_mut()
+                        .update_last(trade, self.chart.tick_size);
+                    return;
                 }
-                // New tick candle
                 self.chart_data.candles.push(Candle {
                     time: trade.time,
                     open: trade.price,
@@ -826,17 +760,14 @@ impl KlineChart {
                     buy_volume: buy_vol,
                     sell_volume: sell_vol,
                 });
-                new_candle = true;
             }
         }
 
-        if new_candle {
-            // Add empty entry for the new candle, then update it
-            self.footprint_cache.borrow_mut().push_empty();
-            self.footprint_cache
-                .borrow_mut()
-                .update_last(trade, self.chart.tick_size);
-        }
+        // New candle was created (both branches either return early or push)
+        self.footprint_cache.borrow_mut().push_empty();
+        self.footprint_cache
+            .borrow_mut()
+            .update_last(trade, self.chart.tick_size);
 
         self.chart.latest_x = self
             .chart_data
@@ -844,47 +775,30 @@ impl KlineChart {
             .last()
             .map(|c| c.time.0)
             .unwrap_or(0);
-    }
 
-    pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
-        let panel_count =
-            |indicators: &EnumMap<KlineIndicator, Option<Box<dyn KlineIndicatorImpl>>>| {
-                indicators
-                    .iter()
-                    .filter(|(k, v)| v.is_some() && !k.is_overlay())
-                    .count()
+        // Incrementally update studies with the new trade
+        if !self.studies.is_empty() {
+            let input = study::StudyInput {
+                candles: &self.chart_data.candles,
+                trades: Some(&self.chart_data.trades),
+                basis: self.basis,
+                tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
+                visible_range: None,
             };
-
-        let prev_panel_count = panel_count(&self.indicators);
-
-        if self.indicators[indicator].is_some() {
-            self.indicators[indicator] = None;
-        } else {
-            let mut box_indi = indicator::kline::make_empty(indicator);
-            box_indi.rebuild_from_candles(&self.chart_data.candles, self.basis);
-            self.indicators[indicator] = Some(box_indi);
+            let trade_slice = std::slice::from_ref(trade);
+            for s in &mut self.studies {
+                if let Err(e) = s.append_trades(trade_slice, &input) {
+                    log::warn!("Study '{}' append error: {}", s.id(), e);
+                }
+            }
         }
-
-        // Only adjust layout splits for panel (non-overlay) indicators.
-        if !indicator.is_overlay()
-            && let Some(main_split) = self.chart.layout.splits.first()
-        {
-            let current_panel_count = panel_count(&self.indicators);
-            self.chart.layout.splits = data::util::calc_panel_splits(
-                *main_split,
-                current_panel_count,
-                Some(prev_panel_count),
-            );
-        }
-
-        self.invalidate();
     }
 
     // ── Study management ──────────────────────────────────────────────
 
     pub fn add_study(&mut self, study: Box<dyn study::Study>) {
         self.studies.push(study);
-        self.recompute_studies();
+        self.studies_dirty = true;
         self.invalidate();
     }
 
@@ -893,8 +807,32 @@ impl KlineChart {
         self.invalidate();
     }
 
+    /// Mark studies as needing recomputation (e.g. after parameter changes).
+    pub fn mark_studies_dirty(&mut self) {
+        self.studies_dirty = true;
+    }
+
     pub fn studies(&self) -> &[Box<dyn study::Study>] {
         &self.studies
+    }
+
+    pub fn studies_mut(&mut self) -> &mut Vec<Box<dyn study::Study>> {
+        &mut self.studies
+    }
+
+    pub fn update_study_parameter(
+        &mut self,
+        study_id: &str,
+        key: &str,
+        value: study::ParameterValue,
+    ) {
+        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id) {
+            if let Err(e) = s.set_parameter(key, value) {
+                log::warn!("Failed to set study parameter: {}", e);
+            }
+        }
+        self.recompute_studies();
+        self.invalidate();
     }
 
     fn recompute_studies(&mut self) {
@@ -909,14 +847,38 @@ impl KlineChart {
             visible_range: None,
         };
         for s in &mut self.studies {
-            s.compute(&input);
+            if let Err(e) = s.compute(&input) {
+                log::warn!("Study '{}' compute error: {}", s.id(), e);
+            }
         }
     }
 }
 
 // ── Helper Types ──────────────────────────────────────────────────────
 
-pub(crate) use crate::chart::study::TradeGroup;
+/// Trade group with buy/sell quantities at a price level
+#[derive(Default, Clone, Debug)]
+pub(crate) struct TradeGroup {
+    pub buy_qty: f32,
+    pub sell_qty: f32,
+}
+
+impl TradeGroup {
+    /// Create a new trade group
+    pub fn new(buy_qty: f32, sell_qty: f32) -> Self {
+        Self { buy_qty, sell_qty }
+    }
+
+    /// Total quantity (buy + sell)
+    pub fn total_qty(&self) -> f32 {
+        self.buy_qty + self.sell_qty
+    }
+
+    /// Delta (buy - sell)
+    pub fn delta_qty(&self) -> f32 {
+        self.buy_qty - self.sell_qty
+    }
+}
 
 /// Convert domain price to exchange price
 #[inline]

@@ -14,12 +14,12 @@ use study::output::PriceLevel;
 pub fn render_levels(frame: &mut Frame, levels: &[PriceLevel], state: &ViewState, bounds: Size) {
     for level in levels {
         let y = state.price_to_y(Price::from_f32_lossy(level.price as f32));
-        let color: Color = level.color.into();
+        let color: Color = crate::style::theme_bridge::rgba_to_iced_color(level.color);
         let color = color.scale_alpha(level.opacity);
 
         // Fill above if configured
         if let Some((fill_color, fill_opacity)) = &level.fill_above {
-            let fc: Color = (*fill_color).into();
+            let fc: Color = crate::style::theme_bridge::rgba_to_iced_color(*fill_color);
             let fill = fc.scale_alpha(*fill_opacity);
             // Fill from top of visible area (y=0 in chart space is arbitrary,
             // but we use a large negative offset as "top")
@@ -36,7 +36,7 @@ pub fn render_levels(frame: &mut Frame, levels: &[PriceLevel], state: &ViewState
 
         // Fill below if configured
         if let Some((fill_color, fill_opacity)) = &level.fill_below {
-            let fc: Color = (*fill_color).into();
+            let fc: Color = crate::style::theme_bridge::rgba_to_iced_color(*fill_color);
             let fill = fc.scale_alpha(*fill_opacity);
             let fill_height = bounds.height * 2.0;
             frame.fill_rectangle(

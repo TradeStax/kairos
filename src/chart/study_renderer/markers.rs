@@ -27,18 +27,19 @@ pub fn render_markers(
         return;
     }
 
-    // Find max contracts for normalization
+    let visible_region = state.visible_region(bounds);
+    let (earliest, latest) = state.interval_range(&visible_region);
+
+    // Visible-range normalization: compute max from only visible markers
     let max_contracts = markers
         .iter()
+        .filter(|m| m.time >= earliest && m.time <= latest)
         .map(|m| m.contracts)
         .fold(0.0f64, f64::max);
 
     if max_contracts <= 0.0 {
         return;
     }
-
-    let visible_region = state.visible_region(bounds);
-    let (earliest, latest) = state.interval_range(&visible_region);
 
     for marker in markers {
         // Viewport cull by time range
@@ -47,7 +48,7 @@ pub fn render_markers(
         }
 
         let x = state.interval_to_x(marker.time);
-        let y = state.price_to_y(Price::from_f32_lossy(marker.price as f32));
+        let y = state.price_to_y(Price::from_units(marker.price));
 
         // Compute radius: sqrt normalization for perceptual scaling
         let norm = (marker.contracts / max_contracts).sqrt() as f32;
@@ -57,7 +58,7 @@ pub fn render_markers(
         let radius = (raw_radius / state.scaling).max(MIN_RADIUS / state.scaling);
 
         let center = Point::new(x, y);
-        let color: Color = marker.color.into();
+        let color: Color = crate::style::theme_bridge::rgba_to_iced_color(marker.color);
 
         // Filled circle
         let circle = Path::circle(center, radius);
@@ -93,6 +94,60 @@ pub fn render_markers(
                 font: AZERET_MONO,
                 ..Text::default()
             });
+        }
+
+        // Debug annotations
+        if let Some(ref debug) = marker.debug {
+            let debug_font_size = 9.0 / state.scaling;
+            let debug_y = center.y + radius + debug_font_size * 0.5;
+
+            // Fill count and time window
+            let window_ms =
+                debug.last_fill_time.saturating_sub(debug.first_fill_time);
+            let debug_text =
+                format!("{} fills | {}ms", debug.fill_count, window_ms);
+            let debug_width =
+                debug_text.len() as f32 * debug_font_size * 0.6;
+            let debug_x = center.x - debug_width / 2.0;
+
+            frame.fill_text(Text {
+                content: debug_text,
+                position: Point::new(debug_x, debug_y),
+                size: iced::Pixels(debug_font_size),
+                color: Color {
+                    r: 0.7,
+                    g: 0.7,
+                    b: 0.7,
+                    a: 0.8,
+                },
+                font: AZERET_MONO,
+                ..Text::default()
+            });
+
+            // Price range line (thin vertical from min to max price)
+            if debug.price_min_units != debug.price_max_units {
+                let y_min =
+                    state.price_to_y(Price::from_units(debug.price_min_units));
+                let y_max =
+                    state.price_to_y(Price::from_units(debug.price_max_units));
+                let range_line = Path::line(
+                    Point::new(center.x + radius + 2.0 / state.scaling, y_max),
+                    Point::new(center.x + radius + 2.0 / state.scaling, y_min),
+                );
+                let range_stroke = Stroke {
+                    width: 1.0 / state.scaling,
+                    ..Stroke::default()
+                };
+                frame.stroke(
+                    &range_line,
+                    Stroke::with_color(range_stroke, Color {
+                        r: 0.6,
+                        g: 0.6,
+                        b: 0.6,
+                        a: 0.6,
+                    }),
+                );
+            }
         }
     }
 }

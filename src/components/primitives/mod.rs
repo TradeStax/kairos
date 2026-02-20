@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod badge;
 pub mod icon_button;
 pub mod icons;

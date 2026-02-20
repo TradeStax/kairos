@@ -39,7 +39,7 @@ pub fn render_bars(
         for point in &series.points {
             let sx = state.interval_to_x(point.x);
             let left = sx - bar_width / 2.0;
-            let color: Color = point.color.into();
+            let color: Color = crate::style::theme_bridge::rgba_to_iced_color(point.color);
 
             match placement {
                 StudyPlacement::Overlay | StudyPlacement::Background => {

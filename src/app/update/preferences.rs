@@ -3,9 +3,9 @@ use iced::Task;
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
-use super::super::{DownloadMessage, Flowsurface, Message, services};
+use super::super::{DownloadMessage, Kairos, Message, services};
 
-impl Flowsurface {
+impl Kairos {
     pub(crate) fn handle_theme_selected(&mut self, theme: data::Theme) {
         self.theme = theme;
     }
@@ -33,10 +33,10 @@ impl Flowsurface {
 
     pub(crate) fn handle_reinitialize_service(
         &mut self,
-        provider: data::ApiProvider,
+        provider: data::config::secrets::ApiProvider,
     ) -> Task<Message> {
         match provider {
-            data::ApiProvider::Databento => {
+            data::config::secrets::ApiProvider::Databento => {
                 log::info!("Reinitializing Databento service with new API key...");
                 if let Some(result) = services::initialize_market_data_service() {
                     self.market_data_service = Some(result.service.clone());
@@ -50,17 +50,24 @@ impl Flowsurface {
                     ));
                 }
             }
-            data::ApiProvider::Massive => {
-                log::info!("Reinitializing Massive service with new API key...");
-                let (options_service, _) = services::initialize_options_services();
-                self.options_service = options_service;
-                if self.options_service.is_some() {
-                    self.notifications.push(Toast::new(Notification::Info(
-                        "Options service initialized".to_string(),
-                    )));
+            data::config::secrets::ApiProvider::Massive => {
+                #[cfg(feature = "options")]
+                {
+                    log::info!("Reinitializing Massive service with new API key...");
+                    let (options_service, _) = services::initialize_options_services();
+                    self.options_service = options_service;
+                    if self.options_service.is_some() {
+                        self.notifications.push(Toast::new(Notification::Info(
+                            "Options service initialized".to_string(),
+                        )));
+                    }
+                }
+                #[cfg(not(feature = "options"))]
+                {
+                    log::info!("Options feature not enabled, skipping Massive service init");
                 }
             }
-            data::ApiProvider::Rithmic => {
+            data::config::secrets::ApiProvider::Rithmic => {
                 log::info!("Reinitializing Rithmic service with new password...");
                 if let Some(feed_id) = self.rithmic_feed_id {
                     return Task::done(Message::DataFeeds(
@@ -97,17 +104,19 @@ impl Flowsurface {
     }
 
     pub(crate) fn handle_theme_editor(&mut self, msg: crate::modals::theme::Message) {
-        let action = self.theme_editor.update(msg, &self.theme.clone().into());
+        let iced_theme = crate::style::theme_bridge::theme_to_iced(&self.theme);
+        let action = self.theme_editor.update(msg, &iced_theme);
 
         match action {
             Some(crate::modals::theme::Action::Exit) => {
                 self.sidebar.set_menu(Some(data::sidebar::Menu::Settings));
             }
-            Some(crate::modals::theme::Action::UpdateTheme(theme)) => {
-                self.theme = data::Theme(theme);
+            Some(crate::modals::theme::Action::UpdateTheme(iced_theme)) => {
+                self.theme = crate::style::theme_bridge::iced_theme_to_data(iced_theme);
                 let main_window = self.main_window.id;
-                self.active_dashboard_mut()
-                    .invalidate_all_panes(main_window);
+                if let Some(dashboard) = self.active_dashboard_mut() {
+                    dashboard.invalidate_all_panes(main_window);
+                }
             }
             None => {}
         }

@@ -43,7 +43,7 @@ pub fn draw_ruler(
         } else {
             let p = Price::from_f32_lossy(price);
             let tick_units = state.tick_size.units;
-            let tick_index = p.units.div_euclid(tick_units);
+            let tick_index = p.units().div_euclid(tick_units);
             Price::from_units(tick_index * tick_units)
         };
         let rounded_price = rounded_price_p.to_f32_lossy();

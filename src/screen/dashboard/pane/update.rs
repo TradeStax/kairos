@@ -41,27 +41,9 @@ impl State {
                 }
             }
             Event::ChartInteraction(msg) => {
-                // Clear indicator selection on active chart interactions
-                if !matches!(
-                    msg,
-                    chart::Message::IndicatorClicked(_)
-                        | chart::Message::CrosshairMoved
-                        | chart::Message::BoundsChanged(_)
-                        | chart::Message::ContextMenu(_, _)
-                ) {
-                    self.selected_indicator = None;
-                }
-
                 match msg {
-                    chart::Message::IndicatorClicked(panel_index) => {
-                        let resolved = self.content.indicator_at_panel(panel_index);
-                        // Toggle: clicking the already-selected indicator
-                        // deselects it.
-                        if self.selected_indicator == resolved {
-                            self.selected_indicator = None;
-                        } else {
-                            self.selected_indicator = resolved;
-                        }
+                    chart::Message::IndicatorClicked(_) => {
+                        // Indicator panels removed; no-op
                     }
                     chart::Message::DrawingClick(point, shift_held) => {
                         if self.handle_drawing_click(point, shift_held) {
@@ -112,17 +94,11 @@ impl State {
                         let effective_id = drawing_id.or_else(|| self.get_selected_drawing_id());
 
                         if let Some(id) = effective_id {
-                            self.selected_indicator = None;
                             let locked = self.get_drawing_locked(id);
                             self.context_menu = Some(ContextMenuKind::Drawing {
                                 position,
                                 id,
                                 locked,
-                            });
-                        } else if let Some(indicator) = self.selected_indicator {
-                            self.context_menu = Some(ContextMenuKind::Indicator {
-                                position,
-                                indicator,
                             });
                         } else {
                             self.context_menu = Some(ContextMenuKind::Chart { position });
@@ -166,8 +142,8 @@ impl State {
                 Content::TimeAndSales(Some(p)) => panel::update(p, msg),
                 _ => {}
             },
-            Event::ToggleIndicator(ind) => {
-                self.content.toggle_indicator(ind);
+            Event::ToggleStudy(study_id) => {
+                self.content.toggle_study(&study_id);
             }
             Event::DeleteNotification(idx) => {
                 if idx < self.notifications.len() {
@@ -252,10 +228,6 @@ impl State {
                         chart::comparison::Action::RemoveSeries(ticker_info) => {
                             if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
-                                log::info!(
-                                    "Removed ticker {:?} from comparison chart",
-                                    ticker_info.ticker
-                                );
                             }
                         }
                     }
@@ -270,11 +242,6 @@ impl State {
                     let crate::modals::pane::tickers::Action::RowSelected(sel) = action;
                     match sel {
                         crate::modals::pane::tickers::RowSelection::Add(ticker_info) => {
-                            log::info!(
-                                "Adding ticker {:?} to comparison chart",
-                                ticker_info.ticker
-                            );
-
                             let basis = self
                                 .settings
                                 .selected_basis
@@ -300,10 +267,6 @@ impl State {
                         crate::modals::pane::tickers::RowSelection::Remove(ticker_info) => {
                             if let Content::Comparison(Some(chart)) = &mut self.content {
                                 chart.remove_ticker(&ticker_info);
-                                log::info!(
-                                    "Removed ticker {:?} from comparison chart",
-                                    ticker_info.ticker
-                                );
                             }
                         }
                         crate::modals::pane::tickers::RowSelection::Switch(ti) => {
@@ -324,12 +287,6 @@ impl State {
                             schema,
                             date_range,
                         } => {
-                            log::info!(
-                                "Estimate requested: {:?} {:?} {:?}",
-                                ticker,
-                                schema,
-                                date_range
-                            );
                             return Some(Effect::EstimateDataCost {
                                 ticker,
                                 schema,
@@ -341,12 +298,6 @@ impl State {
                             schema,
                             date_range,
                         } => {
-                            log::info!(
-                                "Download requested: {:?} {:?} {:?}",
-                                ticker,
-                                schema,
-                                date_range
-                            );
                             return Some(Effect::DownloadData {
                                 ticker,
                                 schema,
@@ -358,11 +309,9 @@ impl State {
             }
             Event::DismissContextMenu => {
                 self.context_menu = None;
-                self.selected_indicator = None;
             }
             Event::ContextMenuAction(action) => {
                 self.context_menu = None;
-                self.selected_indicator = None;
                 match action {
                     ContextMenuAction::RebuildChart => {
                         return self.rebuild_current_chart();
@@ -371,7 +320,7 @@ impl State {
                         self.center_last_price();
                     }
                     ContextMenuAction::OpenIndicators => {
-                        self.modal = Some(Modal::Indicators);
+                        self.open_indicator_manager();
                     }
                     ContextMenuAction::DeleteDrawing(id) => {
                         self.handle_drawing_context_delete(id);
@@ -384,9 +333,6 @@ impl State {
                     }
                     ContextMenuAction::OpenDrawingProperties(id) => {
                         self.handle_open_drawing_properties(id);
-                    }
-                    ContextMenuAction::RemoveIndicator(indicator) => {
-                        self.content.toggle_indicator(indicator);
                     }
                 }
             }
@@ -415,8 +361,68 @@ impl State {
                     }
                 }
             }
+            Event::OpenIndicatorManager => {
+                self.open_indicator_manager();
+            }
+            Event::IndicatorManagerInteraction(message) => {
+                if let Some(Modal::IndicatorManager(ref mut manager)) = self.modal {
+                    let mut manager = manager.clone();
+                    if let Some(action) = manager.update(message) {
+                        use modals::pane::indicator_manager::Action;
+                        match action {
+                            Action::ToggleStudy(study_id) => {
+                                self.content.toggle_study(&study_id);
+                            }
+                            Action::ReorderIndicators(event) => {
+                                self.content.reorder_indicators(&event);
+                            }
+                            Action::StudyParameterUpdated {
+                                study_id,
+                                key,
+                                value,
+                            } => {
+                                self.content.update_study_parameter(
+                                    &study_id, &key, value,
+                                );
+                            }
+                            Action::OpenBigTradesDebug => {
+                                self.modal = Some(Modal::BigTradesDebug);
+                                return None;
+                            }
+                            Action::Close => {
+                                self.modal = None;
+                                return None;
+                            }
+                        }
+                    }
+                    self.modal = Some(Modal::IndicatorManager(manager));
+                }
+            }
         }
         None
+    }
+
+    fn open_indicator_manager(&mut self) {
+        use modals::pane::indicator_manager::IndicatorManagerModal;
+
+        let content_kind = self.content.kind();
+        let active_study_ids = match &self.content {
+            Content::Kline { study_ids, .. } => study_ids.clone(),
+            _ => vec![],
+        };
+        let studies: Vec<Box<dyn study::Study>> = match &self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                c.studies().iter().map(|s| s.clone_study()).collect()
+            }
+            _ => vec![],
+        };
+
+        let manager = IndicatorManagerModal::new(
+            content_kind,
+            active_study_ids,
+            studies,
+        );
+        self.modal = Some(Modal::IndicatorManager(manager));
     }
 
     fn show_modal_with_focus(&mut self, requested_modal: Modal) -> Option<Effect> {
