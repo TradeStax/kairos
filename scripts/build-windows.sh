@@ -1,7 +1,7 @@
 #!/bin/bash
 EXE_NAME="kairos.exe"
 ARCH=${1:-x86_64} # x86_64 | aarch64
-VERSION=$(grep '^version = ' Cargo.toml | cut -d'"' -f2)
+VERSION=$(grep '^version = ' app/Cargo.toml | cut -d'"' -f2)
 
 # update package version on Cargo.toml
 cargo install cargo-edit

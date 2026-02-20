@@ -31,7 +31,7 @@ Rithmic credentials are managed via `keyring` (OS credential store), configured 
 Four workspace crates (Rust edition 2024):
 
 ```
-src/                    # Application layer — kairos (Iced GUI)
+app/src/                # Application layer — kairos (Iced GUI)
 ├── app/               # Kairos struct, message enums, update routing, services
 │   ├── globals.rs     # OnceLock statics: DOWNLOAD_PROGRESS, RITHMIC_EVENTS, REPLAY_EVENTS
 │   ├── messages.rs    # Message, ChartMessage, DownloadMessage, OptionsMessage
@@ -78,7 +78,7 @@ src/                    # Application layer — kairos (Iced GUI)
 ├── error.rs           # InternalError (Chart, Data, Rendering variants)
 └── logger.rs          # Async file logging with rotation (50MB max)
 
-data/                   # Data layer — kairos-data (pure business logic, no I/O)
+crates/data/            # Data layer — kairos-data (pure business logic, no I/O)
 ├── domain/            # Core types: Price, Trade, Candle, DepthSnapshot, Options, Futures
 │   ├── error.rs       # ErrorSeverity enum, AppError trait (user_message, is_retriable, severity)
 │   ├── types.rs       # Value objects: Price (i64, 10^-8 precision), Volume, Timestamp, Side
@@ -104,7 +104,7 @@ data/                   # Data layer — kairos-data (pure business logic, no I/
 ├── error.rs           # DataError
 └── util/              # Formatting, time, math, logging helpers
 
-exchange/               # Exchange layer — kairos-exchange (adapters & repository impls)
+crates/exchange/        # Exchange layer — kairos-exchange (adapters & repository impls)
 ├── adapter/
 │   ├── databento/     # CME Globex historical futures — Databento API (.dbn.zst cache)
 │   ├── rithmic/       # CME Globex real-time streaming — Rithmic (rithmic-rs)
@@ -118,7 +118,7 @@ exchange/               # Exchange layer — kairos-exchange (adapters & reposit
 │   └── massive/       # MassiveChainRepository, MassiveContractRepository, MassiveSnapshotRepository
 └── error.rs           # Error enum with UserFacingError trait
 
-study/                  # Study layer — kairos-study (technical analysis library)
+crates/study/           # Study layer — kairos-study (technical analysis library)
 ├── traits.rs          # Study trait, StudyCategory, StudyPlacement, StudyInput
 ├── output.rs          # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Clusters
 ├── config.rs          # ParameterDef, ParameterValue, StudyConfig
@@ -134,21 +134,21 @@ study/                  # Study layer — kairos-study (technical analysis libra
 
 **Elm Architecture (Iced)**: `Kairos` struct implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` → `dashboard::Message` → `pane::Message` → `chart::Message`.
 
-**Hierarchical Message Routing**: Each layer handles its own message domain. `src/app/update/` splits handlers by concern (chart, download, feeds, navigation, options, preferences, replay).
+**Hierarchical Message Routing**: Each layer handles its own message domain. `app/src/app/update/` splits handlers by concern (chart, download, feeds, navigation, options, preferences, replay).
 
-**Generic Chart Trait**: `Chart` trait in `src/chart/core/traits.rs` provides a unified interface. `KlineChart`, `HeatmapChart`, and `ComparisonChart` all implement it. Chart update/view logic is generic over `T: Chart`.
+**Generic Chart Trait**: `Chart` trait in `app/src/chart/core/traits.rs` provides a unified interface. `KlineChart`, `HeatmapChart`, and `ComparisonChart` all implement it. Chart update/view logic is generic over `T: Chart`.
 
-**Pane Content Polymorphism**: `Content` enum (`src/screen/dashboard/pane/content.rs`) holds `Starter`, `Kline`, `Heatmap`, `TimeAndSales`, `Ladder`, or `Comparison`. Panes can switch content types without losing layout position.
+**Pane Content Polymorphism**: `Content` enum (`app/src/screen/dashboard/pane/content.rs`) holds `Starter`, `Kline`, `Heatmap`, `TimeAndSales`, `Ladder`, or `Comparison`. Panes can switch content types without losing layout position.
 
-**Repository Pattern**: Async traits defined in `data/repository/traits.rs`, implemented in `exchange/repository/`. Services depend on traits, not concrete adapters.
+**Repository Pattern**: Async traits defined in `crates/data/repository/traits.rs`, implemented in `crates/exchange/repository/`. Services depend on traits, not concrete adapters.
 
 **Multi-Window Popouts**: Dashboard tracks `popout: HashMap<window::Id, (PaneGridState, WindowSpec)>`. Panes pop out to separate OS windows with persisted positions.
 
-**Study System**: `study/` crate provides trait-based technical analysis. Studies implement `Study` trait → `compute(StudyInput)` → `StudyOutput`. The `StudyRegistry` factory creates instances by ID. `src/chart/study_renderer/` converts `StudyOutput` to canvas draw calls.
+**Study System**: `crates/study/` crate provides trait-based technical analysis. Studies implement `Study` trait → `compute(StudyInput)` → `StudyOutput`. The `StudyRegistry` factory creates instances by ID. `app/src/chart/study_renderer/` converts `StudyOutput` to canvas draw calls.
 
 **Stream Subscriptions**: Two-tier model — `PersistStreamKind` (serializable config) → resolved at runtime to `StreamKind` (with full `FuturesTickerInfo`). `UniqueStreams` deduplicates across panes.
 
-**Global Event Staging**: `OnceLock<Arc<Mutex<>>>` globals in `src/app/globals.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
+**Global Event Staging**: `OnceLock<Arc<Mutex<>>>` globals in `app/src/app/globals.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
 
 **Error Hierarchy**: All error types implement `user_message()`, `is_retriable()`, `severity()` via `AppError` trait (data layer) and `UserFacingError` trait (exchange layer). Use `thiserror` for derivation.
 
@@ -156,7 +156,7 @@ study/                  # Study layer — kairos-study (technical analysis libra
 
 **Per-Day Caching**: Historical data cached by date in `cache/databento/` (.dbn.zst) and `cache/massive/` (.zst). Repositories check cache first, fetch only missing date ranges.
 
-**Service Threading**: Services wrapped in `Arc<Mutex<>>` or `Arc<tokio::sync::Mutex<>>` for async sharing. Created in `src/app/services.rs`.
+**Service Threading**: Services wrapped in `Arc<Mutex<>>` or `Arc<tokio::sync::Mutex<>>` for async sharing. Created in `app/src/app/services.rs`.
 
 ## Code Style
 
