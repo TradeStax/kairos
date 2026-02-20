@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod color;
 pub mod panel;
+pub mod secrets;
 pub mod sidebar;
 pub mod theme;
 pub mod timezone;

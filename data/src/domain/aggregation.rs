@@ -60,9 +60,9 @@ pub enum AggregationError {
 ///
 /// # Example
 /// ```
-/// use flowsurface_data::domain::entities::Trade;
-/// use flowsurface_data::domain::types::{Price, Quantity, Timestamp, Side};
-/// use flowsurface_data::domain::aggregation::aggregate_trades_to_candles;
+/// use kairos_data::domain::entities::Trade;
+/// use kairos_data::domain::types::{Price, Quantity, Timestamp, Side};
+/// use kairos_data::domain::aggregation::aggregate_trades_to_candles;
 ///
 /// let trades = vec![
 ///     Trade::new(Timestamp(1000), Price::from_f32(100.0), Quantity(10.0), Side::Buy),
@@ -86,7 +86,8 @@ pub fn aggregate_trades_to_candles(
         return Err(AggregationError::InvalidTimeframe(timeframe_millis));
     }
 
-    // Verify trades are sorted by time
+    // Verify trades are sorted by time (debug-only: hot path in production)
+    #[cfg(debug_assertions)]
     for window in trades.windows(2) {
         if window[0].time > window[1].time {
             return Err(AggregationError::UnsortedTrades);
@@ -123,7 +124,18 @@ pub fn aggregate_trades_to_candles(
 
 /// Build a single candle from a group of trades
 fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Price) -> Candle {
-    assert!(!trades.is_empty(), "Cannot build candle from empty trades");
+    if trades.is_empty() {
+        return Candle::new(
+            time,
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Volume(0.0),
+            Volume(0.0),
+        );
+    }
+    debug_assert!(!trades.is_empty(), "Cannot build candle from empty trades");
 
     // Open: first trade
     let open = trades[0].price.round_to_tick(tick_size);
@@ -201,7 +213,8 @@ pub fn aggregate_trades_to_ticks(
         return Err(AggregationError::InvalidTickCount(tick_count));
     }
 
-    // Verify trades are sorted by time
+    // Verify trades are sorted by time (debug-only: hot path in production)
+    #[cfg(debug_assertions)]
     for window in trades.windows(2) {
         if window[0].time > window[1].time {
             return Err(AggregationError::UnsortedTrades);
@@ -273,7 +286,18 @@ pub fn aggregate_candles_to_timeframe(
 
 /// Aggregate a bucket of candles into a single candle
 fn aggregate_candle_bucket(time: Timestamp, candles: Vec<&Candle>) -> Candle {
-    assert!(!candles.is_empty(), "Cannot aggregate empty candle bucket");
+    if candles.is_empty() {
+        return Candle::new(
+            time,
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Price::from_f32(0.0),
+            Volume(0.0),
+            Volume(0.0),
+        );
+    }
+    debug_assert!(!candles.is_empty(), "Cannot aggregate empty candle bucket");
 
     // Open: first candle's open
     let open = candles[0].open;

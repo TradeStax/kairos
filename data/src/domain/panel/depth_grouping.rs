@@ -44,7 +44,7 @@ impl DepthSide {
 /// # Example
 /// ```ignore
 /// use std::collections::BTreeMap;
-/// use flowsurface_data::domain::panel::depth_grouping::{group_depth_by_tick, DepthSide};
+/// use kairos_data::domain::panel::depth_grouping::{group_depth_by_tick, DepthSide};
 ///
 /// let mut levels = BTreeMap::new();
 /// levels.insert(100_000_000_i64, 10.0_f32);  // 1.00 @ 10

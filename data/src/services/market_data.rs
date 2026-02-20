@@ -9,7 +9,9 @@ use crate::domain::{
     chart::{ChartBasis, ChartConfig, ChartData, DataSchema, LoadingStatus},
     error::{AppError, ErrorSeverity},
 };
-use crate::repository::{DepthRepository, RepositoryError, TradeRepository};
+use crate::repository::{
+    DepthRepository, DownloadRepository, RepositoryError, TradeRepository,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -86,6 +88,7 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct MarketDataService {
     trade_repo: Arc<dyn TradeRepository>,
     depth_repo: Arc<dyn DepthRepository>,
+    download_repo: Option<Arc<dyn DownloadRepository>>,
     loading_status: Arc<Mutex<HashMap<String, LoadingStatus>>>,
 }
 
@@ -95,6 +98,21 @@ impl MarketDataService {
         Self {
             trade_repo,
             depth_repo,
+            download_repo: None,
+            loading_status: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Create a new market data service with download capabilities
+    pub fn with_download_repo(
+        trade_repo: Arc<dyn TradeRepository>,
+        depth_repo: Arc<dyn DepthRepository>,
+        download_repo: Arc<dyn DownloadRepository>,
+    ) -> Self {
+        Self {
+            trade_repo,
+            depth_repo,
+            download_repo: Some(download_repo),
             loading_status: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -434,12 +452,18 @@ impl MarketDataService {
     /// Estimate cache coverage and cost for a data request
     ///
     /// Returns (total_days, cached_days, uncached_days, gaps_description, actual_cost_usd, cached_dates)
+    ///
+    /// Requires a `DownloadRepository` to be configured via `with_download_repo`.
     pub async fn estimate_data_request(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> ServiceResult<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>)> {
+        let download_repo = self.download_repo.as_ref().ok_or_else(|| {
+            ServiceError::InvalidConfig("Download repository not configured".into())
+        })?;
+
         log::info!(
             "Estimating cost for {} ({}) from {} to {}",
             ticker,
@@ -449,9 +473,8 @@ impl MarketDataService {
         );
 
         // Get cache coverage
-        let coverage = self
-            .trade_repo
-            .check_cache_coverage_databento(ticker, schema_discriminant, date_range)
+        let coverage = download_repo
+            .check_cache_coverage(ticker, schema_discriminant, date_range)
             .await?;
 
         log::debug!(
@@ -465,23 +488,20 @@ impl MarketDataService {
         let cached_days = coverage.cached_count;
         let uncached_days = coverage.uncached_count;
 
-        // Get cost from Databento API for FULL range
-        let full_range_cost = self
-            .trade_repo
-            .get_actual_cost_databento(ticker, schema_discriminant, date_range)
-            .await?; // Propagate error instead of defaulting to $0
+        // Get cost for FULL range
+        let full_range_cost = download_repo
+            .get_download_cost(ticker, schema_discriminant, date_range)
+            .await?;
 
         log::info!(
-            "Databento cost API: ${:.4} USD for full range ({} days)",
+            "Cost API: ${:.4} USD for full range ({} days)",
             full_range_cost,
             total_days
         );
 
         // Calculate ACTUAL download cost (only for uncached days)
         let actual_cost_usd = if total_days > 0 && uncached_days > 0 {
-            // Cost per day = total cost / total days
             let cost_per_day = full_range_cost / total_days as f64;
-            // Actual cost = cost per day × uncached days
             let cost = cost_per_day * uncached_days as f64;
             log::info!(
                 "Actual cost for {} uncached days: ${:.4} (${:.4}/day)",
@@ -491,7 +511,7 @@ impl MarketDataService {
             );
             cost
         } else {
-            0.0 // All cached or no days
+            0.0
         };
 
         // Format gaps description
@@ -524,16 +544,19 @@ impl MarketDataService {
 
     /// Download data to cache without loading into memory
     ///
-    /// Returns number of days successfully downloaded
+    /// Returns number of days successfully downloaded.
     pub async fn download_to_cache(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
     ) -> ServiceResult<usize> {
-        let days_downloaded = self
-            .trade_repo
-            .prefetch_to_cache_databento(ticker, schema_discriminant, date_range)
+        let download_repo = self.download_repo.as_ref().ok_or_else(|| {
+            ServiceError::InvalidConfig("Download repository not configured".into())
+        })?;
+
+        let days_downloaded = download_repo
+            .prefetch_to_cache(ticker, schema_discriminant, date_range)
             .await?;
 
         Ok(days_downloaded)
@@ -550,9 +573,12 @@ impl MarketDataService {
         date_range: &DateRange,
         progress_callback: Box<dyn Fn(usize, usize) + Send + Sync>,
     ) -> ServiceResult<usize> {
-        let days_downloaded = self
-            .trade_repo
-            .prefetch_to_cache_databento_with_progress(
+        let download_repo = self.download_repo.as_ref().ok_or_else(|| {
+            ServiceError::InvalidConfig("Download repository not configured".into())
+        })?;
+
+        let days_downloaded = download_repo
+            .prefetch_to_cache_with_progress(
                 ticker,
                 schema_discriminant,
                 date_range,
@@ -577,8 +603,12 @@ impl MarketDataService {
 
     /// Get list of tickers with cached data
     pub async fn get_cached_tickers(&self) -> ServiceResult<std::collections::HashSet<String>> {
-        self.trade_repo
-            .list_cached_symbols_databento()
+        let download_repo = self.download_repo.as_ref().ok_or_else(|| {
+            ServiceError::InvalidConfig("Download repository not configured".into())
+        })?;
+
+        download_repo
+            .list_cached_symbols()
             .await
             .map_err(ServiceError::from)
     }

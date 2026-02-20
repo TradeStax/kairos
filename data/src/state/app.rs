@@ -3,6 +3,7 @@
 //! Application-level state that is persisted across sessions.
 //! Does NOT include chart data (which is derived from cache).
 
+use super::persistence::StateVersion;
 use super::registry::DownloadedTickersRegistry;
 use crate::config::ScaleFactor;
 use crate::config::sidebar::Sidebar;
@@ -106,7 +107,7 @@ impl Default for MassiveConfigSettings {
 #[serde(default)]
 pub struct AppState {
     /// Version of the state schema (for migrations)
-    pub version: u32,
+    pub version: StateVersion,
 
     /// Layout management (panes, splits, active layout)
     pub layout_manager: LayoutManager,
@@ -151,7 +152,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: StateVersion::CURRENT,
             layout_manager: LayoutManager::default(),
             selected_theme: Theme::default(),
             custom_theme: None,
@@ -182,7 +183,7 @@ impl AppState {
         data_feeds: DataFeedManager,
     ) -> Self {
         Self {
-            version: 2,
+            version: StateVersion::CURRENT,
             layout_manager,
             selected_theme,
             custom_theme,
@@ -200,7 +201,7 @@ impl AppState {
 
     /// Get current state version
     pub fn schema_version(&self) -> u32 {
-        self.version
+        self.version.0
     }
 }
 
@@ -244,7 +245,7 @@ mod tests {
     #[test]
     fn test_app_state_default() {
         let state = AppState::default();
-        assert_eq!(state.version, 2);
+        assert_eq!(state.version, StateVersion::CURRENT);
         assert!(state.databento_config.cache_enabled);
         assert_eq!(state.databento_config.cache_max_days, 90);
         assert!(!state.databento_config.live_enabled);

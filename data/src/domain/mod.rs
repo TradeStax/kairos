@@ -23,8 +23,8 @@ pub use aggregation::{AggregationError, aggregate_trades_to_candles, aggregate_t
 pub use chart::{
     Autoscale, CandlePosition, ChartBasis, ChartConfig, ChartData, ChartType, ClusterScaling,
     DataGap, DataGapKind, DataSchema, DataSegment, FootprintMode, FootprintStudyConfig,
-    FootprintType, HeatmapIndicator, Indicator, KlineDataPoint, KlineIndicator, KlineTrades,
-    LoadingStatus, MergeResult, NPoc, PointOfControl, UiIndicator, ViewConfig,
+    FootprintType, HeatmapIndicator, KlineDataPoint, KlineTrades,
+    LoadingStatus, MergeResult, NPoc, PointOfControl, ViewConfig,
 };
 pub use entities::{Candle, DepthSnapshot, MarketData, Trade};
 pub use futures::{

@@ -115,6 +115,14 @@ impl std::fmt::Display for LinkGroup {
     }
 }
 
+/// Persisted configuration for a single study instance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyInstanceConfig {
+    pub study_id: String,
+    pub enabled: bool,
+    pub parameters: std::collections::HashMap<String, serde_json::Value>,
+}
+
 /// Pane settings (basis, visual config)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
@@ -123,6 +131,9 @@ pub struct Settings {
     /// Saved drawings for this pane
     #[serde(default)]
     pub drawings: Vec<crate::drawing::SerializableDrawing>,
+    /// Saved study configurations for this pane
+    #[serde(default)]
+    pub studies: Vec<StudyInstanceConfig>,
 }
 
 /// Visual configuration for different content types
@@ -252,20 +263,20 @@ pub enum CandleColorField {
 
 /// Candlestick visual style configuration.
 ///
-/// Each field is `Option<Color>` — `None` means "use theme palette default".
+/// Each field is `Option<Rgba>` — `None` means "use theme palette default".
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CandleStyle {
-    pub bull_body_color: Option<iced_core::Color>,
-    pub bear_body_color: Option<iced_core::Color>,
-    pub bull_wick_color: Option<iced_core::Color>,
-    pub bear_wick_color: Option<iced_core::Color>,
-    pub bull_border_color: Option<iced_core::Color>,
-    pub bear_border_color: Option<iced_core::Color>,
+    pub bull_body_color: Option<crate::config::color::Rgba>,
+    pub bear_body_color: Option<crate::config::color::Rgba>,
+    pub bull_wick_color: Option<crate::config::color::Rgba>,
+    pub bear_wick_color: Option<crate::config::color::Rgba>,
+    pub bull_border_color: Option<crate::config::color::Rgba>,
+    pub bear_border_color: Option<crate::config::color::Rgba>,
 }
 
 impl CandleStyle {
     /// Get the color for a given field.
-    pub fn get_color(&self, field: CandleColorField) -> Option<iced_core::Color> {
+    pub fn get_color(&self, field: CandleColorField) -> Option<crate::config::color::Rgba> {
         match field {
             CandleColorField::BullBody => self.bull_body_color,
             CandleColorField::BearBody => self.bear_body_color,
@@ -277,7 +288,7 @@ impl CandleStyle {
     }
 
     /// Set the color for a given field.
-    pub fn set_color(&mut self, field: CandleColorField, color: Option<iced_core::Color>) {
+    pub fn set_color(&mut self, field: CandleColorField, color: Option<crate::config::color::Rgba>) {
         match field {
             CandleColorField::BullBody => self.bull_body_color = color,
             CandleColorField::BearBody => self.bear_body_color = color,
@@ -347,9 +358,9 @@ impl Default for LadderConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ComparisonConfig {
     pub normalize: Option<bool>,
-    /// Map of ticker symbol strings to colors (e.g., "ESH5" -> Color)
+    /// Map of ticker symbol strings to colors (e.g., "ESH5" -> Rgba)
     #[serde(default)]
-    pub colors: Vec<(String, iced_core::Color)>,
+    pub colors: Vec<(String, crate::config::color::Rgba)>,
     /// Map of ticker symbol strings to custom names
     #[serde(default)]
     pub names: Vec<(String, String)>,

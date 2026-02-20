@@ -33,6 +33,13 @@ impl FuturesVenue {
             FuturesVenue::CMEGlobex => "GLBX.MDP3",
         }
     }
+
+    /// Serialization key used for FuturesTicker encoding (e.g. "CMEGlobex:ES.c.0")
+    pub fn serialization_key(&self) -> &'static str {
+        match self {
+            FuturesVenue::CMEGlobex => "CMEGlobex",
+        }
+    }
 }
 
 // ── Contract Types ────────────────────────────────────────────────────
@@ -274,12 +281,12 @@ impl FuturesTicker {
 
     pub fn as_str(&self) -> &str {
         let end = self.bytes.iter().position(|&b| b == 0).unwrap_or(28);
-        std::str::from_utf8(&self.bytes[..end]).unwrap()
+        std::str::from_utf8(&self.bytes[..end]).unwrap_or("?")
     }
 
     pub fn product(&self) -> &str {
         let end = self.product_bytes.iter().position(|&b| b == 0).unwrap_or(8);
-        std::str::from_utf8(&self.product_bytes[..end]).unwrap()
+        std::str::from_utf8(&self.product_bytes[..end]).unwrap_or("?")
     }
 
     pub fn display_name(&self) -> Option<&str> {
@@ -289,7 +296,7 @@ impl FuturesTicker {
                 .iter()
                 .position(|&b| b == 0)
                 .unwrap_or(28);
-            Some(std::str::from_utf8(&self.display_bytes[..end]).unwrap())
+            Some(std::str::from_utf8(&self.display_bytes[..end]).unwrap_or("?"))
         } else {
             None
         }
@@ -349,13 +356,13 @@ impl Serialize for FuturesTicker {
     where
         S: serde::Serializer,
     {
-        let venue_str = "CMEGlobex";
+        let venue_str = self.venue.serialization_key();
         let s = if self.has_display_name {
             format!(
                 "{}:{}|{}",
                 venue_str,
                 self.as_str(),
-                self.display_name().unwrap()
+                self.display_name().unwrap_or("?")
             )
         } else {
             format!("{}:{}", venue_str, self.as_str())

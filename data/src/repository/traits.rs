@@ -152,86 +152,63 @@ pub trait TradeRepository: Send + Sync {
     /// Get repository statistics
     async fn stats(&self) -> RepositoryResult<RepositoryStats>;
 
-    // ── Provider-specific methods (Databento) ───────────────────────
-    //
-    // These methods support Databento-specific cache and cost operations.
-    // Default implementations return errors for non-Databento repos.
-    // TODO: Consider extracting to a separate extension trait when
-    // additional providers need similar capabilities.
+}
 
-    /// Check which days are cached vs need download (Databento-specific)
+/// Download repository interface
+///
+/// Provides provider-specific cache, prefetch, and cost operations.
+/// Separated from `TradeRepository` to keep the core trait clean.
+/// Implemented by `DatabentoTradeRepository` in the exchange layer.
+#[async_trait::async_trait]
+pub trait DownloadRepository: Send + Sync {
+    /// Check which days are cached vs need download.
     ///
-    /// Returns a `CacheCoverageReport` showing which dates have cached data
-    /// and which need to be downloaded. Only implemented by Databento repos.
-    async fn check_cache_coverage_databento(
+    /// The `schema_discriminant` is a u16 identifying the data schema
+    /// (e.g., trades, MBP-10, OHLCV) in a provider-specific way.
+    async fn check_cache_coverage(
         &self,
-        _ticker: &FuturesTicker,
-        _schema_discriminant: u16, // Databento Schema as u16
-        _date_range: &DateRange,
-    ) -> RepositoryResult<CacheCoverageReport> {
-        // Default implementation returns error
-        Err(RepositoryError::InvalidData(
-            "Cache coverage not supported by this repository".to_string(),
-        ))
-    }
+        ticker: &FuturesTicker,
+        schema_discriminant: u16,
+        date_range: &DateRange,
+    ) -> RepositoryResult<CacheCoverageReport>;
 
-    /// Prefetch data to cache without loading (Databento-specific)
+    /// Prefetch data to cache without loading into memory.
     ///
-    /// Note: This method accepts Databento Schema type for exchange-specific operations.
-    async fn prefetch_to_cache_databento(
+    /// Returns the number of days downloaded.
+    async fn prefetch_to_cache(
         &self,
-        _ticker: &FuturesTicker,
-        _schema_discriminant: u16, // Databento Schema as u16
-        _date_range: &DateRange,
-    ) -> RepositoryResult<usize> {
-        // Default implementation returns error
-        Err(RepositoryError::InvalidData(
-            "Prefetch not supported by this repository".to_string(),
-        ))
-    }
+        ticker: &FuturesTicker,
+        schema_discriminant: u16,
+        date_range: &DateRange,
+    ) -> RepositoryResult<usize>;
 
-    /// Prefetch data to cache WITH progress callbacks (Databento-specific)
+    /// Prefetch data to cache with progress callbacks.
     ///
-    /// Calls progress_callback(current_day, total_days) after each day is downloaded.
-    /// This allows UI to show real-time download progress.
-    async fn prefetch_to_cache_databento_with_progress(
+    /// Calls `progress_callback(current_day, total_days)` after each day.
+    async fn prefetch_to_cache_with_progress(
         &self,
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
         progress_callback: Box<dyn Fn(usize, usize) + Send + Sync>,
     ) -> RepositoryResult<usize> {
-        // Default: call non-progress version and ignore callback
-        let _ = progress_callback; // Silence unused warning
-        self.prefetch_to_cache_databento(ticker, schema_discriminant, date_range)
+        let _ = progress_callback;
+        self.prefetch_to_cache(ticker, schema_discriminant, date_range)
             .await
     }
 
-    /// Get actual cost from Databento API (Databento-specific)
-    ///
-    /// Calls Databento's metadata.get_cost() API to get real USD cost.
-    /// Must be overridden by Databento repository implementations.
-    async fn get_actual_cost_databento(
+    /// Get actual download cost in USD.
+    async fn get_download_cost(
         &self,
-        _ticker: &FuturesTicker,
-        _schema_discriminant: u16,
-        _date_range: &DateRange,
-    ) -> RepositoryResult<f64> {
-        // Default implementation returns error - must be overridden
-        Err(RepositoryError::InvalidData(
-            "Cost estimation not supported by this repository".to_string(),
-        ))
-    }
+        ticker: &FuturesTicker,
+        schema_discriminant: u16,
+        date_range: &DateRange,
+    ) -> RepositoryResult<f64>;
 
-    /// List symbols with cached data (Databento-specific)
-    ///
-    /// Returns set of symbol strings that have at least one cached file.
-    /// Default implementation returns empty set.
-    async fn list_cached_symbols_databento(
+    /// List symbols with cached data.
+    async fn list_cached_symbols(
         &self,
-    ) -> RepositoryResult<std::collections::HashSet<String>> {
-        Ok(std::collections::HashSet::new())
-    }
+    ) -> RepositoryResult<std::collections::HashSet<String>>;
 }
 
 /// Depth (orderbook) repository interface

@@ -17,16 +17,25 @@ impl Price {
     pub const PRECISION: i64 = 100_000_000; // 10^8
     const PRECISION_F64: f64 = Self::PRECISION as f64;
 
+    /// Number of decimal places of the atomic unit (10^-8).
+    /// Alias for compatibility with exchange layer formatting.
+    pub const PRICE_SCALE: i32 = 8;
+
     /// Create from units (internal representation)
     pub fn from_units(units: i64) -> Self {
         Self { units }
     }
 
-    /// Create from f32
+    /// Create from f32 (rounds to nearest atomic unit)
     pub fn from_f32(value: f32) -> Self {
         Self {
             units: (value as f64 * Self::PRECISION_F64).round() as i64,
         }
+    }
+
+    /// Lossy: create Price from f32 (rounds to nearest atomic unit)
+    pub fn from_f32_lossy(v: f32) -> Self {
+        Self::from_f32(v)
     }
 
     /// Create from f64
@@ -39,6 +48,11 @@ impl Price {
     /// Convert to f32
     pub fn to_f32(self) -> f32 {
         (self.units as f64 / Self::PRECISION_F64) as f32
+    }
+
+    /// Lossy: convert price to f32
+    pub fn to_f32_lossy(self) -> f32 {
+        self.to_f32()
     }
 
     /// Convert to f64
@@ -101,6 +115,16 @@ impl Price {
         Some((span / step.units) as usize + 1)
     }
 
+    /// Checked addition — returns `None` on overflow.
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.units.checked_add(rhs.units).map(Self::from_units)
+    }
+
+    /// Checked subtraction — returns `None` on overflow.
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.units.checked_sub(rhs.units).map(Self::from_units)
+    }
+
     /// Zero price
     pub const fn zero() -> Self {
         Self { units: 0 }
@@ -111,7 +135,7 @@ impl Add for Price {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         Self {
-            units: self.units + other.units,
+            units: self.units.saturating_add(other.units),
         }
     }
 }
@@ -120,7 +144,7 @@ impl Sub for Price {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
         Self {
-            units: self.units - other.units,
+            units: self.units.saturating_sub(other.units),
         }
     }
 }
@@ -138,7 +162,7 @@ impl Div<i64> for Price {
     type Output = Self;
     fn div(self, divisor: i64) -> Self {
         Self {
-            units: self.units / divisor,
+            units: self.units.div_euclid(divisor),
         }
     }
 }
@@ -367,6 +391,34 @@ mod tests {
         assert_eq!((p1 + p2).to_f32(), 150.0);
         assert_eq!((p1 - p2).to_f32(), 50.0);
         assert_eq!((p2 * 2.0).to_f32(), 100.0);
+    }
+
+    #[test]
+    fn test_price_saturating_add() {
+        let max = Price::from_units(i64::MAX);
+        let one = Price::from_units(1);
+        assert_eq!((max + one).units(), i64::MAX);
+    }
+
+    #[test]
+    fn test_price_saturating_sub() {
+        let min = Price::from_units(i64::MIN);
+        let one = Price::from_units(1);
+        assert_eq!((min - one).units(), i64::MIN);
+    }
+
+    #[test]
+    fn test_price_checked_add_overflow() {
+        let max = Price::from_units(i64::MAX);
+        let one = Price::from_units(1);
+        assert!(max.checked_add(one).is_none());
+    }
+
+    #[test]
+    fn test_price_checked_sub_overflow() {
+        let min = Price::from_units(i64::MIN);
+        let one = Price::from_units(1);
+        assert!(min.checked_sub(one).is_none());
     }
 
     #[test]

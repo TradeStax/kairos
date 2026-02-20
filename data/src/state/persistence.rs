@@ -10,22 +10,28 @@ use super::app::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// State version for migrations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StateVersion(pub u32);
 
 impl StateVersion {
-    pub const CURRENT: StateVersion = StateVersion(2);
+    pub const CURRENT: StateVersion = StateVersion(3);
 
     pub fn is_current(&self) -> bool {
-        self.0 == Self::CURRENT.0
+        *self == Self::CURRENT
     }
 
     pub fn needs_migration(&self) -> bool {
-        self.0 < Self::CURRENT.0
+        *self < Self::CURRENT
+    }
+}
+
+impl std::fmt::Display for StateVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "v{}", self.0)
     }
 }
 
@@ -52,10 +58,10 @@ pub type PersistenceResult<T> = Result<T, PersistenceError>;
 /// Each migration defines how to transform state from one version to the next.
 pub trait StateMigration: Send + Sync {
     /// Source version (from)
-    fn source_version(&self) -> u32;
+    fn source_version(&self) -> StateVersion;
 
     /// Target version (to)
-    fn to_version(&self) -> u32;
+    fn to_version(&self) -> StateVersion;
 
     /// Perform the migration
     fn migrate(&self, state: AppState) -> PersistenceResult<AppState>;
@@ -101,29 +107,33 @@ impl MigrationRegistry {
     /// Get migration path from one version to another
     ///
     /// Returns a sequence of migrations to apply, or None if no path exists.
-    pub fn get_migration_path(&self, from: u32, to: u32) -> Option<Vec<&dyn StateMigration>> {
+    pub fn get_migration_path(
+        &self,
+        from: StateVersion,
+        to: StateVersion,
+    ) -> Option<Vec<&dyn StateMigration>> {
         if from == to {
             return Some(Vec::new());
         }
 
         if from > to {
-            log::error!("Cannot migrate backwards from v{} to v{}", from, to);
+            log::error!("Cannot migrate backwards from {} to {}", from, to);
             return None;
         }
 
         // Simple linear path for now (v0 → v1 → v2 → v3, etc.)
-        // TODO: support branching/parallel versions
         let mut path = Vec::new();
         let mut current = from;
 
         while current < to {
+            let next = StateVersion(current.0 + 1);
             let next_migration = self
                 .migrations
                 .iter()
-                .find(|m| m.source_version() == current && m.to_version() == current + 1)?;
+                .find(|m| m.source_version() == current && m.to_version() == next)?;
 
             path.push(next_migration.as_ref());
-            current += 1;
+            current = next;
         }
 
         Some(path)
@@ -133,26 +143,37 @@ impl MigrationRegistry {
     pub fn execute_migrations(
         &self,
         mut state: AppState,
-        from: u32,
-        to: u32,
+        from: StateVersion,
+        to: StateVersion,
     ) -> PersistenceResult<AppState> {
         let path = self.get_migration_path(from, to).ok_or_else(|| {
-            PersistenceError::Migration(format!("No migration path from v{} to v{}", from, to))
+            PersistenceError::Migration(format!(
+                "No migration path from {} to {}",
+                from, to
+            ))
         })?;
 
         if path.is_empty() {
-            log::debug!("No migrations needed: v{} is current", from);
+            log::debug!("No migrations needed: {} is current", from);
             return Ok(state);
         }
 
-        log::info!("Executing {} migration(s): v{} → v{}", path.len(), from, to);
+        log::info!(
+            "Executing {} migration(s): {} → {}",
+            path.len(),
+            from,
+            to
+        );
 
         for migration in path {
             log::info!("  Applying: {}", migration.description());
 
             state = migration.migrate(state)?;
 
-            log::info!("  ✓ Successfully migrated to v{}", migration.to_version());
+            log::info!(
+                "  Successfully migrated to {}",
+                migration.to_version()
+            );
         }
 
         Ok(state)
@@ -174,10 +195,10 @@ impl Default for MigrationRegistry {
 ///
 /// ## Example
 /// ```rust,ignore
-/// let state = load_state("saved-state.json")?;
+/// let state = load_state(base_dir, "saved-state.json")?;
 /// ```
-pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
-    let path = state_file_path(file_name)?;
+pub fn load_state(base_dir: &Path, file_name: &str) -> PersistenceResult<AppState> {
+    let path = state_file_path(base_dir, file_name);
 
     // If file doesn't exist, return default
     if !path.exists() {
@@ -192,42 +213,46 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
     // Try to parse state
     match serde_json::from_str::<AppState>(&contents) {
         Ok(mut state) => {
-            log::info!("Loaded state from {:?} (version {})", path, state.version);
+            log::info!("Loaded state from {:?} ({})", path, state.version);
 
             // Reject future versions that this app doesn't understand
-            if state.version > StateVersion::CURRENT.0 {
+            if state.version > StateVersion::CURRENT {
                 log::warn!(
-                    "State file has version {} but this app only \
-                     supports up to version {}. The file may have been \
-                     created by a newer version of the application. \
-                     Using default state to avoid data corruption.",
+                    "State file has {} but this app only supports up \
+                     to {}. The file may have been created by a newer \
+                     version of the application. Using default state \
+                     to avoid data corruption.",
                     state.version,
-                    StateVersion::CURRENT.0
+                    StateVersion::CURRENT
                 );
                 return Ok(AppState::default());
             }
 
             // Check if migration needed
-            if state.version < StateVersion::CURRENT.0 {
+            if state.version.needs_migration() {
                 let old_version = state.version;
                 log::info!(
-                    "State version {} needs migration to {}",
+                    "State {} needs migration to {}",
                     old_version,
-                    StateVersion::CURRENT.0
+                    StateVersion::CURRENT
                 );
 
                 // Create migration registry and execute migrations
                 let registry = MigrationRegistry::new();
-                state = registry.execute_migrations(state, old_version, StateVersion::CURRENT.0)?;
+                state = registry.execute_migrations(
+                    state,
+                    old_version,
+                    StateVersion::CURRENT,
+                )?;
 
                 // Update version after successful migration
-                state.version = StateVersion::CURRENT.0;
+                state.version = StateVersion::CURRENT;
 
-                log::info!("✓ Migration complete to v{}", state.version);
+                log::info!("Migration complete to {}", state.version);
 
                 // Save migrated state
-                save_state(&state, file_name)?;
-                log::info!("✓ Saved migrated state");
+                save_state(&state, base_dir, file_name)?;
+                log::info!("Saved migrated state");
             }
 
             Ok(state)
@@ -241,7 +266,7 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
                 file_name.trim_end_matches(".json"),
                 chrono::Utc::now().timestamp()
             );
-            let backup_path = state_file_path(&backup_name)?;
+            let backup_path = state_file_path(base_dir, &backup_name);
 
             if let Err(rename_err) = std::fs::rename(&path, &backup_path) {
                 log::warn!(
@@ -270,10 +295,10 @@ pub fn load_state(file_name: &str) -> PersistenceResult<AppState> {
 ///
 /// ## Example
 /// ```rust,ignore
-/// save_state(&state, "saved-state.json")?;
+/// save_state(&state, base_dir, "saved-state.json")?;
 /// ```
-pub fn save_state(state: &AppState, file_name: &str) -> PersistenceResult<()> {
-    let path = state_file_path(file_name)?;
+pub fn save_state(state: &AppState, base_dir: &Path, file_name: &str) -> PersistenceResult<()> {
+    let path = state_file_path(base_dir, file_name);
 
     // Create parent directories
     if let Some(parent) = path.parent()
@@ -285,27 +310,21 @@ pub fn save_state(state: &AppState, file_name: &str) -> PersistenceResult<()> {
     // Serialize to JSON
     let json = serde_json::to_string_pretty(state)?;
 
-    // Write to file
-    let mut file = File::create(&path)?;
+    // Write to a temporary file first, then atomically rename
+    let tmp_path = path.with_extension("tmp");
+    let mut file = File::create(&tmp_path)?;
     file.write_all(json.as_bytes())?;
+    file.flush()?;
+
+    std::fs::rename(&tmp_path, &path)?;
 
     log::info!("Saved state to {:?}", path);
     Ok(())
 }
 
-/// Get path to state file
-fn state_file_path(file_name: &str) -> PersistenceResult<PathBuf> {
-    // Check for environment override
-    if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
-        return Ok(PathBuf::from(path).join(file_name));
-    }
-
-    // Use platform-specific data directory
-    let data_dir = dirs_next::data_dir().ok_or_else(|| {
-        PersistenceError::InvalidPath("Cannot determine data directory".to_string())
-    })?;
-
-    Ok(data_dir.join("flowsurface").join(file_name))
+/// Path to state file under the given base directory.
+fn state_file_path(base_dir: &Path, file_name: &str) -> PathBuf {
+    base_dir.join(file_name)
 }
 
 // ── Example Migrations (for future use) ───────────────────────────────
@@ -353,12 +372,12 @@ mod tests {
         let registry = MigrationRegistry::new();
 
         // Same version should have empty path
-        let path = registry.get_migration_path(2, 2);
+        let path = registry.get_migration_path(StateVersion(2), StateVersion(2));
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 0);
 
         // v1 to v2 should have 1 migration
-        let path = registry.get_migration_path(1, 2);
+        let path = registry.get_migration_path(StateVersion(1), StateVersion(2));
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 1);
     }
@@ -366,25 +385,25 @@ mod tests {
     #[test]
     fn test_save_and_load() {
         let state = AppState::default();
+        let temp_dir = std::env::temp_dir();
         let temp_file = format!("test-state-{}.json", chrono::Utc::now().timestamp());
 
         // Save
-        save_state(&state, &temp_file).unwrap();
+        save_state(&state, &temp_dir, &temp_file).unwrap();
 
         // Load
-        let loaded = load_state(&temp_file).unwrap();
+        let loaded = load_state(&temp_dir, &temp_file).unwrap();
         assert_eq!(loaded.version, state.version);
 
         // Cleanup
-        if let Ok(path) = state_file_path(&temp_file) {
-            let _ = std::fs::remove_file(path);
-        }
+        let path = state_file_path(&temp_dir, &temp_file);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_backwards_migration_fails() {
         let registry = MigrationRegistry::new();
-        let path = registry.get_migration_path(5, 3);
+        let path = registry.get_migration_path(StateVersion(5), StateVersion(3));
         assert!(path.is_none(), "Should not allow backwards migration");
     }
 
@@ -392,12 +411,12 @@ mod tests {
     struct TestMigrationV0ToV1;
 
     impl StateMigration for TestMigrationV0ToV1 {
-        fn source_version(&self) -> u32 {
-            0
+        fn source_version(&self) -> StateVersion {
+            StateVersion(0)
         }
 
-        fn to_version(&self) -> u32 {
-            1
+        fn to_version(&self) -> StateVersion {
+            StateVersion(1)
         }
 
         fn migrate(&self, state: AppState) -> PersistenceResult<AppState> {
@@ -415,7 +434,7 @@ mod tests {
         registry.register(Box::new(TestMigrationV0ToV1));
 
         // Now we have v0->v1 (custom) and v1->v2 (real), so v0->v2 path = 2
-        let path = registry.get_migration_path(0, 2);
+        let path = registry.get_migration_path(StateVersion(0), StateVersion(2));
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 2);
     }
@@ -426,8 +445,12 @@ mod tests {
 
         // Test the real v1->v2 migration
         let mut state = AppState::default();
-        state.version = 1;
-        let result = registry.execute_migrations(state, 1, 2);
+        state.version = StateVersion(1);
+        let result = registry.execute_migrations(
+            state,
+            StateVersion(1),
+            StateVersion(2),
+        );
         assert!(result.is_ok());
     }
 }

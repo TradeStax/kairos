@@ -273,50 +273,8 @@ impl Default for FibonacciConfig {
     }
 }
 
-/// Serializable color (RGBA)
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct SerializableColor {
-    pub r: f32,
-    pub g: f32,
-    pub b: f32,
-    pub a: f32,
-}
-
-impl Default for SerializableColor {
-    fn default() -> Self {
-        // Default to a visible blue color
-        Self {
-            r: 0.3,
-            g: 0.6,
-            b: 1.0,
-            a: 1.0,
-        }
-    }
-}
-
-impl SerializableColor {
-    /// Create a new color with values clamped to valid range [0.0, 1.0]
-    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
-        Self {
-            r: r.clamp(0.0, 1.0),
-            g: g.clamp(0.0, 1.0),
-            b: b.clamp(0.0, 1.0),
-            a: a.clamp(0.0, 1.0),
-        }
-    }
-}
-
-impl From<iced_core::Color> for SerializableColor {
-    fn from(color: iced_core::Color) -> Self {
-        Self::new(color.r, color.g, color.b, color.a)
-    }
-}
-
-impl From<SerializableColor> for iced_core::Color {
-    fn from(color: SerializableColor) -> Self {
-        iced_core::Color::from_rgba(color.r, color.g, color.b, color.a)
-    }
-}
+/// Serializable color (RGBA). Alias for config::color::Rgba; convert to/from iced::Color at GUI boundary.
+pub use crate::config::color::Rgba as SerializableColor;
 
 /// Drawing style configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

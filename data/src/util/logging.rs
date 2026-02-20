@@ -1,6 +1,9 @@
 //! Logging Configuration and Utilities
+//!
+//! Log file path is determined by the application (GUI crate) and passed in;
+//! this module does not perform platform I/O.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -15,8 +18,7 @@ pub enum Error {
     SetLogger(#[from] log::SetLoggerError),
 }
 
-/// Get log file path
-pub fn path() -> Result<PathBuf, Error> {
-    let data_dir = crate::data_path(None);
-    Ok(data_dir.join("flowsurface.log"))
+/// Build log file path under the given data directory.
+pub fn path_under(data_dir: &Path) -> PathBuf {
+    data_dir.join("kairos.log")
 }

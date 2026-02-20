@@ -1,606 +1,521 @@
-<svg width="400" height="100" xmlns="http://www.w3.org/2000/svg">
-  <text x="10" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="300" fill="currentColor">
-    FLOWSURFACE
-  </text>
-  <text x="10" y="70" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="300" fill="#666666">
-    Data Layer
-  </text>
-  <line x1="10" y1="85" x2="350" y2="85" stroke="#999999" stroke-width="1"/>
-</svg>
+<img src="../assets/illustrations/data-header.svg" alt="Data Layer Header" style="max-width: 300px; width: 100%;" />
 
-The data layer provides core business logic, domain models, and state management for the Flowsurface futures trading platform. This package maintains strict separation from external dependencies, implementing pure domain logic with no I/O operations.
+Core data layer for the Kairos futures trading platform. Provides domain models, business logic, state management, and service orchestration with **no I/O operations** — all external data access is abstracted behind repository traits implemented in the `kairos-exchange` crate.
 
 ## Architecture
-
-```
-data/
-├── domain/         # Core domain models and business logic
-├── repository/     # Data access abstractions
-├── services/       # Business orchestration
-├── state/          # Application state management
-├── config/         # Configuration types
-└── util/           # Utility functions
-```
-
-### Layer Boundaries
-
 ```mermaid
-flowchart TD
-    A[Application Layer] -->|Uses| B[Data Layer<br/>This Package]
-    B -->|Uses| C[Exchange Layer]
+flowchart LR
+    A["Application<br/>(Iced GUI)"] --> B["Data Layer<br/>(this crate)"]
+    B --> C["Exchange Layer<br/>(I/O adapters)"]
 
-    style A fill:#2a2a2a,stroke:#444,color:#fff
-    style B fill:#1a1a1a,stroke:#444,color:#fff
-    style C fill:#2a2a2a,stroke:#444,color:#fff
+    style A stroke:#C8C8C8,stroke-width:2px
+    style B stroke:#51CDA0,stroke-width:2px
+    style C stroke:#C8C8C8,stroke-width:2px
 ```
 
-## Core Components
+The data layer depends only on domain abstractions. Repository trait definitions live here; concrete implementations (Databento, Rithmic, Massive/Polygon) live in `kairos-exchange`.
 
-### Domain Models
+<details>
+<summary><strong>Module Overview</strong></summary>
 
-Pure value objects and entities with no external dependencies.
+| Module | Purpose |
+|--------|---------|
+| `domain/` | Pure domain models and business logic — `Price`, `Trade`, `Candle`, `DepthSnapshot`, options, GEX, aggregation |
+| `repository/` | Async trait definitions for data access (`TradeRepository`, `DepthRepository`, `Option*Repository`) |
+| `services/` | Business logic orchestration — market data loading, options access, replay engine, GEX analytics, feed merging, cache management |
+| `state/` | Application state persistence, chart state, layout system, pane configuration, replay state |
+| `config/` | Theme (HSV/hex utilities), timezone, sidebar, panel configuration |
+| `feed/` | `DataFeedManager` — CRUD, capability queries, priority routing |
+| `drawing/` | 14 chart annotation tools with serializable state |
+| `secrets/` | `SecretsManager` — OS keyring + file fallback + env var lookup |
+| `util/` | Formatting, math, time, logging helpers |
 
-#### Price (Fixed-Point Arithmetic)
+</details>
+
+## Domain Models
+
+<details>
+<summary><strong>Price (Fixed-Point Arithmetic)</strong></summary>
+
+All price values use `i64` with 10^-8 precision (`PRECISION = 100_000_000`). Never use floating point for prices.
+
 ```rust
-pub struct Price {
-    units: i64, // 10^-8 precision
-}
+let price = Price::from_f64(4525.75);
+let tick_size = Price::from_f64(0.25);
 
-impl Price {
-    pub fn from_f32(value: f32) -> Self {
-        Self { units: (value * 100_000_000.0) as i64 }
-    }
-
-    pub fn to_f32(&self) -> f32 {
-        self.units as f32 / 100_000_000.0
-    }
-}
+price.round_to_tick(tick_size);
+price.round_to_side_step(tick_size, true);   // floor
+price.round_to_side_step(tick_size, false);  // ceil
+price.add_steps(4, tick_size);               // +4 ticks
+Price::steps_between_inclusive(low, high, tick_size);
 ```
 
-#### Trade
-```rust
-pub struct Trade {
-    pub time: Timestamp,        // Note: 'time', not 'timestamp'
-    pub price: Price,
-    pub quantity: Quantity,
-    pub side: Side,             // Buy or Sell
-}
+Implements: `Add`, `Sub`, `Mul<f64>`, `Div<i64>`, `Display`, `Hash`, `Ord`, `Serialize`/`Deserialize`.
 
-impl Trade {
-    pub fn new(time: Timestamp, price: Price, quantity: Quantity, side: Side) -> Self;
-    pub fn from_raw(time_millis: u64, price_f32: f32, quantity_f32: f32, is_sell: bool) -> Self;
-    pub fn is_buy(&self) -> bool;
-    pub fn is_sell(&self) -> bool;
-    pub fn is_on_date(&self, date: NaiveDate) -> bool;
-}
+</details>
+
+<details>
+<summary><strong>Core Value Objects</strong></summary>
+
+| Type | Description |
+|------|-------------|
+| `Timestamp` | Milliseconds since Unix epoch (`u64` wrapper). Convert via `to_datetime()`, `to_date()` |
+| `DateRange` | Inclusive date range with iteration. `last_n_days(7)`, `dates()`, `num_days()` |
+| `TimeRange` | Start/end `Timestamp` pair. `contains()`, `duration_millis()` |
+| `Side` | Trade aggressor direction: `Buy`, `Sell`, `Bid`, `Ask` |
+| `Volume` / `Quantity` | `f64` wrappers with `zero()` and `value()` methods |
+
+</details>
+
+<details>
+<summary><strong>Trade, Candle, DepthSnapshot</strong></summary>
+
+**Trade** — individual market trade with timestamp, price, quantity, side.
+
+```rust
+let trade = Trade::new(timestamp, price, quantity, Side::Buy);
+let trade = Trade::from_raw(1706140800000, 4525.75, 5.0, false); // is_sell=false
 ```
 
-#### Depth Snapshot
+**Candle** — OHLCV bar with separate buy/sell volume tracking. Asserts `high >= open,close` and `low <= open,close`.
+
+Key methods: `total_volume()`, `volume_delta()`, `is_bullish()`, `body_size()`, `range()`.
+
+**DepthSnapshot** — order book state at a point in time (`BTreeMap<Price, Quantity>` for bids/asks).
+
+Key methods: `best_bid()`, `best_ask()`, `mid_price()`, `spread()`, `total_bid_volume()`, `total_ask_volume()`.
+
+</details>
+
+<details>
+<summary><strong>Futures Types</strong></summary>
+
+**FuturesTicker** — fixed-size (28-byte) identifier with embedded venue, product, and optional display name.
+
 ```rust
-use std::collections::BTreeMap;
-
-pub struct DepthSnapshot {
-    pub time: Timestamp,                          // Note: 'time', not 'timestamp'
-    pub bids: BTreeMap<Price, Quantity>,         // Not Vec<Level>
-    pub asks: BTreeMap<Price, Quantity>,
-}
-
-impl DepthSnapshot {
-    pub fn best_bid(&self) -> Option<(Price, Quantity)>;
-    pub fn best_ask(&self) -> Option<(Price, Quantity)>;
-    pub fn mid_price(&self) -> Option<Price>;
-    pub fn spread(&self) -> Option<Price>;
-    pub fn total_bid_volume(&self) -> Quantity;
-    pub fn total_ask_volume(&self) -> Quantity;
-}
+let ticker = FuturesTicker::new("ESH25", FuturesVenue::CMEGlobex);
+ticker.product();          // "ES"
+ticker.exchange();         // "CME Globex"
+ticker.expiration_date();  // Option<NaiveDate>
+// Serialization: "CMEGlobex:ESH25" or "CMEGlobex:ESH25|E-mini S&P 500"
 ```
 
-### Futures Domain
+**FuturesTickerInfo** — ticker + contract specifications (`tick_size`, `min_qty`, `contract_size`).
 
-Pure domain types for futures markets.
+**Timeframe** — `M1s`..`M30s` (sub-minute), `M1`..`M30`, `H1`, `H4`, `D1`. Predefined sets: `KLINE`, `HEATMAP`.
 
-#### FuturesTicker
-```rust
-pub struct FuturesTicker {
-    // Efficient byte-packed storage (28 bytes)
-    pub venue: FuturesVenue,
-}
+**ContractType** — `Continuous(u8)` for rolling contracts (`ES.c.0`), `Specific(String)` for named (`ESH25`).
 
-impl FuturesTicker {
-    pub fn new(symbol: &str, venue: FuturesVenue) -> Self;
+</details>
 
-    // Symbol operations
-    pub fn as_str(&self) -> &str;
-    pub fn product(&self) -> &str;        // "ES" from "ES.c.0" or "ESH24"
-    pub fn display_name(&self) -> Option<&str>;
-    pub fn contract_type(&self) -> ContractType;
+<details>
+<summary><strong>Options Types</strong></summary>
 
-    // Expiration tracking (for specific contracts like "ESH24")
-    pub fn expiration_date(&self) -> Option<NaiveDate>;
-    pub fn is_expired(&self) -> bool;
-    pub fn days_until_expiry(&self) -> Option<i64>;
-}
-```
+**OptionContract** — strike, expiration, type (Call/Put), exercise style (American/European/Bermudan).
 
-#### ContractType
-```rust
-pub enum ContractType {
-    Continuous(u8),      // e.g., ES.c.0 (front month)
-    Specific(String),    // e.g., ESH24 (March 2024)
-}
-```
+**OptionSnapshot** — full market data snapshot including bid/ask, greeks, IV, and computed values (`mid_price`, `intrinsic_value`, `extrinsic_value`, `is_itm`).
 
-#### FuturesTickerInfo
-```rust
-pub struct FuturesTickerInfo {
-    pub ticker: FuturesTicker,
-    pub tick_size: f32,
-    pub min_qty: f32,
-    pub contract_size: f32,
-}
-```
+**OptionChain** — collection of snapshots with filtering: `calls()`, `puts()`, `by_expiration()`, `by_strike()`, `atm_strike()`, `with_greeks()`, `with_iv()`.
 
-#### Timeframe
-```rust
-pub enum Timeframe {
-    M1s, M5s, M10s, M30s,  // Sub-minute
-    M1, M3, M5, M15, M30,  // Minutes
-    H1, H4,                // Hours
-    D1,                    // Daily
-}
+**GexProfile** — gamma exposure analysis per strike. Key levels, call/put walls, zero gamma level, expected move. Built from `OptionChain` via `GexProfile::from_option_chain()`.
 
-impl Timeframe {
-    pub fn to_milliseconds(self) -> u64;
-    pub fn to_seconds(self) -> u64;
-}
-```
+</details>
 
-### Chart Domain
+## Chart Domain
 
-Domain types for chart configuration and data.
-
-#### ChartConfig
-```rust
-pub struct ChartConfig {
-    pub ticker: FuturesTicker,
-    pub basis: ChartBasis,
-    pub date_range: DateRange,
-    pub chart_type: ChartType,
-}
-```
-
-#### ChartBasis
-```rust
-pub enum ChartBasis {
-    Time(Timeframe),  // Time-based: M1, M5, H1, etc.
-    Tick(u32),        // Tick-based: 50T, 100T, etc.
-}
-```
-
-#### ChartData
-```rust
-pub struct ChartData {
-    pub trades: Vec<Trade>,              // PRIMARY SOURCE OF TRUTH
-    pub candles: Vec<Candle>,            // DERIVED from trades
-    pub depth_snapshots: Option<Vec<DepthSnapshot>>,
-    pub time_range: TimeRange,
-}
-
-impl ChartData {
-    pub fn has_trades(&self) -> bool;
-    pub fn has_candles(&self) -> bool;
-    pub fn has_depth(&self) -> bool;
-    pub fn memory_usage(&self) -> usize;
-}
-```
-
-### Repository Pattern
-
-Abstract data access through trait definitions.
+<details>
+<summary><strong>ChartConfig, ChartData, ChartBasis</strong></summary>
 
 ```rust
-#[async_trait]
-pub trait TradeRepository: Send + Sync {
-    async fn get_trades(
-        &self,
-        ticker: &FuturesTicker,
-        date_range: &DateRange,
-    ) -> RepositoryResult<Vec<Trade>>;
-
-    async fn store_trades(
-        &self,
-        ticker: &FuturesTicker,
-        date: NaiveDate,
-        trades: Vec<Trade>,
-    ) -> RepositoryResult<()>;
-
-    async fn find_gaps(
-        &self,
-        ticker: &FuturesTicker,
-        date_range: &DateRange,
-    ) -> RepositoryResult<Vec<DateRange>>;
-}
-```
-
-### Services
-
-Business logic orchestration with clean separation of concerns.
-
-#### MarketDataService
-```rust
-pub struct MarketDataService {
-    trade_repo: Arc<dyn TradeRepository>,
-    loading_status: Arc<Mutex<HashMap<String, LoadingStatus>>>,
-}
-```
-
-#### ReplayEngine
-```rust
-pub struct ReplayEngine {
-    config: ReplayEngineConfig,
-    state: Arc<RwLock<ReplayState>>,
-    data: Arc<RwLock<Option<ReplayData>>>,
-    event_tx: mpsc::UnboundedSender<ReplayEvent>,
-    pub event_rx: mpsc::UnboundedReceiver<ReplayEvent>,
-}
-```
-
-### State Management
-
-Versioned application state with automatic migration.
-
-```rust
-pub struct AppState {
-    pub version: u32,
-    pub layouts: Vec<Layout>,
-    pub theme: Theme,
-    pub user_timezone: UserTimezone,
-    pub sidebar: Sidebar,
-}
-
-// Automatic migration on load
-let state = load_state("app-state.json")?;
-
-// Persist changes
-save_state(&state, "app-state.json")?;
-```
-
-## Usage Patterns
-
-### Instant Basis Switching
-
-One of the key features of the data layer is **instant basis switching**. Once trades are loaded into memory, you can switch between any timeframe or tick basis without refetching data.
-
-```rust
-// Initial load (15-25s first time, <1s if cached)
 let config = ChartConfig {
     ticker: es_ticker,
-    basis: ChartBasis::Time(Timeframe::M5),
+    basis: ChartBasis::Time(Timeframe::M5), // or ChartBasis::Tick(100)
     date_range: DateRange::last_n_days(7),
-    chart_type: ChartType::Candlestick,
+    chart_type: ChartType::Candlestick,     // also: Line, HeikinAshi, Heatmap
 };
 
-let service = MarketDataService::new(trade_repo, depth_repo);
-let chart_data = service.get_chart_data(&config, &ticker_info).await?;
-// Now have 7 days of trades in memory
-
-// User switches to 1H candles (< 100ms)
-let h1_data = service.rebuild_chart_data(
-    &chart_data.trades,
-    ChartBasis::Time(Timeframe::H1),
-    &ticker_info
-)?;
-
-// User switches to 50-tick chart (< 100ms)
-let tick_data = service.rebuild_chart_data(
-    &chart_data.trades,
-    ChartBasis::Tick(50),
-    &ticker_info
-)?;
-
-// All basis changes are instant - no API calls!
+// Trades are PRIMARY source; candles are DERIVED
+let data = ChartData::from_trades(trades, candles)
+    .with_depth(depth_snapshots)
+    .with_gaps(gaps);
 ```
 
-**Performance**:
-- First load: 15-25s (API bound)
-- Cached load: <1s (local disk)
-- Basis switch: <100ms (memory only)
+**LoadingStatus** tracks progress: `Idle` > `Downloading` > `LoadingFromCache` > `Building` > `Ready` | `Error`.
 
-### Aggregation
+**FootprintStudyConfig** — mode (Box/Profile), type (Volume/Delta/BidAskSplit), scaling (Linear/Sqrt/Log), candle position.
 
-```rust
-use flowsurface_data::domain::aggregation::{
-    aggregate_trades_to_candles,
-    aggregate_trades_to_ticks,
-};
+**Indicators** — `KlineIndicator` (Volume, Delta, OI, SMA, EMA, RSI, MACD, Bollinger), `HeatmapIndicator` (Volume, Delta, Trades).
 
-// Time-based aggregation
-let candles = aggregate_trades_to_candles(
-    &trades,
-    60_000,  // 1 minute
-    Price::from_f32(0.25),  // tick size
-)?;
+</details>
 
-// Tick-based aggregation
-let tick_bars = aggregate_trades_to_ticks(
-    &trades,
-    100,  // 100 trades per bar
-    Price::from_f32(0.25),
-)?;
+## Trade Aggregation
+
+Single source of truth for converting raw trades to candles. Two modes:
+
+| Function | Mode | Description |
+|----------|------|-------------|
+| `aggregate_trades_to_candles` | Time-based | Group trades into fixed-duration buckets |
+| `aggregate_trades_to_ticks` | Tick-based | Group trades into fixed-count bars |
+| `aggregate_candles_to_timeframe` | Roll-up | Aggregate to higher timeframe without re-fetching |
+
+Validates inputs (non-empty, sorted by time). Buy/sell volume tracked separately through all paths.
+
+## Repository Pattern
+
+```mermaid
+flowchart TB
+    subgraph Defined["Defined in kairos-data"]
+        TR["TradeRepository"]
+        DR["DepthRepository"]
+        OR["Option*Repository"]
+        CR["CompositeTradeRepository"]
+    end
+    subgraph Implemented["Implemented in kairos-exchange"]
+        DB["Databento"]
+        RI["Rithmic"]
+        MA["Massive / Polygon"]
+    end
+
+    TR -.-> DB
+    TR -.-> RI
+    DR -.-> DB
+    DR -.-> RI
+    OR -.-> MA
+    CR --> TR
+
+    style Defined stroke:#51CDA0,stroke-width:2px
+    style Implemented stroke:#C8C8C8,stroke-width:2px
 ```
 
-### Repository Usage
+<details>
+<summary><strong>Trait Details</strong></summary>
 
-```rust
-// Repository implementations live in the exchange layer
-use exchange::repository::DatabentoTradeRepository;
-use data::repository::TradeRepository;
+**TradeRepository** — `get_trades`, `get_trades_with_progress`, `has_trades`, `get_trades_for_date`, `store_trades`, `find_gaps`, `stats`. Includes Databento-specific extensions for cache coverage, prefetch, and cost estimation.
 
-// Create repository instance (exchange layer provides implementation)
-let repo: Arc<dyn TradeRepository> = Arc::new(
-    DatabentoTradeRepository::new(config).await?
-);
+**DepthRepository** — `get_depth`, `has_depth`, `get_depth_for_date`, `store_depth`, `find_gaps`, `stats`.
 
-// Fetch trades with automatic gap detection
-let trades = repo.get_trades(&ticker, &date_range).await?;
+**Option Repositories** — three traits following the same pattern:
+- `OptionSnapshotRepository` — snapshot CRUD + gap detection
+- `OptionChainRepository` — chain queries by date, strike range, expiration
+- `OptionContractRepository` — contract CRUD, search, active filtering
 
-// Store trades (per-day caching)
-repo.store_trades(&ticker, date, trades).await?;
+**CompositeTradeRepository** — merges trades from multiple feeds with deduplication and gap detection. Partial failures logged as warnings; only fails if all feeds fail.
 
-// Check cache status
-let has_data = repo.has_trades(&ticker, date).await?;
+**RepositoryStats** — `cached_days`, `total_size`, `hit_rate`, `hits`, `misses`, `size_human_readable()`.
 
-// Get repository statistics
-let stats = repo.stats(&ticker).await?;
-println!("Cache hit rate: {:.1}%", stats.hit_rate * 100.0);
+</details>
+
+## Services
+
+<details>
+<summary><strong>MarketDataService</strong></summary>
+
+Primary service for chart data loading with progress tracking and instant basis switching.
+
+- **Load**: `get_chart_data(&config, &ticker_info)` — trades are PRIMARY, candles DERIVED
+- **Rebuild**: `rebuild_chart_data(&trades, basis, &ticker_info)` — instant basis switching, no API calls
+- **Download**: `download_to_cache` / `download_to_cache_with_progress` — cache without loading into memory
+- **Estimate**: `estimate_data_request` — returns day counts, gaps, cost (Databento)
+- **Preview**: `get_trades_for_preview` — cache-only, no remote fetch
+- **Status**: `get_loading_status`, `get_all_loading_statuses`, `get_cache_stats`
+
+Heatmap charts are auto-limited to 1 day maximum to prevent memory issues.
+
+</details>
+
+<details>
+<summary><strong>OptionsDataService</strong></summary>
+
+Chain access, contract queries, snapshots, and analytics.
+
+- **Chains**: `get_chain_with_greeks`, `get_chains_for_range`, `get_chain_near_atm`, `get_chain_by_expiration`
+- **Contracts**: `get_available_contracts`, `get_active_contracts`, `search_contracts`
+- **Analytics**: `get_historical_iv`, `get_gex_profile`, `get_gex_profiles`
+
+</details>
+
+<details>
+<summary><strong>ReplayEngine</strong></summary>
+
+Historical data replay with playback control and bounded event streaming (channel capacity 1024).
+
+- **Control**: `play`, `pause`, `stop`, `seek`, `jump`, `set_speed`
+- **Query**: `get_candles`, `get_trades`, `get_depth`, `get_rebuild_trades`, `compute_volume_histogram`
+- **Events**: `DataLoaded`, `MarketData` (incremental), `ChartRebuild` (full), `PositionUpdate`, `PlaybackComplete`, etc.
+- **Speed**: `Quarter` (0.25x) through `Hundred` (100x) plus `Custom(f32)`
+
+</details>
+
+<details>
+<summary><strong>GexCalculationService</strong></summary>
+
+Stateless gamma exposure analysis. Uses dealer perspective (dealers SHORT options).
+
+**Formula**: `GEX = Gamma * OI * ContractSize * Spot^2 * 0.01` (Kahan summation for stability).
+
+- **Profile**: `calculate_profile`, `try_calculate_profile`
+- **Regime**: `determine_market_regime` — Positive (>1M), Negative (<-1M), Neutral
+- **Levels**: `find_zero_gamma_level`, `nearest_resistance_above`, `nearest_support_below`, `calculate_expected_range`
+- **Detection**: `has_squeeze_potential` (OI >10k, gamma >500k, price <2% from strike)
+- **Skew**: `analyze_gamma_skew` — Bullish (ratio >1.5), Bearish (<0.67), Neutral
+
+</details>
+
+<details>
+<summary><strong>Other Services</strong></summary>
+
+**Feed Merger** (`merge_segments`) — sorts by feed priority, deduplicates within 1ms tolerance at same price, detects gaps >5 seconds.
+
+**CacheManagerService** — trade/depth stats, combined stats, cache status checks, human-readable summary.
+
+</details>
+
+## State Management
+
+<details>
+<summary><strong>AppState (Persisted)</strong></summary>
+
+Serialized to versioned JSON with automatic migration on load. Backs up corrupted files to `_backup_{timestamp}.json`.
+
+| Field | Type |
+|-------|------|
+| `layout_manager` | `LayoutManager` — multiple named layouts |
+| `selected_theme` / `custom_theme` | Theme configuration |
+| `main_window` | `WindowSpec` — position and size |
+| `timezone` | `UserTimezone` (UTC / Local) |
+| `sidebar` | Position, date range preset, active menu |
+| `scale_factor` | `ScaleFactor` (clamped 0.8 - 1.5) |
+| `data_feeds` | `DataFeedManager` |
+| `downloaded_tickers` | `DownloadedTickersRegistry` |
+| `databento_config` / `massive_config` | Provider-specific settings |
+
+State file location: `$KAIROS_DATA_PATH/` or platform data dir via `dirs_next::data_dir()`.
+
+Migrations run automatically when `version < CURRENT`. Current: v1 > v2 (adds DataFeedManager from legacy config).
+
+</details>
+
+<details>
+<summary><strong>ChartState (In-Memory Only)</strong></summary>
+
+Per-chart state holding config, data, and loading status.
+
+- `set_data(chart_data)` — sets status to Ready
+- `append_live_trade(trade)` — updates latest candle in-place (handles time-based and tick-based)
+- `is_loaded()`, `is_loading()`, `trade_count()`, `candle_count()`, `clear_data()`
+
+</details>
+
+<details>
+<summary><strong>Layout System</strong></summary>
+
+Pane trees use a composite pattern: `Split` nodes contain two children; `Content` leaves hold content.
+
+```mermaid
+flowchart TB
+    S["Split (Horizontal, 0.5)"]
+    S --> A["Content: CandlestickChart<br/>LinkGroup(1)"]
+    S --> B["Content: HeatmapChart<br/>LinkGroup(1)"]
+
+    style S stroke:#C8C8C8,stroke-width:2px
+    style A stroke:#51CDA0,stroke-width:2px
+    style B stroke:#51CDA0,stroke-width:2px
 ```
 
-### Replay Engine
+**ContentKind**: `Starter`, `HeatmapChart`, `CandlestickChart`, `TimeAndSales`, `Ladder`, `ComparisonChart`.
 
-```rust
-// Initialize replay engine (note: depth_repo is optional)
-let mut engine = ReplayEngine::new(
-    ReplayEngineConfig::default(),
-    trade_repo,
-    Some(depth_repo)  // Option<Arc<dyn DepthRepository>>
-);
+**LinkGroup** (1-9) synchronizes ticker/date changes across panes. **Dashboard** = root pane + popout windows. **LayoutManager** manages multiple named layouts.
 
-// Load historical data
-engine.load_data(ticker_info, date_range).await?;
+</details>
 
-// Control playback
-engine.play().await?;
-engine.set_speed(SpeedPreset::Double).await?;
-engine.pause().await?;
-engine.seek(timestamp).await?;
-engine.jump(60_000).await?;  // Jump 1 minute forward
+<details>
+<summary><strong>Pane Settings</strong></summary>
 
-// Process events (full event set)
-while let Some(event) = engine.event_rx.recv().await {
-    match event {
-        ReplayEvent::DataLoaded { ticker, trade_count, depth_count, time_range } => {
-            println!("Loaded {} trades", trade_count);
-        }
-        ReplayEvent::LoadingProgress { progress, message } => {
-            println!("Loading: {}% - {}", progress * 100.0, message);
-        }
-        ReplayEvent::MarketData { timestamp, trades, depth } => {
-            // Process market data at current position
-        }
-        ReplayEvent::PositionUpdate { timestamp, progress } => {
-            // Update progress bar
-        }
-        ReplayEvent::StatusChanged(status) => {
-            // Handle status change
-        }
-        ReplayEvent::PlaybackComplete => {
-            println!("Replay finished");
-            break;
-        }
-        ReplayEvent::Error(msg) => {
-            eprintln!("Error: {}", msg);
-        }
-        _ => {}
-    }
-}
-```
+Each `Settings` holds a `VisualConfig` enum wrapping type-specific configs:
 
-## Performance Characteristics
+| Config | Key Fields |
+|--------|-----------|
+| `KlineConfig` | `show_volume`, `candle_style` (bull/bear colors), `footprint` |
+| `HeatmapConfig` | `trade_size_filter`, `order_size_filter`, `rendering_mode` (Sparse/Dense/Auto), `max_trade_markers` |
+| `TimeAndSalesConfig` | `max_rows`, `show_delta`, `stacked_bar`, `trade_retention_secs` |
+| `LadderConfig` | `levels`, `show_spread`, `show_chase_tracker`, `trade_retention_secs` |
+| `ComparisonConfig` | `normalize`, per-ticker `colors` and `names` |
 
-### Memory Management
+Plus `drawings: Vec<SerializableDrawing>` and `studies: Vec<StudyInstanceConfig>` per pane.
 
-- **Streaming aggregation**: Process trades without loading entire dataset
-- **Per-day caching**: Optimize memory usage with daily partitions
-- **Fixed-point arithmetic**: Eliminate floating-point errors
+</details>
 
-### Benchmarks
+<details>
+<summary><strong>Replay State</strong></summary>
 
-| Operation | Time | Memory |
-|-----------|------|--------|
-| Load 1M trades | 250ms | 80MB |
-| Aggregate to 1m candles | 15ms | 2MB |
-| State persistence | 5ms | 1MB |
+**PlaybackStatus**: `Stopped`, `Playing`, `Paused`.
+
+**SpeedPreset**: `Quarter` (0.25x), `Half`, `Normal`, `Double`, `Five`, `Ten`, `TwentyFive`, `Fifty`, `Hundred`, `Custom(f32)`.
+
+**ReplayData** — `BTreeMap`-indexed for efficient windowed access: `trades_in_window`, `trades_after`, `depth_at`, `next_trades`. Includes candle caching.
+
+</details>
+
+## Data Feed Management
+
+<details>
+<summary><strong>DataFeedManager</strong></summary>
+
+Priority-based multi-feed manager with capability routing. Lower priority number = higher preference.
+
+| Provider | Default Priority | Capabilities |
+|----------|-----------------|-------------|
+| Databento | 10 | HistoricalTrades, HistoricalDepth, HistoricalOHLCV |
+| Rithmic | 5 | HistoricalTrades, HistoricalDepth, RealtimeTrades, RealtimeDepth, RealtimeQuotes |
+
+Key methods: `feeds_with_capability`, `primary_feed_for`, `has_connected_provider`, `feeds_by_priority`.
+
+**FeedStatus**: `Disconnected`, `Connecting`, `Connected`, `Error(String)`, `Downloading { current_day, total_days }`.
+
+</details>
+
+## Secrets Management
+
+<details>
+<summary><strong>SecretsManager</strong></summary>
+
+Lookup hierarchy: OS keyring > file (base64) > env var > `NotConfigured`.
+
+| Provider | Env Var | Keyring Service |
+|----------|---------|----------------|
+| Databento | `DATABENTO_API_KEY` | `kairos` |
+| Massive | `MASSIVE_API_KEY` | `kairos` |
+| Rithmic | `RITHMIC_PASSWORD` | `kairos` |
+
+Validation on store: non-empty, >= 10 chars. File backup at `{data_dir}/secrets/{provider}.key` (base64, obfuscation only).
+
+</details>
+
+## Error Handling
+
+All error types implement the `AppError` trait: `user_message()`, `is_retriable()`, `severity()`.
+
+<details>
+<summary><strong>Error Hierarchy</strong></summary>
+
+| Type | Variants | Used By |
+|------|----------|---------|
+| `DataError` | Service, Repository, State | Top-level crate error |
+| `ServiceError` | Repository, Aggregation, InvalidConfig, NoData | MarketDataService |
+| `RepositoryError` | NotFound, AccessDenied, RateLimit, Cache, Remote, Serialization, Io, InvalidData | Repository traits |
+| `AggregationError` | NoTrades, InvalidTimeframe, InvalidTickCount, UnsortedTrades | Aggregation functions |
+| `PersistenceError` | Io, Serialization, InvalidPath, Migration | State persistence |
+| `CacheManagerError` | Repository, InvalidOperation | CacheManagerService |
+| `SecretsError` | KeyringAccess, StoreFailed, DeleteFailed, InvalidKey | SecretsManager |
+
+Retriable: `RepositoryError::RateLimit`, `Remote`, `Io`.
+
+</details>
+
+## Panel Domain Logic
+
+<details>
+<summary><strong>Depth Grouping, Chase Tracker, Trade Aggregator</strong></summary>
+
+**Depth Grouping** — side-biased rounding for orderbook levels. Bids floor, asks ceil to prevent price level overlap.
+
+**Chase Tracker** — state machine tracking consecutive best bid/ask movements (`Idle` > `Chasing` > `Fading` > `Idle`). Returns `(start_price, end_price, alpha)` where alpha is opacity based on consecutive count.
+
+**Trade Aggregator** — accumulates trade metrics (count, volume, average size) with sliding window support via `add_trade` / `remove_trade`.
+
+</details>
+
+## Drawing Types
+
+<details>
+<summary><strong>Chart Annotations</strong></summary>
+
+14 drawing tools organized by required anchor points:
+
+| Points | Tools |
+|--------|-------|
+| 0 | None (selection/pan mode) |
+| 1 | HorizontalLine, VerticalLine, TextLabel, PriceLabel |
+| 2 | Line, Ray, ExtendedLine, FibRetracement, Rectangle, Ellipse, Arrow, PriceRange, DateRange |
+| 3 | FibExtension, ParallelChannel |
+
+Each `SerializableDrawing` has: `id` (UUID), `tool`, `points`, `style` (stroke, fill, line style, labels), `visible`, `locked`. Fibonacci levels default to 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%.
+
+</details>
 
 ## Configuration
 
-### Environment Variables
+<details>
+<summary><strong>Theme, Timezone, Sidebar</strong></summary>
 
-```bash
-# Data directory (optional)
-export FLOWSURFACE_DATA_PATH=/custom/path
+**Theme** — default "Kairos" (`#181616` bg, `#C5C9C5` text, `#51CDA0` success, `#C0504D` danger). Includes HSV/hex color utilities: `hex_to_color`, `color_to_hex`, `darken`, `lighten`, `to_hsva`, `from_hsva`.
 
-# Log level
-export RUST_LOG=flowsurface_data=debug
-```
+**UserTimezone** — `Utc` (default) or `Local`. Adaptive formatting for timestamps, crosshairs, and replay display.
 
-### Replay Engine Configuration
+**Sidebar** — `Position` (Left/Right), `Menu` (Layout, Connections, DataFeeds, Settings, ThemeEditor, Replay), `DateRangePreset` (1d, 2d, 1w, 2w, 1mo).
 
-```rust
-pub struct ReplayEngineConfig {
-    pub buffer_window_ms: u64,      // Default: 60000
-    pub emit_interval_ms: u64,      // Default: 100
-    pub max_trades_per_emit: usize, // Default: 1000
-    pub load_depth: bool,           // Default: true
-    pub pre_aggregate: bool,        // Default: true
-    pub event_buffer_size: usize,   // Default: 1000
-    pub max_memory_mb: usize,       // Default: 500
-}
-```
+**ScaleFactor** — `f32` clamped to [0.8, 1.5].
+
+</details>
+
+## Utilities
+
+<details>
+<summary><strong>Formatting, Math, Time</strong></summary>
+
+**Formatting** — `abbr_large_numbers` ("1.50m"), `currency_abbr` ("$1.5m"), `format_with_commas`, `pct_change` ("+2.50%").
+
+**Math** — `round_to_tick`, `round_to_next_tick` (floor/ceil), `guesstimate_ticks`, `calc_panel_splits`.
+
+**Time** — constants (`DAY_MS`, `HOUR_MS`, etc.), `format_duration_ms` ("1d 1h"), date reset utilities, `ok_or_default` serde helper.
+
+**Logging** — `kairos_data::util::logging::path()` resolves log file path.
+
+**Top-level** — `data_path(subdir)`, `open_data_folder()`, `lock_or_recover(&mutex)`.
+
+</details>
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `KAIROS_DATA_PATH` | Override data directory (default: platform data dir) |
+| `DATABENTO_API_KEY` | Databento API key (env fallback) |
+| `MASSIVE_API_KEY` | Polygon/Massive API key (env fallback) |
+| `RITHMIC_PASSWORD` | Rithmic password (env fallback) |
+| `RUST_LOG` | Logging level (e.g. `kairos_data=debug`) |
+
+## Dependencies
+
+<details>
+<summary><strong>Dependency List</strong></summary>
+
+| Crate | Purpose |
+|-------|---------|
+| `serde`, `serde_json` | Serialization |
+| `chrono` | Date/time |
+| `iced_core` | Color types (Iced UI framework) |
+| `palette` | Color space conversions |
+| `enum-map`, `rustc-hash` | Efficient collections |
+| `uuid` | Feed/drawing identifiers |
+| `thiserror` | Error derive macros |
+| `async-trait` | Async trait definitions |
+| `tokio` | Async runtime (sync, macros, rt-multi-thread, time) |
+| `keyring` | OS credential store access |
+| `base64` | Secret file encoding |
+| `log` | Logging facade |
+| `dirs-next` | Platform data directory resolution |
+| `open` | Open file browser |
+
+</details>
 
 ## Testing
 
 ```bash
-# Unit tests
-cargo test --package flowsurface-data
-
-# Integration tests
-cargo test --package flowsurface-data --test '*'
-
-# Benchmarks
-cargo bench --package flowsurface-data
-```
-
-## API Reference
-
-Complete API documentation available at:
-```bash
-cargo doc --package flowsurface-data --open
-```
-
-## Options Data & GEX Analysis
-
-The data layer now supports options data alongside futures data, enabling gamma exposure (GEX) analysis.
-
-### Options Domain Models
-
-```rust
-use flowsurface_data::domain::{OptionContract, OptionSnapshot, OptionChain, Greek};
-
-// Option contract
-let contract = OptionContract::new(
-    "O:AAPL240119C00150000".to_string(),
-    "AAPL".to_string(),
-    Price::from_f64(150.0),
-    NaiveDate::from_ymd_opt(2024, 1, 19).unwrap(),
-    OptionType::Call,
-    ExerciseStyle::American,
-);
-
-// Check expiration
-println!("Days to expiry: {}", contract.days_to_expiry(today));
-println!("Is expired: {}", contract.is_expired(today));
-
-// Option snapshot with Greeks
-let mut snapshot = OptionSnapshot::new(contract, Timestamp(now));
-snapshot.greeks = Greek::new(0.5, 0.05, -0.02, 0.15);
-snapshot.implied_volatility = Some(0.25);
-snapshot.open_interest = Some(1000);
-
-// Calculate values
-println!("Mid price: {:?}", snapshot.mid_price());
-println!("Intrinsic value: {:?}", snapshot.intrinsic_value());
-println!("Is ITM: {:?}", snapshot.is_itm());
-```
-
-### GEX Profile Calculation
-
-```rust
-use flowsurface_data::domain::{GexProfile, OptionChain};
-use flowsurface_data::services::GexCalculationService;
-
-// Get option chain (from repository)
-let chain: OptionChain = chain_repo.get_chain("SPY", date).await?;
-
-// Calculate GEX profile
-let gex_profile = GexProfile::from_option_chain(&chain);
-
-// Or use the service
-let gex_service = GexCalculationService::new();
-let profile = gex_service.calculate_profile(&chain);
-
-// Analyze gamma exposure
-println!("Total net gamma: {}", profile.total_net_gamma);
-println!("Key levels: {}", profile.key_levels.len());
-
-if let Some(zero_gamma) = profile.zero_gamma_level {
-    println!("Zero gamma level: ${:.2}", zero_gamma.to_f64());
-}
-
-// Find strongest levels
-if let Some(resistance) = profile.strongest_resistance() {
-    println!("Strongest resistance: ${:.2}", resistance.strike_price.to_f64());
-}
-
-if let Some(support) = profile.strongest_support() {
-    println!("Strongest support: ${:.2}", support.strike_price.to_f64());
-}
-```
-
-### Options Data Service
-
-```rust
-use flowsurface_data::services::OptionsDataService;
-use flowsurface_exchange::{MassiveSnapshotRepository, MassiveChainRepository, MassiveContractRepository};
-
-// Initialize repositories
-let snapshot_repo = Arc::new(MassiveSnapshotRepository::new(config.clone()).await?);
-let chain_repo = Arc::new(MassiveChainRepository::new(config.clone()).await?);
-let contract_repo = Arc::new(MassiveContractRepository::new(config).await?);
-
-// Create service
-let options_service = OptionsDataService::new(snapshot_repo, chain_repo, contract_repo);
-
-// Fetch chain with Greeks
-let chain = options_service.get_chain_with_greeks("AAPL", date).await?;
-println!("Loaded {} contracts", chain.contract_count());
-
-// Get GEX profile
-let gex_profile = options_service.get_gex_profile("AAPL", date).await?;
-println!("Calculated {} exposure levels", gex_profile.exposure_count());
-
-// Get historical IV
-let date_range = DateRange::last_n_days(7);
-let iv_history = options_service.get_historical_iv("AAPL", &date_range).await?;
-println!("Loaded {} IV snapshots", iv_history.len());
-
-// Search contracts
-let active_contracts = options_service.get_active_contracts("AAPL", today).await?;
-println!("Found {} active contracts", active_contracts.len());
-```
-
-### GEX Analysis
-
-```rust
-use flowsurface_data::services::GexCalculationService;
-
-let gex_service = GexCalculationService::new();
-
-// Analyze market regime
-let regime = gex_service.determine_market_regime(&profile);
-println!("Market regime: {}", regime); // "Positive Gamma", "Negative Gamma", etc.
-
-// Calculate volatility expectation
-let vol_score = gex_service.calculate_volatility_expectation(&profile);
-println!("Volatility expectation: {:.1}/10", vol_score * 10.0);
-
-// Check squeeze potential
-let current_price = Price::from_f64(450.0);
-if gex_service.has_squeeze_potential(&profile, current_price) {
-    println!("⚠️ Gamma squeeze potential detected!");
-}
-
-// Analyze gamma skew
-let (sentiment, ratio) = gex_service.analyze_gamma_skew(&profile);
-println!("Sentiment: {}, Call/Put Ratio: {:.2}", sentiment, ratio);
-
-// Find key levels near current price
-if let Some(nearest_resistance) = gex_service.nearest_resistance_above(&profile, current_price) {
-    println!("Next resistance: ${:.2}", nearest_resistance.to_f64());
-}
-
-if let Some(nearest_support) = gex_service.nearest_support_below(&profile, current_price) {
-    println!("Next support: ${:.2}", nearest_support.to_f64());
-}
+cargo test --package kairos-data            # All tests
+cargo test --package kairos-data -- domain  # Domain tests only
+cargo clippy --package kairos-data          # Lint
+cargo fmt --check                           # Format check
 ```
 
 ## License

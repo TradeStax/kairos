@@ -377,10 +377,12 @@ impl ReplayEngine {
 
                 // Emit detailed progress if enabled
                 if self.config.detailed_progress {
-                    let _ = self.event_tx.try_send(ReplayEvent::LoadingProgress {
+                    if let Err(e) = self.event_tx.try_send(ReplayEvent::LoadingProgress {
                         progress: 0.9,
                         message: format!("Aggregated {} candles", name),
-                    });
+                    }) {
+                        log::warn!("Dropped replay event: {}", e);
+                    }
                 }
             }
         }
@@ -582,11 +584,13 @@ impl ReplayEngine {
                     let depth = replay_data.depth_at(new_position);
 
                     if !trades.is_empty() || depth.is_some() {
-                        let _ = event_tx.try_send(ReplayEvent::MarketData {
+                        if let Err(e) = event_tx.try_send(ReplayEvent::MarketData {
                             timestamp: new_position,
                             trades,
                             depth: depth.cloned(),
-                        });
+                        }) {
+                            log::warn!("Dropped replay event: {}", e);
+                        }
                     }
                 }
 
@@ -596,10 +600,12 @@ impl ReplayEngine {
                     state.progress()
                 };
 
-                let _ = event_tx.try_send(ReplayEvent::PositionUpdate {
+                if let Err(e) = event_tx.try_send(ReplayEvent::PositionUpdate {
                     timestamp: new_position,
                     progress,
-                });
+                }) {
+                    log::warn!("Dropped replay event: {}", e);
+                }
 
                 // Check if reached end
                 if new_position >= time_range.end.to_millis() {
@@ -608,8 +614,14 @@ impl ReplayEngine {
                         state.status = PlaybackStatus::Stopped;
                     }
 
-                    let _ = event_tx.try_send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped));
-                    let _ = event_tx.try_send(ReplayEvent::PlaybackComplete);
+                    if let Err(e) = event_tx
+                        .try_send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped))
+                    {
+                        log::warn!("Dropped replay event: {}", e);
+                    }
+                    if let Err(e) = event_tx.try_send(ReplayEvent::PlaybackComplete) {
+                        log::warn!("Dropped replay event: {}", e);
+                    }
                     break;
                 }
             }
