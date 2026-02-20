@@ -1,8 +1,6 @@
-# Kairos
+<img src="./assets/illustrations/header.svg" alt="Header" style="max-width: 300px; width: 100%;" />
 
 A native desktop charting platform for futures markets built with Rust and [Iced](https://github.com/iced-rs/iced) (v0.14).
-
-![Kairos Header](./assets/illustrations/header.svg)
 
 ## Features
 
@@ -12,7 +10,7 @@ A native desktop charting platform for futures markets built with Rust and [Iced
 - **Real-time and historical data** — CME Globex via Databento (historical) and Rithmic (live)
 - **Multi-window layouts** — Popout panes, saved layouts, link groups for synchronized tickers
 - **Replay** — Replay historical sessions with jump, seek, and speed control
-- **JavaScript indicators** — Custom indicators via QuickJS (see [script/README.md](script/README.md))
+- **JavaScript indicators** — Custom indicators via QuickJS (see [crates/script/README.md](crates/script/README.md))
 
 ## Build & run
 
@@ -43,13 +41,13 @@ Rithmic credentials are configured via the app (Settings > Data feeds); the app 
 
 ## Project layout
 
-| Crate        | Role |
-|-------------|------|
-| `src/`      | GUI application (Iced), app state, chart rendering, modals |
-| `data/`     | Domain types, repository traits, services, state persistence |
-| `exchange/` | Adapters (Databento, Rithmic, Massive) and repository implementations |
-| `study/`    | Technical analysis studies (volume, trend, momentum, volatility, order flow) |
-| `script/`   | JavaScript indicator engine (QuickJS), loader, compiler |
+| Crate              | Role |
+|-------------------|------|
+| `app/`            | GUI application (Iced), app state, chart rendering, modals |
+| `crates/data/`    | Domain types, repository traits, services, state persistence |
+| `crates/exchange/`| Adapters (Databento, Rithmic, Massive) and repository implementations |
+| `crates/study/`   | Technical analysis studies (volume, trend, momentum, volatility, order flow) |
+| `crates/script/`  | JavaScript indicator engine (QuickJS), loader, compiler |
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and conventions.
 
