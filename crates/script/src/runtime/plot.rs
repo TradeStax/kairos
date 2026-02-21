@@ -10,6 +10,10 @@ use rquickjs::{Ctx, Function, Object};
 use std::cell::RefCell;
 use std::rc::Rc;
 use study::config::LineStyleValue;
+use study::output::{
+    FootprintCandlePosition, FootprintDataType, FootprintRenderMode,
+    FootprintScaling, ProfileSide,
+};
 
 /// A collected plot command from JS execution.
 #[derive(Debug, Clone)]
@@ -52,6 +56,47 @@ pub enum PlotCommand {
         color: SerializableColor,
         opacity: f32,
     },
+    Profile {
+        levels: Vec<ProfileLevelJS>,
+        poc_index: Option<usize>,
+        value_area: Option<(usize, usize)>,
+        side: ProfileSide,
+    },
+    Footprint {
+        candles: Vec<FootprintCandleJS>,
+        mode: FootprintRenderMode,
+        data_type: FootprintDataType,
+        scaling: FootprintScaling,
+        candle_position: FootprintCandlePosition,
+    },
+}
+
+/// A single level within a profile plot command.
+#[derive(Debug, Clone)]
+pub struct ProfileLevelJS {
+    pub price: f64,
+    pub buy_volume: f64,
+    pub sell_volume: f64,
+}
+
+/// Per-candle footprint data from JS.
+#[derive(Debug, Clone)]
+pub struct FootprintCandleJS {
+    pub x: f64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub levels: Vec<FootprintLevelJS>,
+    pub poc_index: Option<usize>,
+}
+
+/// Per-price-level data within a footprint candle from JS.
+#[derive(Debug, Clone)]
+pub struct FootprintLevelJS {
+    pub price: f64,
+    pub buy_volume: f64,
+    pub sell_volume: f64,
 }
 
 /// Shared state for collecting plot commands during execution.
@@ -372,6 +417,197 @@ pub fn install_plot(
         globals.set("fill", fill_fn)?;
     }
 
+    // plotProfile(profileData, { side })
+    {
+        let coll = collector.clone();
+        let plot_profile_fn = Function::new(
+            ctx.clone(),
+            move |profile: Object<'_>,
+                  opts: rquickjs::function::Opt<Object<'_>>| {
+                let side = opts
+                    .0
+                    .as_ref()
+                    .and_then(|o| o.get::<_, String>("side").ok())
+                    .map(|s| parse_profile_side(&s))
+                    .unwrap_or(ProfileSide::Left);
+
+                let prices: Vec<f64> = profile
+                    .get::<_, Vec<f64>>("prices")
+                    .unwrap_or_default();
+                let buy_vols: Vec<f64> = profile
+                    .get::<_, Vec<f64>>("buyVolumes")
+                    .unwrap_or_default();
+                let sell_vols: Vec<f64> = profile
+                    .get::<_, Vec<f64>>("sellVolumes")
+                    .unwrap_or_default();
+                let poc_index: Option<usize> = profile
+                    .get::<_, i32>("pocIndex")
+                    .ok()
+                    .and_then(|v| {
+                        if v >= 0 { Some(v as usize) } else { None }
+                    });
+
+                let value_area = profile
+                    .get::<_, Object<'_>>("valueArea")
+                    .ok()
+                    .and_then(|va| {
+                        let vah: i32 = va.get("vahIndex").ok()?;
+                        let val: i32 = va.get("valIndex").ok()?;
+                        Some((vah as usize, val as usize))
+                    });
+
+                let levels: Vec<ProfileLevelJS> = prices
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, p)| ProfileLevelJS {
+                        price: p,
+                        buy_volume: buy_vols
+                            .get(i)
+                            .copied()
+                            .unwrap_or(0.0),
+                        sell_volume: sell_vols
+                            .get(i)
+                            .copied()
+                            .unwrap_or(0.0),
+                    })
+                    .collect();
+
+                coll.borrow_mut()
+                    .commands
+                    .push(PlotCommand::Profile {
+                        levels,
+                        poc_index,
+                        value_area,
+                        side,
+                    });
+            },
+        )?;
+        globals.set("plotProfile", plot_profile_fn)?;
+    }
+
+    // plotFootprint(footprintData, { mode, dataType, scaling,
+    //   candlePosition })
+    {
+        let coll = collector.clone();
+        let plot_fp_fn = Function::new(
+            ctx.clone(),
+            move |fp_data: Object<'_>,
+                  opts: rquickjs::function::Opt<Object<'_>>| {
+                let mode = opts
+                    .0
+                    .as_ref()
+                    .and_then(|o| o.get::<_, String>("mode").ok())
+                    .map(|s| parse_fp_render_mode(&s))
+                    .unwrap_or_default();
+                let data_type = opts
+                    .0
+                    .as_ref()
+                    .and_then(|o| {
+                        o.get::<_, String>("dataType").ok()
+                    })
+                    .map(|s| parse_fp_data_type(&s))
+                    .unwrap_or_default();
+                let scaling = opts
+                    .0
+                    .as_ref()
+                    .and_then(|o| {
+                        o.get::<_, String>("scaling").ok()
+                    })
+                    .map(|s| parse_fp_scaling(&s))
+                    .unwrap_or_default();
+                let candle_position = opts
+                    .0
+                    .as_ref()
+                    .and_then(|o| {
+                        o.get::<_, String>("candlePosition").ok()
+                    })
+                    .map(|s| parse_fp_candle_pos(&s))
+                    .unwrap_or_default();
+
+                let mut candles = Vec::new();
+                if let Ok(candles_arr) =
+                    fp_data.get::<_, rquickjs::Array<'_>>("candles")
+                {
+                    for i in 0..candles_arr.len() {
+                        let Ok(cobj) =
+                            candles_arr.get::<Object<'_>>(i)
+                        else {
+                            continue;
+                        };
+
+                        let x: f64 =
+                            cobj.get("x").unwrap_or(0.0);
+                        let open: f64 =
+                            cobj.get("open").unwrap_or(0.0);
+                        let high: f64 =
+                            cobj.get("high").unwrap_or(0.0);
+                        let low: f64 =
+                            cobj.get("low").unwrap_or(0.0);
+                        let close: f64 =
+                            cobj.get("close").unwrap_or(0.0);
+                        let poc_idx: Option<usize> = cobj
+                            .get::<_, i32>("pocIndex")
+                            .ok()
+                            .and_then(|v| {
+                                if v >= 0 {
+                                    Some(v as usize)
+                                } else {
+                                    None
+                                }
+                            });
+
+                        let mut levels = Vec::new();
+                        if let Ok(levels_arr) = cobj
+                            .get::<_, rquickjs::Array<'_>>(
+                                "levels",
+                            )
+                        {
+                            for j in 0..levels_arr.len() {
+                                let Ok(lobj) = levels_arr
+                                    .get::<Object<'_>>(j)
+                                else {
+                                    continue;
+                                };
+                                levels.push(FootprintLevelJS {
+                                    price: lobj
+                                        .get("price")
+                                        .unwrap_or(0.0),
+                                    buy_volume: lobj
+                                        .get("buy")
+                                        .unwrap_or(0.0),
+                                    sell_volume: lobj
+                                        .get("sell")
+                                        .unwrap_or(0.0),
+                                });
+                            }
+                        }
+
+                        candles.push(FootprintCandleJS {
+                            x,
+                            open,
+                            high,
+                            low,
+                            close,
+                            levels,
+                            poc_index: poc_idx,
+                        });
+                    }
+                }
+
+                coll.borrow_mut()
+                    .commands
+                    .push(PlotCommand::Footprint {
+                        candles,
+                        mode,
+                        data_type,
+                        scaling,
+                        candle_position,
+                    });
+            },
+        )?;
+        globals.set("plotFootprint", plot_fp_fn)?;
+    }
+
     Ok(collector)
 }
 
@@ -411,6 +647,20 @@ pub fn install_plot_stubs(ctx: &Ctx<'_>) -> Result<(), ScriptError> {
         "fill",
         Function::new(ctx.clone(), |_a: i32, _b: i32| {}),
     )?;
+    globals.set(
+        "plotProfile",
+        Function::new(
+            ctx.clone(),
+            |_data: rquickjs::Value<'_>| {},
+        ),
+    )?;
+    globals.set(
+        "plotFootprint",
+        Function::new(
+            ctx.clone(),
+            |_data: rquickjs::Value<'_>| {},
+        ),
+    )?;
 
     Ok(())
 }
@@ -420,5 +670,54 @@ fn parse_line_style(s: &str) -> LineStyleValue {
         "dashed" => LineStyleValue::Dashed,
         "dotted" => LineStyleValue::Dotted,
         _ => LineStyleValue::Solid,
+    }
+}
+
+fn parse_profile_side(s: &str) -> ProfileSide {
+    match s.to_lowercase().as_str() {
+        "right" => ProfileSide::Right,
+        "both" => ProfileSide::Both,
+        _ => ProfileSide::Left,
+    }
+}
+
+fn parse_fp_render_mode(s: &str) -> FootprintRenderMode {
+    match s.to_lowercase().as_str() {
+        "box" => FootprintRenderMode::Box,
+        _ => FootprintRenderMode::Profile,
+    }
+}
+
+fn parse_fp_data_type(s: &str) -> FootprintDataType {
+    match s.to_lowercase().as_str() {
+        "bidask" | "bid_ask_split" | "bidasksplit" => {
+            FootprintDataType::BidAskSplit
+        }
+        "delta" => FootprintDataType::Delta,
+        "deltaandvolume" | "delta_and_volume" => {
+            FootprintDataType::DeltaAndVolume
+        }
+        _ => FootprintDataType::Volume,
+    }
+}
+
+fn parse_fp_scaling(s: &str) -> FootprintScaling {
+    match s.to_lowercase().as_str() {
+        "linear" => FootprintScaling::Linear,
+        "log" => FootprintScaling::Log,
+        "visiblerange" | "visible_range" => {
+            FootprintScaling::VisibleRange
+        }
+        "datapoint" => FootprintScaling::Datapoint,
+        _ => FootprintScaling::Sqrt,
+    }
+}
+
+fn parse_fp_candle_pos(s: &str) -> FootprintCandlePosition {
+    match s.to_lowercase().as_str() {
+        "none" => FootprintCandlePosition::None,
+        "center" => FootprintCandlePosition::Center,
+        "right" => FootprintCandlePosition::Right,
+        _ => FootprintCandlePosition::Left,
     }
 }

@@ -76,10 +76,15 @@ where
             s = s.step(step);
         }
 
+        let slider_group = row![s, text(value_str).size(tokens::text::SMALL)]
+            .spacing(tokens::spacing::SM)
+            .align_y(iced::Alignment::Center)
+            .width(Length::FillPortion(3));
+
         let content = row![
             text(self.label).size(tokens::text::LABEL),
-            s,
-            text(value_str).size(tokens::text::SMALL),
+            space::horizontal(),
+            slider_group,
         ]
         .spacing(tokens::spacing::MD)
         .align_y(iced::Alignment::Center);

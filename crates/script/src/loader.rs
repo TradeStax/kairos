@@ -35,7 +35,7 @@ impl ScriptLoader {
 
     /// Default user scripts directory.
     pub fn default_user_dir() -> PathBuf {
-        crate::path::data_path(Some("indicators"))
+        crate::path::data_path(Some("studies"))
     }
 
     /// Find the bundled scripts directory relative to the executable.
@@ -43,14 +43,14 @@ impl ScriptLoader {
         // Try relative to executable
         if let Ok(exe) = std::env::current_exe() {
             let exe_dir = exe.parent()?;
-            let bundled = exe_dir.join("assets").join("indicators");
+            let bundled = exe_dir.join("assets").join("studies");
             if bundled.is_dir() {
                 return Some(bundled);
             }
         }
 
         // Try relative to current directory (dev mode)
-        let cwd_bundled = PathBuf::from("assets/scripts");
+        let cwd_bundled = PathBuf::from("assets/studies");
         if cwd_bundled.is_dir() {
             return Some(cwd_bundled);
         }

@@ -95,7 +95,10 @@ impl IndicatorManagerModal {
             container(right_panel)
                 .width(Length::FillPortion(6))
                 .height(Length::Fill)
-                .padding(iced::padding::left(tokens::spacing::LG)),
+                .padding(
+                    iced::padding::left(tokens::spacing::LG)
+                        .right(tokens::spacing::LG),
+                ),
         ]
         .spacing(tokens::spacing::MD)
         .height(Length::Fill)

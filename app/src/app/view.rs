@@ -24,12 +24,13 @@ impl Kairos {
         let window_title = self.title(id);
 
         let tickers_info = &self.tickers_info;
+        let ticker_ranges = &self.ticker_ranges;
 
         let content = if id == self.main_window.id {
             let sidebar_view = self.sidebar.view().map(Message::Sidebar);
 
             let dashboard_view = dashboard
-                .view(&self.main_window, tickers_info, self.timezone)
+                .view(&self.main_window, tickers_info, self.timezone, ticker_ranges)
                 .map(move |msg| Message::Dashboard {
                     layout_id: None,
                     event: msg,
@@ -114,6 +115,49 @@ impl Kairos {
                     base.into()
                 };
 
+            // Layer settings flyout if expanded
+            let base: Element<'_, Message> =
+                if let Some(flyout_content) = self.sidebar.view_settings_flyout() {
+                    use iced::widget::{mouse_area, opaque, stack};
+
+                    let flyout_content = flyout_content.map(Message::Sidebar);
+                    let sidebar_w = tokens::layout::SIDEBAR_WIDTH + tokens::spacing::MD;
+
+                    let positioned = match sidebar_pos {
+                        sidebar::Position::Left => container(opaque(flyout_content))
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .align_y(Alignment::End)
+                            .padding(padding::Padding {
+                                top: 0.0,
+                                right: 0.0,
+                                bottom: tokens::spacing::MD,
+                                left: sidebar_w,
+                            }),
+                        sidebar::Position::Right => container(opaque(flyout_content))
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .align_y(Alignment::End)
+                            .align_x(Alignment::End)
+                            .padding(padding::Padding {
+                                top: 0.0,
+                                right: sidebar_w,
+                                bottom: tokens::spacing::MD,
+                                left: 0.0,
+                            }),
+                    };
+
+                    let on_close = Message::Sidebar(
+                        dashboard::sidebar::Message::Settings(
+                            crate::modals::settings::Message::ToggleFlyout(false),
+                        ),
+                    );
+
+                    stack![base, mouse_area(positioned).on_press(on_close)].into()
+                } else {
+                    base
+                };
+
             // Menu bar dropdown overlay
             let base: Element<'_, Message> = {
                 use iced::widget::{mouse_area, opaque, stack};
@@ -132,11 +176,18 @@ impl Kairos {
                     })
                     .collect();
 
-                if let Some((dropdown, submenu)) = self.menu_bar.view_dropdown(&layouts) {
+                if let Some((dropdown, submenu)) =
+                    self.menu_bar.view_dropdown(&layouts)
+                {
                     let y = tokens::layout::TITLE_BAR_HEIGHT + tokens::layout::MENU_BAR_HEIGHT;
+                    // Each menu button is roughly 46px wide (text + padding)
+                    let btn_w = 46.0;
                     let x = match self.menu_bar.open_menu {
                         Some(menu_bar::Menu::File) => tokens::spacing::SM,
-                        Some(menu_bar::Menu::Layout) => tokens::spacing::SM + 46.0,
+                        Some(menu_bar::Menu::Edit) => tokens::spacing::SM + btn_w,
+                        Some(menu_bar::Menu::Layout) => {
+                            tokens::spacing::SM + btn_w * 2.0
+                        }
                         None => 0.0,
                     };
 
@@ -187,6 +238,26 @@ impl Kairos {
                 base
             };
 
+            // Confirm dialog overlay (e.g. layout overwrite)
+            let base: Element<'_, Message> = if let Some(dialog) = &self.confirm_dialog
+                && self.sidebar.active_menu().is_none()
+            {
+                use crate::components::overlay::confirm_dialog::ConfirmDialogBuilder;
+
+                let on_cancel = Message::ToggleDialogModal(None);
+                let mut builder = ConfirmDialogBuilder::new(
+                    dialog.message.clone(),
+                    *dialog.on_confirm.clone(),
+                    on_cancel,
+                );
+                if let Some(btn_text) = &dialog.on_confirm_btn_text {
+                    builder = builder.confirm_text(btn_text.clone());
+                }
+                builder.view(base)
+            } else {
+                base
+            };
+
             if let Some(menu) = self.sidebar.active_menu() {
                 self.view_with_modal(base, dashboard, menu)
             } else {
@@ -195,7 +266,13 @@ impl Kairos {
         } else {
             let popout_content = container(
                 dashboard
-                    .view_window(id, &self.main_window, tickers_info, self.timezone)
+                    .view_window(
+                        id,
+                        &self.main_window,
+                        tickers_info,
+                        self.timezone,
+                        ticker_ranges,
+                    )
                     .map(move |msg| Message::Dashboard {
                         layout_id: None,
                         event: msg,

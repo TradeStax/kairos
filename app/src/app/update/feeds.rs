@@ -93,52 +93,51 @@ impl Kairos {
             return Task::none();
         }
 
+        // Immediately seed DataIndex from feed's dataset info (if available)
+        // so tickers and ranges are available before the async scan completes.
+        if let Some(feed) = feed_manager.get(feed_id) {
+            if let Some(info) = feed.dataset_info() {
+                let mut dates = std::collections::BTreeSet::new();
+                for d in info.date_range.dates() {
+                    dates.insert(d);
+                }
+                let mut idx = data::lock_or_recover(&self.data_index);
+                idx.add_contribution(
+                    data::DataKey {
+                        ticker: info.ticker.clone(),
+                        schema: "trades".to_string(),
+                    },
+                    feed_id,
+                    dates,
+                    false,
+                );
+                drop(idx);
+
+                // Rebuild tickers_info and ticker_ranges immediately
+                let tickers: std::collections::HashSet<String> =
+                    data::lock_or_recover(&self.data_index)
+                        .available_tickers()
+                        .into_iter()
+                        .collect();
+                self.tickers_info = super::super::build_tickers_info(tickers);
+                self.ticker_ranges =
+                    Self::build_ticker_ranges(&self.data_index);
+            }
+        }
+
         feed_manager.set_status(feed_id, data::FeedStatus::Connected);
         self.connections_menu.sync_snapshot(&feed_manager);
         self.data_feeds_modal.sync_snapshot(&feed_manager);
         drop(feed_manager);
 
-        // Re-populate tickers table from downloaded tickers registry
-        let ticker_symbols: std::collections::HashSet<String> = self
-            .downloaded_tickers
-            .lock()
-            .unwrap()
-            .list_tickers()
-            .into_iter()
-            .collect();
-        self.tickers_info = super::super::build_tickers_info(ticker_symbols);
-        log::info!("Databento feed connected - restored ticker list");
+        log::info!("Databento feed connected - triggering cache scan");
 
-        // Re-affiliate disconnected panes and reload any in error state
-        let main_window = self.main_window.id;
-        let Some(lid) = self.layout_manager.active_layout_id().map(|id| id.unique) else {
-            return Task::none();
-        };
-
-        let reload_tasks: Vec<_> = self
-            .layout_manager
-            .layouts
-            .iter_mut()
-            .flat_map(|layout| {
-                layout
-                    .dashboard
-                    .affiliate_and_collect_reloads(feed_id, main_window)
-            })
-            .map(|(pane_id, config, ticker_info)| {
-                Task::done(Message::Chart(ChartMessage::LoadChartData {
-                    layout_id: lid,
-                    pane_id,
-                    config,
-                    ticker_info,
-                }))
-            })
-            .collect();
-
-        if !reload_tasks.is_empty() {
-            log::info!("Reloading {} pane(s) after reconnect", reload_tasks.len());
-            return Task::batch(reload_tasks);
-        }
-        Task::none()
+        // Scan the Databento cache to build the DataIndex
+        let cache_root = crate::infra::platform::data_path(Some("cache/databento"));
+        Task::perform(
+            async move { exchange::scan_databento_cache(&cache_root, feed_id).await },
+            Message::DataIndexRebuilt,
+        )
     }
 
     fn connect_rithmic_feed(
@@ -210,6 +209,16 @@ impl Kairos {
         feed_id: data::FeedId,
         mut feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
+        // Remove this feed's contributions from the shared DataIndex
+        data::lock_or_recover(&self.data_index).remove_feed(feed_id);
+        let tickers: std::collections::HashSet<String> =
+            data::lock_or_recover(&self.data_index)
+                .available_tickers()
+                .into_iter()
+                .collect();
+        self.tickers_info = super::super::build_tickers_info(tickers);
+        self.ticker_ranges = Self::build_ticker_ranges(&self.data_index);
+
         let client = self.rithmic_client.take();
         self.rithmic_trade_repo = None;
         self.rithmic_depth_repo = None;
@@ -248,6 +257,16 @@ impl Kairos {
         feed_id: data::FeedId,
         feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
+        // Remove this feed's contributions from the shared DataIndex
+        data::lock_or_recover(&self.data_index).remove_feed(feed_id);
+        let tickers: std::collections::HashSet<String> =
+            data::lock_or_recover(&self.data_index)
+                .available_tickers()
+                .into_iter()
+                .collect();
+        self.tickers_info = super::super::build_tickers_info(tickers);
+        self.ticker_ranges = Self::build_ticker_ranges(&self.data_index);
+
         // Check if another Databento feed is still connected
         let alt_feed_id =
             feed_manager.connected_feed_id_for_provider(data::FeedProvider::Databento);
@@ -461,6 +480,11 @@ impl Kairos {
 
         self.data_feeds_modal.sync_snapshot(&feed_manager);
         drop(feed_manager);
+
+        // Merge Rithmic contribution into the shared DataIndex
+        let rithmic_index =
+            exchange::build_rithmic_contribution(feed_id, &subscribed_tickers);
+        data::lock_or_recover(&self.data_index).merge(rithmic_index);
 
         self.notifications.push(Toast::new(Notification::Info(
             "Rithmic connected".to_string(),

@@ -12,7 +12,7 @@
 
 use crate::error::ScriptError;
 use rquickjs::{Ctx, Function, Object};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -69,6 +69,315 @@ fn compute_rma(source: &[f64], period: usize) -> Vec<f64> {
         prev = v;
     }
     out
+}
+
+/// Build a volume profile from bar data, distributing each bar's
+/// volume evenly across tick-size price levels from low to high.
+/// Returns sorted (price -> (buy_vol, sell_vol)) map.
+fn build_volume_profile(
+    high: &[f64],
+    low: &[f64],
+    buy_volume: &[f64],
+    sell_volume: &[f64],
+    tick_size: f64,
+) -> BTreeMap<i64, (f64, f64)> {
+    let mut levels: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
+    let len = high.len();
+    for i in 0..len {
+        let num_levels =
+            ((high[i] - low[i]) / tick_size).floor() as usize + 1;
+        if num_levels == 0 {
+            continue;
+        }
+        let buy_per = buy_volume[i] / num_levels as f64;
+        let sell_per = sell_volume[i] / num_levels as f64;
+        for l in 0..num_levels {
+            let price = low[i] + l as f64 * tick_size;
+            let key =
+                (price / tick_size).round() as i64;
+            let entry = levels.entry(key).or_insert((0.0, 0.0));
+            entry.0 += buy_per;
+            entry.1 += sell_per;
+        }
+    }
+    levels
+}
+
+/// Find POC index (max total volume) and value area indices
+/// that capture `pct` of total volume, expanding from POC.
+fn find_value_area(
+    volumes: &[(f64, f64)],
+    pct: f64,
+) -> Option<(usize, usize, usize)> {
+    if volumes.is_empty() {
+        return None;
+    }
+    let totals: Vec<f64> =
+        volumes.iter().map(|(b, s)| b + s).collect();
+    let total_vol: f64 = totals.iter().sum();
+    if total_vol <= 0.0 {
+        return None;
+    }
+    // Find POC
+    let poc_idx = totals
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
+        .unwrap();
+    // Expand from POC
+    let target = total_vol * pct;
+    let mut accumulated = totals[poc_idx];
+    let mut lo = poc_idx;
+    let mut hi = poc_idx;
+    while accumulated < target && (lo > 0 || hi < totals.len() - 1) {
+        let up_vol = if hi < totals.len() - 1 {
+            totals[hi + 1]
+        } else {
+            -1.0
+        };
+        let dn_vol = if lo > 0 { totals[lo - 1] } else { -1.0 };
+        if up_vol >= dn_vol {
+            hi += 1;
+            accumulated += totals[hi];
+        } else {
+            lo -= 1;
+            accumulated += totals[lo];
+        }
+    }
+    Some((poc_idx, lo, hi))
+}
+
+// ── JS-returning orderflow helpers ────────────────────────────────
+
+fn ta_build_profile<'js>(
+    ctx: Ctx<'js>,
+    high: Vec<f64>,
+    low: Vec<f64>,
+    buy_volume: Vec<f64>,
+    sell_volume: Vec<f64>,
+    tick_size: f64,
+) -> rquickjs::Result<Object<'js>> {
+    let len = high.len();
+    let result = Object::new(ctx.clone())?;
+    if len == 0
+        || low.len() != len
+        || buy_volume.len() != len
+        || sell_volume.len() != len
+        || tick_size <= 0.0
+    {
+        result.set("prices", Vec::<f64>::new())?;
+        result.set("buyVolumes", Vec::<f64>::new())?;
+        result.set("sellVolumes", Vec::<f64>::new())?;
+        result.set("pocIndex", -1i32)?;
+        result.set(
+            "valueArea",
+            rquickjs::Value::new_null(ctx.clone()),
+        )?;
+        return Ok(result);
+    }
+    let levels = build_volume_profile(
+        &high,
+        &low,
+        &buy_volume,
+        &sell_volume,
+        tick_size,
+    );
+    let mut prices = Vec::with_capacity(levels.len());
+    let mut buys = Vec::with_capacity(levels.len());
+    let mut sells = Vec::with_capacity(levels.len());
+    for (&key, &(b, s)) in &levels {
+        prices.push(key as f64 * tick_size);
+        buys.push(b);
+        sells.push(s);
+    }
+    let volumes: Vec<(f64, f64)> = buys
+        .iter()
+        .zip(sells.iter())
+        .map(|(&b, &s)| (b, s))
+        .collect();
+    let va = find_value_area(&volumes, 0.70);
+    result.set("prices", prices)?;
+    result.set("buyVolumes", buys)?;
+    result.set("sellVolumes", sells)?;
+    match va {
+        Some((poc, lo, hi)) => {
+            result.set("pocIndex", poc as i32)?;
+            let va_obj = Object::new(ctx.clone())?;
+            va_obj.set("vahIndex", hi as i32)?;
+            va_obj.set("valIndex", lo as i32)?;
+            result.set("valueArea", va_obj)?;
+        }
+        None => {
+            result.set("pocIndex", -1i32)?;
+            result.set(
+                "valueArea",
+                rquickjs::Value::new_null(ctx.clone()),
+            )?;
+        }
+    }
+    Ok(result)
+}
+
+fn ta_build_footprint<'js>(
+    ctx: Ctx<'js>,
+    ohlc_val: rquickjs::Value<'js>,
+    trades_val: rquickjs::Value<'js>,
+    tick_size: f64,
+) -> rquickjs::Result<Object<'js>> {
+    let result = Object::new(ctx.clone())?;
+    let ohlc = ohlc_val.into_object().ok_or_else(|| {
+        rquickjs::Error::new_from_js("value", "object")
+    })?;
+    let time_arr: Vec<f64> = ohlc.get("time")?;
+    let open_arr: Vec<f64> = ohlc.get("open")?;
+    let high_arr: Vec<f64> = ohlc.get("high")?;
+    let low_arr: Vec<f64> = ohlc.get("low")?;
+    let close_arr: Vec<f64> = ohlc.get("close")?;
+    let len = time_arr.len();
+    let trades_js = trades_val.into_array().ok_or_else(|| {
+        rquickjs::Error::new_from_js("value", "array")
+    })?;
+    struct RawTrade {
+        time: f64,
+        price: f64,
+        quantity: f64,
+        is_buy: bool,
+    }
+    let trade_count = trades_js.len();
+    let mut trades = Vec::with_capacity(trade_count);
+    for idx in 0..trade_count {
+        let val: rquickjs::Value = trades_js.get(idx)?;
+        if let Some(obj) = val.as_object() {
+            let t: f64 = obj.get("time")?;
+            let p: f64 = obj.get("price")?;
+            let q: f64 = obj.get("quantity")?;
+            let b: bool = obj.get("isBuy")?;
+            trades.push(RawTrade {
+                time: t,
+                price: p,
+                quantity: q,
+                is_buy: b,
+            });
+        }
+    }
+    trades.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let candles_js = rquickjs::Array::new(ctx.clone())?;
+    let mut t_idx = 0usize;
+    for i in 0..len {
+        let candle_obj = Object::new(ctx.clone())?;
+        candle_obj.set("x", time_arr[i])?;
+        candle_obj.set("open", open_arr[i])?;
+        candle_obj.set("high", high_arr[i])?;
+        candle_obj.set("low", low_arr[i])?;
+        candle_obj.set("close", close_arr[i])?;
+        let next_time = if i + 1 < len {
+            time_arr[i + 1]
+        } else {
+            f64::INFINITY
+        };
+        let mut candle_levels: BTreeMap<i64, (f64, f64)> =
+            BTreeMap::new();
+        while t_idx < trades.len()
+            && trades[t_idx].time < next_time
+        {
+            if trades[t_idx].time >= time_arr[i] {
+                let key = (trades[t_idx].price / tick_size)
+                    .round() as i64;
+                let entry = candle_levels
+                    .entry(key)
+                    .or_insert((0.0, 0.0));
+                if trades[t_idx].is_buy {
+                    entry.0 += trades[t_idx].quantity;
+                } else {
+                    entry.1 += trades[t_idx].quantity;
+                }
+            }
+            t_idx += 1;
+        }
+        let levels_js =
+            rquickjs::Array::new(ctx.clone())?;
+        let mut poc_idx: i32 = -1;
+        let mut poc_vol = 0.0f64;
+        for (lvl_idx, (&key, &(b, s))) in
+            candle_levels.iter().enumerate()
+        {
+            let lvl_obj = Object::new(ctx.clone())?;
+            lvl_obj
+                .set("price", key as f64 * tick_size)?;
+            lvl_obj.set("buy", b)?;
+            lvl_obj.set("sell", s)?;
+            levels_js.set(lvl_idx, lvl_obj)?;
+            if b + s > poc_vol {
+                poc_vol = b + s;
+                poc_idx = lvl_idx as i32;
+            }
+        }
+        candle_obj.set("levels", levels_js)?;
+        candle_obj.set("pocIndex", poc_idx)?;
+        candles_js.set(i, candle_obj)?;
+    }
+    result.set("candles", candles_js)?;
+    Ok(result)
+}
+
+fn ta_value_area<'js>(
+    ctx: Ctx<'js>,
+    high: Vec<f64>,
+    low: Vec<f64>,
+    volume: Vec<f64>,
+    tick_size: f64,
+    percentage: f64,
+) -> rquickjs::Result<Object<'js>> {
+    let result = Object::new(ctx.clone())?;
+    let len = high.len();
+    if len == 0
+        || low.len() != len
+        || volume.len() != len
+        || tick_size <= 0.0
+    {
+        result.set(
+            "vah",
+            rquickjs::Value::new_null(ctx.clone()),
+        )?;
+        result.set(
+            "val",
+            rquickjs::Value::new_null(ctx.clone()),
+        )?;
+        return Ok(result);
+    }
+    let half: Vec<f64> =
+        volume.iter().map(|v| v / 2.0).collect();
+    let levels = build_volume_profile(
+        &high, &low, &half, &half, tick_size,
+    );
+    let prices: Vec<f64> = levels
+        .keys()
+        .map(|&k| k as f64 * tick_size)
+        .collect();
+    let volumes: Vec<(f64, f64)> =
+        levels.values().copied().collect();
+    match find_value_area(&volumes, percentage) {
+        Some((_, lo, hi)) => {
+            result.set("vah", prices[hi])?;
+            result.set("val", prices[lo])?;
+        }
+        None => {
+            result.set(
+                "vah",
+                rquickjs::Value::new_null(ctx.clone()),
+            )?;
+            result.set(
+                "val",
+                rquickjs::Value::new_null(ctx.clone()),
+            )?;
+        }
+    }
+    Ok(result)
 }
 
 // ── Install TA object ──────────────────────────────────────────────
@@ -650,6 +959,184 @@ pub fn install_ta(ctx: &Ctx<'_>) -> Result<(), ScriptError> {
         ),
     )?;
 
+    // ── Orderflow ────────────────────────────────────────────
+
+    // cvdReset: CVD with periodic reset (daily/weekly)
+    ta.set(
+        "cvdReset",
+        Function::new(
+            ctx.clone(),
+            |buy_volume: Vec<f64>,
+             sell_volume: Vec<f64>,
+             time: Vec<f64>,
+             reset_period: String|
+             -> Vec<f64> {
+                let len = buy_volume.len();
+                if len == 0
+                    || sell_volume.len() != len
+                    || time.len() != len
+                {
+                    return vec![];
+                }
+                let divisor: f64 = match reset_period.as_str() {
+                    "weekly" => 604_800_000.0,
+                    _ => 86_400_000.0, // daily default
+                };
+                let mut out = Vec::with_capacity(len);
+                let mut cum = 0.0f64;
+                let mut prev_bucket =
+                    (time[0] / divisor).floor() as i64;
+                for i in 0..len {
+                    let bucket =
+                        (time[i] / divisor).floor() as i64;
+                    if bucket != prev_bucket {
+                        cum = 0.0;
+                        prev_bucket = bucket;
+                    }
+                    cum += buy_volume[i] - sell_volume[i];
+                    out.push(cum);
+                }
+                out
+            },
+        ),
+    )?;
+
+    // vwapBands: VWAP with standard deviation bands
+    ta.set(
+        "vwapBands",
+        Function::new(
+            ctx.clone(),
+            |high: Vec<f64>,
+             low: Vec<f64>,
+             close: Vec<f64>,
+             volume: Vec<f64>,
+             multiplier: f64|
+             -> HashMap<String, Vec<f64>> {
+                let len = close.len();
+                if len == 0
+                    || high.len() != len
+                    || low.len() != len
+                    || volume.len() != len
+                {
+                    let mut m = HashMap::new();
+                    m.insert("vwap".into(), vec![]);
+                    m.insert("upper".into(), vec![]);
+                    m.insert("lower".into(), vec![]);
+                    return m;
+                }
+                let mut vwap_out = Vec::with_capacity(len);
+                let mut upper_out = Vec::with_capacity(len);
+                let mut lower_out = Vec::with_capacity(len);
+                let mut cum_tp_vol = 0.0f64;
+                let mut cum_tp2_vol = 0.0f64;
+                let mut cum_vol = 0.0f64;
+                for i in 0..len {
+                    let tp =
+                        (high[i] + low[i] + close[i]) / 3.0;
+                    cum_tp_vol += tp * volume[i];
+                    cum_tp2_vol += tp * tp * volume[i];
+                    cum_vol += volume[i];
+                    if cum_vol > 0.0 {
+                        let vwap = cum_tp_vol / cum_vol;
+                        let variance =
+                            cum_tp2_vol / cum_vol - vwap * vwap;
+                        let stdev =
+                            variance.max(0.0).sqrt();
+                        vwap_out.push(vwap);
+                        upper_out
+                            .push(vwap + multiplier * stdev);
+                        lower_out
+                            .push(vwap - multiplier * stdev);
+                    } else {
+                        vwap_out.push(tp);
+                        upper_out.push(tp);
+                        lower_out.push(tp);
+                    }
+                }
+                let mut m = HashMap::new();
+                m.insert("vwap".into(), vwap_out);
+                m.insert("upper".into(), upper_out);
+                m.insert("lower".into(), lower_out);
+                m
+            },
+        ),
+    )?;
+
+    // buildProfile: volume profile across all bars
+    ta.set(
+        "buildProfile",
+        Function::new(ctx.clone(), ta_build_profile),
+    )?;
+
+    // buildFootprint: per-candle footprint from trade data
+    // Accepts: buildFootprint({time,open,high,low,close},
+    //          trades, tickSize)
+    ta.set(
+        "buildFootprint",
+        Function::new(ctx.clone(), ta_build_footprint),
+    )?;
+
+    // rollingPoc: rolling window POC price
+    ta.set(
+        "rollingPoc",
+        Function::new(
+            ctx.clone(),
+            |high: Vec<f64>,
+             low: Vec<f64>,
+             volume: Vec<f64>,
+             tick_size: f64,
+             lookback: usize|
+             -> Vec<f64> {
+                let len = high.len();
+                if len == 0
+                    || low.len() != len
+                    || volume.len() != len
+                    || tick_size <= 0.0
+                    || lookback == 0
+                {
+                    return vec![f64::NAN; len];
+                }
+                let mut out = vec![f64::NAN; len];
+                // Use equal buy/sell split (total
+                // volume only)
+                let half: Vec<f64> = volume
+                    .iter()
+                    .map(|v| v / 2.0)
+                    .collect();
+                for i in (lookback - 1)..len {
+                    let start = i + 1 - lookback;
+                    let levels = build_volume_profile(
+                        &high[start..=i],
+                        &low[start..=i],
+                        &half[start..=i],
+                        &half[start..=i],
+                        tick_size,
+                    );
+                    if let Some((&poc_key, _)) = levels
+                        .iter()
+                        .max_by(|(_, (a0, a1)), (_, (b0, b1))| {
+                            (a0 + a1)
+                                .partial_cmp(&(b0 + b1))
+                                .unwrap_or(
+                                    std::cmp::Ordering::Equal,
+                                )
+                        })
+                    {
+                        out[i] =
+                            poc_key as f64 * tick_size;
+                    }
+                }
+                out
+            },
+        ),
+    )?;
+
+    // valueArea: full-data value area (VAH/VAL)
+    ta.set(
+        "valueArea",
+        Function::new(ctx.clone(), ta_value_area),
+    )?;
+
     globals.set("ta", ta)?;
     Ok(())
 }
@@ -781,6 +1268,84 @@ pub fn install_ta_stubs(
     stub_arr!("lowest", _s: Vec<f64>, _p: usize);
     stub_arr!("change", _s: Vec<f64>, _l: usize);
     stub_arr!("roc", _s: Vec<f64>, _l: usize);
+
+    // Orderflow stubs
+    stub_arr!(
+        "cvdReset", _b: Vec<f64>, _s: Vec<f64>,
+        _t: Vec<f64>, _r: String
+    );
+
+    // vwapBands stub -> {vwap: [], upper: [], lower: []}
+    ta.set(
+        "vwapBands",
+        Function::new(
+            ctx.clone(),
+            |_h: Vec<f64>,
+             _l: Vec<f64>,
+             _c: Vec<f64>,
+             _v: Vec<f64>,
+             _m: f64|
+             -> HashMap<String, Vec<f64>> {
+                let mut m = HashMap::new();
+                m.insert("vwap".to_string(), vec![]);
+                m.insert("upper".to_string(), vec![]);
+                m.insert("lower".to_string(), vec![]);
+                m
+            },
+        ),
+    )?;
+
+    // buildProfile stub -> empty object
+    ta.set(
+        "buildProfile",
+        Function::new(
+            ctx.clone(),
+            |_h: Vec<f64>,
+             _l: Vec<f64>,
+             _b: Vec<f64>,
+             _s: Vec<f64>,
+             _t: f64|
+             -> HashMap<String, Vec<f64>> {
+                HashMap::new()
+            },
+        ),
+    )?;
+
+    // buildFootprint stub -> empty object
+    ta.set(
+        "buildFootprint",
+        Function::new(
+            ctx.clone(),
+            |_ohlc: rquickjs::Value<'_>,
+             _trades: rquickjs::Value<'_>,
+             _ts: f64|
+             -> HashMap<String, Vec<f64>> {
+                HashMap::new()
+            },
+        ),
+    )?;
+
+    // rollingPoc stub
+    stub_arr!(
+        "rollingPoc", _h: Vec<f64>, _l: Vec<f64>,
+        _v: Vec<f64>, _t: f64, _lb: usize
+    );
+
+    // valueArea stub -> empty object
+    ta.set(
+        "valueArea",
+        Function::new(
+            ctx.clone(),
+            |_h: Vec<f64>,
+             _l: Vec<f64>,
+             _v: Vec<f64>,
+             _t: f64,
+             _p: f64|
+             -> HashMap<String, Vec<f64>> {
+                HashMap::new()
+            },
+        ),
+    )?;
 
     globals.set("ta", ta)?;
     Ok(())

@@ -42,17 +42,17 @@ impl Dashboard {
         let mut to_reload = Vec::new();
 
         // First pass: collect info from panes that need reloading
-        let preset_days = self.date_range_preset.to_days();
         for (_, _, state) in self.iter_all_panes(main_window) {
             if state.feed_id.is_none() && state.ticker_info.is_some() {
                 let needs_reload = matches!(&state.loading_status, LoadingStatus::Error { .. });
                 if needs_reload && let Some(ticker_info) = state.ticker_info {
-                    let date_range = self
-                        .downloaded_tickers
-                        .lock()
-                        .unwrap()
-                        .get_range(&ticker_info.ticker)
-                        .unwrap_or_else(|| DateRange::last_n_days(preset_days));
+                    let chart_type = state.content.kind().to_chart_type();
+                    let date_range = data::lock_or_recover(&self.data_index)
+                        .resolve_chart_range(
+                            ticker_info.ticker.as_str(),
+                            chart_type,
+                        )
+                        .unwrap_or_else(|| DateRange::last_n_days(1));
 
                     let config = ChartConfig {
                         chart_type: state.content.kind().to_chart_type(),

@@ -6,6 +6,7 @@ pub mod drawing_tools;
 pub mod layout;
 pub mod pane;
 pub mod replay;
+pub mod settings;
 pub mod theme;
 
 use iced::widget::{center, container, mouse_area, opaque, stack};

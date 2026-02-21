@@ -111,6 +111,7 @@ pub enum Message {
     ThemeEditor(modals::theme::Message),
     Layouts(modals::layout::Message),
     ReinitializeService(data::config::secrets::ApiProvider),
+    DataIndexRebuilt(Result<data::DataIndex, String>),
     RithmicConnected {
         feed_id: FeedId,
         result: Result<(), String>,
@@ -124,4 +125,5 @@ pub enum Message {
     WindowMinimize(window::Id),
     WindowToggleMaximize(window::Id),
     WindowClose(window::Id),
+    SaveFocusedScript,
 }

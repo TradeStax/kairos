@@ -13,6 +13,7 @@ pub(super) fn placement_badge(
         study::StudyPlacement::Overlay => "Overlay",
         study::StudyPlacement::Panel => "Panel",
         study::StudyPlacement::Background => "Background",
+        study::StudyPlacement::CandleReplace => "Candle Replace",
     };
     badge(label, BadgeKind::Info)
 }

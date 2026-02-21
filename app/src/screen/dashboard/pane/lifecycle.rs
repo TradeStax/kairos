@@ -30,21 +30,11 @@ impl State {
                 layout,
                 study_ids,
             } => {
-                // Get footprint config from visual settings
-                let footprint = self.settings.visual_config.as_ref().and_then(|vc| {
-                    if let VisualConfig::Kline(cfg) = vc {
-                        cfg.footprint
-                    } else {
-                        None
-                    }
-                });
-
                 let mut new_chart = KlineChart::from_chart_data(
                     chart_data,
                     basis,
                     ticker_info,
                     layout.clone(),
-                    footprint,
                 );
                 if !self.settings.drawings.is_empty() {
                     new_chart
@@ -60,7 +50,6 @@ impl State {
                 if !self.settings.studies.is_empty() {
                     for cfg in &self.settings.studies {
                         if let Some(mut s) = registry.create(&cfg.study_id) {
-                            // Deserialize saved JSON values back to ParameterValue
                             for (key, json_val) in &cfg.parameters {
                                 if let Ok(pv) = serde_json::from_value::<study::ParameterValue>(
                                     json_val.clone(),
@@ -76,7 +65,6 @@ impl State {
                             new_chart.add_study(s);
                         }
                     }
-                    // Sync study_ids from saved configs
                     *study_ids = self
                         .settings
                         .studies
@@ -85,7 +73,6 @@ impl State {
                         .map(|c| c.study_id.clone())
                         .collect();
                 } else {
-                    // Fallback: restore from study_ids without parameters
                     for sid in study_ids.iter() {
                         if let Some(s) = registry.create(sid) {
                             new_chart.add_study(s);
@@ -155,7 +142,7 @@ impl State {
             },
             Content::TimeAndSales(_panel) => {}
             Content::Ladder(_panel) => {}
-            Content::Starter => {}
+            Content::Starter | Content::ScriptEditor { .. } => {}
         }
     }
 
@@ -172,6 +159,7 @@ impl State {
             .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
         self.ticker_info = Some(ticker_info);
+        self.loaded_date_range = Some(date_range);
         self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
 
         let days_total = date_range.num_days() as usize;
@@ -195,11 +183,6 @@ impl State {
         }
     }
 
-    /// Set content and request chart loading (legacy - uses default 1 day)
-    pub fn set_content(&mut self, ticker_info: FuturesTickerInfo, kind: ContentKind) -> Effect {
-        self.set_content_with_range(ticker_info, kind, DateRange::last_n_days(1))
-    }
-
     pub fn invalidate(&mut self, now: Instant) -> Option<Action> {
         match &mut self.content {
             Content::Heatmap { chart, .. } => chart
@@ -217,7 +200,7 @@ impl State {
             Content::Ladder(panel) => panel
                 .as_mut()
                 .and_then(|p| p.invalidate(Some(now)).map(Action::Panel)),
-            Content::Starter => None,
+            Content::Starter | Content::ScriptEditor { .. } => None,
             Content::Comparison(_) => None,
         }
     }
@@ -259,7 +242,7 @@ impl State {
                 }
             }
             Content::Ladder(_) | Content::TimeAndSales(_) => Some(100),
-            Content::Starter => None,
+            Content::Starter | Content::ScriptEditor { .. } => None,
         }
     }
 

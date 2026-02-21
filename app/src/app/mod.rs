@@ -11,27 +11,15 @@ mod view;
 pub(crate) use messages::*;
 pub(crate) use ticker_registry::*;
 
-use crate::components;
-use crate::components::display::toast::{self, Toast};
-use crate::components::display::tooltip::tooltip;
+use crate::components::display::toast::Toast;
 use crate::modals::{LayoutManager, ThemeEditor};
-use crate::modals::{main_dialog_modal, positioned_overlay};
-use crate::screen::dashboard::{self, Dashboard};
-use crate::style::tokens;
-use crate::{split_column, style, window};
-use data::{sidebar, state::WindowSpec};
+use crate::screen::dashboard;
+use crate::window;
 
 use data::FeedId;
-use exchange::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
-use iced::{
-    Alignment, Element, Length, Subscription, Task, padding,
-    widget::{
-        button, column, container, pane_grid, pick_list, row, rule, scrollable, text,
-        tooltip::Position as TooltipPosition,
-    },
-};
+use exchange::{FuturesTicker, FuturesTickerInfo};
+use iced::{Subscription, Task};
 use rustc_hash::FxHashMap;
-use std::collections::HashMap;
 use std::vec;
 
 pub(super) const APP_NAME: &str = "Kairos";
@@ -71,6 +59,10 @@ pub struct Kairos {
     pub(crate) notifications: Vec<Toast>,
     pub(crate) downloaded_tickers:
         std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
+    pub(crate) data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    /// Precomputed date range labels for the ticker list UI.
+    /// Keys are ticker strings (e.g. "NQ.c.0"), values are formatted ranges.
+    pub(crate) ticker_ranges: std::collections::HashMap<String, String>,
 }
 
 impl Kairos {
@@ -94,12 +86,50 @@ impl Kairos {
             saved_state_temp.downloaded_tickers.clone(),
         ));
 
-        // Re-create layout manager with the shared Arc
-        let layout_manager = crate::modals::LayoutManager::new(
-            market_data_service.clone(),
-            downloaded_tickers.clone(),
-            saved_state_temp.sidebar.date_range_preset,
-        );
+        // Create the shared DataIndex and seed from persisted registry
+        let data_index =
+            std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
+        {
+            let registry = downloaded_tickers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let mut idx = data_index.lock().unwrap_or_else(|e| e.into_inner());
+            let sentinel_feed = uuid::Uuid::nil();
+            for ticker_str in registry.list_tickers() {
+                if let Some(range) = registry.get_range_by_ticker_str(&ticker_str) {
+                    let mut dates = std::collections::BTreeSet::new();
+                    for d in range.dates() {
+                        dates.insert(d);
+                    }
+                    idx.add_contribution(
+                        data::DataKey {
+                            ticker: ticker_str,
+                            schema: "trades".to_string(),
+                        },
+                        sentinel_feed,
+                        dates,
+                        false,
+                    );
+                }
+            }
+        }
+
+        // Re-create layout manager with the shared Arc,
+        // preserving persisted layouts if available
+        let layout_manager = if saved_state_temp.layout_manager.layouts.is_empty() {
+            crate::modals::LayoutManager::new(
+                market_data_service.clone(),
+                data_index.clone(),
+            )
+        } else {
+            // Transfer existing layouts but update the shared data_index Arc
+            let mut lm = saved_state_temp.layout_manager;
+            lm.update_shared_state(
+                market_data_service.clone(),
+                data_index.clone(),
+            );
+            lm
+        };
 
         // Create shared data feed manager
         let data_feed_manager =
@@ -137,6 +167,9 @@ impl Kairos {
 
         let sidebar = dashboard::Sidebar::new(&saved_state);
 
+        // Compute formatted ticker date ranges for the UI
+        let ticker_ranges = Self::build_ticker_ranges(&data_index);
+
         let mut state = Self {
             main_window: window::Window {
                 is_maximized: true,
@@ -169,6 +202,8 @@ impl Kairos {
             theme: saved_state.theme,
             notifications: vec![],
             downloaded_tickers: downloaded_tickers.clone(),
+            data_index: data_index.clone(),
+            ticker_ranges,
         };
 
         let load_layout = if let Some(active_layout_id) = state
@@ -183,6 +218,7 @@ impl Kairos {
         };
 
         // Auto-connect feeds that have auto_connect enabled
+        let mut scan_tasks: Vec<Task<Message>> = Vec::new();
         {
             let mut feed_manager = state
                 .data_feed_manager
@@ -198,41 +234,89 @@ impl Kairos {
                 .collect();
 
             for fid in &auto_connect_ids {
-                if let Some(feed) = feed_manager.get(*fid) {
-                    let has_key = match feed.provider {
-                        data::FeedProvider::Databento => {
-                            secrets.has_api_key(data::config::secrets::ApiProvider::Databento)
+                // Copy feed data we need before mutating feed_manager
+                let feed_snapshot = feed_manager.get(*fid).map(|f| {
+                    (f.provider, f.dataset_info().cloned())
+                });
+
+                let Some((provider, dataset_info)) = feed_snapshot else {
+                    continue;
+                };
+
+                let has_key = match provider {
+                    data::FeedProvider::Databento => {
+                        secrets.has_api_key(data::config::secrets::ApiProvider::Databento)
+                    }
+                    data::FeedProvider::Rithmic => {
+                        secrets.has_api_key(data::config::secrets::ApiProvider::Rithmic)
+                    }
+                };
+
+                if has_key {
+                    feed_manager.set_status(*fid, data::FeedStatus::Connected);
+                    log::info!("Auto-connected feed {} on startup", fid);
+
+                    // Immediately seed DataIndex from feed config
+                    if provider == data::FeedProvider::Databento {
+                        if let Some(info) = &dataset_info {
+                            let mut dates = std::collections::BTreeSet::new();
+                            for d in info.date_range.dates() {
+                                dates.insert(d);
+                            }
+                            let mut idx = state
+                                .data_index
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            idx.add_contribution(
+                                data::DataKey {
+                                    ticker: info.ticker.clone(),
+                                    schema: "trades".to_string(),
+                                },
+                                *fid,
+                                dates,
+                                false,
+                            );
                         }
-                        data::FeedProvider::Rithmic => {
-                            secrets.has_api_key(data::config::secrets::ApiProvider::Rithmic)
-                        }
-                    };
-                    if has_key {
-                        feed_manager.set_status(*fid, data::FeedStatus::Connected);
-                        log::info!("Auto-connected feed {} on startup", fid);
+
+                        // Spawn async cache scan for full data discovery
+                        let cache_root =
+                            crate::infra::platform::data_path(Some("cache/databento"));
+                        let feed_id = *fid;
+                        scan_tasks.push(Task::perform(
+                            async move {
+                                exchange::scan_databento_cache(&cache_root, feed_id).await
+                            },
+                            Message::DataIndexRebuilt,
+                        ));
                     }
                 }
             }
 
-            // Populate ticker list for auto-connected feeds
-            if !auto_connect_ids.is_empty() {
-                let ticker_symbols: std::collections::HashSet<String> = state
-                    .downloaded_tickers
-                    .lock()
-                    .unwrap()
-                    .list_tickers()
-                    .into_iter()
-                    .collect();
-                if !ticker_symbols.is_empty() {
-                    state.tickers_info = build_tickers_info(ticker_symbols);
-                }
+            // Populate tickers from DataIndex (seeded from registry + feed configs)
+            let tickers: std::collections::HashSet<String> = state
+                .data_index
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .available_tickers()
+                .into_iter()
+                .collect();
+            if !tickers.is_empty() {
+                state.tickers_info = build_tickers_info(tickers);
+                state.ticker_ranges =
+                    Self::build_ticker_ranges(&state.data_index);
+                log::info!(
+                    "Populated {} tickers from DataIndex at startup",
+                    state.tickers_info.len()
+                );
             }
 
             state.data_feeds_modal.sync_snapshot(&feed_manager);
             state.connections_menu.sync_snapshot(&feed_manager);
         }
 
-        (state, open_main_window.discard().chain(load_layout))
+        let mut all_tasks = vec![open_main_window.discard().chain(load_layout)];
+        all_tasks.extend(scan_tasks);
+        (state, Task::batch(all_tasks))
     }
 
     pub fn title(&self, _window: window::Id) -> String {
@@ -255,5 +339,26 @@ impl Kairos {
         subscriptions::build_subscription(self.replay_manager.is_dragging)
     }
 
+    /// Build formatted date-range labels from the shared DataIndex.
+    pub(crate) fn build_ticker_ranges(
+        data_index: &std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    ) -> std::collections::HashMap<String, String> {
+        let idx = data_index.lock().unwrap_or_else(|e| e.into_inner());
+        idx.ticker_date_ranges()
+            .into_iter()
+            .map(|(ticker, range)| {
+                let label = if range.start == range.end {
+                    range.start.format("%b %d").to_string()
+                } else {
+                    format!(
+                        "{} - {}",
+                        range.start.format("%b %d"),
+                        range.end.format("%b %d"),
+                    )
+                };
+                (ticker, label)
+            })
+            .collect()
+    }
 }
 

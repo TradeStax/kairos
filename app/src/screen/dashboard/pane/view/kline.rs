@@ -30,6 +30,7 @@ impl State {
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> (Element<'a, Message>, Vec<Element<'a, Message>>) {
         let mut extra = Vec::new();
 
@@ -39,7 +40,7 @@ impl State {
                 .selected_basis
                 .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
-            let kind = if chart.footprint.is_some() {
+            let kind = if chart.has_candle_replace() {
                 ModifierKind::Footprint(selected_basis)
             } else {
                 ModifierKind::Candlestick(selected_basis)
@@ -65,7 +66,7 @@ impl State {
                         ..Default::default()
                     }
                 };
-                modals::pane::settings::kline_cfg_view(cfg, chart.footprint_config().cloned(), id)
+                modals::pane::settings::kline_cfg_view(cfg, id)
             };
 
             let body = self.compose_stack_view(
@@ -75,6 +76,7 @@ impl State {
                 settings_modal,
                 None,
                 tickers_info,
+                ticker_ranges,
             );
             (body, extra)
         } else {
@@ -86,6 +88,7 @@ impl State {
                 || column![].into(),
                 None,
                 tickers_info,
+                ticker_ranges,
             );
             (body, extra)
         }

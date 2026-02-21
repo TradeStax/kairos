@@ -139,10 +139,13 @@ impl ScriptEngine {
                     .clone()
                     .unwrap_or_else(|| file_stem.clone()),
                 overlay: state.overlay,
+                placement: state.placement,
                 category: state.category,
                 path: source_path.to_path_buf(),
                 modified,
                 inputs: state.inputs.clone(),
+                marker_render_config: state.marker_render_config.clone(),
+                candle_render_config: state.candle_render_config,
             };
             Ok(manifest)
         });

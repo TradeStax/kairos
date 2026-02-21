@@ -111,11 +111,15 @@ impl Study for ScriptStudy {
     }
 
     fn placement(&self) -> StudyPlacement {
-        if self.manifest.overlay {
-            StudyPlacement::Overlay
-        } else {
-            StudyPlacement::Panel
-        }
+        self.manifest.resolved_placement()
+    }
+
+    fn marker_render_config(&self) -> Option<study::output::MarkerRenderConfig> {
+        self.manifest.marker_render_config.clone()
+    }
+
+    fn candle_render_config(&self) -> Option<study::output::CandleRenderConfig> {
+        self.manifest.candle_render_config
     }
 
     fn parameters(&self) -> &[ParameterDef] {

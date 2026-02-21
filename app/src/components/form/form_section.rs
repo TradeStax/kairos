@@ -11,6 +11,7 @@ pub struct FormSectionBuilder<'a, Message> {
     fields: Vec<Element<'a, Message>>,
     spacing: f32,
     with_top_divider: bool,
+    with_header_divider: bool,
     header_trailing: Option<Element<'a, Message>>,
 }
 
@@ -21,6 +22,7 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
             fields: Vec::new(),
             spacing: tokens::spacing::LG,
             with_top_divider: false,
+            with_header_divider: true,
             header_trailing: None,
         }
     }
@@ -43,6 +45,12 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
         self
     }
 
+    /// When true, draw a divider line under the section header title.
+    pub fn with_header_divider(mut self, show: bool) -> Self {
+        self.with_header_divider = show;
+        self
+    }
+
     /// Add a trailing element to the section header row.
     pub fn header_trailing(mut self, element: impl Into<Element<'a, Message>>) -> Self {
         self.header_trailing = Some(element.into());
@@ -56,7 +64,8 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
             outer = outer.push(rule::horizontal(1).style(style::split_ruler));
         }
 
-        let mut header = SectionHeaderBuilder::new(self.title).with_divider(true);
+        let mut header = SectionHeaderBuilder::new(self.title)
+            .with_divider(self.with_header_divider);
 
         if let Some(trailing) = self.header_trailing {
             header = header.trailing(trailing);

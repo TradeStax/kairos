@@ -1,10 +1,18 @@
-use super::{Content, ContextMenuAction, ContextMenuKind, Effect, Event, State};
+use super::{
+    Content, ContextMenuAction, ContextMenuKind, Effect, Event, State,
+    content::{build_script_list, generate_unique_name, script_template},
+};
 use crate::{
     chart,
+    components::display::toast::{Notification, Toast},
     modals::{self, pane::Modal},
     screen::dashboard::panel,
 };
-use data::{ChartBasis, ChartConfig, ChartType, ContentKind, DateRange, Timeframe};
+use data::{
+    ChartBasis, ChartConfig, ChartType, ContentKind, DateRange, LoadingStatus, Timeframe,
+    VisualConfig,
+};
+use std::path::PathBuf;
 
 impl State {
     pub fn update(&mut self, msg: Event) -> Option<Effect> {
@@ -29,14 +37,48 @@ impl State {
                 self.modal = None;
             }
             Event::ContentSelected(kind) => {
-                self.content = Content::placeholder(kind);
+                if matches!(kind, ContentKind::ScriptEditor) {
+                    let loader = script::ScriptLoader::new();
+                    let script_list = build_script_list(&loader);
 
-                if !matches!(kind, ContentKind::Starter) {
-                    let modal =
-                        Modal::MiniTickersList(crate::modals::pane::tickers::MiniPanel::new());
+                    // Restore last-edited script from settings
+                    let script_path = self
+                        .settings
+                        .visual_config
+                        .as_ref()
+                        .and_then(|vc| vc.clone().script_editor())
+                        .and_then(|cfg| cfg.script_path.map(PathBuf::from));
 
-                    if let Some(effect) = self.show_modal_with_focus(modal) {
-                        return Some(effect);
+                    let editor = if let Some(ref path) = script_path {
+                        if let Ok(content) = std::fs::read_to_string(path) {
+                            iced_code_editor::CodeEditor::new(&content, "javascript")
+                                .with_line_numbers_enabled(true)
+                        } else {
+                            iced_code_editor::CodeEditor::new("", "javascript")
+                                .with_line_numbers_enabled(true)
+                        }
+                    } else {
+                        iced_code_editor::CodeEditor::new("", "javascript")
+                            .with_line_numbers_enabled(true)
+                    };
+
+                    self.content = Content::ScriptEditor {
+                        editor,
+                        script_path,
+                        script_list,
+                    };
+                    self.loading_status = LoadingStatus::Ready;
+                } else {
+                    self.content = Content::placeholder(kind);
+
+                    if !matches!(kind, ContentKind::Starter) {
+                        let modal = Modal::MiniTickersList(
+                            crate::modals::pane::tickers::MiniPanel::new(),
+                        );
+
+                        if let Some(effect) = self.show_modal_with_focus(modal) {
+                            return Some(effect);
+                        }
                     }
                 }
             }
@@ -152,13 +194,6 @@ impl State {
             }
             Event::ReorderIndicator(e) => {
                 self.content.reorder_indicators(&e);
-            }
-            Event::FootprintStudyChanged(new_config) => {
-                if let Content::Kline { chart, .. } = &mut self.content
-                    && let Some(c) = chart
-                {
-                    c.set_footprint(new_config);
-                }
             }
             Event::StudyConfigurator(study_msg) => match study_msg {
                 modals::pane::settings::study::StudyMessage::Heatmap(m) => {
@@ -363,6 +398,90 @@ impl State {
             }
             Event::OpenIndicatorManager => {
                 self.open_indicator_manager();
+            }
+            Event::EditorInteraction(msg) => {
+                if let Content::ScriptEditor { editor, .. } = &mut self.content {
+                    let _ = editor.update(&msg);
+                }
+            }
+            Event::ScriptSelected(name) => {
+                if let Content::ScriptEditor {
+                    editor,
+                    script_path,
+                    script_list,
+                    ..
+                } = &mut self.content
+                {
+                    if let Some(entry) = script_list.iter().find(|e| e.name == name)
+                    {
+                        let entry_path = entry.path.clone();
+                        if let Ok(content) = std::fs::read_to_string(&entry_path) {
+                            *editor =
+                                iced_code_editor::CodeEditor::new(&content, "javascript")
+                                    .with_line_numbers_enabled(true);
+                            *script_path = Some(entry_path.clone());
+                            // Persist selection
+                            self.settings.visual_config =
+                                Some(VisualConfig::ScriptEditor(
+                                    data::ScriptEditorConfig {
+                                        script_path: Some(
+                                            entry_path
+                                                .to_string_lossy()
+                                                .to_string(),
+                                        ),
+                                        ..Default::default()
+                                    },
+                                ));
+                        }
+                    }
+                }
+            }
+            Event::NewScript => {
+                let loader = script::ScriptLoader::new();
+                let _ = loader.ensure_user_dir();
+                let name = generate_unique_name(loader.user_dir());
+                let path = loader.user_dir().join(format!("{}.js", name));
+                let template = script_template(&name);
+                if std::fs::write(&path, &template).is_ok() {
+                    if let Content::ScriptEditor {
+                        editor,
+                        script_path,
+                        script_list,
+                        ..
+                    } = &mut self.content
+                    {
+                        *editor =
+                            iced_code_editor::CodeEditor::new(&template, "javascript")
+                                .with_line_numbers_enabled(true);
+                        *script_path = Some(path.clone());
+                        *script_list = build_script_list(&loader);
+                        self.settings.visual_config =
+                            Some(VisualConfig::ScriptEditor(
+                                data::ScriptEditorConfig {
+                                    script_path: Some(
+                                        path.to_string_lossy().to_string(),
+                                    ),
+                                    ..Default::default()
+                                },
+                            ));
+                    }
+                }
+            }
+            Event::SaveScript => {
+                if let Content::ScriptEditor {
+                    editor,
+                    script_path: Some(path),
+                    ..
+                } = &mut self.content
+                {
+                    let content = editor.content();
+                    if std::fs::write(path, &content).is_ok() {
+                        editor.mark_saved();
+                        self.notifications
+                            .push(Toast::new(Notification::Info("Script saved".into())));
+                        return Some(Effect::ReloadScripts);
+                    }
+                }
             }
             Event::IndicatorManagerInteraction(message) => {
                 if let Some(Modal::IndicatorManager(ref mut manager)) = self.modal {

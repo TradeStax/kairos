@@ -62,6 +62,7 @@ impl MiniPanel {
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
         base_ticker: Option<FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
         if tickers_info.is_empty() {
             let top_bar = compact_top_bar(
@@ -93,6 +94,7 @@ impl MiniPanel {
             Message::SearchChanged,
             selected_tickers,
             base_ticker,
+            ticker_ranges,
         )
     }
 }
@@ -137,6 +139,7 @@ fn view_compact_with<'a, M, FSelect, FSearch>(
     on_search: FSearch,
     selected_tickers: Option<&'a [FuturesTickerInfo]>,
     base_ticker: Option<FuturesTickerInfo>,
+    ticker_ranges: &'a std::collections::HashMap<String, String>,
 ) -> Element<'a, M>
 where
     M: 'a + Clone,
@@ -168,8 +171,13 @@ where
         .unwrap_or_default();
 
     let top_bar = compact_top_bar(search_query, search_box_id, on_search);
-    let selected_section =
-        compact_selected_section(base_ticker, selected_list, on_select, selection_enabled);
+    let selected_section = compact_selected_section(
+        base_ticker,
+        selected_list,
+        on_select,
+        selection_enabled,
+        ticker_ranges,
+    );
 
     let mut content = column![top_bar]
         .spacing(tokens::spacing::MD)
@@ -197,6 +205,7 @@ where
             &rows,
             on_select,
             selection_enabled,
+            ticker_ranges,
         ));
     }
 
@@ -228,6 +237,7 @@ fn compact_selected_section<'a, M, FSelect>(
     selected_list: Vec<FuturesTickerInfo>,
     on_select: FSelect,
     selection_enabled: bool,
+    ticker_ranges: &'a std::collections::HashMap<String, String>,
 ) -> Option<Element<'a, M>>
 where
     M: 'a + Clone,
@@ -241,11 +251,15 @@ where
 
     if let Some(bt) = base_ticker {
         let label = label_for(bt.ticker);
-        col = col.push(mini_ticker_card(label, None, None, None, on_select));
+        let range = ticker_ranges.get(bt.ticker.as_str()).cloned();
+        col = col.push(mini_ticker_card(
+            label, None, None, range, on_select,
+        ));
     }
 
     for info in selected_list {
         let label = label_for(info.ticker);
+        let range = ticker_ranges.get(info.ticker.as_str()).cloned();
 
         let (left_action, right) = if selection_enabled {
             (
@@ -256,7 +270,13 @@ where
             (Some(RowSelection::Switch(info)), None)
         };
 
-        col = col.push(mini_ticker_card(label, left_action, right, None, on_select));
+        col = col.push(mini_ticker_card(
+            label,
+            left_action,
+            right,
+            range,
+            on_select,
+        ));
     }
 
     Some(col.into())
@@ -267,6 +287,7 @@ fn compact_all_rows<'a, M, FSelect>(
     rows: &[&TickerRowData],
     on_select: FSelect,
     selection_enabled: bool,
+    ticker_ranges: &std::collections::HashMap<String, String>,
 ) -> Element<'a, M>
 where
     M: 'a + Clone,
@@ -276,6 +297,7 @@ where
     for row_ref in rows {
         let label = label_for(row_ref.ticker);
         let info_opt: Option<FuturesTickerInfo> = tickers_info.get(&row_ref.ticker).copied();
+        let range = ticker_ranges.get(row_ref.ticker.as_str()).cloned();
 
         let (left_action, right_action) = if selection_enabled {
             (
@@ -290,7 +312,7 @@ where
             label,
             left_action,
             right_action,
-            None,
+            range,
             on_select,
         ));
     }
@@ -325,22 +347,30 @@ fn mini_ticker_card<'a, M, FSelect>(
     label: String,
     left_action: Option<RowSelection>,
     right_label_and_action: Option<(&'static str, Option<RowSelection>)>,
-    chip_label: Option<&'static str>,
+    date_range_label: Option<String>,
     on_select: FSelect,
 ) -> Element<'a, M>
 where
     M: 'a + Clone,
     FSelect: 'static + Copy + Fn(RowSelection) -> M,
 {
-    let left_btn_base = button(
-        row![text(label)]
-            .spacing(tokens::spacing::SM)
-            .align_y(alignment::Vertical::Center)
-            .height(Length::Fill),
-    )
-    .style(|theme, status| style::button::transparent(theme, status, false))
-    .width(Length::Fill)
-    .height(Length::Fill);
+    let mut left_row = row![text(label)]
+        .spacing(tokens::spacing::SM)
+        .align_y(alignment::Vertical::Center)
+        .height(Length::Fill);
+
+    if let Some(range_lbl) = date_range_label {
+        left_row = left_row.push(
+            text(range_lbl)
+                .size(9.0)
+                .color(iced::Color::from_rgba(0.5, 0.5, 0.5, 0.8)),
+        );
+    }
+
+    let left_btn_base = button(left_row)
+        .style(|theme, status| style::button::transparent(theme, status, false))
+        .width(Length::Fill)
+        .height(Length::Fill);
 
     let left_btn = if let Some(sel) = left_action {
         left_btn_base.on_press(on_select(sel))
@@ -366,18 +396,8 @@ where
         btn.into()
     });
 
-    let chip_el: Option<Element<'a, M>> = chip_label.map(|lbl| {
-        container(text(lbl).size(tokens::text::SMALL))
-            .padding([tokens::spacing::XXS as u16, tokens::spacing::SM as u16])
-            .style(style::dragger_row_container)
-            .into()
-    });
-
     let mut row_content = row![left_btn].align_y(alignment::Vertical::Center);
 
-    if let Some(chip) = chip_el {
-        row_content = row_content.push(chip);
-    }
     if let Some(right) = right_el {
         row_content = row_content.push(iced::widget::rule::vertical(1.0));
         row_content = row_content.push(right);

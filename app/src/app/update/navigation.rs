@@ -17,6 +17,15 @@ impl Kairos {
             self.menu_bar.save_layout_name = self.layout_manager.generate_unique_layout_name();
         }
 
+        // Refresh pane info when Edit menu is opened or hovered
+        if matches!(
+            msg,
+            menu_bar::Message::Open(menu_bar::Menu::Edit)
+                | menu_bar::Message::HoverEnter(menu_bar::Menu::Edit)
+        ) {
+            self.refresh_edit_menu_panes();
+        }
+
         let action = self.menu_bar.update(msg);
 
         match action {
@@ -24,18 +33,96 @@ impl Kairos {
                 return self.handle_window_close(self.main_window.id);
             }
             menu_bar::Action::SaveLayout(name) => {
-                if let Some(active_id) = self.layout_manager.active_layout_id().map(|l| l.unique) {
+                // Check if a layout with this name already exists
+                let collision = self
+                    .layout_manager
+                    .layouts
+                    .iter()
+                    .any(|l| l.id.name == name);
+
+                if collision {
+                    // Stash name and show overwrite confirmation
+                    self.menu_bar.overwrite_layout_name = name.clone();
+                    self.confirm_dialog = Some(
+                        crate::components::overlay::confirm_dialog::ConfirmDialog {
+                            message: format!(
+                                "Layout \"{}\" already exists. Overwrite?",
+                                name
+                            ),
+                            on_confirm: Box::new(Message::MenuBar(
+                                menu_bar::Message::OverwriteLayoutConfirm,
+                            )),
+                            on_confirm_btn_text: Some("Overwrite".into()),
+                        },
+                    );
+                } else if let Some(active_id) =
+                    self.layout_manager.active_layout_id().map(|l| l.unique)
+                {
                     self.handle_layout_clone(active_id);
                     // Rename the newly created layout (last in the list)
                     if let Some(new_layout) = self.layout_manager.layouts.last() {
                         let new_id = new_layout.id.unique;
-                        let unique_name = self.layout_manager.ensure_unique_name(&name, new_id);
-                        self.layout_manager.layouts.last_mut().unwrap().id.name = unique_name;
+                        let unique_name =
+                            self.layout_manager.ensure_unique_name(&name, new_id);
+                        self.layout_manager.layouts.last_mut().unwrap().id.name =
+                            unique_name;
+                    }
+                }
+            }
+            menu_bar::Action::OverwriteLayout(name) => {
+                self.confirm_dialog = None;
+                if let Some(active_dashboard) = self.active_dashboard() {
+                    let ser = data::Dashboard::from(active_dashboard);
+                    if let Some(layout) = self
+                        .layout_manager
+                        .layouts
+                        .iter_mut()
+                        .find(|l| l.id.name == name)
+                    {
+                        let uid = layout.id.unique;
+
+                        let mut popout_windows = Vec::new();
+                        for (pane, window_spec) in &ser.popout {
+                            popout_windows.push((
+                                crate::layout::configuration(pane.clone()),
+                                window_spec.clone(),
+                            ));
+                        }
+
+                        layout.dashboard =
+                            crate::screen::dashboard::Dashboard::from_config(
+                                crate::layout::configuration(ser.pane),
+                                popout_windows,
+                                uid,
+                                self.market_data_service.clone(),
+                                self.data_index.clone(),
+                            );
                     }
                 }
             }
             menu_bar::Action::LoadLayout(id) => {
                 return self.handle_layout_select(id);
+            }
+            menu_bar::Action::ResetPane(window_id, pane) => {
+                return self.handle_dashboard(
+                    None,
+                    dashboard::Message::Pane(
+                        window_id,
+                        dashboard::pane::Message::ReplacePane(pane),
+                    ),
+                );
+            }
+            menu_bar::Action::SplitPane(window_id, pane) => {
+                return self.handle_dashboard(
+                    None,
+                    dashboard::Message::Pane(
+                        window_id,
+                        dashboard::pane::Message::SplitPane(
+                            iced::widget::pane_grid::Axis::Horizontal,
+                            pane,
+                        ),
+                    ),
+                );
             }
             menu_bar::Action::None => {}
         }
@@ -103,6 +190,11 @@ impl Kairos {
         } else if self.historical_download_modal.is_some() {
             self.historical_download_modal = None;
             self.historical_download_id = None;
+        } else if self.sidebar.settings.active_modal.is_some() {
+            self.sidebar.settings.active_modal = None;
+            self.sidebar.set_menu(None);
+        } else if self.sidebar.settings.flyout_expanded {
+            self.sidebar.settings.flyout_expanded = false;
         } else if self.sidebar.active_menu().is_some() {
             self.sidebar.set_menu(None);
         } else if let Some(dashboard) = self.active_dashboard_mut() {
@@ -210,5 +302,25 @@ impl Kairos {
 
     pub(crate) fn handle_window_close(&mut self, id: window::Id) -> Task<Message> {
         self.handle_window_event(window::Event::CloseRequested(id))
+    }
+
+    pub(crate) fn handle_save_focused_script(&mut self) -> Task<Message> {
+        let main_window_id = self.main_window.id;
+        let Some(dashboard) = self.active_dashboard_mut() else {
+            return Task::none();
+        };
+        let Some((window_id, pane)) = dashboard.focus else {
+            return Task::none();
+        };
+        let Some(state) = dashboard.get_mut_pane(main_window_id, window_id, pane) else {
+            return Task::none();
+        };
+        let effect = state.update(
+            dashboard::pane::Event::SaveScript,
+        );
+        if let Some(dashboard::pane::Effect::ReloadScripts) = effect {
+            crate::app::services::reload_script_registry();
+        }
+        Task::none()
     }
 }

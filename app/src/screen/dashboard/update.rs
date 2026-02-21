@@ -196,10 +196,20 @@ impl Dashboard {
                         let triggering_pane_link_group = state.link_group; // Capture link group BEFORE matching on effect
                         let (task, event) = match effect {
                             pane::Effect::LoadChart {
-                                config,
+                                mut config,
                                 ticker_info,
                             } => {
-                                // Trigger chart loading for this pane
+                                // Override placeholder range with canonical
+                                // DataIndex resolution
+                                if let Some(range) =
+                                    data::lock_or_recover(&self.data_index)
+                                        .resolve_chart_range(
+                                            ticker_info.ticker.as_str(),
+                                            config.chart_type,
+                                        )
+                                {
+                                    config.date_range = range;
+                                }
                                 let event = self.load_chart(pane_id, config, ticker_info);
                                 (Task::none(), Some(event))
                             }
@@ -247,6 +257,10 @@ impl Dashboard {
                             }
                             pane::Effect::DrawingToolChanged(tool) => {
                                 (Task::none(), Some(Event::DrawingToolChanged(tool)))
+                            }
+                            pane::Effect::ReloadScripts => {
+                                crate::app::services::reload_script_registry();
+                                (Task::none(), None)
                             }
                         };
                         return (task, event);

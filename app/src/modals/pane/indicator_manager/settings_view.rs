@@ -15,6 +15,7 @@ use iced::{
     Alignment, Element, Length,
     widget::{
         button, center, column, container, pick_list, row, rule, scrollable,
+        scrollable::{Direction, Scrollbar},
         space, text,
     },
 };
@@ -120,6 +121,18 @@ impl IndicatorManagerModal {
                     self.view_parameters_tab(study_id, params, config)
                 }
             }
+        } else if study_id == "footprint" {
+            match self.settings_tab {
+                SettingsTab::Parameters => {
+                    self.view_footprint_general_tab(study_id, config)
+                }
+                SettingsTab::Style => {
+                    self.view_footprint_style_tab(study_id, config)
+                }
+                SettingsTab::Display => {
+                    self.view_footprint_colors_tab(study_id, config)
+                }
+            }
         } else {
             match self.settings_tab {
                 SettingsTab::Parameters => {
@@ -138,9 +151,18 @@ impl IndicatorManagerModal {
             header,
             rule::horizontal(1).style(style::split_ruler),
             tab_bar,
-            scrollable(tab_content)
-                .style(style::scroll_bar)
-                .height(Length::Fill),
+            scrollable::Scrollable::with_direction(
+                tab_content,
+                Direction::Vertical(
+                    Scrollbar::new()
+                        .width(tokens::layout::SCROLLBAR_WIDTH)
+                        .scroller_width(
+                            tokens::layout::SCROLLBAR_WIDTH,
+                        ),
+                ),
+            )
+            .style(style::scroll_bar)
+            .height(Length::Fill),
         ]
         .spacing(tokens::spacing::MD)
         .height(Length::Fill)
@@ -672,6 +694,600 @@ impl IndicatorManagerModal {
 
         column![general, size_section, color_section, text_section]
             .spacing(0)
+            .into()
+    }
+
+    // ── Footprint: General tab ───────────────────────────────────
+
+    fn view_footprint_general_tab<'a>(
+        &'a self,
+        study_id: &str,
+        config: &study::StudyConfig,
+    ) -> Element<'a, Message> {
+        let sid = study_id.to_string();
+
+        let data_type = config
+            .get_choice("data_type", "Volume")
+            .to_string();
+        let mode =
+            config.get_choice("mode", "Profile").to_string();
+        let auto_grouping = config
+            .get_choice("auto_grouping", "Automatic")
+            .to_string();
+        let auto_group_factor =
+            config.get_int("auto_group_factor", 1);
+        let manual_ticks = config.get_int("manual_ticks", 1);
+        let group_mode = config
+            .get_choice("group_mode", "Bar-based")
+            .to_string();
+
+        // ── Typology section ──
+        let dt_options: Vec<String> = [
+            "Volume",
+            "Bid/Ask Split",
+            "Delta",
+            "Delta + Volume",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let dt_selected = dt_options
+            .iter()
+            .find(|o| **o == data_type)
+            .cloned();
+
+        let mode_options: Vec<String> =
+            ["Profile", "Box"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let mode_selected = mode_options
+            .iter()
+            .find(|o| **o == mode)
+            .cloned();
+
+        let mut typology = FormSectionBuilder::new("Typology")
+            .spacing(tokens::spacing::LG)
+            .with_header_divider(false);
+
+        typology = typology.push(
+            row![
+                text("Data Type").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(dt_options, dt_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "data_type".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(140),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        typology = typology.push(
+            row![
+                text("Mode").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(mode_options, mode_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "mode".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(140),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        // ── Tick Grouping section ──
+        let grouping_options: Vec<String> =
+            ["Automatic", "Manual"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let grouping_selected = grouping_options
+            .iter()
+            .find(|o| **o == auto_grouping)
+            .cloned();
+
+        let gm_options: Vec<String> =
+            ["Bar-based", "Fixed"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let gm_selected = gm_options
+            .iter()
+            .find(|o| **o == group_mode)
+            .cloned();
+
+        let mut grouping =
+            FormSectionBuilder::new("Tick Grouping")
+                .spacing(tokens::spacing::LG)
+                .with_header_divider(false);
+
+        grouping = grouping.push(
+            row![
+                text("Grouping").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(grouping_options, grouping_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "auto_grouping".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(140),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        if auto_grouping == "Automatic" {
+            grouping = grouping.push(
+                SliderFieldBuilder::new(
+                    "Scale Factor",
+                    1.0f32..=100.0,
+                    auto_group_factor as f32,
+                    {
+                        let sid = sid.clone();
+                        move |v| Message::ParameterChanged {
+                            study_id: sid.clone(),
+                            key: "auto_group_factor".to_string(),
+                            value: study::ParameterValue::Integer(
+                                v as i64,
+                            ),
+                        }
+                    },
+                )
+                .step(1.0)
+                .format(|v| format!("{}", *v as i64)),
+            );
+        } else {
+            grouping = grouping.push(
+                SliderFieldBuilder::new(
+                    "Manual Ticks",
+                    1.0f32..=100.0,
+                    manual_ticks as f32,
+                    {
+                        let sid = sid.clone();
+                        move |v| Message::ParameterChanged {
+                            study_id: sid.clone(),
+                            key: "manual_ticks".to_string(),
+                            value: study::ParameterValue::Integer(
+                                v as i64,
+                            ),
+                        }
+                    },
+                )
+                .step(1.0)
+                .format(|v| format!("{}", *v as i64)),
+            );
+
+            grouping = grouping.push(
+                row![
+                    text("Group Mode")
+                        .size(tokens::text::BODY),
+                    space::horizontal(),
+                    pick_list(gm_options, gm_selected, {
+                        let sid = sid.clone();
+                        move |v: String| {
+                            Message::ParameterChanged {
+                                study_id: sid.clone(),
+                                key: "group_mode".to_string(),
+                                value:
+                                    study::ParameterValue::Choice(
+                                        v,
+                                    ),
+                            }
+                        }
+                    })
+                    .width(140),
+                ]
+                .align_y(Alignment::Center)
+                .width(Length::Fill),
+            );
+        }
+
+        column![typology, grouping]
+            .spacing(tokens::spacing::XL)
+            .into()
+    }
+
+    // ── Footprint: Style tab ────────────────────────────────────
+
+    fn view_footprint_style_tab<'a>(
+        &'a self,
+        study_id: &str,
+        config: &study::StudyConfig,
+    ) -> Element<'a, Message> {
+        let sid = study_id.to_string();
+
+        let bar_marker_width =
+            config.get_float("bar_marker_width", 0.25) as f32;
+        let outside_bar_style = config
+            .get_choice("outside_bar_style", "Body")
+            .to_string();
+        let marker_alignment = config
+            .get_choice("marker_alignment", "Left")
+            .to_string();
+        let show_outside_border =
+            config.get_bool("show_outside_border", false);
+        let max_bars =
+            config.get_int("max_bars_to_show", 200);
+        let scaling = config
+            .get_choice("scaling", "Square Root")
+            .to_string();
+
+        // ── Bar Marker section ──
+        let obs_options: Vec<String> =
+            ["Body", "Candle", "None"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let obs_selected = obs_options
+            .iter()
+            .find(|o| **o == outside_bar_style)
+            .cloned();
+
+        let ma_options: Vec<String> =
+            ["Left", "None", "Center", "Right"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let ma_selected = ma_options
+            .iter()
+            .find(|o| **o == marker_alignment)
+            .cloned();
+
+        let sc_options: Vec<String> = [
+            "Square Root",
+            "Linear",
+            "Logarithmic",
+            "Visible Range",
+            "Datapoint",
+            "Hybrid",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let sc_selected = sc_options
+            .iter()
+            .find(|o| **o == scaling)
+            .cloned();
+
+        let mut bar_section =
+            FormSectionBuilder::new("Bar Marker")
+                .spacing(tokens::spacing::LG)
+                .with_header_divider(false);
+
+        bar_section = bar_section.push(
+            SliderFieldBuilder::new(
+                "Marker Width",
+                0.05f32..=1.0,
+                bar_marker_width,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "bar_marker_width".to_string(),
+                        value: study::ParameterValue::Float(
+                            v as f64,
+                        ),
+                    }
+                },
+            )
+            .step(0.05)
+            .format(|v| format!("{:.0}%", v * 100.0)),
+        );
+
+        bar_section = bar_section.push(
+            row![
+                text("Outside Bar Style")
+                    .size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(obs_options, obs_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "outside_bar_style".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(120),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        bar_section = bar_section.push(
+            row![
+                text("Marker Alignment")
+                    .size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(ma_options, ma_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "marker_alignment".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(120),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        bar_section = bar_section.push(
+            crate::components::input::toggle_switch::toggle_switch(
+                "Outside Border",
+                show_outside_border,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "show_outside_border".to_string(),
+                        value: study::ParameterValue::Boolean(v),
+                    }
+                },
+            ),
+        );
+
+        bar_section = bar_section.push(
+            SliderFieldBuilder::new(
+                "Max Bars",
+                10.0f32..=1000.0,
+                max_bars as f32,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "max_bars_to_show".to_string(),
+                        value: study::ParameterValue::Integer(
+                            v as i64,
+                        ),
+                    }
+                },
+            )
+            .step(10.0)
+            .format(|v| format!("{}", *v as i64)),
+        );
+
+        bar_section = bar_section.push(
+            row![
+                text("Scaling").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(sc_options, sc_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "scaling".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(140),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        column![bar_section].into()
+    }
+
+    // ── Footprint: Colors tab ────────────────────────────────────
+
+    fn view_footprint_colors_tab<'a>(
+        &'a self,
+        study_id: &str,
+        config: &study::StudyConfig,
+    ) -> Element<'a, Message> {
+        let sid = study_id.to_string();
+
+        let bg_color_mode = config
+            .get_choice("bg_color_mode", "Volume Intensity")
+            .to_string();
+        let bg_max_alpha =
+            config.get_float("bg_max_alpha", 0.6) as f32;
+        let show_grid_lines =
+            config.get_bool("show_grid_lines", true);
+        let dynamic_text_size =
+            config.get_bool("dynamic_text_size", true);
+        let font_size =
+            config.get_float("font_size", 11.0) as f32;
+        let text_format = config
+            .get_choice("text_format", "Automatic")
+            .to_string();
+        let show_zero_values =
+            config.get_bool("show_zero_values", false);
+
+        // ── Background section ──
+        let bg_options: Vec<String> = [
+            "Volume Intensity",
+            "Delta Intensity",
+            "None",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let bg_selected = bg_options
+            .iter()
+            .find(|o| **o == bg_color_mode)
+            .cloned();
+
+        let mut bg_section =
+            FormSectionBuilder::new("Background")
+                .spacing(tokens::spacing::LG)
+                .with_header_divider(false);
+
+        bg_section = bg_section.push(
+            row![
+                text("Color Mode").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(bg_options, bg_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "bg_color_mode".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(140),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        if bg_color_mode != "None" {
+            bg_section = bg_section.push(
+                SliderFieldBuilder::new(
+                    "Max Alpha",
+                    0.0f32..=1.0,
+                    bg_max_alpha,
+                    {
+                        let sid = sid.clone();
+                        move |v| Message::ParameterChanged {
+                            study_id: sid.clone(),
+                            key: "bg_max_alpha".to_string(),
+                            value: study::ParameterValue::Float(
+                                v as f64,
+                            ),
+                        }
+                    },
+                )
+                .step(0.05)
+                .format(|v| format!("{:.0}%", v * 100.0)),
+            );
+        }
+
+        bg_section = bg_section.push(
+            self.color_swatch_widget(
+                study_id,
+                "bg_buy_color",
+                "Buy Color",
+                config,
+            ),
+        );
+
+        bg_section = bg_section.push(
+            self.color_swatch_widget(
+                study_id,
+                "bg_sell_color",
+                "Sell Color",
+                config,
+            ),
+        );
+
+        bg_section = bg_section.push(
+            crate::components::input::toggle_switch::toggle_switch(
+                "Grid Lines",
+                show_grid_lines,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "show_grid_lines".to_string(),
+                        value: study::ParameterValue::Boolean(v),
+                    }
+                },
+            ),
+        );
+
+        // ── Text section ──
+        let tf_options: Vec<String> =
+            ["Automatic", "Normal", "K"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        let tf_selected = tf_options
+            .iter()
+            .find(|o| **o == text_format)
+            .cloned();
+
+        let mut text_section =
+            FormSectionBuilder::new("Text")
+                .spacing(tokens::spacing::LG)
+                .with_header_divider(false);
+
+        text_section = text_section.push(
+            crate::components::input::toggle_switch::toggle_switch(
+                "Dynamic Text Size",
+                dynamic_text_size,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "dynamic_text_size".to_string(),
+                        value: study::ParameterValue::Boolean(v),
+                    }
+                },
+            ),
+        );
+
+        if !dynamic_text_size {
+            text_section = text_section.push(
+                SliderFieldBuilder::new(
+                    "Font Size",
+                    6.0f32..=20.0,
+                    font_size,
+                    {
+                        let sid = sid.clone();
+                        move |v| Message::ParameterChanged {
+                            study_id: sid.clone(),
+                            key: "font_size".to_string(),
+                            value: study::ParameterValue::Float(
+                                v as f64,
+                            ),
+                        }
+                    },
+                )
+                .step(0.5)
+                .format(|v| format!("{v:.1}")),
+            );
+        }
+
+        text_section = text_section.push(
+            row![
+                text("Text Format").size(tokens::text::BODY),
+                space::horizontal(),
+                pick_list(tf_options, tf_selected, {
+                    let sid = sid.clone();
+                    move |v: String| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "text_format".to_string(),
+                        value: study::ParameterValue::Choice(v),
+                    }
+                })
+                .width(120),
+            ]
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        );
+
+        text_section = text_section.push(
+            crate::components::input::toggle_switch::toggle_switch(
+                "Show Zero Values",
+                show_zero_values,
+                {
+                    let sid = sid.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: "show_zero_values".to_string(),
+                        value: study::ParameterValue::Boolean(v),
+                    }
+                },
+            ),
+        );
+
+        column![bg_section, text_section]
+            .spacing(tokens::spacing::XL)
             .into()
     }
 

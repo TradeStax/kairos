@@ -60,11 +60,12 @@ impl SavedState {
         downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
     ) -> Self {
         let sidebar = data::Sidebar::default();
+        let data_index =
+            std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
         SavedState {
             layout_manager: LayoutManager::new(
                 market_data_service,
-                downloaded_tickers.clone(),
-                sidebar.date_range_preset,
+                data_index,
             ),
             main_window: None,
             scale_factor: data::ScaleFactor::default(),
@@ -163,6 +164,32 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                 data::ContentKind::TimeAndSales => pane::Content::TimeAndSales(None),
                 data::ContentKind::Ladder => pane::Content::Ladder(None),
                 data::ContentKind::ComparisonChart => pane::Content::Comparison(None),
+                data::ContentKind::ScriptEditor => {
+                    let loader = script::ScriptLoader::new();
+                    let script_list = pane::build_script_list(&loader);
+                    let script_path = settings
+                        .visual_config
+                        .as_ref()
+                        .and_then(|vc| vc.clone().script_editor())
+                        .and_then(|cfg| cfg.script_path.map(std::path::PathBuf::from));
+                    let editor = if let Some(ref p) = script_path {
+                        if let Ok(content) = std::fs::read_to_string(p) {
+                            iced_code_editor::CodeEditor::new(&content, "js")
+                                .with_line_numbers_enabled(true)
+                        } else {
+                            iced_code_editor::CodeEditor::new("", "js")
+                                .with_line_numbers_enabled(true)
+                        }
+                    } else {
+                        iced_code_editor::CodeEditor::new("", "js")
+                            .with_line_numbers_enabled(true)
+                    };
+                    pane::Content::ScriptEditor {
+                        editor,
+                        script_path,
+                        script_list,
+                    }
+                }
             };
 
             Configuration::Pane(pane::State::from_config(
@@ -180,20 +207,16 @@ pub fn load_saved_state_without_registry(
     let state_dir = crate::infra::platform::data_path(None);
     match data::load_state(state_dir.as_path(), "app-state.json") {
         Ok(state) => {
-            // AppState persists layout metadata (names, IDs) but not the full
-            // Dashboard tree (pane splits, chart configs). To complete this:
-            // 1. Serialize each Dashboard's PaneGrid configuration into AppState
-            // 2. Restore pane content types and settings on load
-            // 3. Re-trigger chart data loading for each restored pane
-            // Until then, a fresh default layout is created on startup.
+            let layout_manager = rebuild_layout_manager(
+                &state,
+                market_data_service.clone(),
+                downloaded_tickers.clone(),
+            );
+
             SavedState {
                 theme: state.selected_theme,
                 custom_theme: state.custom_theme,
-                layout_manager: LayoutManager::new(
-                    market_data_service.clone(),
-                    downloaded_tickers.clone(),
-                    state.sidebar.date_range_preset,
-                ),
+                layout_manager,
                 main_window: state.main_window,
                 timezone: state.timezone,
                 sidebar: state.sidebar,
@@ -211,4 +234,98 @@ pub fn load_saved_state_without_registry(
             SavedState::default_with_service(market_data_service, downloaded_tickers)
         }
     }
+}
+
+/// Rebuild the runtime `LayoutManager` from persisted `AppState`.
+fn rebuild_layout_manager(
+    state: &data::AppState,
+    market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
+    downloaded_tickers: std::sync::Arc<
+        std::sync::Mutex<data::DownloadedTickersRegistry>,
+    >,
+) -> LayoutManager {
+    let persisted = &state.layout_manager;
+    let data_index =
+        std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
+
+    // Seed the data_index from the persisted downloaded_tickers registry
+    // so that charts can load before a feed reconnect triggers a full scan.
+    {
+        let registry = data::lock_or_recover(&downloaded_tickers);
+        let mut idx = data_index.lock().unwrap_or_else(|e| e.into_inner());
+        let sentinel_feed = uuid::Uuid::nil();
+        for ticker_str in registry.list_tickers() {
+            if let Some(range) = registry.get_range_by_ticker_str(&ticker_str) {
+                let mut dates = std::collections::BTreeSet::new();
+                for d in range.dates() {
+                    dates.insert(d);
+                }
+                idx.add_contribution(
+                    data::DataKey {
+                        ticker: ticker_str,
+                        schema: "trades".to_string(),
+                    },
+                    sentinel_feed,
+                    dates,
+                    false,
+                );
+            }
+        }
+    }
+
+    if persisted.layouts.is_empty() {
+        log::info!("No persisted layouts found, creating default");
+        return LayoutManager::new(
+            market_data_service,
+            data_index,
+        );
+    }
+
+    let mut runtime_layouts = Vec::with_capacity(persisted.layouts.len());
+    let mut active_uid = None;
+
+    for saved in &persisted.layouts {
+        let uid = uuid::Uuid::new_v4();
+        let layout_id = LayoutId {
+            unique: uid,
+            name: saved.name.clone(),
+        };
+
+        if persisted.active_layout.as_deref() == Some(&saved.name) {
+            active_uid = Some(uid);
+        }
+
+        let mut popout_windows = Vec::new();
+        for (pane, window_spec) in &saved.dashboard.popout {
+            popout_windows.push((
+                configuration(pane.clone()),
+                window_spec.clone(),
+            ));
+        }
+
+        let dashboard = Dashboard::from_config(
+            configuration(saved.dashboard.pane.clone()),
+            popout_windows,
+            uid,
+            market_data_service.clone(),
+            data_index.clone(),
+        );
+
+        runtime_layouts.push(Layout {
+            id: layout_id,
+            dashboard,
+        });
+    }
+
+    log::info!(
+        "Restored {} layout(s) from persisted state",
+        runtime_layouts.len()
+    );
+
+    LayoutManager::from_saved(
+        runtime_layouts,
+        active_uid,
+        market_data_service,
+        data_index,
+    )
 }

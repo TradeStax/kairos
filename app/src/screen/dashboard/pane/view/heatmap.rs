@@ -27,6 +27,7 @@ impl State {
         uninitialized_base: impl FnOnce(ContentKind) -> Element<'a, Message>,
         timezone: UserTimezone,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> (Element<'a, Message>, Vec<Element<'a, Message>>) {
         let mut extra = Vec::new();
 
@@ -89,6 +90,7 @@ impl State {
                 settings_modal,
                 None,
                 tickers_info,
+                ticker_ranges,
             );
             (body, extra)
         } else {
@@ -100,6 +102,7 @@ impl State {
                 || column![].into(),
                 None,
                 tickers_info,
+                ticker_ranges,
             );
             (body, extra)
         }

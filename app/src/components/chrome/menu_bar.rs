@@ -10,7 +10,17 @@ const MENU_ITEM_HEIGHT: f32 = tokens::text::BODY + tokens::spacing::XS * 2.0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Menu {
     File,
+    Edit,
     Layout,
+}
+
+/// Info about a pane for the Edit menu.
+#[derive(Debug, Clone)]
+pub struct PaneInfo {
+    pub window_id: iced::window::Id,
+    pub pane: iced::widget::pane_grid::Pane,
+    pub label: String,
+    pub is_main_window: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -23,16 +33,23 @@ pub enum Message {
     SaveLayoutNameChanged(String),
     SaveLayoutConfirm,
     SaveLayoutCancel,
+    OverwriteLayoutConfirm,
     LoadLayout(uuid::Uuid),
     ShowSubmenu,
     HideSubmenu,
+    HoverPane(Option<usize>),
+    ResetPane(iced::window::Id, iced::widget::pane_grid::Pane),
+    SplitPane(iced::window::Id, iced::widget::pane_grid::Pane),
 }
 
 pub enum Action {
     None,
     CloseWindow,
     SaveLayout(String),
+    OverwriteLayout(String),
     LoadLayout(uuid::Uuid),
+    ResetPane(iced::window::Id, iced::widget::pane_grid::Pane),
+    SplitPane(iced::window::Id, iced::widget::pane_grid::Pane),
 }
 
 pub struct MenuBar {
@@ -40,6 +57,12 @@ pub struct MenuBar {
     pub save_layout_name: String,
     pub show_save_dialog: bool,
     pub show_submenu: bool,
+    /// Stashed name for overwrite confirmation flow
+    pub overwrite_layout_name: String,
+    /// Index of the hovered pane in the Edit menu
+    pub hovered_pane_index: Option<usize>,
+    /// Cached pane info for Edit menu rendering
+    pub panes_cache: Vec<PaneInfo>,
 }
 
 impl MenuBar {
@@ -49,6 +72,9 @@ impl MenuBar {
             save_layout_name: String::new(),
             show_save_dialog: false,
             show_submenu: false,
+            overwrite_layout_name: String::new(),
+            hovered_pane_index: None,
+            panes_cache: Vec::new(),
         }
     }
 
@@ -66,11 +92,13 @@ impl MenuBar {
             Message::Close => {
                 self.open_menu = None;
                 self.show_submenu = false;
+                self.hovered_pane_index = None;
             }
             Message::HoverEnter(menu) => {
                 if self.open_menu.is_some() {
                     self.open_menu = Some(menu);
                     self.show_submenu = false;
+                    self.hovered_pane_index = None;
                 }
             }
             Message::Quit => {
@@ -97,6 +125,12 @@ impl MenuBar {
                 self.show_save_dialog = false;
                 self.save_layout_name.clear();
             }
+            Message::OverwriteLayoutConfirm => {
+                let name = std::mem::take(&mut self.overwrite_layout_name);
+                if !name.is_empty() {
+                    return Action::OverwriteLayout(name);
+                }
+            }
             Message::LoadLayout(id) => {
                 self.open_menu = None;
                 self.show_submenu = false;
@@ -108,46 +142,51 @@ impl MenuBar {
             Message::HideSubmenu => {
                 self.show_submenu = false;
             }
+            Message::HoverPane(idx) => {
+                self.hovered_pane_index = idx;
+            }
+            Message::ResetPane(window_id, pane) => {
+                self.open_menu = None;
+                self.hovered_pane_index = None;
+                return Action::ResetPane(window_id, pane);
+            }
+            Message::SplitPane(window_id, pane) => {
+                self.open_menu = None;
+                self.hovered_pane_index = None;
+                return Action::SplitPane(window_id, pane);
+            }
         }
         Action::None
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         let file_is_open = self.open_menu.as_ref() == Some(&Menu::File);
+        let edit_is_open = self.open_menu.as_ref() == Some(&Menu::Edit);
         let layout_is_open = self.open_menu.as_ref() == Some(&Menu::Layout);
 
-        let file_btn = mouse_area(
-            button(text("File").size(tokens::text::BODY))
-                .padding(padding::Padding {
-                    top: tokens::spacing::XXS,
-                    bottom: tokens::spacing::XXS,
-                    left: tokens::spacing::MD,
-                    right: tokens::spacing::MD,
-                })
-                .on_press(Message::Open(Menu::File))
-                .style(move |theme, status| {
-                    style::button::menu_bar_item(theme, status, file_is_open)
-                }),
-        )
-        .on_enter(Message::HoverEnter(Menu::File));
+        let menu_btn = |label: &str, menu: Menu, is_open: bool| {
+            mouse_area(
+                button(text(label.to_string()).size(tokens::text::BODY))
+                    .padding(padding::Padding {
+                        top: tokens::spacing::XXS,
+                        bottom: tokens::spacing::XXS,
+                        left: tokens::spacing::MD,
+                        right: tokens::spacing::MD,
+                    })
+                    .on_press(Message::Open(menu.clone()))
+                    .style(move |theme, status| {
+                        style::button::menu_bar_item(theme, status, is_open)
+                    }),
+            )
+            .on_enter(Message::HoverEnter(menu))
+        };
 
-        let layout_btn = mouse_area(
-            button(text("Layout").size(tokens::text::BODY))
-                .padding(padding::Padding {
-                    top: tokens::spacing::XXS,
-                    bottom: tokens::spacing::XXS,
-                    left: tokens::spacing::MD,
-                    right: tokens::spacing::MD,
-                })
-                .on_press(Message::Open(Menu::Layout))
-                .style(move |theme, status| {
-                    style::button::menu_bar_item(theme, status, layout_is_open)
-                }),
-        )
-        .on_enter(Message::HoverEnter(Menu::Layout));
+        let file_btn = menu_btn("File", Menu::File, file_is_open);
+        let edit_btn = menu_btn("Edit", Menu::Edit, edit_is_open);
+        let layout_btn = menu_btn("Layout", Menu::Layout, layout_is_open);
 
         container(
-            row![file_btn, layout_btn]
+            row![file_btn, edit_btn, layout_btn]
                 .spacing(tokens::spacing::XXS)
                 .padding(padding::left(tokens::spacing::SM))
                 .align_y(Alignment::Center),
@@ -158,11 +197,18 @@ impl MenuBar {
         .into()
     }
 
+    /// Provide pane info for the Edit menu. Must be called before
+    /// `view_dropdown` each frame.
+    pub fn set_panes(&mut self, panes: Vec<PaneInfo>) {
+        self.panes_cache = panes;
+    }
+
     /// Returns `(dropdown, submenu)`.
     pub fn view_dropdown(
         &self,
         layouts: &[(uuid::Uuid, String, bool)],
     ) -> Option<(Element<'_, Message>, Option<Element<'_, Message>>)> {
+        let panes = &self.panes_cache;
         let menu = self.open_menu.as_ref()?;
 
         match menu {
@@ -170,6 +216,88 @@ impl MenuBar {
                 let quit_item = menu_item("Quit", Some(Message::Quit));
                 let panel = menu_panel(column![quit_item].width(MENU_MIN_WIDTH));
                 Some((panel, None))
+            }
+            Menu::Edit => {
+                let mut col = column![].spacing(tokens::spacing::XXXS);
+
+                if panes.is_empty() {
+                    col = col.push(menu_item("No panes", None));
+                } else {
+                    for (idx, info) in panes.iter().enumerate() {
+                        let has_arrow = info.is_main_window;
+                        let pane_row = mouse_area(
+                            button(
+                                row![
+                                    text(info.label.clone())
+                                        .size(tokens::text::BODY),
+                                    iced::widget::space::horizontal()
+                                        .width(Length::Fill),
+                                    if has_arrow {
+                                        text("\u{25B8}")
+                                            .size(tokens::text::TINY)
+                                    } else {
+                                        text("").size(tokens::text::TINY)
+                                    },
+                                ]
+                                .align_y(Alignment::Center),
+                            )
+                            .width(Length::Fill)
+                            .padding(menu_item_padding())
+                            .on_press(Message::HoverPane(Some(idx)))
+                            .style(|theme, status| {
+                                style::button::pick_list_item(theme, status)
+                            }),
+                        )
+                        .on_enter(Message::HoverPane(Some(idx)));
+
+                        col = col.push(pane_row);
+                    }
+                }
+
+                let panel = menu_panel(col.width(MENU_MIN_WIDTH));
+
+                // Submenu for hovered pane
+                let submenu = self.hovered_pane_index.and_then(|idx| {
+                    let info = panes.get(idx)?;
+                    if !info.is_main_window {
+                        return None;
+                    }
+
+                    let win = info.window_id;
+                    let pane = info.pane;
+
+                    let reset_btn = button(
+                        text("Reset").size(tokens::text::BODY),
+                    )
+                    .width(Length::Fill)
+                    .padding(menu_item_padding())
+                    .on_press(Message::ResetPane(win, pane))
+                    .style(|theme, status| {
+                        style::button::pick_list_item(theme, status)
+                    });
+
+                    let split_btn = button(
+                        text("Split").size(tokens::text::BODY),
+                    )
+                    .width(Length::Fill)
+                    .padding(menu_item_padding())
+                    .on_press(Message::SplitPane(win, pane))
+                    .style(|theme, status| {
+                        style::button::pick_list_item(theme, status)
+                    });
+
+                    let sub_col =
+                        column![reset_btn, split_btn].width(MENU_MIN_WIDTH);
+                    let offset = idx as f32 * MENU_ITEM_HEIGHT;
+
+                    Some(
+                        container(menu_panel(sub_col))
+                            .padding(padding::top(offset))
+                            .into(),
+                    )
+                });
+
+                Some((panel, submenu))
             }
             Menu::Layout => {
                 let save_item = mouse_area(menu_item("Save Layout", Some(Message::SaveLayout)))

@@ -4,21 +4,25 @@
 //! During compute passes, they return current values from StudyConfig.
 
 use crate::error::ScriptError;
-use crate::manifest::{InputDeclaration, parse_category, slugify};
+use crate::manifest::{InputDeclaration, parse_category, parse_placement, slugify};
 use data::SerializableColor;
 use rquickjs::Ctx;
 use std::cell::RefCell;
 use std::rc::Rc;
 use study::config::{ParameterKind, ParameterValue};
-use study::traits::StudyCategory;
+use study::output::{CandleRenderConfig, MarkerRenderConfig, MarkerShape};
+use study::traits::{StudyCategory, StudyPlacement};
 
 /// State collected during the declaration pass.
 #[derive(Debug, Default)]
 pub struct DeclarationState {
     pub name: Option<String>,
     pub overlay: bool,
+    pub placement: Option<StudyPlacement>,
     pub category: StudyCategory,
     pub inputs: Vec<InputDeclaration>,
+    pub marker_render_config: Option<MarkerRenderConfig>,
+    pub candle_render_config: Option<CandleRenderConfig>,
 }
 
 /// Install declaration-pass runtime globals.
@@ -31,7 +35,7 @@ pub fn install_declaration_pass(
     let state = Rc::new(RefCell::new(DeclarationState::default()));
     let globals = ctx.globals();
 
-    // indicator(name, { overlay, category })
+    // indicator(name, { overlay, category, placement })
     {
         let state_ref = state.clone();
         let indicator_fn = rquickjs::Function::new(
@@ -45,6 +49,9 @@ pub fn install_declaration_pass(
                     }
                     if let Ok(cat) = opts.get::<_, String>("category") {
                         s.category = parse_category(&cat);
+                    }
+                    if let Ok(p) = opts.get::<_, String>("placement") {
+                        s.placement = parse_placement(&p);
                     }
                 }
             },
@@ -245,6 +252,87 @@ pub fn install_declaration_pass(
 
     globals.set("input", input_obj)?;
 
+    // setMarkerRenderConfig({ shape, hollow, stdDev, minSize, maxSize,
+    //   minOpacity, maxOpacity, showText, textSize, textColor })
+    {
+        let state_ref = state.clone();
+        let set_marker_cfg = rquickjs::Function::new(
+            ctx.clone(),
+            move |opts: rquickjs::Object<'_>| {
+                let mut cfg = MarkerRenderConfig::default();
+                if let Ok(s) = opts.get::<_, String>("shape") {
+                    cfg.shape = match s.to_lowercase().as_str() {
+                        "square" => MarkerShape::Square,
+                        "textonly" | "text_only" => MarkerShape::TextOnly,
+                        _ => MarkerShape::Circle,
+                    };
+                }
+                if let Ok(v) = opts.get::<_, bool>("hollow") {
+                    cfg.hollow = v;
+                }
+                if let Ok(v) = opts.get::<_, f64>("stdDev") {
+                    cfg.std_dev = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, f64>("minSize") {
+                    cfg.min_size = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, f64>("maxSize") {
+                    cfg.max_size = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, f64>("minOpacity") {
+                    cfg.min_opacity = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, f64>("maxOpacity") {
+                    cfg.max_opacity = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, bool>("showText") {
+                    cfg.show_text = v;
+                }
+                if let Ok(v) = opts.get::<_, f64>("textSize") {
+                    cfg.text_size = v as f32;
+                }
+                if let Ok(v) = opts.get::<_, String>("textColor") {
+                    cfg.text_color = parse_hex_color(&v);
+                }
+                state_ref.borrow_mut().marker_render_config = Some(cfg);
+            },
+        )?;
+        globals.set("setMarkerRenderConfig", set_marker_cfg)?;
+    }
+
+    // setCandleRenderConfig({ defaultCellWidth, maxCellWidth, minCellWidth,
+    //   cellHeightRatio, initialCandleWindow, autoscaleXCells })
+    {
+        let state_ref = state.clone();
+        let set_candle_cfg = rquickjs::Function::new(
+            ctx.clone(),
+            move |opts: rquickjs::Object<'_>| {
+                let cfg = CandleRenderConfig {
+                    default_cell_width: opts
+                        .get::<_, f64>("defaultCellWidth")
+                        .unwrap_or(80.0) as f32,
+                    max_cell_width: opts
+                        .get::<_, f64>("maxCellWidth")
+                        .unwrap_or(500.0) as f32,
+                    min_cell_width: opts
+                        .get::<_, f64>("minCellWidth")
+                        .unwrap_or(10.0) as f32,
+                    cell_height_ratio: opts
+                        .get::<_, f64>("cellHeightRatio")
+                        .unwrap_or(4.0) as f32,
+                    initial_candle_window: opts
+                        .get::<_, usize>("initialCandleWindow")
+                        .unwrap_or(12),
+                    autoscale_x_cells: opts
+                        .get::<_, f64>("autoscaleXCells")
+                        .unwrap_or(1.0) as f32,
+                };
+                state_ref.borrow_mut().candle_render_config = Some(cfg);
+            },
+        )?;
+        globals.set("setCandleRenderConfig", set_candle_cfg)?;
+    }
+
     Ok(state)
 }
 
@@ -411,6 +499,22 @@ pub fn install_compute_inputs(
     input_obj.set("lineStyle", line_style_fn)?;
 
     globals.set("input", input_obj)?;
+
+    // No-op stubs for render config setters during compute pass
+    globals.set(
+        "setMarkerRenderConfig",
+        rquickjs::Function::new(
+            ctx.clone(),
+            |_opts: rquickjs::Object<'_>| {},
+        ),
+    )?;
+    globals.set(
+        "setCandleRenderConfig",
+        rquickjs::Function::new(
+            ctx.clone(),
+            |_opts: rquickjs::Object<'_>| {},
+        ),
+    )?;
 
     Ok(())
 }

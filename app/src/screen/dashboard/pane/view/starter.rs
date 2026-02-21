@@ -19,6 +19,7 @@ impl State {
         id: iced::widget::pane_grid::Pane,
         compact_controls: CompactControls<'a>,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
         let content_picklist =
             pick_list(ContentKind::ALL, Some(ContentKind::Starter), move |kind| {
@@ -44,6 +45,7 @@ impl State {
             || column![].into(),
             None,
             tickers_info,
+            ticker_ranges,
         )
     }
 }

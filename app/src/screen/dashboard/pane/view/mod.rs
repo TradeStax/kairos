@@ -4,6 +4,7 @@ mod heatmap;
 pub(crate) mod helpers;
 mod kline;
 mod modal_stack;
+mod script_editor;
 mod starter;
 
 pub(crate) use modal_stack::CompactControls;
@@ -39,8 +40,12 @@ impl State {
         main_window: &'a Window,
         timezone: UserTimezone,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
-        let mut stream_info_element = if Content::Starter == self.content {
+        let mut stream_info_element = if matches!(
+            self.content,
+            Content::Starter | Content::ScriptEditor { .. }
+        ) {
             row![]
         } else {
             row![link_group_button(id, self.link_group, |id| {
@@ -73,7 +78,7 @@ impl State {
                 .padding([4, 10]);
 
             stream_info_element = stream_info_element.push(tickers_list_btn);
-        } else if !matches!(self.content, Content::Starter) {
+        } else if !matches!(self.content, Content::Starter | Content::ScriptEditor { .. }) {
             let content = row![label_text("Choose a ticker")]
                 .align_y(Alignment::Center)
                 .spacing(tokens::spacing::XS);
@@ -159,7 +164,9 @@ impl State {
         };
 
         let body = match &self.content {
-            Content::Starter => self.view_starter_body(id, compact_controls, tickers_info),
+            Content::Starter => {
+                self.view_starter_body(id, compact_controls, tickers_info, ticker_ranges)
+            }
             Content::Comparison(chart) => {
                 let (body, extras) = self.view_comparison_body(
                     id,
@@ -169,6 +176,7 @@ impl State {
                     uninitialized_base,
                     timezone,
                     tickers_info,
+                    ticker_ranges,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);
@@ -191,6 +199,7 @@ impl State {
                         settings_modal,
                         None,
                         tickers_info,
+                        ticker_ranges,
                     )
                 } else {
                     let base = uninitialized_base(ContentKind::TimeAndSales);
@@ -201,6 +210,7 @@ impl State {
                         || column![].into(),
                         None,
                         tickers_info,
+                        ticker_ranges,
                     )
                 }
             }
@@ -231,6 +241,7 @@ impl State {
                         settings_modal,
                         None,
                         tickers_info,
+                        ticker_ranges,
                     )
                 } else {
                     let base = uninitialized_base(ContentKind::Ladder);
@@ -241,6 +252,7 @@ impl State {
                         || column![].into(),
                         None,
                         tickers_info,
+                        ticker_ranges,
                     )
                 }
             }
@@ -259,6 +271,7 @@ impl State {
                     uninitialized_base,
                     timezone,
                     tickers_info,
+                    ticker_ranges,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);
@@ -274,6 +287,19 @@ impl State {
                     uninitialized_base,
                     timezone,
                     tickers_info,
+                    ticker_ranges,
+                );
+                for e in extras {
+                    stream_info_element = stream_info_element.push(e);
+                }
+                body
+            }
+            Content::ScriptEditor { .. } => {
+                let (body, extras) = self.view_script_editor_body(
+                    id,
+                    compact_controls,
+                    tickers_info,
+                    ticker_ranges,
                 );
                 for e in extras {
                     stream_info_element = stream_info_element.push(e);

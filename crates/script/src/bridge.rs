@@ -4,7 +4,9 @@ use crate::runtime::plot::PlotCommand;
 use data::Candle;
 use std::collections::HashMap;
 use study::output::{
-    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel, StudyOutput, TradeMarker,
+    BarPoint, BarSeries, FootprintCandle, FootprintData, FootprintLevel,
+    HistogramBar, LineSeries, PriceLevel, ProfileData, ProfileLevel,
+    StudyOutput, TradeMarker,
 };
 
 /// Convert collected plot commands from a script execution into StudyOutput variants.
@@ -21,6 +23,7 @@ pub fn convert_plot_commands(
     let mut markers: Vec<TradeMarker> = Vec::new();
     let mut levels: Vec<PriceLevel> = Vec::new();
     let mut fills: Vec<(usize, usize, f32)> = Vec::new();
+    let mut direct_outputs: Vec<StudyOutput> = Vec::new();
 
     for cmd in commands {
         match cmd {
@@ -87,6 +90,76 @@ pub fn convert_plot_commands(
             } => {
                 fills.push((*plot_id_a, *plot_id_b, *opacity));
             }
+            PlotCommand::Profile {
+                levels,
+                poc_index,
+                value_area,
+                side,
+            } => {
+                let profile_levels: Vec<ProfileLevel> = levels
+                    .iter()
+                    .map(|l| ProfileLevel {
+                        price: l.price,
+                        buy_volume: l.buy_volume as f32,
+                        sell_volume: l.sell_volume as f32,
+                    })
+                    .collect();
+                direct_outputs.push(StudyOutput::Profile(ProfileData {
+                    side: *side,
+                    levels: profile_levels,
+                    poc: *poc_index,
+                    value_area: *value_area,
+                }));
+            }
+            PlotCommand::Footprint {
+                candles: fp_candles,
+                mode,
+                data_type,
+                scaling,
+                candle_position,
+            } => {
+                let candles_out: Vec<FootprintCandle> = fp_candles
+                    .iter()
+                    .map(|c| {
+                        let price_scale = 100_000_000.0;
+                        let levels: Vec<FootprintLevel> = c
+                            .levels
+                            .iter()
+                            .map(|l| FootprintLevel {
+                                price: (l.price * price_scale)
+                                    as i64,
+                                buy_volume: l.buy_volume as f32,
+                                sell_volume: l.sell_volume as f32,
+                            })
+                            .collect();
+                        let quantum = if levels.len() >= 2 {
+                            (levels[1].price - levels[0].price)
+                                .abs()
+                                .max(1)
+                        } else {
+                            1
+                        };
+                        FootprintCandle {
+                            x: c.x as u64,
+                            open: (c.open * price_scale) as i64,
+                            high: (c.high * price_scale) as i64,
+                            low: (c.low * price_scale) as i64,
+                            close: (c.close * price_scale) as i64,
+                            levels,
+                            poc_index: c.poc_index,
+                            quantum,
+                        }
+                    })
+                    .collect();
+                direct_outputs.push(StudyOutput::Footprint(FootprintData {
+                    mode: *mode,
+                    data_type: *data_type,
+                    scaling: *scaling,
+                    candle_position: *candle_position,
+                    candles: candles_out,
+                    ..FootprintData::default()
+                }));
+            }
         }
     }
 
@@ -129,6 +202,8 @@ pub fn convert_plot_commands(
     if !levels.is_empty() {
         outputs.push(StudyOutput::Levels(levels));
     }
+
+    outputs.extend(direct_outputs);
 
     outputs
 }

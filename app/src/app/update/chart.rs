@@ -202,6 +202,110 @@ impl Kairos {
         )
     }
 
+    pub(crate) fn handle_data_index_rebuilt(
+        &mut self,
+        result: Result<data::DataIndex, String>,
+    ) -> Task<Message> {
+        let new_index = match result {
+            Ok(idx) => idx,
+            Err(e) => {
+                log::error!("Failed to scan cache for DataIndex: {}", e);
+                return Task::none();
+            }
+        };
+
+        // 1. Merge the scanned index into the shared DataIndex
+        {
+            let mut index = data::lock_or_recover(&self.data_index);
+            index.merge(new_index);
+        }
+
+        // 2. Rebuild tickers_info and ticker_ranges from the index
+        let available_tickers: std::collections::HashSet<String> = {
+            let index = data::lock_or_recover(&self.data_index);
+            index.available_tickers().into_iter().collect()
+        };
+        self.tickers_info = super::super::build_tickers_info(available_tickers);
+        self.ticker_ranges = Self::build_ticker_ranges(&self.data_index);
+        log::info!(
+            "DataIndex rebuilt - {} ticker(s) available",
+            self.tickers_info.len()
+        );
+
+        // 3. For each pane with a ticker, resolve the range and reload
+        //    if the resolved range differs from the pane's current loaded range
+        let Some(lid) = self
+            .layout_manager
+            .active_layout_id()
+            .map(|id| id.unique)
+        else {
+            return Task::none();
+        };
+
+        let main_window = self.main_window.id;
+        let mut reload_tasks = Vec::new();
+
+        for layout in &mut self.layout_manager.layouts {
+            for (_, _, state) in layout.dashboard.iter_all_panes(main_window) {
+                let Some(ticker_info) = state.ticker_info else {
+                    continue;
+                };
+
+                let chart_type = state.content.kind().to_chart_type();
+                let resolved_range = {
+                    let index = self
+                        .data_index
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    index.resolve_chart_range(
+                        ticker_info.ticker.as_str(),
+                        chart_type,
+                    )
+                };
+
+                let Some(range) = resolved_range else {
+                    continue;
+                };
+
+                // Skip if already loaded with this range
+                if state.loaded_date_range == Some(range) {
+                    continue;
+                }
+
+                let basis = state
+                    .settings
+                    .selected_basis
+                    .unwrap_or(data::ChartBasis::Time(data::Timeframe::M5));
+
+                let config = data::ChartConfig {
+                    chart_type,
+                    basis,
+                    ticker: ticker_info.ticker,
+                    date_range: range,
+                };
+
+                reload_tasks.push(Task::done(Message::Chart(
+                    ChartMessage::LoadChartData {
+                        layout_id: lid,
+                        pane_id: state.unique_id(),
+                        config,
+                        ticker_info,
+                    },
+                )));
+            }
+        }
+
+        if !reload_tasks.is_empty() {
+            log::info!(
+                "Reloading {} pane(s) after DataIndex rebuild",
+                reload_tasks.len()
+            );
+            return Task::batch(reload_tasks);
+        }
+
+        Task::none()
+    }
+
     pub(crate) fn handle_update_loading_status(&mut self) -> Task<Message> {
         let Some(service) = &self.market_data_service else {
             return Task::none();

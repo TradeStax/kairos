@@ -82,7 +82,6 @@ pub enum Event {
     DeleteNotification(usize),
     ReorderIndicator(crate::components::layout::reorderable_list::DragEvent),
     DataManagementInteraction(crate::modals::download::DataManagementMessage),
-    FootprintStudyChanged(Option<data::FootprintStudyConfig>),
     StudyConfigurator(modals::pane::settings::study::StudyMessage),
     StreamModifierChanged(modals::stream::Message),
     ComparisonChartInteraction(chart::comparison::Message),
@@ -92,6 +91,10 @@ pub enum Event {
     DrawingPropertiesChanged(crate::modals::drawing_properties::Message),
     IndicatorManagerInteraction(crate::modals::pane::indicator_manager::Message),
     OpenIndicatorManager,
+    EditorInteraction(iced_code_editor::Message),
+    ScriptSelected(String),
+    NewScript,
+    SaveScript,
 }
 
 pub struct State {
@@ -110,6 +113,8 @@ pub struct State {
     pub replay_backup: Option<ChartData>,
     /// Active right-click context menu
     pub context_menu: Option<ContextMenuKind>,
+    /// The date range that was used to load this pane's data
+    pub loaded_date_range: Option<data::DateRange>,
 }
 
 impl State {
@@ -156,6 +161,7 @@ impl Default for State {
             feed_id: None,
             replay_backup: None,
             context_menu: None,
+            loaded_date_range: None,
         }
     }
 }

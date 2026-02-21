@@ -690,7 +690,9 @@ impl State {
             _ => return None,
         };
 
-        let date_range = DateRange::last_n_days(1);
+        let date_range = self
+            .loaded_date_range
+            .unwrap_or_else(|| DateRange::last_n_days(1));
 
         // Reset content to show loading screen
         self.content = Content::new_for_kind(kind, ticker_info, &self.settings);

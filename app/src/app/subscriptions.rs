@@ -123,11 +123,17 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
     let replay_poll = Subscription::run(replay_event_monitor);
 
     let hotkeys = keyboard::listen().filter_map(|event| {
-        let keyboard::Event::KeyPressed { key, .. } = event else {
+        let keyboard::Event::KeyPressed {
+            key, modifiers, ..
+        } = event
+        else {
             return None;
         };
         match key {
             keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::GoBack),
+            keyboard::Key::Character(ref c) if c.as_str() == "s" && modifiers.command() => {
+                Some(Message::SaveFocusedScript)
+            }
             _ => None,
         }
     });

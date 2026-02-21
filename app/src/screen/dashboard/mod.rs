@@ -90,15 +90,13 @@ pub struct Dashboard {
     pub charts: HashMap<uuid::Uuid, ChartState>,
     pub market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>,
-    pub downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-    pub date_range_preset: data::sidebar::DateRangePreset,
+    pub data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
 }
 
 impl Dashboard {
     pub fn new(
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-        date_range_preset: data::sidebar::DateRangePreset,
+        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
@@ -107,13 +105,8 @@ impl Dashboard {
             market_data_service,
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
-            downloaded_tickers,
-            date_range_preset,
+            data_index,
         }
-    }
-
-    pub fn set_date_range_preset(&mut self, preset: data::sidebar::DateRangePreset) {
-        self.date_range_preset = preset;
     }
 }
 
@@ -159,8 +152,7 @@ impl Dashboard {
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
         _layout_id: uuid::Uuid,
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-        date_range_preset: data::sidebar::DateRangePreset,
+        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
 
@@ -180,8 +172,7 @@ impl Dashboard {
             market_data_service,
             popout,
             crosshair_positions: HashMap::new(),
-            downloaded_tickers,
-            date_range_preset,
+            data_index,
         }
     }
 }

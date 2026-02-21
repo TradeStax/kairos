@@ -25,20 +25,18 @@ impl Dashboard {
             )));
         };
 
-        // Get registered date range BEFORE borrowing pane_state mutably
-        let preset_days = self.date_range_preset.to_days();
-        let date_range = self
-            .downloaded_tickers
-            .lock()
-            .unwrap()
-            .get_range(&ticker_info.ticker)
+        // Resolve date range from DataIndex
+        let date_range = data::lock_or_recover(&self.data_index)
+            .resolve_chart_range(
+                ticker_info.ticker.as_str(),
+                content_kind.to_chart_type(),
+            )
             .unwrap_or_else(|| {
                 log::warn!(
-                    "No registered range for {} - using preset ({} days)",
+                    "No data indexed for {} - using 1-day fallback",
                     ticker_info.ticker,
-                    preset_days
                 );
-                DateRange::last_n_days(preset_days)
+                DateRange::last_n_days(1)
             });
 
         log::info!(
@@ -148,35 +146,25 @@ impl Dashboard {
             ticker_info.ticker
         );
 
-        // Get registered date range BEFORE looping
-        let preset_days = self.date_range_preset.to_days();
-        let date_range = self
-            .downloaded_tickers
-            .lock()
-            .unwrap()
-            .get_range(&ticker_info.ticker)
-            .unwrap_or_else(|| {
-                log::warn!(
-                    "No registered range for {} in switch_tickers_in_group \
-                     - using preset ({} days)",
-                    ticker_info.ticker,
-                    preset_days
-                );
-                DateRange::last_n_days(preset_days)
-            });
-
-        log::info!(
-            "Using date range {} to {} for ticker switch",
-            date_range.start,
-            date_range.end
-        );
-
         // Update each pane's ticker and trigger reload
         let mut tasks = Vec::new();
         for (_, _, pane_id, content_kind) in panes_to_update {
+            // Resolve date range per-pane (chart type may differ)
+            let date_range = data::lock_or_recover(&self.data_index)
+                .resolve_chart_range(
+                    ticker_info.ticker.as_str(),
+                    content_kind.to_chart_type(),
+                )
+                .unwrap_or_else(|| {
+                    log::warn!(
+                        "No data indexed for {} - using 1-day fallback",
+                        ticker_info.ticker,
+                    );
+                    DateRange::last_n_days(1)
+                });
+
             // Get the pane state and update it
             if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
-                // Use set_content_with_range to use registered date range
                 let effect =
                     pane_state.set_content_with_range(ticker_info, content_kind, date_range);
 

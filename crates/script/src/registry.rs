@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use study::registry::{StudyInfo, StudyRegistry};
-use study::traits::{Study, StudyPlacement};
+use study::traits::Study;
 
 /// Registry of compiled script indicators.
 pub struct ScriptRegistry {
@@ -80,11 +80,7 @@ impl ScriptRegistry {
                 id: m.id.clone(),
                 name: m.name.clone(),
                 category: m.category,
-                placement: if m.overlay {
-                    StudyPlacement::Overlay
-                } else {
-                    StudyPlacement::Panel
-                },
+                placement: m.resolved_placement(),
                 description: format!("Script: {}", m.name),
             })
             .collect();
@@ -119,11 +115,7 @@ impl ScriptRegistry {
                 id: manifest.id.clone(),
                 name: manifest.name.clone(),
                 category: manifest.category,
-                placement: if manifest.overlay {
-                    StudyPlacement::Overlay
-                } else {
-                    StudyPlacement::Panel
-                },
+                placement: manifest.resolved_placement(),
                 description: format!("Script: {}", manifest.name),
             };
 

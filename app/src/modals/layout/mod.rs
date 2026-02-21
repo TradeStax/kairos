@@ -46,15 +46,13 @@ pub struct LayoutManager {
     active_layout_id: Option<Uuid>,
     pub edit_mode: Editing,
     market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-    downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-    date_range_preset: data::sidebar::DateRangePreset,
+    data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
 }
 
 impl LayoutManager {
     pub fn new(
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        downloaded_tickers: std::sync::Arc<std::sync::Mutex<data::DownloadedTickersRegistry>>,
-        date_range_preset: data::sidebar::DateRangePreset,
+        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {
         let default_layout = LayoutId {
             unique: Uuid::new_v4(),
@@ -66,23 +64,47 @@ impl LayoutManager {
                 id: default_layout.clone(),
                 dashboard: Dashboard::new(
                     market_data_service.clone(),
-                    downloaded_tickers.clone(),
-                    date_range_preset,
+                    data_index.clone(),
                 ),
             }],
             active_layout_id: Some(default_layout.unique),
             edit_mode: Editing::None,
             market_data_service,
-            downloaded_tickers,
-            date_range_preset,
+            data_index,
         }
     }
 
-    /// Update the date range preset for all dashboards
-    pub fn set_date_range_preset(&mut self, preset: data::sidebar::DateRangePreset) {
-        self.date_range_preset = preset;
+    /// Update the shared Arc references after the shared
+    /// data_index Arc is created during startup.
+    /// Also propagates to all existing dashboards so every component
+    /// shares the same Arc.
+    pub fn update_shared_state(
+        &mut self,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
+        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    ) {
+        self.market_data_service = market_data_service.clone();
+        self.data_index = data_index.clone();
         for layout in &mut self.layouts {
-            layout.dashboard.set_date_range_preset(preset);
+            layout.dashboard.data_index = data_index.clone();
+            layout.dashboard.market_data_service = market_data_service.clone();
+        }
+    }
+
+    /// Reconstruct from persisted layouts.
+    pub fn from_saved(
+        layouts: Vec<Layout>,
+        active_layout_id: Option<Uuid>,
+        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
+        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    ) -> Self {
+        Self {
+            active_layout_id: active_layout_id
+                .or_else(|| layouts.first().map(|l| l.id.unique)),
+            layouts,
+            edit_mode: Editing::None,
+            market_data_service,
+            data_index,
         }
     }
 
@@ -175,8 +197,7 @@ impl LayoutManager {
                     new_layout.clone(),
                     Dashboard::new(
                         self.market_data_service.clone(),
-                        self.downloaded_tickers.clone(),
-                        self.date_range_preset,
+                        self.data_index.clone(),
                     ),
                 );
 

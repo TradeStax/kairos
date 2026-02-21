@@ -101,6 +101,8 @@ impl SettingsTab {
     pub fn label_for_study(&self, study_id: &str) -> &'static str {
         match (study_id, self) {
             ("big_trades", SettingsTab::Parameters) => "Data Settings",
+            ("footprint", SettingsTab::Parameters) => "General",
+            ("footprint", SettingsTab::Display) => "Colors",
             (_, SettingsTab::Parameters) => "Parameters",
             (_, SettingsTab::Style) => "Style",
             (_, SettingsTab::Display) => "Display",

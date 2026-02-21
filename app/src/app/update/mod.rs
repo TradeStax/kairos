@@ -103,6 +103,11 @@ impl Kairos {
                 }
             },
 
+            // Data index rebuilt after cache scan
+            Message::DataIndexRebuilt(result) => {
+                return self.handle_data_index_rebuilt(result);
+            }
+
             // Data feeds and connections
             Message::DataFeeds(msg) => {
                 return self.handle_data_feeds(msg);
@@ -193,6 +198,9 @@ impl Kairos {
             }
             Message::WindowClose(id) => {
                 return self.handle_window_close(id);
+            }
+            Message::SaveFocusedScript => {
+                return self.handle_save_focused_script();
             }
         }
         Task::none()

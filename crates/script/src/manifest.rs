@@ -1,6 +1,7 @@
 //! ScriptManifest: metadata parsed from indicator() declaration.
 
-use study::traits::StudyCategory;
+use study::output::{CandleRenderConfig, MarkerRenderConfig};
+use study::traits::{StudyCategory, StudyPlacement};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -14,6 +15,8 @@ pub struct ScriptManifest {
     pub name: String,
     /// Overlay on price chart or separate panel
     pub overlay: bool,
+    /// Explicit placement from `indicator()` options
+    pub placement: Option<StudyPlacement>,
     /// Category for UI grouping
     pub category: StudyCategory,
     /// Source file path
@@ -22,6 +25,10 @@ pub struct ScriptManifest {
     pub modified: SystemTime,
     /// Extracted input declarations
     pub inputs: Vec<InputDeclaration>,
+    /// Optional marker render config from `setMarkerRenderConfig()`
+    pub marker_render_config: Option<MarkerRenderConfig>,
+    /// Optional candle render config from `setCandleRenderConfig()`
+    pub candle_render_config: Option<CandleRenderConfig>,
 }
 
 /// An input parameter declaration collected from `input.*()` calls.
@@ -85,5 +92,30 @@ pub fn parse_category(s: &str) -> StudyCategory {
         "volatility" => StudyCategory::Volatility,
         "orderflow" | "order_flow" => StudyCategory::OrderFlow,
         _ => StudyCategory::Custom,
+    }
+}
+
+/// Parse a placement string into StudyPlacement.
+pub fn parse_placement(s: &str) -> Option<StudyPlacement> {
+    match s.to_lowercase().as_str() {
+        "overlay" => Some(StudyPlacement::Overlay),
+        "panel" => Some(StudyPlacement::Panel),
+        "background" => Some(StudyPlacement::Background),
+        "candle_replace" | "candlereplace" => {
+            Some(StudyPlacement::CandleReplace)
+        }
+        _ => None,
+    }
+}
+
+impl ScriptManifest {
+    /// Resolve the effective placement: explicit placement takes
+    /// priority, then fall back to overlay bool.
+    pub fn resolved_placement(&self) -> StudyPlacement {
+        self.placement.unwrap_or(if self.overlay {
+            StudyPlacement::Overlay
+        } else {
+            StudyPlacement::Panel
+        })
     }
 }

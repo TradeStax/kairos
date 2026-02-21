@@ -248,17 +248,23 @@ impl Kairos {
                     .register(ticker, date_range);
                 log::info!("Registered {} in downloaded tickers registry", ticker);
 
-                let ticker_symbols: std::collections::HashSet<String> = self
-                    .downloaded_tickers
-                    .lock()
-                    .unwrap()
-                    .list_tickers()
-                    .into_iter()
-                    .collect();
-                self.tickers_info = super::super::build_tickers_info(ticker_symbols);
-                log::info!(
-                    "Updated ticker list with {} tickers",
-                    data::lock_or_recover(&self.downloaded_tickers).count()
+                // Re-scan cache to rebuild the DataIndex with new data
+                let cache_root =
+                    crate::infra::platform::data_path(Some("cache/databento"));
+                let scan_feed_id = {
+                    let fm = self
+                        .data_feed_manager
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    fm.connected_feed_id_for_provider(data::FeedProvider::Databento)
+                        .unwrap_or(uuid::Uuid::nil())
+                };
+                let scan_task = Task::perform(
+                    async move {
+                        exchange::scan_databento_cache(&cache_root, scan_feed_id)
+                            .await
+                    },
+                    Message::DataIndexRebuilt,
                 );
 
                 if pane_id == uuid::Uuid::nil() {
@@ -276,12 +282,15 @@ impl Kairos {
                     .0;
                     let estimate_date_range = self.data_management_panel.current_date_range();
 
-                    return Task::done(Message::Download(DownloadMessage::EstimateDataCost {
-                        pane_id: uuid::Uuid::nil(),
-                        ticker: estimate_ticker,
-                        schema,
-                        date_range: estimate_date_range,
-                    }));
+                    return Task::batch([
+                        scan_task,
+                        Task::done(Message::Download(DownloadMessage::EstimateDataCost {
+                            pane_id: uuid::Uuid::nil(),
+                            ticker: estimate_ticker,
+                            schema,
+                            date_range: estimate_date_range,
+                        })),
+                    ]);
                 } else {
                     let layout_id = self
                         .layout_manager
@@ -291,16 +300,19 @@ impl Kairos {
 
                     let Some(layout_id) = layout_id else {
                         log::error!("No layout available for DataDownloadComplete");
-                        return Task::none();
+                        return scan_task;
                     };
 
-                    return Task::done(Message::Dashboard {
-                        layout_id: Some(layout_id),
-                        event: dashboard::Message::DataDownloadComplete {
-                            pane_id,
-                            days_downloaded,
-                        },
-                    });
+                    return Task::batch([
+                        scan_task,
+                        Task::done(Message::Dashboard {
+                            layout_id: Some(layout_id),
+                            event: dashboard::Message::DataDownloadComplete {
+                                pane_id,
+                                days_downloaded,
+                            },
+                        }),
+                    ]);
                 }
             }
             Err(e) => {
@@ -491,14 +503,30 @@ impl Kairos {
                     .lock()
                     .unwrap()
                     .register(ticker, date_range);
-                let ticker_symbols: std::collections::HashSet<String> = self
-                    .downloaded_tickers
-                    .lock()
-                    .unwrap()
-                    .list_tickers()
-                    .into_iter()
-                    .collect();
-                self.tickers_info = super::super::build_tickers_info(ticker_symbols);
+
+                // Add downloaded range to DataIndex immediately so
+                // tickers appear before the async cache scan completes
+                {
+                    let mut dates = std::collections::BTreeSet::new();
+                    for d in date_range.dates() {
+                        dates.insert(d);
+                    }
+                    let key = data::DataKey {
+                        ticker: ticker.to_string(),
+                        schema: "trades".to_string(),
+                    };
+                    data::lock_or_recover(&self.data_index)
+                        .add_contribution(key, uuid::Uuid::nil(), dates, false);
+                }
+
+                let available: std::collections::HashSet<String> =
+                    data::lock_or_recover(&self.data_index)
+                        .available_tickers()
+                        .into_iter()
+                        .collect();
+                self.tickers_info = super::super::build_tickers_info(available);
+                self.ticker_ranges =
+                    Self::build_ticker_ranges(&self.data_index);
 
                 // Create the dataset feed
                 if let Some(modal) = &self.historical_download_modal {

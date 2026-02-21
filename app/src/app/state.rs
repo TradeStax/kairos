@@ -64,23 +64,21 @@ impl Kairos {
             .find(|(id, _)| **id == self.main_window.id)
             .map(|(_, spec)| spec.clone());
 
-        // Clone the layout manager data for serialization
+        // Serialize full pane trees for each layout
         let active_layout_name = self
             .layout_manager
             .active_layout_id()
             .map(|id| id.name.clone());
 
-        let layouts_for_save: Vec<data::state::app::Layout> = self
+        let layouts_for_save: Vec<data::state::layout::Layout> = self
             .layout_manager
             .layouts
             .iter()
             .filter_map(|layout| {
-                self.layout_manager.get(layout.id.unique).map(|_l| {
-                    data::state::app::Layout {
-                        name: Some(layout.id.name.clone()),
-                        // Intentionally empty: pane layout is managed by the
-                        // dashboard's PaneGrid state and restored separately.
-                        panes: vec![],
+                self.layout_manager.get(layout.id.unique).map(|l| {
+                    data::state::layout::Layout {
+                        name: layout.id.name.clone(),
+                        dashboard: data::Dashboard::from(&l.dashboard),
                     }
                 })
             })
@@ -169,12 +167,41 @@ impl Kairos {
                 popout_windows,
                 old_id,
                 self.market_data_service.clone(),
-                self.downloaded_tickers.clone(),
-                self.sidebar.date_range_preset(),
+                self.data_index.clone(),
             );
 
             manager.insert_layout(new_layout.clone(), dashboard);
         }
+    }
+
+    pub fn refresh_edit_menu_panes(&mut self) {
+        use crate::components::chrome::menu_bar::PaneInfo;
+
+        let main_id = self.main_window.id;
+        let panes: Vec<PaneInfo> = self
+            .active_dashboard()
+            .map(|dashboard| {
+                dashboard
+                    .iter_all_panes(main_id)
+                    .map(|(window_id, pane, state)| {
+                        let kind = state.content.to_string();
+                        let label = if let Some(ti) = state.get_ticker() {
+                            format!("{} - {}", kind, ti.ticker)
+                        } else {
+                            kind
+                        };
+                        PaneInfo {
+                            window_id,
+                            pane,
+                            label,
+                            is_main_window: window_id == main_id,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        self.menu_bar.set_panes(panes);
     }
 
     pub fn handle_layout_select(&mut self, layout: uuid::Uuid) -> Task<Message> {

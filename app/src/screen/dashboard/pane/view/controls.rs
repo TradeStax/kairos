@@ -34,7 +34,8 @@ impl State {
         };
 
         let treat_as_starter =
-            matches!(&self.content, Content::Starter) || !self.content.initialized();
+            matches!(&self.content, Content::Starter | Content::ScriptEditor { .. })
+                || !self.content.initialized();
 
         let tooltip_pos = tooltip::Position::Bottom;
         let mut buttons = row![];

@@ -24,6 +24,7 @@ impl State {
         settings_modal: F,
         selected_tickers: Option<&'a [FuturesTickerInfo]>,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message>
     where
         F: FnOnce() -> Element<'a, Message>,
@@ -60,7 +61,12 @@ impl State {
             ),
             Some(Modal::MiniTickersList(panel)) => {
                 let mini_list = panel
-                    .view(tickers_info, selected_tickers, self.ticker_info)
+                    .view(
+                        tickers_info,
+                        selected_tickers,
+                        self.ticker_info,
+                        ticker_ranges,
+                    )
                     .map(move |msg| {
                         Message::PaneEvent(pane, Event::MiniTickersListInteraction(msg))
                     });

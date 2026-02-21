@@ -51,6 +51,7 @@ impl Dashboard {
         main_window: &'a Window,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         timezone: UserTimezone,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
         let pane_grid: Element<_> = PaneGrid::new(&self.panes, |id, pane, maximized| {
             let is_focused = self.focus == Some((main_window.id, id));
@@ -63,6 +64,7 @@ impl Dashboard {
                 main_window,
                 timezone,
                 tickers_info,
+                ticker_ranges,
             )
         })
         .min_size(240)
@@ -82,6 +84,7 @@ impl Dashboard {
         main_window: &'a Window,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         timezone: UserTimezone,
+        ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
         if let Some((state, _)) = self.popout.get(&window) {
             let content = container(
@@ -96,6 +99,7 @@ impl Dashboard {
                         main_window,
                         timezone,
                         tickers_info,
+                        ticker_ranges,
                     )
                 })
                 .on_click(pane::Message::PaneClicked),
