@@ -149,23 +149,7 @@ impl MarketDataService {
             config.basis
         );
 
-        // For heatmaps, automatically limit to most recent day to prevent memory issues
-        let effective_date_range = if config.chart_type == crate::domain::ChartType::Heatmap {
-            if config.date_range.num_days() > 1 {
-                log::warn!(
-                    "Heatmap: date range truncated from {} days to 1 day \
-                     (showing {}). Multi-day heatmaps are not supported \
-                     due to memory constraints.",
-                    config.date_range.num_days(),
-                    config.date_range.end
-                );
-                DateRange::new(config.date_range.end, config.date_range.end)
-            } else {
-                config.date_range
-            }
-        } else {
-            config.date_range
-        };
+        let effective_date_range = config.date_range;
 
         // Create unique key for this chart configuration
         let chart_key = format!(

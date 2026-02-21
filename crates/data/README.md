@@ -142,8 +142,6 @@ let data = ChartData::from_trades(trades, candles)
 
 **LoadingStatus** tracks progress: `Idle` > `Downloading` > `LoadingFromCache` > `Building` > `Ready` | `Error`.
 
-**FootprintStudyConfig** — mode (Box/Profile), type (Volume/Delta/BidAskSplit), scaling (Linear/Sqrt/Log), candle position.
-
 **Indicators** — `KlineIndicator` (Volume, Delta, OI, SMA, EMA, RSI, MACD, Bollinger), `HeatmapIndicator` (Volume, Delta, Trades).
 
 </details>

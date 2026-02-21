@@ -12,18 +12,12 @@ mod view;
 pub use config::{ChartBasis, ChartConfig, ChartType};
 pub use data::{ChartData, DataGap, DataGapKind, DataSegment, MergeResult};
 pub use heatmap_types::{HeatmapIndicator, heatmap};
-pub use kline_types::{
-    CandlePosition, ClusterScaling, FootprintMode, FootprintStudyConfig,
-    FootprintType, KlineDataPoint, KlineTrades, NPoc, PointOfControl, TradeCell,
-};
+pub use kline_types::{KlineDataPoint, KlineTrades, NPoc, PointOfControl, TradeCell};
 pub use view::{Autoscale, DataSchema, LoadingStatus, ViewConfig};
 
 /// Kline-specific types
 pub mod kline {
-    pub use super::kline_types::{
-        CandlePosition, ClusterScaling, FootprintMode, FootprintStudyConfig,
-        FootprintType, KlineDataPoint, KlineTrades, NPoc, PointOfControl,
-    };
+    pub use super::kline_types::{KlineDataPoint, KlineTrades, NPoc, PointOfControl};
 
     // Re-export KlineConfig for UI
     pub use crate::state::pane::KlineConfig as Config;

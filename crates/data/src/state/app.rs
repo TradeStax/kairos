@@ -42,13 +42,6 @@ impl WindowSpec {
     }
 }
 
-/// Layout definition
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Layout {
-    pub name: Option<String>,
-    pub panes: Vec<String>, // Simplified - actual pane data would be more complex
-}
-
 /// Databento configuration settings
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DatabentoConfig {
@@ -205,37 +198,14 @@ impl AppState {
     }
 }
 
-/// Layout manager state
+/// Layout manager state (persistence shell)
+///
+/// Wraps `state::layout::LayoutManager` for backward-compatible
+/// serialization inside `AppState`.
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct LayoutManager {
-    pub layouts: Vec<Layout>,
+    pub layouts: Vec<super::layout::Layout>,
     pub active_layout: Option<String>,
-}
-
-impl LayoutManager {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn add_layout(&mut self, layout: Layout) {
-        self.layouts.push(layout);
-    }
-
-    pub fn set_active(&mut self, name: String) {
-        self.active_layout = Some(name);
-    }
-
-    pub fn get_active(&self) -> Option<&Layout> {
-        self.active_layout.as_ref().and_then(|name| {
-            self.layouts.iter().find(|l| {
-                if let Some(layout_name) = &l.name {
-                    layout_name == name
-                } else {
-                    false
-                }
-            })
-        })
-    }
 }
 
 #[cfg(test)]
@@ -253,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_layout_manager() {
-        let manager = LayoutManager::new();
+        let manager = LayoutManager::default();
         assert!(manager.layouts.is_empty());
         assert!(manager.active_layout.is_none());
     }

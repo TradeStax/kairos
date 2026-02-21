@@ -18,7 +18,7 @@ use thiserror::Error;
 pub struct StateVersion(pub u32);
 
 impl StateVersion {
-    pub const CURRENT: StateVersion = StateVersion(3);
+    pub const CURRENT: StateVersion = StateVersion(4);
 
     pub fn is_current(&self) -> bool {
         *self == Self::CURRENT
@@ -372,7 +372,7 @@ mod tests {
         let registry = MigrationRegistry::new();
 
         // Same version should have empty path
-        let path = registry.get_migration_path(StateVersion(2), StateVersion(2));
+        let path = registry.get_migration_path(StateVersion(3), StateVersion(3));
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 0);
 
@@ -380,6 +380,11 @@ mod tests {
         let path = registry.get_migration_path(StateVersion(1), StateVersion(2));
         assert!(path.is_some());
         assert_eq!(path.unwrap().len(), 1);
+
+        // v1 to v4 should have 3 migrations
+        let path = registry.get_migration_path(StateVersion(1), StateVersion(4));
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 3);
     }
 
     #[test]

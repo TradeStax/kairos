@@ -24,12 +24,11 @@ pub use domain::error::{AppError, ErrorSeverity};
 
 // Re-export commonly used types for convenience
 pub use domain::{
-    Autoscale, Candle, CandlePosition, ChartBasis, ChartConfig, ChartData, ChartType,
-    ClusterScaling, DataGap, DataGapKind, DataSchema, DataSegment, DateRange, DepthSnapshot,
-    FootprintMode, FootprintStudyConfig, FootprintType, FuturesTicker, FuturesTickerInfo,
-    FuturesVenue, HeatmapIndicator, KlineDataPoint, KlineTrades, LoadingStatus, MergeResult, NPoc,
-    PointOfControl, Price, Quantity, Side, Timeframe, Timestamp, Trade, ViewConfig, Volume,
-    aggregate_trades_to_candles, aggregate_trades_to_ticks,
+    Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, DataGap, DataGapKind,
+    DataIndex, DataKey, DataSchema, DataSegment, DateRange, DepthSnapshot, FuturesTicker,
+    FuturesTickerInfo, FuturesVenue, HeatmapIndicator, KlineDataPoint, KlineTrades, LoadingStatus,
+    MergeResult, NPoc, PointOfControl, Price, Quantity, Side, Timeframe, Timestamp, Trade,
+    ViewConfig, Volume, aggregate_trades_to_candles, aggregate_trades_to_ticks,
 };
 
 pub use repository::{
@@ -42,8 +41,8 @@ pub use services::{CacheManagerService, MarketDataService, ServiceError, merge_s
 pub use state::{
     AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
     DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
-    Layouts, LinkGroup, Pane, Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
-    VisualConfig, WindowSpec, load_state, save_state,
+    Layouts, LinkGroup, Pane, ScriptEditorConfig, Settings, StateVersion, StudyInstanceConfig,
+    TimeAndSalesConfig, VisualConfig, WindowSpec, load_state, save_state,
 };
 
 // Re-export config types

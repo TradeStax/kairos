@@ -60,3 +60,6 @@ pub use types::DownloadSchema;
 
 // Re-export PushFrequency from its canonical location in adapter::stream
 pub use adapter::stream::PushFrequency;
+
+// Re-export DataIndex builder functions
+pub use ext::{build_rithmic_contribution, scan_databento_cache};

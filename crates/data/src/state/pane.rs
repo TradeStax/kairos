@@ -15,6 +15,7 @@ pub enum ContentKind {
     TimeAndSales,
     Ladder,
     ComparisonChart,
+    ScriptEditor,
 }
 
 // Custom Serialize that writes CandlestickChart as "CandlestickChart"
@@ -27,6 +28,7 @@ impl Serialize for ContentKind {
             ContentKind::TimeAndSales => serializer.serialize_str("TimeAndSales"),
             ContentKind::Ladder => serializer.serialize_str("Ladder"),
             ContentKind::ComparisonChart => serializer.serialize_str("ComparisonChart"),
+            ContentKind::ScriptEditor => serializer.serialize_str("ScriptEditor"),
         }
     }
 }
@@ -42,6 +44,7 @@ impl<'de> Deserialize<'de> for ContentKind {
             "TimeAndSales" => Ok(ContentKind::TimeAndSales),
             "Ladder" => Ok(ContentKind::Ladder),
             "ComparisonChart" => Ok(ContentKind::ComparisonChart),
+            "ScriptEditor" => Ok(ContentKind::ScriptEditor),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -51,6 +54,7 @@ impl<'de> Deserialize<'de> for ContentKind {
                     "TimeAndSales",
                     "Ladder",
                     "ComparisonChart",
+                    "ScriptEditor",
                 ],
             )),
         }
@@ -64,6 +68,7 @@ impl ContentKind {
         ContentKind::TimeAndSales,
         ContentKind::Ladder,
         ContentKind::ComparisonChart,
+        ContentKind::ScriptEditor,
     ];
 
     pub fn to_chart_type(self) -> ChartType {
@@ -74,6 +79,7 @@ impl ContentKind {
             ContentKind::Ladder => ChartType::Candlestick,
             ContentKind::ComparisonChart => ChartType::Candlestick,
             ContentKind::Starter => ChartType::Candlestick,
+            ContentKind::ScriptEditor => ChartType::Candlestick,
         }
     }
 }
@@ -87,6 +93,7 @@ impl std::fmt::Display for ContentKind {
             ContentKind::TimeAndSales => write!(f, "Time & Sales"),
             ContentKind::Ladder => write!(f, "Ladder"),
             ContentKind::ComparisonChart => write!(f, "Comparison"),
+            ContentKind::ScriptEditor => write!(f, "Script Editor"),
         }
     }
 }
@@ -144,6 +151,7 @@ pub enum VisualConfig {
     TimeAndSales(TimeAndSalesConfig),
     Ladder(LadderConfig),
     Comparison(ComparisonConfig),
+    ScriptEditor(ScriptEditorConfig),
 }
 
 impl VisualConfig {
@@ -178,6 +186,13 @@ impl VisualConfig {
     pub fn comparison(self) -> Option<ComparisonConfig> {
         match self {
             VisualConfig::Comparison(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn script_editor(self) -> Option<ScriptEditorConfig> {
+        match self {
+            VisualConfig::ScriptEditor(cfg) => Some(cfg),
             _ => None,
         }
     }
@@ -310,9 +325,6 @@ pub struct KlineConfig {
     /// Which color field is currently being edited (UI-only, not persisted)
     #[serde(skip)]
     pub editing_color: Option<CandleColorField>,
-    /// Active footprint study (None = standard candles only)
-    #[serde(default)]
-    pub footprint: Option<crate::domain::chart::FootprintStudyConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,4 +376,15 @@ pub struct ComparisonConfig {
     /// Map of ticker symbol strings to custom names
     #[serde(default)]
     pub names: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScriptEditorConfig {
+    pub script_path: Option<String>,
+    #[serde(default = "default_editor_font_size")]
+    pub font_size: f32,
+}
+
+fn default_editor_font_size() -> f32 {
+    14.0
 }

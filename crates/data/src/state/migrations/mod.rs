@@ -11,7 +11,11 @@ use crate::state::persistence::{PersistenceResult, StateMigration, StateVersion}
 /// This function should be called by the MigrationRegistry constructor
 /// to register all available migrations.
 pub fn register_all_migrations() -> Vec<Box<dyn StateMigration>> {
-    vec![Box::new(MigrationV1ToV2), Box::new(MigrationV2ToV3)]
+    vec![
+        Box::new(MigrationV1ToV2),
+        Box::new(MigrationV2ToV3),
+        Box::new(MigrationV3ToV4),
+    ]
 }
 
 /// Migration v1 -> v2: Add data feed manager
@@ -70,6 +74,37 @@ impl StateMigration for MigrationV2ToV3 {
 
     fn description(&self) -> &str {
         "Bump version for data-only theme and Rgba (no iced_core)"
+    }
+}
+
+/// Migration v3 -> v4: Layout persistence
+///
+/// Replaces empty layout stubs with full pane-tree serialization.
+/// Old v3 states had `panes: Vec<String>` (always empty) which
+/// deserializes as an empty `layouts` vec via serde(default),
+/// so no data transformation is needed — only the version bump.
+struct MigrationV3ToV4;
+
+impl StateMigration for MigrationV3ToV4 {
+    fn source_version(&self) -> StateVersion {
+        StateVersion(3)
+    }
+
+    fn to_version(&self) -> StateVersion {
+        StateVersion(4)
+    }
+
+    fn migrate(&self, mut state: AppState) -> PersistenceResult<AppState> {
+        state.version = StateVersion(4);
+        log::info!(
+            "Migration v3->v4: Layout persistence \
+             (old empty layout stubs replaced by full pane trees)"
+        );
+        Ok(state)
+    }
+
+    fn description(&self) -> &str {
+        "Layout persistence: full pane-tree serialization"
     }
 }
 
