@@ -67,7 +67,9 @@ fn render_single_line(
     for &(x_val, y_val) in &series.points {
         let sx = state.interval_to_x(x_val);
         let sy = match placement {
-            StudyPlacement::Overlay | StudyPlacement::Background => {
+            StudyPlacement::Overlay
+            | StudyPlacement::Background
+            | StudyPlacement::CandleReplace => {
                 state.price_to_y(Price::from_f32_lossy(y_val))
             }
             StudyPlacement::Panel => {

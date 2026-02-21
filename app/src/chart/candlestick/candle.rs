@@ -7,51 +7,6 @@ use iced::{Color, Point, Size};
 
 use super::domain_to_exchange_price;
 
-pub fn draw_footprint_candle(
-    frame: &mut canvas::Frame,
-    price_to_y: impl Fn(Price) -> f32,
-    x_position: f32,
-    candle_width: f32,
-    candle: &Candle,
-    palette: &Extended,
-) {
-    let y_open = price_to_y(domain_to_exchange_price(candle.open));
-    let y_high = price_to_y(domain_to_exchange_price(candle.high));
-    let y_low = price_to_y(domain_to_exchange_price(candle.low));
-    let y_close = price_to_y(domain_to_exchange_price(candle.close));
-
-    let body_color = if candle.close >= candle.open {
-        palette.success.weak.color
-    } else {
-        palette.danger.weak.color
-    };
-    frame.fill_rectangle(
-        Point::new(x_position - (candle_width / 8.0), y_open.min(y_close)),
-        Size::new(candle_width / 4.0, (y_open - y_close).abs()),
-        body_color,
-    );
-
-    let wick_color = if candle.close >= candle.open {
-        palette.success.weak.color
-    } else {
-        palette.danger.weak.color
-    };
-    let marker_line = Stroke::with_color(
-        Stroke {
-            width: 1.0,
-            ..Default::default()
-        },
-        wick_color.scale_alpha(0.6),
-    );
-    frame.stroke(
-        &Path::line(
-            Point::new(x_position, y_high),
-            Point::new(x_position, y_low),
-        ),
-        marker_line,
-    );
-}
-
 /// Resolve the actual candle colors from the user's `CandleStyle` config,
 /// falling back to the theme palette when a field is `None`.
 struct ResolvedColors {

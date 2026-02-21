@@ -5,7 +5,14 @@
 use super::ViewState;
 use crate::chart::Message;
 use data::DrawingId;
-use iced::{Point, Size, Vector, widget::canvas};
+use iced::widget::canvas::{self, Cache};
+use iced::{Point, Size, Vector};
+
+/// Info about a single panel study for rendering below the main chart.
+pub struct PanelStudyInfo<'a> {
+    pub name: &'a str,
+    pub output: &'a study::StudyOutput,
+}
 
 /// Core trait for all chart types
 ///
@@ -76,6 +83,21 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
     /// Check if a clone placement is in progress
     fn has_clone_pending(&self) -> bool {
         false
+    }
+
+    /// Get info for panel-placement studies to render below the chart.
+    fn panel_studies(&self) -> Vec<PanelStudyInfo<'_>> {
+        Vec::new()
+    }
+
+    /// Get the cache used for panel study rendering.
+    fn panel_cache(&self) -> Option<&Cache> {
+        None
+    }
+
+    /// Get the cache used for panel Y-axis label rendering.
+    fn panel_labels_cache(&self) -> Option<&Cache> {
+        None
     }
 }
 

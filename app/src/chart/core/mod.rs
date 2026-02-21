@@ -15,5 +15,5 @@ mod view_state;
 
 pub use caches::Caches;
 pub use interaction::{ChartState, Interaction, canvas_interaction};
-pub use traits::{Chart, PlotConstants};
+pub use traits::{Chart, PanelStudyInfo, PlotConstants};
 pub use view_state::ViewState;

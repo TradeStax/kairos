@@ -161,7 +161,9 @@ fn to_y(
     panel_range: Option<(f32, f32)>,
 ) -> f32 {
     match placement {
-        StudyPlacement::Overlay | StudyPlacement::Background => {
+        StudyPlacement::Overlay
+        | StudyPlacement::Background
+        | StudyPlacement::CandleReplace => {
             state.price_to_y(Price::from_f32_lossy(value))
         }
         StudyPlacement::Panel => {

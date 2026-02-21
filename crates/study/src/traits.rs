@@ -1,6 +1,6 @@
 use crate::config::{ParameterDef, ParameterValue, StudyConfig};
 use crate::error::StudyError;
-use crate::output::{MarkerRenderConfig, StudyOutput};
+use crate::output::{CandleRenderConfig, MarkerRenderConfig, StudyOutput};
 use data::{Candle, ChartBasis, Price, Trade};
 
 /// Core trait for all technical studies and indicators.
@@ -50,6 +50,13 @@ pub trait Study: Send + Sync {
         None
     }
 
+    /// Optional render configuration for CandleReplace studies.
+    /// Returns layout constants that override the chart's default
+    /// cell sizing, zoom bounds, and initial candle window.
+    fn candle_render_config(&self) -> Option<CandleRenderConfig> {
+        None
+    }
+
     /// Clone this study into a new boxed instance
     fn clone_study(&self) -> Box<dyn Study>;
 }
@@ -88,6 +95,9 @@ pub enum StudyPlacement {
     Panel,
     /// Behind candles (Volume Profile, Value Area)
     Background,
+    /// Replaces standard candle rendering entirely.
+    /// Only one CandleReplace study can be active at a time.
+    CandleReplace,
 }
 
 impl std::fmt::Display for StudyPlacement {
@@ -96,6 +106,7 @@ impl std::fmt::Display for StudyPlacement {
             StudyPlacement::Overlay => write!(f, "Overlay"),
             StudyPlacement::Panel => write!(f, "Panel"),
             StudyPlacement::Background => write!(f, "Background"),
+            StudyPlacement::CandleReplace => write!(f, "Candle Replace"),
         }
     }
 }

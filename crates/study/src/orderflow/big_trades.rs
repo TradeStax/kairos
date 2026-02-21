@@ -18,25 +18,27 @@ const DEFAULT_FILTER_MIN: i64 = 50;
 const DEFAULT_FILTER_MAX: i64 = 0;
 const DEFAULT_AGGREGATION_WINDOW_MS: i64 = 40;
 
+// Theme-matched colors (Kairos default palette: success #51CDA0, danger #C0504D)
+#[allow(clippy::approx_constant)]
 const DEFAULT_ASK_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.8,
-    b: 0.4,
-    a: 0.7,
+    r: 0.318,
+    g: 0.804,
+    b: 0.627,
+    a: 1.0,
 };
 
 const DEFAULT_BID_COLOR: SerializableColor = SerializableColor {
-    r: 0.9,
-    g: 0.2,
-    b: 0.2,
-    a: 0.7,
+    r: 0.753,
+    g: 0.314,
+    b: 0.302,
+    a: 1.0,
 };
 
 const DEFAULT_TEXT_COLOR: SerializableColor = SerializableColor {
-    r: 1.0,
-    g: 1.0,
-    b: 1.0,
-    a: 1.0,
+    r: 0.88,
+    g: 0.88,
+    b: 0.88,
+    a: 0.9,
 };
 
 pub struct BigTradesStudy {
@@ -124,7 +126,7 @@ impl BigTradesStudy {
                     max: 5.0,
                     step: 0.1,
                 },
-                default: ParameterValue::Float(2.5),
+                default: ParameterValue::Float(2.0),
             },
             ParameterDef {
                 key: "min_size",
@@ -135,7 +137,7 @@ impl BigTradesStudy {
                     max: 60.0,
                     step: 1.0,
                 },
-                default: ParameterValue::Float(6.0),
+                default: ParameterValue::Float(8.0),
             },
             ParameterDef {
                 key: "max_size",
@@ -146,7 +148,7 @@ impl BigTradesStudy {
                     max: 100.0,
                     step: 1.0,
                 },
-                default: ParameterValue::Float(40.0),
+                default: ParameterValue::Float(36.0),
             },
             // ── Style / Color ────────────────────────────────
             ParameterDef {
@@ -158,7 +160,7 @@ impl BigTradesStudy {
                     max: 1.0,
                     step: 0.05,
                 },
-                default: ParameterValue::Float(0.4),
+                default: ParameterValue::Float(0.10),
             },
             ParameterDef {
                 key: "max_opacity",
@@ -169,7 +171,7 @@ impl BigTradesStudy {
                     max: 1.0,
                     step: 0.05,
                 },
-                default: ParameterValue::Float(1.0),
+                default: ParameterValue::Float(0.60),
             },
             ParameterDef {
                 key: "ask_color",
@@ -195,7 +197,7 @@ impl BigTradesStudy {
                     max: 20.0,
                     step: 0.5,
                 },
-                default: ParameterValue::Float(11.0),
+                default: ParameterValue::Float(10.0),
             },
             ParameterDef {
                 key: "text_color",
@@ -722,13 +724,13 @@ impl Study for BigTradesStudy {
         Some(MarkerRenderConfig {
             shape,
             hollow: self.config.get_bool("hollow", false),
-            std_dev: self.config.get_float("std_dev", 2.5) as f32,
-            min_size: self.config.get_float("min_size", 6.0) as f32,
-            max_size: self.config.get_float("max_size", 40.0) as f32,
-            min_opacity: self.config.get_float("min_opacity", 0.4) as f32,
-            max_opacity: self.config.get_float("max_opacity", 1.0) as f32,
+            std_dev: self.config.get_float("std_dev", 2.0) as f32,
+            min_size: self.config.get_float("min_size", 8.0) as f32,
+            max_size: self.config.get_float("max_size", 36.0) as f32,
+            min_opacity: self.config.get_float("min_opacity", 0.10) as f32,
+            max_opacity: self.config.get_float("max_opacity", 0.60) as f32,
             show_text: self.config.get_bool("show_text", true),
-            text_size: self.config.get_float("text_size", 11.0) as f32,
+            text_size: self.config.get_float("text_size", 10.0) as f32,
             text_color: self
                 .config
                 .get_color("text_color", DEFAULT_TEXT_COLOR),
@@ -1411,8 +1413,10 @@ mod tests {
         assert_eq!(config.shape, MarkerShape::Circle);
         assert!(!config.hollow);
         assert!(config.show_text);
-        assert!((config.std_dev - 2.5).abs() < f32::EPSILON);
-        assert!((config.min_size - 6.0).abs() < f32::EPSILON);
-        assert!((config.max_size - 40.0).abs() < f32::EPSILON);
+        assert!((config.std_dev - 2.0).abs() < f32::EPSILON);
+        assert!((config.min_size - 8.0).abs() < f32::EPSILON);
+        assert!((config.max_size - 36.0).abs() < f32::EPSILON);
+        assert!((config.min_opacity - 0.10).abs() < f32::EPSILON);
+        assert!((config.max_opacity - 0.60).abs() < f32::EPSILON);
     }
 }

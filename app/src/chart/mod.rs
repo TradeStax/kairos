@@ -16,8 +16,12 @@ pub mod study_renderer;
 // Re-export KlineChart for backwards compatibility
 
 // Re-export core types for public API
-pub use core::{Chart, ChartState, Interaction, PlotConstants, ViewState, canvas_interaction};
+pub use core::{
+    Chart, ChartState, Interaction, PanelStudyInfo, PlotConstants, ViewState,
+    canvas_interaction,
+};
 
+use crate::components::layout::multi_split::MultiSplit;
 use crate::style;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
@@ -29,6 +33,8 @@ use iced::{
 };
 
 use crate::style::tokens;
+
+use study_renderer::panel::{PanelAxisLabelsY, StudyPanelCanvas};
 
 /// Zoom sensitivity for scroll wheel operations
 const ZOOM_SENSITIVITY: f32 = tokens::chart::ZOOM_SENSITIVITY;
@@ -375,6 +381,10 @@ pub fn view<'a, T: Chart>(
 
     let y_labels_width = state.y_labels_width();
 
+    // Collect panel studies
+    let panels = chart.panel_studies();
+    let panel_cache = chart.panel_cache();
+
     let content: Element<'_, Message> = {
         let axis_labels_y = Canvas::new(AxisLabelsY {
             labels_cache: &state.cache.y_labels,
@@ -406,22 +416,84 @@ pub fn view<'a, T: Chart>(
         .into()
     };
 
-    column![
-        content,
-        rule::horizontal(1).style(style::split_ruler),
-        row![
-            container(
-                mouse_area(axis_labels_x)
-                    .on_double_click(Message::DoubleClick(AxisScaleClicked::X))
-            )
-            .padding(iced::padding::right(1))
-            .width(Length::FillPortion(10))
-            .height(Length::Fixed(26.0)),
-            buttons.width(y_labels_width).height(Length::Fixed(26.0))
+    // Build the x-axis row (shared between panel and non-panel layouts)
+    let x_axis_row = row![
+        container(
+            mouse_area(axis_labels_x)
+                .on_double_click(Message::DoubleClick(AxisScaleClicked::X))
+        )
+        .padding(iced::padding::right(1))
+        .width(Length::FillPortion(10))
+        .height(Length::Fixed(26.0)),
+        buttons.width(y_labels_width).height(Length::Fixed(26.0))
+    ];
+
+    // Build panel row if panel studies exist
+    let has_panels = !panels.is_empty() && panel_cache.is_some();
+    let panel_labels_cache = chart.panel_labels_cache();
+
+    let chart_body: Element<'_, Message> = if has_panels {
+        let cache = panel_cache.unwrap();
+
+        // Build panel Y-axis labels canvas
+        let panel_y_axis: Element<'_, Message> =
+            if let Some(labels_cache) = panel_labels_cache {
+                Canvas::new(PanelAxisLabelsY {
+                    panels: chart.panel_studies(),
+                    cache: labels_cache,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+            } else {
+                column![].into()
+            };
+
+        let panel_canvas =
+            Canvas::new(StudyPanelCanvas {
+                panels,
+                state,
+                cache,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        let panel_row: Element<'_, Message> = row![
+            container(panel_canvas)
+                .width(Length::FillPortion(10)),
+            rule::vertical(1).style(style::split_ruler),
+            container(panel_y_axis).width(y_labels_width)
         ]
-    ]
-    .padding(iced::padding::left(1).right(1).bottom(1))
-    .into()
+        .into();
+
+        // Ensure layout.splits has at least one entry for the
+        // main/panel divider. Default to 0.75 (75% main chart).
+        let splits = &state.layout.splits;
+        if splits.is_empty() {
+            // No splits yet — use a fixed column layout as fallback
+            // (the SplitDragged handler will populate splits on first drag)
+            column![content, rule::horizontal(1).style(style::split_ruler), panel_row]
+                .height(Length::Fill)
+                .into()
+        } else {
+            MultiSplit::new(
+                vec![content, panel_row],
+                splits,
+                |idx, pos| Message::SplitDragged(idx, pos),
+            )
+            .into()
+        }
+    } else {
+        content
+    };
+
+    let layout = column![chart_body]
+        .push(rule::horizontal(1).style(style::split_ruler))
+        .push(x_axis_row);
+
+    layout
+        .padding(iced::padding::left(1).right(1).bottom(1))
+        .into()
 }
 
 /// Volume quantities and colors for a buy/sell bar.

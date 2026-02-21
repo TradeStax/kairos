@@ -111,6 +111,18 @@ impl StudyRegistry {
             || Box::new(crate::orderflow::BigTradesStudy::new()),
         );
 
+        registry.register(
+            "footprint",
+            StudyInfo {
+                id: "footprint".to_string(),
+                name: "Footprint".to_string(),
+                category: StudyCategory::OrderFlow,
+                placement: StudyPlacement::CandleReplace,
+                description: "Per-candle trade volume at each price level".to_string(),
+            },
+            || Box::new(crate::orderflow::FootprintStudy::new()),
+        );
+
         // Trend studies
         registry.register(
             "sma",

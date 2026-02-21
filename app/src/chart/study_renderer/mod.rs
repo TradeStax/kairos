@@ -2,21 +2,20 @@
 //!
 //! Converts abstract `StudyOutput` render primitives from the study crate
 //! into iced canvas draw calls.
-//!
-//! NOTE: This module is not yet wired into the chart rendering pipeline.
-//! The `render_study_output` entry point will be called once the new study
-//! system is integrated. All items are intentionally kept.
 
 mod band;
 mod bar;
+pub(crate) mod footprint;
 mod histogram;
 mod levels;
 mod line;
 mod markers;
 mod profile;
+pub mod panel;
 
 use crate::chart::ViewState;
 use iced::Size;
+use iced::theme::palette::Extended;
 use iced::widget::canvas::Frame;
 use study::output::MarkerRenderConfig;
 use study::{StudyOutput, StudyPlacement};
@@ -25,6 +24,7 @@ use study::{StudyOutput, StudyPlacement};
 ///
 /// For overlay studies, coordinates are mapped via the chart's price/time axes.
 /// For panel studies, a local Y scale is computed from the output's value range.
+/// The optional `palette` is required for `Footprint` rendering.
 pub fn render_study_output(
     frame: &mut Frame,
     output: &StudyOutput,
@@ -32,6 +32,7 @@ pub fn render_study_output(
     bounds: Size,
     placement: StudyPlacement,
     marker_config: Option<&MarkerRenderConfig>,
+    palette: Option<&Extended>,
 ) {
     match output {
         StudyOutput::Lines(lines) => {
@@ -71,7 +72,12 @@ pub fn render_study_output(
             let config = marker_config.unwrap_or(&default_config);
             markers::render_markers(frame, m, state, bounds, config);
         }
-        StudyOutput::Clusters(_) | StudyOutput::Empty => {}
+        StudyOutput::Footprint(data) => {
+            if let Some(pal) = palette {
+                footprint::render_footprint(frame, data, state, bounds, pal);
+            }
+        }
+        StudyOutput::Empty => {}
     }
 }
 

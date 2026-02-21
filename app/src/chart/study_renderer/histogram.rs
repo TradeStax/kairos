@@ -40,6 +40,7 @@ pub fn render_histogram(
         let color: Color = crate::style::theme_bridge::rgba_to_iced_color(bar.color);
 
         match placement {
+            StudyPlacement::CandleReplace => return,
             StudyPlacement::Overlay | StudyPlacement::Background => {
                 let y_val = state.price_to_y(Price::from_f32_lossy(bar.value));
                 let y_zero = state.price_to_y(Price::from_f32_lossy(0.0));

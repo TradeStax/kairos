@@ -4,7 +4,7 @@ use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE};
 use crate::components::primitives::AZERET_MONO;
 use data::state::pane::CandleStyle;
 use data::util::count_decimals;
-use data::{Candle, ChartBasis, FootprintType, Trade};
+use data::{Candle, ChartBasis, Trade};
 use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
@@ -13,14 +13,6 @@ use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
 
 use super::KlineChart;
 use super::candle::draw_candle;
-use super::footprint::{
-    ClusterLayout, ClusterStyle, ContentGaps, draw_clusters, effective_cluster_qty,
-    should_show_text,
-};
-
-const MAX_TEXT_SIZE: f32 = 14.0;
-const TEXT_SIZE_PADDING: f32 = 2.0;
-const FOOTPRINT_CANDLE_WIDTH_RATIO: f32 = 0.8;
 
 impl canvas::Program<Message> for KlineChart {
     type State = ChartState;
@@ -101,163 +93,26 @@ impl canvas::Program<Message> for KlineChart {
             );
             let lod_level = lod.calculate_lod();
 
-            if let Some(fp_config) = &self.footprint {
-                // Ensure footprint cache is populated for visible range
-                let candle_count = self.chart_data.candles.len();
-                let (first_candle_idx, last_candle_idx) = match &self.basis {
-                    ChartBasis::Time(_) => {
-                        let first = self
-                            .chart_data
-                            .candles
-                            .partition_point(|c| c.time.0 < earliest);
-                        let last = self
-                            .chart_data
-                            .candles
-                            .partition_point(|c| c.time.0 <= latest);
-                        (first, last)
-                    }
-                    ChartBasis::Tick(_) => {
-                        let ea = earliest as usize;
-                        let la = latest as usize;
-                        let start = candle_count.saturating_sub(la + 1);
-                        let end = candle_count.saturating_sub(ea);
-                        (start, end)
-                    }
-                };
-
-                self.footprint_cache.borrow_mut().ensure_range(
-                    first_candle_idx,
-                    last_candle_idx,
-                    &self.chart_data.candles,
-                    &self.chart_data.trades,
-                    chart.tick_size,
-                    &self.basis,
-                );
-
-                let max_cluster_qty = self.calc_qty_scales_from_cache(
-                    first_candle_idx,
-                    last_candle_idx.saturating_sub(1),
-                    fp_config.study_type,
-                );
-
-                let cell_height_unscaled = chart.cell_height * chart.scaling;
-                let cell_width_unscaled = chart.cell_width * chart.scaling;
-
-                let text_size = {
-                    let text_size_from_height =
-                        cell_height_unscaled.round().min(MAX_TEXT_SIZE) - TEXT_SIZE_PADDING;
-                    let text_size_from_width = (cell_width_unscaled * FOOTPRINT_CANDLE_WIDTH_RATIO)
-                        .round()
-                        .min(MAX_TEXT_SIZE)
-                        - TEXT_SIZE_PADDING;
-                    text_size_from_height.min(text_size_from_width)
-                };
-
-                let candle_width = FOOTPRINT_CANDLE_WIDTH_RATIO * chart.cell_width;
-                let content_spacing = ContentGaps::from_view(candle_width, chart.scaling);
-
-                let show_text = {
-                    let min_w = match fp_config.study_type {
-                        FootprintType::Volume | FootprintType::Delta => 80.0,
-                        FootprintType::BidAskSplit | FootprintType::DeltaAndVolume => 120.0,
-                    };
-                    lod_level.show_text()
-                        && should_show_text(cell_height_unscaled, cell_width_unscaled, min_w)
-                };
-
-                // Render footprint from cache
-                let cluster_style = ClusterStyle {
-                    palette,
-                    text_size,
-                    show_text,
-                };
-
-                let cache = self.footprint_cache.borrow();
-                match &self.basis {
-                    ChartBasis::Tick(_) => {
-                        let earliest_idx = earliest as usize;
-                        let latest_idx = latest as usize;
-                        self.chart_data
-                            .candles
-                            .iter()
-                            .rev()
-                            .enumerate()
-                            .filter(|(i, _)| *i <= latest_idx && *i >= earliest_idx)
-                            .for_each(|(index, candle)| {
-                                let x_position = interval_to_x(index as u64);
-                                let candle_idx = candle_count - 1 - index;
-                                if let Some(footprint) = cache.get(candle_idx) {
-                                    let cluster_scaling = effective_cluster_qty(
-                                        fp_config.scaling,
-                                        max_cluster_qty,
-                                        footprint,
-                                        fp_config.study_type,
-                                    );
-                                    let cluster_layout = ClusterLayout {
-                                        x_position,
-                                        cell_width: chart.cell_width,
-                                        cell_height: chart.cell_height,
-                                        candle_width,
-                                        candle_position: fp_config.candle_position,
-                                        spacing: content_spacing,
-                                    };
-                                    draw_clusters(
-                                        frame,
-                                        price_to_y,
-                                        &cluster_layout,
-                                        &cluster_style,
-                                        cluster_scaling,
-                                        candle,
-                                        footprint,
-                                        fp_config.study_type,
-                                        fp_config.scaling,
-                                        fp_config.mode,
-                                    );
+            // When zoomed out past a CandleReplace study's max_bars,
+            // fall back to normal candle rendering instead.
+            let candle_replace_fallback =
+                self.has_candle_replace()
+                    && self.studies.iter().any(|s| {
+                        s.placement()
+                            == study::StudyPlacement::CandleReplace
+                            && match s.output() {
+                                study::StudyOutput::Footprint(d) => {
+                                    visible_candle_count
+                                        > d.max_bars_to_show
                                 }
-                            });
-                    }
-                    ChartBasis::Time(_) => {
-                        if latest >= earliest {
-                            self.chart_data
-                                .candles
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, c)| c.time.0 >= earliest && c.time.0 <= latest)
-                                .for_each(|(candle_idx, candle)| {
-                                    let x_position = interval_to_x(candle.time.0);
-                                    if let Some(footprint) = cache.get(candle_idx) {
-                                        let cluster_scaling = effective_cluster_qty(
-                                            fp_config.scaling,
-                                            max_cluster_qty,
-                                            footprint,
-                                            fp_config.study_type,
-                                        );
-                                        let cluster_layout = ClusterLayout {
-                                            x_position,
-                                            cell_width: chart.cell_width,
-                                            cell_height: chart.cell_height,
-                                            candle_width,
-                                            candle_position: fp_config.candle_position,
-                                            spacing: content_spacing,
-                                        };
-                                        draw_clusters(
-                                            frame,
-                                            price_to_y,
-                                            &cluster_layout,
-                                            &cluster_style,
-                                            cluster_scaling,
-                                            candle,
-                                            footprint,
-                                            fp_config.study_type,
-                                            fp_config.scaling,
-                                            fp_config.mode,
-                                        );
-                                    }
-                                });
-                        }
-                    }
-                }
-            } else {
+                                _ => false,
+                            }
+                    });
+
+            if !self.has_candle_replace()
+                || candle_replace_fallback
+            {
+                // Standard candle rendering
                 let candle_width = chart.cell_width * 0.8;
                 let interval_ms = match &self.basis {
                     ChartBasis::Time(tf) => tf.to_milliseconds(),
@@ -292,14 +147,21 @@ impl canvas::Program<Message> for KlineChart {
                 );
             }
 
-            // Render overlay and background studies
+            // Render overlay, background, and CandleReplace studies
             for study in &self.studies {
                 let output = study.output();
                 let placement = study.placement();
-                if !matches!(output, study::StudyOutput::Empty)
+                // Skip CandleReplace when in fallback mode
+                let skip = candle_replace_fallback
+                    && placement
+                        == study::StudyPlacement::CandleReplace;
+                if !skip
+                    && !matches!(output, study::StudyOutput::Empty)
                     && matches!(
                         placement,
-                        study::StudyPlacement::Overlay | study::StudyPlacement::Background
+                        study::StudyPlacement::Overlay
+                            | study::StudyPlacement::Background
+                            | study::StudyPlacement::CandleReplace
                     )
                 {
                     let marker_config = study.marker_render_config();
@@ -310,6 +172,7 @@ impl canvas::Program<Message> for KlineChart {
                         bounds_size,
                         placement,
                         marker_config.as_ref(),
+                        Some(palette),
                     );
                 }
             }

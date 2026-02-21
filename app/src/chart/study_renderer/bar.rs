@@ -42,6 +42,7 @@ pub fn render_bars(
             let color: Color = crate::style::theme_bridge::rgba_to_iced_color(point.color);
 
             match placement {
+                StudyPlacement::CandleReplace => return,
                 StudyPlacement::Overlay | StudyPlacement::Background => {
                     let y_val = state.price_to_y(Price::from_f32_lossy(point.value));
                     let y_base = state.price_to_y(Price::from_f32_lossy(0.0));
@@ -87,6 +88,7 @@ pub fn render_bars(
             if let Some(overlay_val) = point.overlay {
                 let overlay_abs = overlay_val.abs();
                 match placement {
+                    StudyPlacement::CandleReplace => return,
                     StudyPlacement::Overlay | StudyPlacement::Background => {
                         let y_ov = state.price_to_y(Price::from_f32_lossy(overlay_abs));
                         let y_base = state.price_to_y(Price::from_f32_lossy(0.0));

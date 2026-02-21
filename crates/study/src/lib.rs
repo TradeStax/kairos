@@ -20,6 +20,10 @@ pub mod volume;
 
 pub use config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
 pub use error::StudyError;
-pub use output::{MarkerRenderConfig, MarkerShape, StudyOutput};
+pub use output::{
+    CandleRenderConfig, FootprintCandle, FootprintCandlePosition, FootprintData,
+    FootprintDataType, FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
+    FootprintScaling, MarkerRenderConfig, MarkerShape, StudyOutput,
+};
 pub use registry::{StudyInfo, StudyRegistry};
 pub use traits::{Study, StudyCategory, StudyInput, StudyPlacement};
