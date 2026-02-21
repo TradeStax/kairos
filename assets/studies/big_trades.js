@@ -1,13 +1,38 @@
+/**
+ * Big Trades
+ *
+ * Aggregates consecutive same-side fills within a time window into
+ * blocks. Renders blocks exceeding a volume threshold as sized
+ * markers at the VWAP price.
+ *
+ * Output: overlay markers
+ */
 indicator("Big Trades", { overlay: true, category: "orderflow" });
 
-const minContracts = input.int("min_contracts", 50, { min: 1, max: 10000, label: "Min Contracts" });
-const aggregationWindowMs = input.int("aggregation_window_ms", 150, { min: 10, max: 5000, label: "Aggregation Window (ms)" });
-const buyColor = input.color("buy_color", "#00CC6688", { label: "Buy Color" });
-const sellColor = input.color("sell_color", "#FF333388", { label: "Sell Color" });
-const showLabels = input.bool("show_labels", true, { label: "Show Labels" });
-const bubbleScale = input.float("bubble_scale", 1.0, { min: 0.5, max: 3.0, step: 0.1, label: "Bubble Scale" });
+const minContracts = input.int("Min Contracts", 50, { min: 1, max: 10000 });
+const aggregationWindowMs = input.int("Aggregation Window (ms)", 150, {
+    min: 10, max: 5000,
+});
+const buyColor = input.color("Buy Color", "#00CC6688");
+const sellColor = input.color("Sell Color", "#FF333388");
+const showLabels = input.bool("Show Labels", true);
+const bubbleScale = input.float("Bubble Scale", 1.0, {
+    min: 0.5, max: 3.0, step: 0.1,
+});
 
-// Aggregate consecutive same-side fills within the time window
+setMarkerRenderConfig({
+    shape: "circle",
+    hollow: false,
+    stdDev: 2.0,
+    minSize: 8.0,
+    maxSize: 36.0,
+    minOpacity: 0.10,
+    maxOpacity: 0.60,
+    showText: true,
+    textSize: 10.0,
+    textColor: "#E0E0E0E6",
+});
+
 if (trades && trades.length > 0) {
     const blocks = [];
     let currentBlock = null;
@@ -20,33 +45,22 @@ if (trades && trades.length > 0) {
         if (currentBlock !== null
             && currentBlock.isBuy === trade.isBuy
             && (trade.time - currentBlock.lastTime) <= aggregationWindowMs) {
-            // Merge into current block
             currentBlock.vwapNumerator += trade.price * qty;
             currentBlock.totalQty += qty;
             currentBlock.lastTime = trade.time;
-            currentBlock.fillCount += 1;
         } else {
-            // Flush current block and start new one
-            if (currentBlock !== null) {
-                blocks.push(currentBlock);
-            }
+            if (currentBlock !== null) blocks.push(currentBlock);
             currentBlock = {
                 isBuy: trade.isBuy,
                 vwapNumerator: trade.price * qty,
                 totalQty: qty,
                 firstTime: trade.time,
                 lastTime: trade.time,
-                fillCount: 1
             };
         }
     }
+    if (currentBlock !== null) blocks.push(currentBlock);
 
-    // Flush final block
-    if (currentBlock !== null) {
-        blocks.push(currentBlock);
-    }
-
-    // Output markers for blocks meeting the threshold
     for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
         if (block.totalQty < minContracts) continue;
@@ -66,7 +80,7 @@ if (trades && trades.length > 0) {
             size: math.sqrt(block.totalQty) * bubbleScale,
             color,
             label,
-            isBuy: block.isBuy
+            isBuy: block.isBuy,
         });
     }
 }
