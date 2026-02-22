@@ -223,7 +223,24 @@ impl ProfileChart {
         &self,
     ) -> Option<&ProfileOutput> {
         match self.profile_study.output() {
-            StudyOutput::Profile(o, _) => Some(o),
+            StudyOutput::Profile(profiles, _) => {
+                profiles.first()
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract both the profile output and its render config.
+    fn profile_and_config(
+        &self,
+    ) -> Option<(
+        &ProfileOutput,
+        &study::output::ProfileRenderConfig,
+    )> {
+        match self.profile_study.output() {
+            StudyOutput::Profile(profiles, config) => {
+                profiles.first().map(|p| (p, config))
+            }
             _ => None,
         }
     }
@@ -567,8 +584,8 @@ fn apply_profile_config_to_study(
     };
     set!("vbp_type", ParameterValue::Choice(vbp_type.into()));
 
-    // ── Period: always "Auto" (caller pre-slices data) ────────
-    set!("period", ParameterValue::Choice("Auto".into()));
+    // ── Period: always "Custom" (caller pre-slices data) ──────
+    set!("period", ParameterValue::Choice("Custom".into()));
 
     // ── Tick grouping ─────────────────────────────────────────
     // ProfileChart bakes auto_group_factor into the quantum.
@@ -603,8 +620,8 @@ fn apply_profile_config_to_study(
         "opacity",
         ParameterValue::Float(cfg.opacity as f64)
     );
-    // Width doesn't apply to standalone, but keep it harmless.
-    set!("width_pct", ParameterValue::Float(0.25));
+    // Profile fills most of the pane width.
+    set!("width_pct", ParameterValue::Float(0.90));
 
     // ── Colors ────────────────────────────────────────────────
     if let Some(c) = cfg.volume_color {

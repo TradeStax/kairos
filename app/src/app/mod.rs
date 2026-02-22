@@ -47,6 +47,7 @@ pub struct Kairos {
         Option<std::sync::Arc<tokio::sync::Mutex<data::services::ReplayEngine>>>,
     pub(crate) replay_manager: crate::modals::replay::ReplayManager,
     pub(crate) menu_bar: crate::components::chrome::menu_bar::MenuBar,
+    pub(crate) title_bar_hovered: bool,
     // Rithmic connection state
     pub(crate) rithmic_client: Option<std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>>,
     pub(crate) rithmic_trade_repo: Option<std::sync::Arc<exchange::RithmicTradeRepository>>,
@@ -159,6 +160,7 @@ impl Kairos {
             replay_engine: None,
             replay_manager: crate::modals::replay::ReplayManager::new(),
             menu_bar: crate::components::chrome::menu_bar::MenuBar::new(),
+            title_bar_hovered: false,
             timezone: saved_state.timezone,
             ui_scale_factor: saved_state.scale_factor,
             theme: saved_state.theme,

@@ -57,7 +57,8 @@ pub enum Message {
     Translated(Vector),
     Scaled(f32, Vector),
     AutoscaleToggled,
-    CrosshairMoved,
+    CrosshairMoved(Option<Point>),
+    CursorLeft,
     YScaling(f32, f32, bool),
     XScaling(f32, f32, bool),
     BoundsChanged(Rectangle),
@@ -301,7 +302,9 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
                 *split = (size * 100.0).round() / 100.0;
             }
         }
-        Message::CrosshairMoved => return chart.invalidate_crosshair(),
+        Message::CrosshairMoved(_) | Message::CursorLeft => {
+            return chart.invalidate_crosshair();
+        }
         // Drawing messages are handled at the pane level where we have mutable access
         Message::DrawingClick(_, _)
         | Message::DrawingMove(_, _)
@@ -347,6 +350,7 @@ pub fn view<'a, T: Chart>(
         chart_bounds: state.bounds,
         interval_keys: chart.interval_keys(),
         autoscaling: state.layout.autoscale,
+        remote_crosshair: state.remote_crosshair,
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -404,7 +408,12 @@ pub fn view<'a, T: Chart>(
         .height(Length::Fill);
 
         row![
-            container(Canvas::new(chart).width(Length::Fill).height(Length::Fill))
+            container(
+                mouse_area(
+                    Canvas::new(chart).width(Length::Fill).height(Length::Fill)
+                )
+                .on_exit(Message::CursorLeft)
+            )
                 .width(Length::FillPortion(10))
                 .height(Length::FillPortion(120)),
             rule::vertical(1).style(style::split_ruler),

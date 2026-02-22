@@ -1,5 +1,5 @@
 use iced::widget::{button, row, text};
-use iced::{Element, Theme};
+use iced::{Alignment, Element, Length, Theme};
 
 use crate::style;
 use crate::style::tokens;
@@ -21,6 +21,7 @@ pub struct ButtonGroupBuilder<'a, Message> {
     selected: usize,
     group_style: GroupStyle,
     spacing: f32,
+    fill_width: bool,
     _lifetime: std::marker::PhantomData<&'a ()>,
 }
 
@@ -35,6 +36,7 @@ impl<'a, Message: Clone + 'a> ButtonGroupBuilder<'a, Message> {
             selected,
             group_style: GroupStyle::Tab,
             spacing: tokens::spacing::XXS,
+            fill_width: false,
             _lifetime: std::marker::PhantomData,
         }
     }
@@ -57,11 +59,21 @@ impl<'a, Message: Clone + 'a> ButtonGroupBuilder<'a, Message> {
         self
     }
 
+    /// Make each button fill equal horizontal space.
+    pub fn fill_width(mut self) -> Self {
+        self.fill_width = true;
+        self
+    }
+
     pub fn into_element(self) -> Element<'a, Message> {
         let selected_idx = self.selected;
         let group_style = self.group_style;
+        let fill = self.fill_width;
 
         let mut r = row![].spacing(self.spacing);
+        if fill {
+            r = r.width(Length::Fill);
+        }
 
         for (i, (label, msg)) in self.items.into_iter().enumerate() {
             let is_active = i == selected_idx;
@@ -80,10 +92,23 @@ impl<'a, Message: Clone + 'a> ButtonGroupBuilder<'a, Message> {
                     }
                 };
 
-            let btn = button(text(label).size(tokens::text::BODY))
-                .padding([tokens::spacing::XS, tokens::spacing::MD])
+            let label_text = text(label)
+                .size(tokens::text::BODY)
+                .align_x(Alignment::Center);
+            let label_el: Element<'a, Message> = if fill {
+                label_text.width(Length::Fill).into()
+            } else {
+                label_text.into()
+            };
+
+            let mut btn = button(label_el)
+                .padding([tokens::spacing::XS, tokens::spacing::LG])
                 .style(style_fn)
                 .on_press(msg);
+
+            if fill {
+                btn = btn.width(Length::Fill);
+            }
 
             r = r.push(btn);
         }

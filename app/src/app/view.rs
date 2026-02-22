@@ -59,6 +59,7 @@ impl Kairos {
                         id,
                         window_title.clone(),
                         self.main_window.is_maximized,
+                        self.title_bar_hovered,
                     );
                     let menu = self.menu_bar.view().map(Message::MenuBar);
                     column![title, menu].into()
@@ -287,7 +288,7 @@ impl Kairos {
             #[cfg(not(target_os = "macos"))]
             {
                 column![
-                    title_bar::view_title_bar(id, window_title, false,),
+                    title_bar::view_title_bar(id, window_title, false, false),
                     popout_content,
                 ]
                 .into()

@@ -46,15 +46,25 @@ impl DrawingPropertiesModal {
         let tab_content = self.tab_content();
         let footer = self.footer();
 
-        let body = column![tab_bar, tab_content, footer,]
+        let body = column![tab_content, footer]
             .spacing(tokens::spacing::LG)
             .width(Length::Fill);
 
         let body_scrollable =
-            iced::widget::scrollable(body).style(style::scroll_bar);
+            iced::widget::scrollable::Scrollable::with_direction(
+                body,
+                iced::widget::scrollable::Direction::Vertical(
+                    iced::widget::scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4)
+                        .spacing(2),
+                ),
+            )
+            .style(style::scroll_bar);
 
         let inner = column![
             header,
+            tab_bar,
             container(body_scrollable).padding(iced::Padding {
                 top: tokens::spacing::MD,
                 right: tokens::spacing::XL,
@@ -94,9 +104,19 @@ impl DrawingPropertiesModal {
             .map(|t| (tab_label(*t).to_string(), Message::SwitchTab(*t)))
             .collect();
 
-        ButtonGroupBuilder::new(items, selected_idx)
-            .tab_style()
-            .into()
+        container(
+            ButtonGroupBuilder::new(items, selected_idx)
+                .tab_style()
+                .fill_width()
+                .into_element(),
+        )
+        .padding(iced::Padding {
+            top: tokens::spacing::SM,
+            right: tokens::spacing::XL,
+            bottom: 0.0,
+            left: tokens::spacing::XL,
+        })
+        .into()
     }
 
     /// Dispatch to the active tab's content.

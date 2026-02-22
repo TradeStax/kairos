@@ -72,9 +72,6 @@ pub fn draw_crosshair(
         dashed_line,
     );
 
-    // Price label box at right edge
-    draw_price_label(frame, palette, rounded_price, snapped_y, bounds, state.decimals);
-
     // Vertical time/tick line
     let rounded_interval = match state.basis {
         ChartBasis::Time(_) => {
@@ -132,40 +129,85 @@ pub fn draw_crosshair(
     }
 }
 
-/// Draw a price label box at the right edge of the chart.
-fn draw_price_label(
+/// Draw a remote crosshair vertical line from a linked pane.
+///
+/// Only draws the vertical line and time label (no horizontal price line)
+/// since the remote pane may have a different price scale.
+pub fn draw_remote_crosshair(
+    state: &ViewState,
     frame: &mut Frame,
-    palette: &Extended,
-    price: f32,
-    y: f32,
+    theme: &Theme,
     bounds: Size,
-    decimals: usize,
+    interval: u64,
 ) {
-    let text_size = tokens::text::SMALL;
-    let price_str = format!("{price:.decimals$}");
-    let char_width = text_size * 0.7;
-    let pad_x = 4.0;
-    let pad_y = 2.0;
-    let label_w = price_str.len() as f32 * char_width + pad_x * 2.0;
-    let label_h = text_size + pad_y * 2.0;
+    let region = state.visible_region(bounds);
+    let dashed_line = style::dashed_line(theme);
+    let palette = theme.extended_palette();
 
-    let label_x = bounds.width - label_w;
-    let label_y = y - label_h / 2.0;
+    match state.basis {
+        ChartBasis::Time(_) => {
+            // Convert interval to chart X coordinate, then to screen X
+            let chart_x = state.interval_to_x(interval);
+            let x_min = region.x;
+            let x_max = region.x + region.width;
+            let range = x_max - x_min;
 
-    frame.fill_rectangle(
-        Point::new(label_x, label_y),
-        Size::new(label_w, label_h),
-        palette.secondary.base.color,
-    );
+            if range.abs() < f32::EPSILON {
+                return;
+            }
 
-    frame.fill_text(Text {
-        content: price_str,
-        position: Point::new(label_x + pad_x, label_y + pad_y),
-        size: iced::Pixels(text_size),
-        color: palette.secondary.base.text,
-        font: AZERET_MONO,
-        ..Text::default()
-    });
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+
+            if screen_x < 0.0 || screen_x > bounds.width {
+                return;
+            }
+
+            frame.stroke(
+                &Path::line(
+                    Point::new(screen_x, 0.0),
+                    Point::new(screen_x, bounds.height),
+                ),
+                dashed_line,
+            );
+
+            let time_text = format_timestamp(interval);
+            draw_time_label(frame, palette, &time_text, screen_x, bounds);
+        }
+        ChartBasis::Tick(aggregation) => {
+            // Convert tick index back to cell position
+            let agg = u64::from(aggregation);
+            if agg == 0 {
+                return;
+            }
+            let cell_index = -(interval as f32 / agg as f32);
+            let chart_x = cell_index * state.cell_width;
+
+            let x_min = region.x;
+            let x_max = region.x + region.width;
+            let range = x_max - x_min;
+
+            if range.abs() < f32::EPSILON {
+                return;
+            }
+
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+
+            if screen_x < 0.0 || screen_x > bounds.width {
+                return;
+            }
+
+            frame.stroke(
+                &Path::line(
+                    Point::new(screen_x, 0.0),
+                    Point::new(screen_x, bounds.height),
+                ),
+                dashed_line,
+            );
+
+            let tick_text = format!("#{}", interval);
+            draw_time_label(frame, palette, &tick_text, screen_x, bounds);
+        }
+    }
 }
 
 /// Draw a time/tick label box at the bottom edge of the chart.
@@ -203,7 +245,7 @@ fn draw_time_label(
 }
 
 /// Format a millisecond timestamp to a short time string.
-fn format_timestamp(ms: u64) -> String {
+pub(crate) fn format_timestamp(ms: u64) -> String {
     if ms == 0 {
         return String::new();
     }

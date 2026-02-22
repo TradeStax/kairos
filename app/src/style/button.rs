@@ -258,8 +258,8 @@ pub fn tab_inactive(theme: &Theme, status: Status) -> Style {
         },
         border: Border {
             radius: tokens::radius::MD.into(),
-            width: tokens::border::THIN,
-            color: palette.background.strong.color,
+            width: tokens::border::NONE,
+            color: iced::Color::TRANSPARENT,
         },
         ..Default::default()
     }

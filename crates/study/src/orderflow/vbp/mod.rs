@@ -25,7 +25,7 @@ use crate::error::StudyError;
 use crate::orderflow::profile_core;
 use crate::output::{
     ProfileOutput, ProfileRenderConfig, StudyOutput,
-    VbpGroupingMode, VbpPeriod,
+    VbpGroupingMode, VbpPeriod, VbpSplitPeriod,
 };
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 
@@ -38,11 +38,9 @@ pub struct VbpStudy {
     /// Fingerprint of the last computed input to skip redundant
     /// recomputation when the underlying data hasn't changed.
     /// (candle_count, first_candle_ts, last_candle_ts,
-    /// trade_count)
-    pub(super) last_input_fingerprint: (usize, u64, u64, usize),
-    /// Cached visible range from the last full computation.
-    /// Skips recompute when pan hasn't moved >25% of the span.
-    pub(super) last_stable_range: Option<(u64, u64)>,
+    /// trade_count, split_hash)
+    pub(super) last_input_fingerprint:
+        (usize, u64, u64, usize, u64),
 }
 
 impl VbpStudy {
@@ -58,8 +56,7 @@ impl VbpStudy {
             config,
             output: StudyOutput::Empty,
             params,
-            last_input_fingerprint: (0, 0, 0, 0),
-            last_stable_range: None,
+            last_input_fingerprint: (0, 0, 0, 0, 0),
         }
     }
 
@@ -100,14 +97,186 @@ impl VbpStudy {
             "custom_end",
             ParameterValue::Integer(end_ms as i64),
         );
-        self.last_input_fingerprint = (0, 0, 0, 0);
-        self.last_stable_range = None;
+        self.last_input_fingerprint = (0, 0, 0, 0, 0);
     }
 }
 
 impl Default for VbpStudy {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl VbpStudy {
+    /// Build a single `ProfileOutput` from a candle sub-slice.
+    ///
+    /// Returns `None` if the slice produces no levels.
+    #[allow(clippy::too_many_arguments)]
+    fn compute_single_profile(
+        &self,
+        candle_slice: &[data::Candle],
+        input: &StudyInput<'_>,
+        _tick_units: i64,
+        group_quantum: i64,
+        is_automatic: bool,
+        poc_config: &crate::output::VbpPocConfig,
+        va_config: &crate::output::VbpValueAreaConfig,
+        node_config: &crate::output::VbpNodeConfig,
+        vwap_config: &crate::output::VbpVwapConfig,
+    ) -> Option<ProfileOutput> {
+        if candle_slice.is_empty() {
+            return None;
+        }
+
+        // Filter trades to this segment
+        let seg_trades = input
+            .trades
+            .map(|t| Self::filter_trades(t, candle_slice));
+
+        // Build profile: prefer trades if available
+        let levels = match seg_trades {
+            Some(filtered) if !filtered.is_empty() => {
+                profile_core::build_profile_from_trades(
+                    filtered,
+                    input.tick_size,
+                    group_quantum,
+                )
+            }
+            _ => profile_core::build_profile_from_candles(
+                candle_slice,
+                input.tick_size,
+                group_quantum,
+            ),
+        };
+
+        if levels.is_empty() {
+            return None;
+        }
+
+        let grouping_mode = if is_automatic {
+            let factor = self
+                .config
+                .get_int("auto_group_factor", 1)
+                .max(1);
+            VbpGroupingMode::Automatic { factor }
+        } else {
+            VbpGroupingMode::Manual
+        };
+
+        // POC and Value Area
+        let poc = profile_core::find_poc_index(&levels);
+        let value_area = if va_config.show_value_area {
+            poc.and_then(|idx| {
+                profile_core::calculate_value_area(
+                    &levels,
+                    idx,
+                    va_config.value_area_pct as f64,
+                )
+            })
+        } else {
+            None
+        };
+
+        // Time range
+        let time_range = {
+            let start = candle_slice
+                .first()
+                .map(|c| c.time.to_millis())
+                .unwrap_or(0);
+            let end = candle_slice
+                .last()
+                .map(|c| c.time.to_millis())
+                .unwrap_or(0);
+            Some((start, end))
+        };
+
+        // Developing features
+        let need_dev_poc =
+            poc_config.show_developing_poc;
+        let need_dev_peak =
+            node_config.show_developing_peak;
+        let need_dev_valley =
+            node_config.show_developing_valley;
+
+        let (
+            developing_poc_points,
+            developing_peak_points,
+            developing_valley_points,
+        ) = if need_dev_poc
+            || need_dev_peak
+            || need_dev_valley
+        {
+            Self::compute_developing_features(
+                candle_slice,
+                input.tick_size,
+                group_quantum,
+                node_config.hvn_method,
+                node_config.hvn_threshold,
+                node_config.lvn_method,
+                node_config.lvn_threshold,
+                need_dev_poc,
+                need_dev_peak,
+                need_dev_valley,
+            )
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+
+        // Zone + peak/valley detection
+        let any_node = node_config.show_hvn_zones
+            || node_config.show_lvn_zones
+            || node_config.show_peak_line
+            || node_config.show_valley_line;
+
+        let (hvn_zones, lvn_zones, peak_node, valley_node) =
+            if any_node {
+                profile_core::detect_volume_zones(
+                    &levels,
+                    node_config.hvn_method,
+                    node_config.hvn_threshold,
+                    node_config.lvn_method,
+                    node_config.lvn_threshold,
+                    node_config.min_prominence,
+                )
+            } else {
+                (Vec::new(), Vec::new(), None, None)
+            };
+
+        // Anchored VWAP
+        let (vwap_points, vwap_upper_points, vwap_lower_points) =
+            if vwap_config.show_vwap {
+                Self::compute_vwap(
+                    candle_slice,
+                    vwap_config.show_bands,
+                    vwap_config.band_multiplier,
+                )
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
+
+        Some(ProfileOutput {
+            levels,
+            quantum: group_quantum,
+            poc: if poc_config.show_poc {
+                poc
+            } else {
+                None
+            },
+            value_area,
+            time_range,
+            hvn_zones,
+            lvn_zones,
+            peak_node,
+            valley_node,
+            developing_poc_points,
+            developing_peak_points,
+            developing_valley_points,
+            vwap_points,
+            vwap_upper_points,
+            vwap_lower_points,
+            grouping_mode,
+            resolved_cache: std::sync::Mutex::new(None),
+        })
     }
 }
 
@@ -161,8 +330,7 @@ impl Study for VbpStudy {
         })?;
         self.config.set(key, value);
         // Invalidate fingerprint so next compute() runs fully
-        self.last_input_fingerprint = (0, 0, 0, 0);
-        self.last_stable_range = None;
+        self.last_input_fingerprint = (0, 0, 0, 0, 0);
         Ok(())
     }
 
@@ -189,84 +357,16 @@ impl Study for VbpStudy {
             return Ok(());
         }
 
-        // Stable-range check for Auto period: skip recompute
-        // if visible range hasn't moved >25% of previous span.
         let period = Self::parse_period(
-            self.config.get_choice("period", "Auto"),
-        );
-        if matches!(period, VbpPeriod::Auto) {
-            if let Some((start, end)) = input.visible_range {
-                if let Some((prev_start, prev_end)) =
-                    self.last_stable_range
-                {
-                    let prev_span =
-                        prev_end.saturating_sub(prev_start);
-                    let threshold = prev_span / 4;
-                    let start_shift = (start as i64
-                        - prev_start as i64)
-                        .unsigned_abs();
-                    let end_shift = (end as i64
-                        - prev_end as i64)
-                        .unsigned_abs();
-                    if start_shift < threshold
-                        && end_shift < threshold
-                        && !matches!(
-                            self.output,
-                            StudyOutput::Empty
-                        )
-                    {
-                        return Ok(());
-                    }
-                }
-                self.last_stable_range = Some((start, end));
-            }
-        }
-
-        let candle_slice =
-            self.resolve_candle_range(input.candles, input);
-
-        if candle_slice.is_empty() {
-            self.output = StudyOutput::Empty;
-            return Ok(());
-        }
-
-        // Filter trades once for both fingerprint and profile.
-        let filtered_trades = input
-            .trades
-            .map(|t| Self::filter_trades(t, candle_slice));
-        let trade_count =
-            filtered_trades.map(|t| t.len()).unwrap_or(0);
-
-        // Build a fingerprint of the actual input data.
-        let first_ts = candle_slice
-            .first()
-            .map(|c| c.time.to_millis())
-            .unwrap_or(0);
-        let last_ts = candle_slice
-            .last()
-            .map(|c| c.time.to_millis())
-            .unwrap_or(0);
-        let fingerprint = (
-            candle_slice.len(),
-            first_ts,
-            last_ts,
-            trade_count,
+            self.config.get_choice("period", "Split"),
         );
 
-        if fingerprint == self.last_input_fingerprint
-            && !matches!(self.output, StudyOutput::Empty)
-        {
-            return Ok(());
-        }
-        self.last_input_fingerprint = fingerprint;
-
-        // Tick grouping
+        // Read shared config values
         let tick_units = input.tick_size.units().max(1);
         let is_automatic = self
             .config
             .get_choice("auto_grouping", "Automatic")
             != "Manual";
-
         let group_quantum = if is_automatic {
             tick_units
         } else {
@@ -277,38 +377,78 @@ impl Study for VbpStudy {
             tick_units * manual
         };
 
-        // Build profile: prefer trades if available
-        let levels = match filtered_trades {
-            Some(filtered) if !filtered.is_empty() => {
-                profile_core::build_profile_from_trades(
-                    filtered,
-                    input.tick_size,
-                    group_quantum,
-                )
+        // Build a fingerprint that includes split params.
+        let split_hash = match period {
+            VbpPeriod::Split => {
+                let split = self.parse_split_period();
+                let max_p = self
+                    .config
+                    .get_int("max_profiles", 20)
+                    as u64;
+                // Encode split params into a hash-like u64
+                match split {
+                    VbpSplitPeriod::Day => {
+                        1000 + max_p
+                    }
+                    VbpSplitPeriod::Hours(h) => {
+                        2000 + h as u64 * 100 + max_p
+                    }
+                    VbpSplitPeriod::Minutes(m) => {
+                        3000 + m as u64 * 100 + max_p
+                    }
+                    VbpSplitPeriod::Contracts(n) => {
+                        4000 + n as u64 * 100 + max_p
+                    }
+                }
             }
-            _ => profile_core::build_profile_from_candles(
-                candle_slice,
-                input.tick_size,
-                group_quantum,
-            ),
+            VbpPeriod::Custom => 0,
         };
 
-        let grouping_mode = if is_automatic {
-            let factor = self
-                .config
-                .get_int("auto_group_factor", 1)
-                .max(1);
-            VbpGroupingMode::Automatic { factor }
-        } else {
-            VbpGroupingMode::Manual
+        // For Split mode, use all candles; for Custom,
+        // resolve the range.
+        let all_candles = match period {
+            VbpPeriod::Split => input.candles,
+            VbpPeriod::Custom => {
+                self.resolve_custom_range(input.candles)
+            }
         };
 
-        if levels.is_empty() {
+        if all_candles.is_empty() {
             self.output = StudyOutput::Empty;
             return Ok(());
         }
 
-        // Read config values
+        // Filter trades once
+        let filtered_trades = input
+            .trades
+            .map(|t| Self::filter_trades(t, all_candles));
+        let trade_count =
+            filtered_trades.map(|t| t.len()).unwrap_or(0);
+
+        let first_ts = all_candles
+            .first()
+            .map(|c| c.time.to_millis())
+            .unwrap_or(0);
+        let last_ts = all_candles
+            .last()
+            .map(|c| c.time.to_millis())
+            .unwrap_or(0);
+        let fingerprint = (
+            all_candles.len(),
+            first_ts,
+            last_ts,
+            trade_count,
+            split_hash,
+        );
+
+        if fingerprint == self.last_input_fingerprint
+            && !matches!(self.output, StudyOutput::Empty)
+        {
+            return Ok(());
+        }
+        self.last_input_fingerprint = fingerprint;
+
+        // Build render config (shared across all profiles)
         let vbp_type = Self::parse_vbp_type(
             self.config.get_choice("vbp_type", "Volume"),
         );
@@ -317,7 +457,7 @@ impl Study for VbpStudy {
         );
         let width_pct = self
             .config
-            .get_float("width_pct", 0.25)
+            .get_float("width_pct", 0.7)
             as f32;
         let opacity =
             self.config.get_float("opacity", 0.7) as f32;
@@ -331,129 +471,75 @@ impl Study for VbpStudy {
         let ask_color = self
             .config
             .get_color("ask_color", DEFAULT_ASK_COLOR);
-
-        // Build nested configs
         let poc_config = self.build_poc_config();
         let va_config = self.build_va_config();
         let node_config = self.build_node_config();
         let vwap_config = self.build_vwap_config();
 
-        // Compute POC and Value Area
-        let poc = profile_core::find_poc_index(&levels);
-        let value_area = if va_config.show_value_area {
-            poc.and_then(|idx| {
-                profile_core::calculate_value_area(
-                    &levels,
-                    idx,
-                    va_config.value_area_pct as f64,
-                )
-            })
-        } else {
-            None
+        // Build profile(s)
+        let profiles = match period {
+            VbpPeriod::Split => {
+                let split = self.parse_split_period();
+                let max_profiles = self
+                    .config
+                    .get_int("max_profiles", 20)
+                    .max(1)
+                    as usize;
+                let segments =
+                    Self::split_candles_into_segments(
+                        all_candles,
+                        split,
+                        max_profiles,
+                    );
+                let mut profiles =
+                    Vec::with_capacity(segments.len());
+                for seg in &segments {
+                    if let Some(p) =
+                        self.compute_single_profile(
+                            seg,
+                            input,
+                            tick_units,
+                            group_quantum,
+                            is_automatic,
+                            &poc_config,
+                            &va_config,
+                            &node_config,
+                            &vwap_config,
+                        )
+                    {
+                        profiles.push(p);
+                    }
+                }
+                profiles
+            }
+            VbpPeriod::Custom => {
+                if let Some(p) =
+                    self.compute_single_profile(
+                        all_candles,
+                        input,
+                        tick_units,
+                        group_quantum,
+                        is_automatic,
+                        &poc_config,
+                        &va_config,
+                        &node_config,
+                        &vwap_config,
+                    )
+                {
+                    vec![p]
+                } else {
+                    Vec::new()
+                }
+            }
         };
 
-        // Compute time range from candle slice
-        let time_range = {
-            let start = candle_slice
-                .first()
-                .map(|c| c.time.to_millis())
-                .unwrap_or(0);
-            let end = candle_slice
-                .last()
-                .map(|c| c.time.to_millis())
-                .unwrap_or(0);
-            Some((start, end))
-        };
-
-        // Developing features (POC, Peak, Valley)
-        let need_dev_poc = poc_config.show_developing_poc;
-        let need_dev_peak = node_config.show_developing_peak;
-        let need_dev_valley =
-            node_config.show_developing_valley;
-
-        let (
-            developing_poc_points,
-            developing_peak_points,
-            developing_valley_points,
-        ) = if need_dev_poc
-            || need_dev_peak
-            || need_dev_valley
-        {
-            Self::compute_developing_features(
-                candle_slice,
-                input.tick_size,
-                group_quantum,
-                node_config.hvn_method,
-                node_config.hvn_threshold,
-                node_config.lvn_method,
-                node_config.lvn_threshold,
-                need_dev_poc,
-                need_dev_peak,
-                need_dev_valley,
-            )
-        } else {
-            (Vec::new(), Vec::new(), Vec::new())
-        };
-
-        // Zone + peak/valley detection
-        let any_node_feature = node_config.show_hvn_zones
-            || node_config.show_lvn_zones
-            || node_config.show_peak_line
-            || node_config.show_valley_line;
-
-        let (hvn_zones, lvn_zones, peak_node, valley_node) =
-            if any_node_feature {
-                profile_core::detect_volume_zones(
-                    &levels,
-                    node_config.hvn_method,
-                    node_config.hvn_threshold,
-                    node_config.lvn_method,
-                    node_config.lvn_threshold,
-                    node_config.min_prominence,
-                )
-            } else {
-                (Vec::new(), Vec::new(), None, None)
-            };
-
-        // Anchored VWAP
-        let (
-            vwap_points,
-            vwap_upper_points,
-            vwap_lower_points,
-        ) = if vwap_config.show_vwap {
-            Self::compute_vwap(
-                candle_slice,
-                vwap_config.show_bands,
-                vwap_config.band_multiplier,
-            )
-        } else {
-            (Vec::new(), Vec::new(), Vec::new())
-        };
+        if profiles.is_empty() {
+            self.output = StudyOutput::Empty;
+            return Ok(());
+        }
 
         self.output = StudyOutput::Profile(
-            ProfileOutput {
-                levels,
-                quantum: group_quantum,
-                poc: if poc_config.show_poc {
-                    poc
-                } else {
-                    None
-                },
-                value_area,
-                time_range,
-                hvn_zones,
-                lvn_zones,
-                peak_node,
-                valley_node,
-                developing_poc_points,
-                developing_peak_points,
-                developing_valley_points,
-                vwap_points,
-                vwap_upper_points,
-                vwap_lower_points,
-                grouping_mode,
-                resolved_cache: std::sync::Mutex::new(None),
-            },
+            profiles,
             ProfileRenderConfig {
                 vbp_type,
                 side,
@@ -478,8 +564,7 @@ impl Study for VbpStudy {
 
     fn reset(&mut self) {
         self.output = StudyOutput::Empty;
-        self.last_input_fingerprint = (0, 0, 0, 0);
-        self.last_stable_range = None;
+        self.last_input_fingerprint = (0, 0, 0, 0, 0);
     }
 
     fn clone_study(&self) -> Box<dyn Study> {
@@ -487,8 +572,7 @@ impl Study for VbpStudy {
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
-            last_input_fingerprint: (0, 0, 0, 0),
-            last_stable_range: None,
+            last_input_fingerprint: (0, 0, 0, 0, 0),
         })
     }
 }
@@ -532,6 +616,18 @@ mod tests {
         }
     }
 
+    /// Helper: extract the first profile from study output.
+    fn first_profile(
+        study: &VbpStudy,
+    ) -> &crate::output::ProfileOutput {
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                &profiles[0]
+            }
+            _ => panic!("Expected Profile output"),
+        }
+    }
+
     #[test]
     fn test_vbp_compute_default() {
         let mut study = VbpStudy::new();
@@ -548,7 +644,8 @@ mod tests {
         study.compute(&input).unwrap();
 
         match &study.output {
-            StudyOutput::Profile(data, config) => {
+            StudyOutput::Profile(profiles, config) => {
+                let data = &profiles[0];
                 assert!(!data.levels.is_empty());
                 assert!(data.poc.is_some());
                 assert_eq!(
@@ -601,26 +698,9 @@ mod tests {
     }
 
     #[test]
-    fn test_vbp_period_length() {
+    fn test_vbp_split_day() {
         let mut study = VbpStudy::new();
-        study
-            .set_parameter(
-                "period",
-                ParameterValue::Choice("Length".to_string()),
-            )
-            .unwrap();
-        study
-            .set_parameter(
-                "length_unit",
-                ParameterValue::Choice("Days".to_string()),
-            )
-            .unwrap();
-        study
-            .set_parameter(
-                "length_value",
-                ParameterValue::Integer(2),
-            )
-            .unwrap();
+        // Default is Split + 1 Day
 
         let day_ms = 86_400_000u64;
         let candles = vec![
@@ -629,7 +709,7 @@ mod tests {
                 50.0,
             ),
             make_candle(
-                day_ms * 2,
+                day_ms + 1000,
                 101.0,
                 103.0,
                 100.0,
@@ -638,11 +718,20 @@ mod tests {
                 50.0,
             ),
             make_candle(
-                day_ms * 3,
+                day_ms * 2,
                 102.0,
                 104.0,
                 101.0,
                 103.0,
+                50.0,
+                50.0,
+            ),
+            make_candle(
+                day_ms * 3,
+                103.0,
+                105.0,
+                102.0,
+                104.0,
                 50.0,
                 50.0,
             ),
@@ -651,16 +740,24 @@ mod tests {
         let input = StudyInput {
             candles: &candles,
             trades: None,
-            basis: ChartBasis::Time(Timeframe::D1),
+            basis: ChartBasis::Time(Timeframe::M1),
             tick_size: Price::from_f32(1.0),
             visible_range: None,
         };
 
         study.compute(&input).unwrap();
-        assert!(matches!(
-            study.output(),
-            StudyOutput::Profile(_, _)
-        ));
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                // 3 distinct day buckets
+                assert_eq!(profiles.len(), 3);
+                // First segment has 2 candles (same day)
+                for p in profiles {
+                    assert!(!p.levels.is_empty());
+                    assert!(p.time_range.is_some());
+                }
+            }
+            _ => panic!("Expected Profile output"),
+        }
     }
 
     #[test]
@@ -679,12 +776,8 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        match &study.output {
-            StudyOutput::Profile(data, _config) => {
-                assert!(data.value_area.is_none());
-            }
-            _ => panic!("Expected Profile output"),
-        }
+        let data = first_profile(&study);
+        assert!(data.value_area.is_none());
     }
 
     #[test]
@@ -692,7 +785,6 @@ mod tests {
         let study = VbpStudy::new();
         let params = study.parameters();
 
-        // Check we have params on all 4 new tabs
         let has_tab4 = params
             .iter()
             .any(|p| p.tab == ParameterTab::Tab4);
@@ -739,21 +831,15 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        match &study.output {
-            StudyOutput::Profile(data, _config) => {
-                assert_eq!(
-                    data.developing_poc_points.len(),
-                    3,
-                    "should have one point per candle"
-                );
-                for (ts, price) in
-                    &data.developing_poc_points
-                {
-                    assert!(*ts > 0);
-                    assert!(*price > 0);
-                }
-            }
-            _ => panic!("Expected Profile output"),
+        let data = first_profile(&study);
+        assert_eq!(
+            data.developing_poc_points.len(),
+            3,
+            "should have one point per candle"
+        );
+        for (ts, price) in &data.developing_poc_points {
+            assert!(*ts > 0);
+            assert!(*price > 0);
         }
     }
 
@@ -784,35 +870,22 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        match &study.output {
-            StudyOutput::Profile(data, _config) => {
-                assert_eq!(data.vwap_points.len(), 2);
-                assert_eq!(
-                    data.vwap_upper_points.len(),
-                    2
-                );
-                assert_eq!(
-                    data.vwap_lower_points.len(),
-                    2
-                );
-                for (_, price) in &data.vwap_points {
-                    assert!(
-                        *price > 90.0
-                            && *price < 110.0
-                    );
-                }
-                for i in 0..2 {
-                    assert!(
-                        data.vwap_upper_points[i].1
-                            >= data.vwap_points[i].1
-                    );
-                    assert!(
-                        data.vwap_lower_points[i].1
-                            <= data.vwap_points[i].1
-                    );
-                }
-            }
-            _ => panic!("Expected Profile output"),
+        let data = first_profile(&study);
+        assert_eq!(data.vwap_points.len(), 2);
+        assert_eq!(data.vwap_upper_points.len(), 2);
+        assert_eq!(data.vwap_lower_points.len(), 2);
+        for (_, price) in &data.vwap_points {
+            assert!(*price > 90.0 && *price < 110.0);
+        }
+        for i in 0..2 {
+            assert!(
+                data.vwap_upper_points[i].1
+                    >= data.vwap_points[i].1
+            );
+            assert!(
+                data.vwap_lower_points[i].1
+                    <= data.vwap_points[i].1
+            );
         }
     }
 
@@ -866,8 +939,6 @@ mod tests {
             )
             .unwrap();
 
-        // Create candles that produce a profile with clear
-        // peaks and valleys (need enough levels)
         let candles = vec![
             make_candle(
                 1000, 100.0, 110.0, 90.0, 105.0, 200.0,
@@ -881,7 +952,8 @@ mod tests {
         study.compute(&input).unwrap();
 
         match &study.output {
-            StudyOutput::Profile(data, config) => {
+            StudyOutput::Profile(profiles, config) => {
+                let data = &profiles[0];
                 assert!(!data.levels.is_empty());
                 assert!(
                     config.node_config.show_peak_line
@@ -920,7 +992,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             study.last_input_fingerprint,
-            (0, 0, 0, 0)
+            (0, 0, 0, 0, 0)
         );
 
         // Recompute should work
@@ -966,12 +1038,210 @@ mod tests {
 
         let cloned = study.clone_study();
         match cloned.output() {
-            StudyOutput::Profile(data, _config) => {
+            StudyOutput::Profile(profiles, _config) => {
+                let data = &profiles[0];
                 assert!(!data.levels.is_empty());
                 assert!(
                     !data.developing_poc_points.is_empty()
                 );
                 assert!(!data.vwap_points.is_empty());
+            }
+            _ => panic!("Expected Profile output"),
+        }
+    }
+
+    #[test]
+    fn test_vbp_custom_period_single_profile() {
+        let mut study = VbpStudy::new();
+        study
+            .set_parameter(
+                "period",
+                ParameterValue::Choice("Custom".into()),
+            )
+            .unwrap();
+
+        let candles = vec![
+            make_candle(
+                1000, 100.0, 102.0, 99.0, 101.0, 50.0,
+                50.0,
+            ),
+            make_candle(
+                2000, 101.0, 103.0, 100.0, 102.0, 50.0,
+                50.0,
+            ),
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                assert_eq!(
+                    profiles.len(),
+                    1,
+                    "Custom produces single profile"
+                );
+            }
+            _ => panic!("Expected Profile output"),
+        }
+    }
+
+    #[test]
+    fn test_vbp_max_profiles_limiting() {
+        let mut study = VbpStudy::new();
+        study
+            .set_parameter(
+                "max_profiles",
+                ParameterValue::Integer(2),
+            )
+            .unwrap();
+
+        let day_ms = 86_400_000u64;
+        let candles = vec![
+            make_candle(
+                day_ms, 100.0, 102.0, 99.0, 101.0, 50.0,
+                50.0,
+            ),
+            make_candle(
+                day_ms * 2,
+                101.0,
+                103.0,
+                100.0,
+                102.0,
+                50.0,
+                50.0,
+            ),
+            make_candle(
+                day_ms * 3,
+                102.0,
+                104.0,
+                101.0,
+                103.0,
+                50.0,
+                50.0,
+            ),
+            make_candle(
+                day_ms * 4,
+                103.0,
+                105.0,
+                102.0,
+                104.0,
+                50.0,
+                50.0,
+            ),
+        ];
+
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                assert_eq!(
+                    profiles.len(),
+                    2,
+                    "Should be limited to 2 profiles"
+                );
+                // Should be the most recent 2 days
+                let last = &profiles[1];
+                assert!(last.time_range.is_some());
+            }
+            _ => panic!("Expected Profile output"),
+        }
+    }
+
+    #[test]
+    fn test_vbp_split_hourly() {
+        let mut study = VbpStudy::new();
+        study
+            .set_parameter(
+                "split_interval",
+                ParameterValue::Choice(
+                    "1 Hour".to_string(),
+                ),
+            )
+            .unwrap();
+
+        let hour_ms = 3_600_000u64;
+        let candles = vec![
+            make_candle(
+                hour_ms,
+                100.0,
+                102.0,
+                99.0,
+                101.0,
+                50.0,
+                50.0,
+            ),
+            make_candle(
+                hour_ms + 60_000,
+                101.0,
+                103.0,
+                100.0,
+                102.0,
+                50.0,
+                50.0,
+            ),
+            make_candle(
+                hour_ms * 2,
+                102.0,
+                104.0,
+                101.0,
+                103.0,
+                50.0,
+                50.0,
+            ),
+        ];
+
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                assert_eq!(
+                    profiles.len(),
+                    2,
+                    "2 hour buckets"
+                );
+            }
+            _ => panic!("Expected Profile output"),
+        }
+    }
+
+    #[test]
+    fn test_vbp_time_range_per_profile() {
+        let mut study = VbpStudy::new();
+
+        let day_ms = 86_400_000u64;
+        let candles = vec![
+            make_candle(
+                day_ms, 100.0, 102.0, 99.0, 101.0, 50.0,
+                50.0,
+            ),
+            make_candle(
+                day_ms * 2,
+                101.0,
+                103.0,
+                100.0,
+                102.0,
+                50.0,
+                50.0,
+            ),
+        ];
+
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        match &study.output {
+            StudyOutput::Profile(profiles, _) => {
+                assert_eq!(profiles.len(), 2);
+                // Each has its own time range
+                let (s0, e0) =
+                    profiles[0].time_range.unwrap();
+                let (s1, e1) =
+                    profiles[1].time_range.unwrap();
+                assert_eq!(s0, day_ms);
+                assert_eq!(e0, day_ms);
+                assert_eq!(s1, day_ms * 2);
+                assert_eq!(e1, day_ms * 2);
             }
             _ => panic!("Expected Profile output"),
         }

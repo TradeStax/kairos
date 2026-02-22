@@ -138,7 +138,16 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
             column![].spacing(tokens::spacing::LG).width(Length::Fill);
 
         let body_scrollable =
-            scrollable(self.body).style(style::scroll_bar);
+            scrollable::Scrollable::with_direction(
+                self.body,
+                scrollable::Direction::Vertical(
+                    scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4)
+                        .spacing(2),
+                ),
+            )
+            .style(style::scroll_bar);
         inner = inner.push(body_scrollable);
 
         if let Some(footer) = self.footer {

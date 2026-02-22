@@ -4,10 +4,7 @@
 //! plus helper functions: candle range resolution, trade filtering,
 //! developing feature computation, and anchored VWAP calculation.
 
-use crate::output::{
-    NodeDetectionMethod, VbpLengthUnit, VbpPeriod,
-};
-use crate::traits::StudyInput;
+use crate::output::{NodeDetectionMethod, VbpSplitPeriod};
 
 use super::VbpStudy;
 
@@ -15,80 +12,57 @@ use super::VbpStudy;
 pub(super) type TimeSeries = Vec<(u64, f32)>;
 
 impl VbpStudy {
-    /// Resolve which candle range to use based on period settings.
-    pub(super) fn resolve_candle_range<'a>(
+    /// Resolve candle range for Custom period mode.
+    pub(super) fn resolve_custom_range<'a>(
         &self,
         candles: &'a [data::Candle],
-        input: &StudyInput<'_>,
     ) -> &'a [data::Candle] {
-        let period = Self::parse_period(
-            self.config.get_choice("period", "Auto"),
-        );
+        let start =
+            self.config.get_int("custom_start", 0) as u64;
+        let end =
+            self.config.get_int("custom_end", 0) as u64;
+        if start == 0 && end == 0 {
+            candles
+        } else {
+            Self::slice_by_time(candles, start, end)
+        }
+    }
 
-        match period {
-            VbpPeriod::Auto => {
-                if let Some((start, end)) = input.visible_range
-                {
-                    Self::slice_by_time(candles, start, end)
-                } else {
-                    candles
-                }
-            }
-            VbpPeriod::Length => {
-                if candles.is_empty() {
-                    return candles;
-                }
-                let unit = Self::parse_length_unit(
-                    self.config
-                        .get_choice("length_unit", "Days"),
-                );
-                let value =
-                    self.config.get_int("length_value", 5)
-                        as u64;
-                let latest_ts = candles
-                    .last()
-                    .map(|c| c.time.to_millis())
-                    .unwrap_or(0);
+    /// Split candles into time-based or count-based segments.
+    ///
+    /// Returns up to `max_profiles` segments (the most recent
+    /// ones). Each segment is a contiguous candle sub-slice.
+    pub(super) fn split_candles_into_segments<'a>(
+        candles: &'a [data::Candle],
+        split: VbpSplitPeriod,
+        max_profiles: usize,
+    ) -> Vec<&'a [data::Candle]> {
+        if candles.is_empty() {
+            return Vec::new();
+        }
 
-                match unit {
-                    VbpLengthUnit::Days => {
-                        let ms = value * 86_400_000;
-                        let start =
-                            latest_ts.saturating_sub(ms);
-                        Self::slice_by_time(
-                            candles, start, latest_ts,
-                        )
-                    }
-                    VbpLengthUnit::Minutes => {
-                        let ms = value * 60_000;
-                        let start =
-                            latest_ts.saturating_sub(ms);
-                        Self::slice_by_time(
-                            candles, start, latest_ts,
-                        )
-                    }
-                    VbpLengthUnit::Contracts => {
-                        let n = value as usize;
-                        let start =
-                            candles.len().saturating_sub(n);
-                        &candles[start..]
-                    }
-                }
+        let segments = match split {
+            VbpSplitPeriod::Day => {
+                split_by_duration(candles, 86_400_000)
             }
-            VbpPeriod::Custom => {
-                let start = self
-                    .config
-                    .get_int("custom_start", 0)
-                    as u64;
-                let end =
-                    self.config.get_int("custom_end", 0)
-                        as u64;
-                if start == 0 && end == 0 {
-                    candles
-                } else {
-                    Self::slice_by_time(candles, start, end)
-                }
+            VbpSplitPeriod::Hours(h) => {
+                let ms = h as u64 * 3_600_000;
+                split_by_duration(candles, ms)
             }
+            VbpSplitPeriod::Minutes(m) => {
+                let ms = m as u64 * 60_000;
+                split_by_duration(candles, ms)
+            }
+            VbpSplitPeriod::Contracts(n) => {
+                split_by_count(candles, n as usize)
+            }
+        };
+
+        // Keep the most recent `max_profiles` segments.
+        if segments.len() > max_profiles {
+            segments[segments.len() - max_profiles..].to_vec()
+        } else {
+            segments
         }
     }
 
@@ -448,4 +422,48 @@ impl VbpStudy {
 
         (vwap_pts, upper_pts, lower_pts)
     }
+}
+
+/// Split candles into segments at fixed time-interval boundaries.
+///
+/// Each segment contains candles whose timestamp falls in the
+/// same `floor(ts / ms_interval)` bucket.
+fn split_by_duration<'a>(
+    candles: &'a [data::Candle],
+    ms_interval: u64,
+) -> Vec<&'a [data::Candle]> {
+    if candles.is_empty() || ms_interval == 0 {
+        return Vec::new();
+    }
+
+    let mut segments = Vec::new();
+    let mut seg_start = 0usize;
+    let mut cur_bucket =
+        candles[0].time.to_millis() / ms_interval;
+
+    for i in 1..candles.len() {
+        let bucket =
+            candles[i].time.to_millis() / ms_interval;
+        if bucket != cur_bucket {
+            segments.push(&candles[seg_start..i]);
+            seg_start = i;
+            cur_bucket = bucket;
+        }
+    }
+    // Push the last segment
+    if seg_start < candles.len() {
+        segments.push(&candles[seg_start..]);
+    }
+    segments
+}
+
+/// Split candles into segments of `n` candles each.
+fn split_by_count<'a>(
+    candles: &'a [data::Candle],
+    n: usize,
+) -> Vec<&'a [data::Candle]> {
+    if candles.is_empty() || n == 0 {
+        return Vec::new();
+    }
+    candles.chunks(n).collect()
 }

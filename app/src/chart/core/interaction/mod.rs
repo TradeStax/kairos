@@ -380,7 +380,9 @@ pub fn canvas_interaction<T: Chart>(
                         drag_committed,
                     ),
                     Interaction::None | Interaction::Ruler { .. } => {
-                        Some(canvas::Action::publish(Message::CrosshairMoved))
+                        Some(canvas::Action::publish(
+                            Message::CrosshairMoved(cursor_position),
+                        ))
                     }
                     _ => None,
                 },

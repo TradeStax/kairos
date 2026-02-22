@@ -3,7 +3,7 @@ use crate::style::{self, tokens};
 use crate::window;
 
 use iced::widget::{button, container, mouse_area, row, space, text};
-use iced::{Alignment, Element, Length, padding};
+use iced::{Alignment, Element, Length, mouse, padding};
 
 use crate::app::Message;
 
@@ -11,6 +11,7 @@ pub fn view_title_bar(
     window_id: window::Id,
     title: String,
     is_maximized: bool,
+    hovered: bool,
 ) -> Element<'static, Message> {
     let title_text = text(title)
         .font(iced::Font {
@@ -73,10 +74,13 @@ pub fn view_title_bar(
     )
     .width(Length::Fill)
     .height(tokens::layout::TITLE_BAR_HEIGHT)
-    .style(style::window_title_bar);
+    .style(move |theme| style::window_title_bar(theme, hovered));
 
     mouse_area(bar)
         .on_press(Message::WindowDrag(window_id))
         .on_double_click(Message::WindowToggleMaximize(window_id))
+        .on_enter(Message::TitleBarHover(true))
+        .on_exit(Message::TitleBarHover(false))
+        .interaction(mouse::Interaction::Grab)
         .into()
 }

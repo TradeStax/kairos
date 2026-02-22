@@ -121,6 +121,7 @@ pub enum Message {
     ReplayEvent(data::services::ReplayEvent),
     MenuBar(menu_bar::Message),
     // Window control messages (custom title bar)
+    TitleBarHover(bool),
     WindowDrag(window::Id),
     WindowMinimize(window::Id),
     WindowToggleMaximize(window::Id),

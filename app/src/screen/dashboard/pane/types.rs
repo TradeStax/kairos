@@ -140,6 +140,22 @@ impl State {
     pub fn unique_id(&self) -> uuid::Uuid {
         self.id
     }
+
+    /// Set the remote crosshair interval on the chart's ViewState.
+    /// Only clears the crosshair cache if the value actually changed.
+    pub fn set_remote_crosshair(&mut self, interval: Option<u64>) {
+        use crate::chart::Chart;
+        let state = match &mut self.content {
+            Content::Kline { chart: Some(c), .. } => c.mut_state(),
+            Content::Heatmap { chart: Some(c), .. } => c.mut_state(),
+            Content::Profile { chart: Some(c), .. } => c.mut_state(),
+            _ => return,
+        };
+        if state.remote_crosshair != interval {
+            state.remote_crosshair = interval;
+            state.cache.clear_crosshair();
+        }
+    }
 }
 
 impl Default for State {

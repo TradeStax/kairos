@@ -1239,15 +1239,11 @@ mod tests {
             ("bg_max_alpha", ParameterValue::Float(0.8)),
             (
                 "bg_buy_color",
-                ParameterValue::Color(SerializableColor::new(
-                    0.0, 1.0, 0.0, 1.0,
-                )),
+                ParameterValue::Color(crate::BULLISH_COLOR),
             ),
             (
                 "bg_sell_color",
-                ParameterValue::Color(SerializableColor::new(
-                    1.0, 0.0, 0.0, 1.0,
-                )),
+                ParameterValue::Color(crate::BEARISH_COLOR),
             ),
             ("show_grid_lines", ParameterValue::Boolean(false)),
             ("font_size", ParameterValue::Float(14.0)),

@@ -230,9 +230,86 @@ pub struct AxisLabelsX<'a> {
     pub chart_bounds: Rectangle,
     pub interval_keys: Option<Vec<u64>>,
     pub autoscaling: Option<Autoscale>,
+    /// Remote crosshair interval from a linked pane
+    pub remote_crosshair: Option<u64>,
 }
 
 impl AxisLabelsX<'_> {
+    fn generate_remote_crosshair_label(
+        &self,
+        interval: u64,
+        region: Rectangle,
+        bounds: Rectangle,
+        palette: &Extended,
+    ) -> Option<AxisLabel> {
+        match self.basis {
+            ChartBasis::Tick(agg) => {
+                let interval_keys = self.interval_keys.as_ref()?;
+                let agg_val = u64::from(agg);
+                if agg_val == 0 {
+                    return None;
+                }
+                let cell_index = -(interval as f32 / agg_val as f32);
+                let chart_x = cell_index * self.cell_width;
+
+                let x_min = region.x;
+                let x_max = region.x + region.width;
+                let range = x_max - x_min;
+                if range.abs() < f32::EPSILON {
+                    return None;
+                }
+
+                let snap_x = ((chart_x - x_min) / range) * bounds.width;
+                if snap_x < 0.0 || snap_x > bounds.width {
+                    return None;
+                }
+
+                let last_index = interval_keys.len().checked_sub(1)?;
+                let offset = (-cell_index).round() as usize;
+                if offset > last_index {
+                    return None;
+                }
+                let array_index = last_index - offset;
+                let timestamp = interval_keys.get(array_index)?;
+
+                let text_content = self
+                    .timezone
+                    .format_crosshair_timestamp(*timestamp as i64, agg.into());
+                Some(AxisLabel::new_x(snap_x, text_content, bounds, true, palette))
+            }
+            ChartBasis::Time(timeframe) => {
+                let x_min = self.x_to_interval(region.x) as f64;
+                let x_max =
+                    self.x_to_interval(region.x + region.width) as f64;
+                let range = x_max - x_min;
+                if range.abs() < f64::EPSILON {
+                    return None;
+                }
+
+                let snap_ratio = (interval as f64 - x_min) / range;
+                let snap_x = snap_ratio * f64::from(bounds.width);
+                if snap_x.is_nan()
+                    || snap_x < 0.0
+                    || snap_x > f64::from(bounds.width)
+                {
+                    return None;
+                }
+
+                let tf_ms = timeframe.to_milliseconds();
+                let text_content = self
+                    .timezone
+                    .format_crosshair_timestamp(interval as i64, tf_ms);
+                Some(AxisLabel::new_x(
+                    snap_x as f32,
+                    text_content,
+                    bounds,
+                    true,
+                    palette,
+                ))
+            }
+        }
+    }
+
     fn calc_crosshair_pos(&self, cursor_pos: Point, region: Rectangle) -> (f32, f32, i32) {
         let crosshair_ratio = f64::from(cursor_pos.x) / f64::from(self.chart_bounds.width);
         let chart_x_min = region.x;
@@ -493,6 +570,13 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                 && let Some(label) = self.generate_crosshair(cursor_pos, region, bounds, palette)
             {
                 labels.push(label);
+            } else if let Some(interval) = self.remote_crosshair {
+                // Show time label for remote crosshair from linked pane
+                if let Some(label) =
+                    self.generate_remote_crosshair_label(interval, region, bounds, palette)
+                {
+                    labels.push(label);
+                }
             }
 
             AxisLabel::filter_and_draw(&labels, frame);
@@ -710,13 +794,14 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                 });
             }
 
-            // Crosshair price (priority 3)
+            // Crosshair price label
             if let Some(crosshair_pos) = cursor.position_in(self.chart_bounds) {
                 let rounded_price = round_to_tick(
                     lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
                     self.tick_size,
                 );
-                let y_position = bounds.height - ((rounded_price - lowest) / range * bounds.height);
+                let y_position =
+                    bounds.height - ((rounded_price - lowest) / range * bounds.height);
 
                 let label = LabelContent {
                     content: format!("{:.*}", self.decimals, rounded_price),

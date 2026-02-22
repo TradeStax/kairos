@@ -7,7 +7,7 @@
 use crate::config::{LineStyleValue, StudyConfig};
 use crate::output::{
     ExtendDirection, NodeDetectionMethod, ProfileSide,
-    VbpLengthUnit, VbpNodeConfig, VbpPeriod, VbpPocConfig,
+    VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpSplitPeriod,
     VbpType, VbpValueAreaConfig, VbpVwapConfig,
 };
 
@@ -26,8 +26,7 @@ impl VbpStudy {
             serde_json::from_value::<StudyConfig>(value.clone())
         {
             self.config = config;
-            self.last_input_fingerprint = (0, 0, 0, 0);
-            self.last_stable_range = None;
+            self.last_input_fingerprint = (0, 0, 0, 0, 0);
         }
     }
 
@@ -47,19 +46,46 @@ impl VbpStudy {
 
     pub(super) fn parse_period(s: &str) -> VbpPeriod {
         match s {
-            "Length" => VbpPeriod::Length,
             "Custom" => VbpPeriod::Custom,
-            _ => VbpPeriod::Auto,
+            _ => VbpPeriod::Split,
         }
     }
 
-    pub(super) fn parse_length_unit(
-        s: &str,
-    ) -> VbpLengthUnit {
-        match s {
-            "Minutes" => VbpLengthUnit::Minutes,
-            "Contracts" => VbpLengthUnit::Contracts,
-            _ => VbpLengthUnit::Days,
+    /// Parse the split_interval + split_unit/split_value
+    /// params into a [`VbpSplitPeriod`].
+    pub(super) fn parse_split_period(&self) -> VbpSplitPeriod {
+        let interval = self
+            .config
+            .get_choice("split_interval", "1 Day");
+        match interval {
+            "1 Day" => VbpSplitPeriod::Day,
+            "4 Hours" => VbpSplitPeriod::Hours(4),
+            "2 Hours" => VbpSplitPeriod::Hours(2),
+            "1 Hour" => VbpSplitPeriod::Hours(1),
+            "30 Minutes" => VbpSplitPeriod::Minutes(30),
+            "15 Minutes" => VbpSplitPeriod::Minutes(15),
+            "Custom" => {
+                let unit = self
+                    .config
+                    .get_choice("split_unit", "Hours");
+                let value = self
+                    .config
+                    .get_int("split_value", 1)
+                    .max(1) as u32;
+                match unit {
+                    "Days" => {
+                        VbpSplitPeriod::Hours(value * 24)
+                    }
+                    "Minutes" => {
+                        VbpSplitPeriod::Minutes(value)
+                    }
+                    "Contracts" => {
+                        VbpSplitPeriod::Contracts(value)
+                    }
+                    _ => VbpSplitPeriod::Hours(value),
+                }
+            }
+            _ => VbpSplitPeriod::Day,
         }
     }
 

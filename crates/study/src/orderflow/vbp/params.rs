@@ -8,6 +8,7 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind,
     ParameterSection, ParameterTab, ParameterValue, Visibility,
 };
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
 pub(super) const DEFAULT_VOLUME_COLOR: SerializableColor =
@@ -18,19 +19,9 @@ pub(super) const DEFAULT_VOLUME_COLOR: SerializableColor =
         a: 0.7,
     };
 pub(super) const DEFAULT_BID_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.18,
-        g: 0.72,
-        b: 0.45,
-        a: 0.7,
-    };
+    BEARISH_COLOR.with_alpha(0.7);
 pub(super) const DEFAULT_ASK_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.65,
-        g: 0.20,
-        b: 0.70,
-        a: 0.7,
-    };
+    BULLISH_COLOR.with_alpha(0.7);
 pub(super) const DEFAULT_POC_COLOR: SerializableColor =
     SerializableColor {
         r: 1.0,
@@ -67,47 +58,17 @@ pub(super) const DEFAULT_VA_FILL_COLOR: SerializableColor =
         a: 0.15,
     };
 pub(super) const DEFAULT_PEAK_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.0,
-        g: 0.9,
-        b: 0.4,
-        a: 0.8,
-    };
+    BULLISH_COLOR.with_alpha(0.8);
 pub(super) const DEFAULT_DEV_PEAK_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.0,
-        g: 0.9,
-        b: 0.4,
-        a: 0.5,
-    };
+    BULLISH_COLOR.with_alpha(0.5);
 pub(super) const DEFAULT_HVN_ZONE_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.0,
-        g: 0.9,
-        b: 0.4,
-        a: 0.5,
-    };
+    BULLISH_COLOR.with_alpha(0.5);
 pub(super) const DEFAULT_VALLEY_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.9,
-        g: 0.2,
-        b: 0.2,
-        a: 0.8,
-    };
+    BEARISH_COLOR.with_alpha(0.8);
 pub(super) const DEFAULT_DEV_VALLEY_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.9,
-        g: 0.2,
-        b: 0.2,
-        a: 0.5,
-    };
+    BEARISH_COLOR.with_alpha(0.5);
 pub(super) const DEFAULT_LVN_ZONE_COLOR: SerializableColor =
-    SerializableColor {
-        r: 0.9,
-        g: 0.2,
-        b: 0.2,
-        a: 0.5,
-    };
+    BEARISH_COLOR.with_alpha(0.5);
 pub(super) const DEFAULT_VWAP_COLOR: SerializableColor =
     SerializableColor {
         r: 0.0,
@@ -159,9 +120,9 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         label: "Period".into(),
         description: "Time period for volume calculation".into(),
         kind: ParameterKind::Choice {
-            options: &["Auto", "Length", "Custom"],
+            options: &["Split", "Custom"],
         },
-        default: ParameterValue::Choice("Auto".to_string()),
+        default: ParameterValue::Choice("Split".to_string()),
         tab: ParameterTab::Parameters,
         section: period_section,
         order: 0,
@@ -169,36 +130,78 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         visible_when: Visibility::Always,
     });
     params.push(ParameterDef {
-        key: "length_unit".into(),
-        label: "Length Unit".into(),
-        description: "Unit for length-based period".into(),
+        key: "split_interval".into(),
+        label: "Split Interval".into(),
+        description: "How to split the profile into segments"
+            .into(),
         kind: ParameterKind::Choice {
-            options: &["Days", "Minutes", "Contracts"],
+            options: &[
+                "1 Day",
+                "4 Hours",
+                "2 Hours",
+                "1 Hour",
+                "30 Minutes",
+                "15 Minutes",
+                "Custom",
+            ],
         },
-        default: ParameterValue::Choice("Days".to_string()),
+        default: ParameterValue::Choice("1 Day".to_string()),
         tab: ParameterTab::Parameters,
         section: period_section,
         order: 1,
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenChoice {
             key: "period",
-            equals: "Length",
+            equals: "Split",
         },
     });
     params.push(ParameterDef {
-        key: "length_value".into(),
-        label: "Length Value".into(),
-        description: "Number of units for length-based period"
-            .into(),
-        kind: ParameterKind::Integer { min: 1, max: 1000 },
-        default: ParameterValue::Integer(5),
+        key: "split_unit".into(),
+        label: "Split Unit".into(),
+        description: "Unit for custom split interval".into(),
+        kind: ParameterKind::Choice {
+            options: &[
+                "Days", "Hours", "Minutes", "Contracts",
+            ],
+        },
+        default: ParameterValue::Choice("Hours".to_string()),
         tab: ParameterTab::Parameters,
         section: period_section,
         order: 2,
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenChoice {
+            key: "split_interval",
+            equals: "Custom",
+        },
+    });
+    params.push(ParameterDef {
+        key: "split_value".into(),
+        label: "Split Value".into(),
+        description: "Number of units per split segment".into(),
+        kind: ParameterKind::Integer { min: 1, max: 1000 },
+        default: ParameterValue::Integer(1),
+        tab: ParameterTab::Parameters,
+        section: period_section,
+        order: 3,
+        format: DisplayFormat::Auto,
+        visible_when: Visibility::WhenChoice {
+            key: "split_interval",
+            equals: "Custom",
+        },
+    });
+    params.push(ParameterDef {
+        key: "max_profiles".into(),
+        label: "Max Profiles".into(),
+        description: "Maximum number of profile segments".into(),
+        kind: ParameterKind::Integer { min: 1, max: 100 },
+        default: ParameterValue::Integer(20),
+        tab: ParameterTab::Parameters,
+        section: period_section,
+        order: 4,
+        format: DisplayFormat::Auto,
+        visible_when: Visibility::WhenChoice {
             key: "period",
-            equals: "Length",
+            equals: "Split",
         },
     });
     params.push(ParameterDef {
@@ -212,7 +215,7 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         default: ParameterValue::Integer(0),
         tab: ParameterTab::Parameters,
         section: period_section,
-        order: 3,
+        order: 5,
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenChoice {
             key: "period",
@@ -230,7 +233,7 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         default: ParameterValue::Integer(0),
         tab: ParameterTab::Parameters,
         section: period_section,
-        order: 4,
+        order: 6,
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenChoice {
             key: "period",
@@ -353,13 +356,14 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
     params.push(ParameterDef {
         key: "width_pct".into(),
         label: "Width %".into(),
-        description: "Profile width as percentage of chart".into(),
+        description: "Profile width as fraction of segment"
+            .into(),
         kind: ParameterKind::Float {
-            min: 0.05,
-            max: 0.5,
+            min: 0.1,
+            max: 1.0,
             step: 0.05,
         },
-        default: ParameterValue::Float(0.25),
+        default: ParameterValue::Float(0.7),
         tab: ParameterTab::Style,
         section: None,
         order: 4,

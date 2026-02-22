@@ -21,4 +21,6 @@ pub enum Effect {
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)
     DrawingToolChanged(DrawingTool),
+    /// Crosshair position changed in a linked pane
+    CrosshairSync { interval: Option<u64> },
 }

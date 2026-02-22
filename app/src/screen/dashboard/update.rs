@@ -257,6 +257,27 @@ impl Dashboard {
                             pane::Effect::DrawingToolChanged(tool) => {
                                 (Task::none(), Some(Event::DrawingToolChanged(tool)))
                             }
+                            pane::Effect::CrosshairSync { interval } => {
+                                if let Some(group) = triggering_pane_link_group {
+                                    // Update/remove stored position
+                                    if let Some(ts) = interval {
+                                        self.crosshair_positions.insert(group, (ts, 0.0));
+                                    } else {
+                                        self.crosshair_positions.remove(&group);
+                                    }
+
+                                    // Propagate to all other panes in the same link group
+                                    self.iter_all_panes_mut(main_window.id)
+                                        .for_each(|(_, _, other)| {
+                                            if other.unique_id() != pane_id
+                                                && other.link_group == Some(group)
+                                            {
+                                                other.set_remote_crosshair(interval);
+                                            }
+                                        });
+                                }
+                                (Task::none(), None)
+                            }
                         };
                         return (task, event);
                     }

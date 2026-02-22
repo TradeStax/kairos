@@ -185,13 +185,61 @@ fn ensure_resolved_cache(
         });
 }
 
-/// Render a VBP study output onto the chart canvas.
+/// Compute the x-range from a profile's time_range.
+pub fn profile_x_range(
+    output: &ProfileOutput,
+    state: &ViewState,
+    bounds: Size,
+) -> (f32, f32) {
+    match output.time_range {
+        Some((start_ms, end_ms)) => {
+            let x0 = state.interval_to_x(start_ms);
+            let x1 = state.interval_to_x(end_ms);
+            (x0.min(x1), x0.max(x1))
+        }
+        None => {
+            let fw = bounds.width / state.scaling;
+            (-fw / 2.0, fw / 2.0)
+        }
+    }
+}
+
+/// Render multiple VBP profile segments onto the chart canvas.
+///
+/// Skips profiles whose time range falls entirely off-screen.
+pub fn render_vbp_multi(
+    frame: &mut Frame,
+    profiles: &[ProfileOutput],
+    config: &ProfileRenderConfig,
+    state: &ViewState,
+    bounds: Size,
+) {
+    for profile in profiles {
+        let (ax, br) = profile_x_range(profile, state, bounds);
+        // Skip off-screen profiles
+        if ax.max(br) < 0.0 || ax.min(br) > bounds.width {
+            continue;
+        }
+        render_vbp(
+            frame, profile, config, state, bounds, ax, br,
+        );
+    }
+}
+
+/// Render a single VBP profile output onto the chart canvas.
+///
+/// `anchor_x` and `box_right` define the horizontal extent of
+/// this profile segment in chart-space coordinates. Use
+/// [`profile_x_range`] to compute these from the profile's
+/// `time_range`.
 pub fn render_vbp(
     frame: &mut Frame,
     output: &ProfileOutput,
     config: &ProfileRenderConfig,
     state: &ViewState,
     bounds: Size,
+    anchor_x: f32,
+    box_right: f32,
 ) {
     if output.levels.is_empty() {
         return;
@@ -210,17 +258,10 @@ pub fn render_vbp(
         return;
     }
 
-    // Compute the anchor X from the candle time range.
-    let (anchor_x, box_right) = match output.time_range {
-        Some((start_ms, end_ms)) => {
-            let x0 = state.interval_to_x(start_ms);
-            let x1 = state.interval_to_x(end_ms);
-            (x0.min(x1), x0.max(x1))
-        }
-        None => (-bounds.width, 0.0),
-    };
-
-    let max_bar_length = bounds.width * config.width_pct;
+    let segment_width = (box_right - anchor_x).abs();
+    let visible_width = bounds.width / state.scaling;
+    let max_bar_length =
+        segment_width.min(visible_width) * config.width_pct;
 
     // Estimate bar height from adjacent price levels
     let bar_height = if resolved.levels.len() >= 2 {

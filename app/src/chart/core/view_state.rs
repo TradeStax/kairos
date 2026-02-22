@@ -69,6 +69,8 @@ pub struct ViewState {
     pub ticker_info: FuturesTickerInfo,
     /// Layout configuration (splits, autoscale)
     pub layout: ViewConfig,
+    /// Remote crosshair interval from a linked pane (timestamp ms or tick index)
+    pub remote_crosshair: Option<u64>,
 }
 
 impl ViewState {
@@ -97,6 +99,7 @@ impl ViewState {
             decimals,
             ticker_info,
             layout,
+            remote_crosshair: None,
         }
     }
 

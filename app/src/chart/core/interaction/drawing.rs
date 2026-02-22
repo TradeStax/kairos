@@ -61,10 +61,12 @@ pub fn handle_drawing_move<T: Chart>(
             )))
         } else {
             // No pending drawing: let the crosshair update normally
-            Some(canvas::Action::publish(Message::CrosshairMoved))
+            Some(canvas::Action::publish(Message::CrosshairMoved(
+                cursor_position,
+            )))
         }
     } else {
-        Some(canvas::Action::publish(Message::CrosshairMoved))
+        Some(canvas::Action::publish(Message::CrosshairMoved(None)))
     }
 }
 

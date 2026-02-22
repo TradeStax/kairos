@@ -65,9 +65,9 @@ pub fn render_study_output(
         StudyOutput::Levels(levels) => {
             levels::render_levels(frame, levels, state, bounds);
         }
-        StudyOutput::Profile(output, config) => {
-            vbp::render_vbp(
-                frame, output, config, state, bounds,
+        StudyOutput::Profile(profiles, config) => {
+            vbp::render_vbp_multi(
+                frame, profiles, config, state, bounds,
             );
         }
         StudyOutput::Markers(data) => {

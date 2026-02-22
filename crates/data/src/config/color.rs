@@ -53,6 +53,16 @@ impl Rgba {
         }
     }
 
+    /// Return a copy with a different alpha value.
+    pub const fn with_alpha(self, a: f32) -> Self {
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a,
+        }
+    }
+
     pub fn into_rgba8(self) -> [u8; 4] {
         [
             (self.r * 255.0).round() as u8,

@@ -10,21 +10,12 @@ use crate::config::{
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
-const DEFAULT_POS_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.8,
-    b: 0.4,
-    a: 1.0,
-};
+const DEFAULT_POS_COLOR: SerializableColor = BULLISH_COLOR;
 
-const DEFAULT_NEG_COLOR: SerializableColor = SerializableColor {
-    r: 0.9,
-    g: 0.2,
-    b: 0.2,
-    a: 1.0,
-};
+const DEFAULT_NEG_COLOR: SerializableColor = BEARISH_COLOR;
 
 const DEFAULT_OPACITY: f64 = 0.8;
 

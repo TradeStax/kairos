@@ -138,9 +138,10 @@ impl std::fmt::Display for VbpType {
     Deserialize,
 )]
 pub enum VbpPeriod {
+    /// Split into multiple profiles by time interval.
     #[default]
-    Auto,
-    Length,
+    Split,
+    /// Fixed time range (used by drawing tool).
     Custom,
 }
 
@@ -150,36 +151,24 @@ impl std::fmt::Display for VbpPeriod {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match self {
-            VbpPeriod::Auto => write!(f, "Auto"),
-            VbpPeriod::Length => write!(f, "Length"),
+            VbpPeriod::Split => write!(f, "Split"),
             VbpPeriod::Custom => write!(f, "Custom"),
         }
     }
 }
 
-/// Unit for VBP length-based period.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
-pub enum VbpLengthUnit {
+/// How to split candles into profile segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VbpSplitPeriod {
+    /// One profile per trading day (86_400_000 ms).
     #[default]
-    Days,
-    Minutes,
-    Contracts,
-}
-
-impl std::fmt::Display for VbpLengthUnit {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            VbpLengthUnit::Days => write!(f, "Days"),
-            VbpLengthUnit::Minutes => write!(f, "Minutes"),
-            VbpLengthUnit::Contracts => write!(f, "Contracts"),
-        }
-    }
+    Day,
+    /// One profile every N hours.
+    Hours(u32),
+    /// One profile every N minutes.
+    Minutes(u32),
+    /// One profile every N candles.
+    Contracts(u32),
 }
 
 /// How the renderer should handle VBP level grouping.

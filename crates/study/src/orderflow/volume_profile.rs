@@ -14,6 +14,7 @@ use crate::output::{
     VbpGroupingMode,
 };
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
 const DEFAULT_WIDTH_PCT: f64 = 0.3;
@@ -175,7 +176,7 @@ impl Study for VolumeProfileStudy {
         });
 
         self.output = StudyOutput::Profile(
-            ProfileOutput {
+            vec![ProfileOutput {
                 levels,
                 quantum: input.tick_size.units(),
                 poc,
@@ -195,16 +196,12 @@ impl Study for VolumeProfileStudy {
                 resolved_cache: std::sync::Mutex::new(
                     None,
                 ),
-            },
+            }],
             ProfileRenderConfig::simple(
                 ProfileSide::Left,
                 0.3,
-                SerializableColor::new(
-                    0.18, 0.55, 0.82, 0.6,
-                ),
-                SerializableColor::new(
-                    0.82, 0.28, 0.28, 0.6,
-                ),
+                BULLISH_COLOR.with_alpha(0.6),
+                BEARISH_COLOR.with_alpha(0.6),
                 SerializableColor::new(
                     1.0, 0.84, 0.0, 0.8,
                 ),
@@ -376,7 +373,8 @@ mod tests {
         study.compute(&input).unwrap();
 
         match &study.output {
-            StudyOutput::Profile(data, _config) => {
+            StudyOutput::Profile(profiles, _config) => {
+                let data = &profiles[0];
                 assert!(!data.levels.is_empty());
                 assert!(data.poc.is_some());
             }

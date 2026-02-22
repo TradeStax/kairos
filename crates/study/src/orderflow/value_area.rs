@@ -11,23 +11,14 @@ use crate::error::StudyError;
 use crate::orderflow::profile_core;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
 const DEFAULT_PERCENTAGE: f64 = 0.7;
 
-const DEFAULT_VAH_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.8,
-    b: 0.4,
-    a: 0.8,
-};
+const DEFAULT_VAH_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.8);
 
-const DEFAULT_VAL_COLOR: SerializableColor = SerializableColor {
-    r: 0.9,
-    g: 0.2,
-    b: 0.2,
-    a: 0.8,
-};
+const DEFAULT_VAL_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.8);
 
 const DEFAULT_FILL_OPACITY: f64 = 0.1;
 

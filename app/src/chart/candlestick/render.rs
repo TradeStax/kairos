@@ -277,6 +277,15 @@ impl canvas::Program<Message> for KlineChart {
                     result.interval,
                     &self.candle_style,
                 );
+            } else if let Some(interval) = chart.remote_crosshair {
+                // Remote crosshair from linked pane (only when local cursor absent)
+                crate::chart::overlay::draw_remote_crosshair(
+                    chart,
+                    frame,
+                    theme,
+                    bounds_size,
+                    interval,
+                );
             }
 
             // Debug performance overlay

@@ -30,8 +30,8 @@ pub use primitives::{
 };
 pub use profile::{
     ExtendDirection, NodeDetectionMethod, ProfileLevel,
-    ProfileSide, VbpGroupingMode, VbpLengthUnit, VbpNodeConfig,
-    VbpPeriod, VbpPocConfig, VbpResolvedCache, VbpType,
+    ProfileSide, VbpGroupingMode, VbpNodeConfig, VbpPeriod,
+    VbpPocConfig, VbpResolvedCache, VbpSplitPeriod, VbpType,
     VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
 };
 
@@ -62,7 +62,7 @@ pub enum StudyOutput {
     Levels(Vec<PriceLevel>),
 
     /// Price profile (Volume Profile, Market Profile, VBP)
-    Profile(ProfileOutput, ProfileRenderConfig),
+    Profile(Vec<ProfileOutput>, ProfileRenderConfig),
 
     /// Footprint: per-candle trade-level data replacing standard
     /// candle rendering

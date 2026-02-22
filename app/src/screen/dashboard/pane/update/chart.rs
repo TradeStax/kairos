@@ -74,7 +74,7 @@ impl State {
                     self.context_menu = Some(ContextMenuKind::Chart { position });
                 }
             }
-            chart::Message::CrosshairMoved => {
+            chart::Message::CrosshairMoved(cursor_pos) => {
                 // Optimize crosshair updates when a drawing tool is active:
                 // Only clear the main crosshair cache, skip indicator caches
                 use crate::chart::Chart;
@@ -102,6 +102,32 @@ impl State {
                     }
                     _ => {}
                 }
+
+                // Emit crosshair sync for linked panes
+                if self.link_group.is_some() {
+                    let interval = cursor_pos.and_then(|pos| {
+                        self.compute_crosshair_interval(pos)
+                    });
+                    return Some(Effect::CrosshairSync { interval });
+                }
+            }
+            chart::Message::CursorLeft => {
+                match &mut self.content {
+                    Content::Kline { chart: Some(c), .. } => {
+                        chart::update(c, &msg);
+                    }
+                    Content::Heatmap { chart: Some(c), .. } => {
+                        chart::update(c, &msg);
+                    }
+                    Content::Profile { chart: Some(c), .. } => {
+                        chart::update(c, &msg);
+                    }
+                    _ => {}
+                }
+
+                if self.link_group.is_some() {
+                    return Some(Effect::CrosshairSync { interval: None });
+                }
             }
             _ => match &mut self.content {
                 Content::Heatmap { chart: Some(c), .. } => {
@@ -117,5 +143,30 @@ impl State {
             },
         }
         None
+    }
+
+    /// Compute the snapped interval (timestamp or tick index) for a cursor
+    /// position within the chart bounds.
+    fn compute_crosshair_interval(
+        &self,
+        pos: iced::Point,
+    ) -> Option<u64> {
+        use crate::chart::Chart;
+        let state = match &self.content {
+            Content::Kline { chart: Some(c), .. } => c.state(),
+            Content::Heatmap { chart: Some(c), .. } => c.state(),
+            Content::Profile { chart: Some(c), .. } => c.state(),
+            _ => return None,
+        };
+
+        let bounds = state.bounds.size();
+        if bounds.width < f32::EPSILON || bounds.height < f32::EPSILON {
+            return None;
+        }
+
+        let region = state.visible_region(bounds);
+        let (interval, _snap_ratio) =
+            state.snap_x_to_index(pos.x, bounds, region);
+        Some(interval)
     }
 }

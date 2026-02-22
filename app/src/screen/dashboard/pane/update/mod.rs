@@ -17,7 +17,10 @@ impl State {
                 Event::ContextMenuAction(_)
                     | Event::DismissContextMenu
                     | Event::ChartInteraction(
-                        crate::chart::Message::CrosshairMoved
+                        crate::chart::Message::CrosshairMoved(_)
+                    )
+                    | Event::ChartInteraction(
+                        crate::chart::Message::CursorLeft
                     )
                     | Event::ChartInteraction(
                         crate::chart::Message::BoundsChanged(_)

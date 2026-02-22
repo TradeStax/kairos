@@ -11,23 +11,14 @@ use crate::error::StudyError;
 use crate::orderflow::profile_core;
 use crate::output::{PriceLevel, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
 const DEFAULT_THRESHOLD: f64 = 3.0;
 
-const DEFAULT_BUY_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.8,
-    b: 0.4,
-    a: 0.6,
-};
+const DEFAULT_BUY_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.6);
 
-const DEFAULT_SELL_COLOR: SerializableColor = SerializableColor {
-    r: 0.9,
-    g: 0.2,
-    b: 0.2,
-    a: 0.6,
-};
+const DEFAULT_SELL_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.6);
 
 /// Type of imbalance detected at a price level.
 #[derive(Debug, Clone, Copy)]

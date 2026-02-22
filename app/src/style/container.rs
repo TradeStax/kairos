@@ -7,11 +7,15 @@ use super::tokens;
 
 // ── Window Title Bar ──────────────────────────────────────────────────
 
-pub fn window_title_bar(theme: &Theme) -> Style {
+pub fn window_title_bar(theme: &Theme, hovered: bool) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: Some(palette.background.base.color.into()),
+        background: Some(if hovered {
+            palette.background.weak.color
+        } else {
+            palette.background.base.color
+        }.into()),
         ..Default::default()
     }
 }

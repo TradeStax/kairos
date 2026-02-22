@@ -18,6 +18,13 @@ pub mod trend;
 pub mod volatility;
 pub mod volume;
 
+/// Default bullish/buy/ask color — matches theme success (#51CDA0).
+pub const BULLISH_COLOR: data::SerializableColor =
+    data::SerializableColor::from_rgb8_const(81, 205, 160);
+/// Default bearish/sell/bid color — matches theme danger (#C0504D).
+pub const BEARISH_COLOR: data::SerializableColor =
+    data::SerializableColor::from_rgb8_const(192, 80, 77);
+
 pub use config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
@@ -29,7 +36,7 @@ pub use output::{
     FootprintLevel, FootprintRenderMode, FootprintScaling,
     MarkerData, MarkerRenderConfig, MarkerShape,
     ProfileOutput, ProfileRenderConfig, StudyOutput,
-    VbpGroupingMode, VbpLengthUnit, VbpPeriod, VbpType,
+    VbpGroupingMode, VbpPeriod, VbpSplitPeriod, VbpType,
 };
 pub use registry::{StudyInfo, StudyRegistry};
 pub use traits::{Study, StudyCategory, StudyInput, StudyPlacement};

@@ -19,6 +19,7 @@ use iced::{
         scrollable, space,
     },
 };
+use iced::widget::scrollable::{Direction, Scrollbar};
 
 use super::common::sync_all_button;
 
@@ -59,10 +60,18 @@ pub fn profile_cfg_view<'a>(
         })
         .collect();
 
-    let tab_bar =
+    let tab_bar = container(
         ButtonGroupBuilder::new(tab_items, active_tab)
             .tab_style()
-            .into_element();
+            .fill_width()
+            .into_element(),
+    )
+    .padding(iced::Padding {
+        top: tokens::spacing::SM,
+        right: tokens::spacing::XL,
+        bottom: 0.0,
+        left: tokens::spacing::XL,
+    });
 
     // ── Tab content ──────────────────────────────────────────────
     let tab_content: Element<'a, Message> = match active_tab {
@@ -88,17 +97,23 @@ pub fn profile_cfg_view<'a>(
         .width(Length::Fill);
 
     let body_scrollable =
-        scrollable(body).style(style::scroll_bar);
+        scrollable::Scrollable::with_direction(
+            body,
+            Direction::Vertical(
+                Scrollbar::new().width(4).scroller_width(4).spacing(2),
+            ),
+        )
+        .style(style::scroll_bar);
 
     let inner = column![
         header,
+        tab_bar,
         container(body_scrollable).padding(iced::Padding {
             top: tokens::spacing::MD,
             right: tokens::spacing::XL,
             bottom: tokens::spacing::XL,
             left: tokens::spacing::XL,
         }),
-        tab_bar,
     ]
     .width(Length::Fill);
 

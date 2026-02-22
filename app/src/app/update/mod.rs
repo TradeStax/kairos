@@ -190,6 +190,9 @@ impl Kairos {
             }
 
             // Window control messages (custom title bar)
+            Message::TitleBarHover(hovered) => {
+                self.title_bar_hovered = hovered;
+            }
             Message::WindowDrag(id) => {
                 return self.handle_window_drag(id);
             }

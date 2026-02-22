@@ -264,6 +264,15 @@ impl canvas::Program<Message> for HeatmapChart {
                         || matches!(interaction, Interaction::Ruler { start } if start.is_some())
                     {
                     }
+                } else if let Some(interval) = chart.remote_crosshair {
+                    // Remote crosshair from linked pane
+                    crate::chart::overlay::draw_remote_crosshair(
+                        chart,
+                        frame,
+                        theme,
+                        bounds_size,
+                        interval,
+                    );
                 }
             });
 

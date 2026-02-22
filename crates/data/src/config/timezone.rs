@@ -113,11 +113,11 @@ impl UserTimezone {
             match self {
                 UserTimezone::Local => datetime
                     .with_timezone(&chrono::Local)
-                    .format("%a %b %-d %H:%M")
+                    .format("%a %b %-d")
                     .to_string(),
                 UserTimezone::Utc => datetime
                     .with_timezone(&chrono::Utc)
-                    .format("%a %b %-d %H:%M")
+                    .format("%a %b %-d")
                     .to_string(),
             }
         } else {

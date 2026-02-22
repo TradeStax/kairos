@@ -29,12 +29,17 @@ pub fn draw_in_chart_coords(
 
     // If computed profile data exists, delegate to the renderer
     if let Some(ref study) = drawing.vbp_study
-        && let StudyOutput::Profile(ref output, ref config) =
+        && let StudyOutput::Profile(ref profiles, ref config) =
             *study.output()
     {
-        vbp_renderer::render_vbp(
-            frame, output, config, state, bounds,
-        );
+        for output in profiles {
+            let (ax, br) = vbp_renderer::profile_x_range(
+                output, state, bounds,
+            );
+            vbp_renderer::render_vbp(
+                frame, output, config, state, bounds, ax, br,
+            );
+        }
 
         // Draw selection highlight
         if is_selected {

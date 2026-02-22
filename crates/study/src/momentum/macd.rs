@@ -7,6 +7,7 @@ use crate::output::{HistogramBar, LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::trend::ema::compute_ema;
 use crate::util::candle_key;
+use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
 fn make_params() -> Vec<ParameterDef> {
@@ -86,12 +87,7 @@ fn make_params() -> Vec<ParameterDef> {
             label: "Histogram +".into(),
             description: "Histogram positive color".into(),
             kind: ParameterKind::Color,
-            default: ParameterValue::Color(SerializableColor {
-                r: 0.2,
-                g: 0.8,
-                b: 0.4,
-                a: 0.7,
-            }),
+            default: ParameterValue::Color(BULLISH_COLOR.with_alpha(0.7)),
             tab: ParameterTab::Style,
             section: None,
             order: 2,
@@ -103,12 +99,7 @@ fn make_params() -> Vec<ParameterDef> {
             label: "Histogram -".into(),
             description: "Histogram negative color".into(),
             kind: ParameterKind::Color,
-            default: ParameterValue::Color(SerializableColor {
-                r: 0.9,
-                g: 0.2,
-                b: 0.2,
-                a: 0.7,
-            }),
+            default: ParameterValue::Color(BEARISH_COLOR.with_alpha(0.7)),
             tab: ParameterTab::Style,
             section: None,
             order: 3,
@@ -199,21 +190,11 @@ impl Study for MacdStudy {
         );
         let hist_pos_color = self.config.get_color(
             "hist_positive_color",
-            SerializableColor {
-                r: 0.2,
-                g: 0.8,
-                b: 0.4,
-                a: 0.7,
-            },
+            BULLISH_COLOR.with_alpha(0.7),
         );
         let hist_neg_color = self.config.get_color(
             "hist_negative_color",
-            SerializableColor {
-                r: 0.9,
-                g: 0.2,
-                b: 0.2,
-                a: 0.7,
-            },
+            BEARISH_COLOR.with_alpha(0.7),
         );
         let candles = input.candles;
         let max_period = fast_period.max(slow_period);
