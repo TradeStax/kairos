@@ -2,8 +2,9 @@
 
 use iced::widget::{container, row, text};
 use iced::{Border, Color, Element, Renderer, Theme};
+use iced_anim::AnimationBuilder;
 
-use crate::style::{palette, tokens};
+use crate::style::{animation, palette, tokens};
 
 /// A small colored circle (8x8) indicating status.
 pub fn status_dot<'a, Message: 'a>(color: Color) -> Element<'a, Message, Theme, Renderer> {
@@ -62,6 +63,63 @@ pub fn status_badge_themed<'a, Message: 'a>(
     .spacing(tokens::spacing::XS)
     .align_y(iced::Alignment::Center)
     .into()
+}
+
+/// Animated small colored circle (8x8) — color smoothly transitions
+/// when the target color changes between renders.
+pub fn animated_status_dot<'a, Message: Clone + 'a>(
+    color: Color,
+) -> Element<'a, Message, Theme, Renderer> {
+    AnimationBuilder::new(color, move |current_color| {
+        container(iced::widget::Space::new())
+            .width(8)
+            .height(8)
+            .style(move |_theme: &Theme| container::Style {
+                background: Some(current_color.into()),
+                border: Border {
+                    radius: tokens::radius::ROUND.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    })
+    .animation(animation::spring::SUBTLE)
+    .into()
+}
+
+/// Animated colored dot followed by a label.
+pub fn animated_status_badge<'a, Message: Clone + 'a>(
+    color: Color,
+    label: &'a str,
+) -> Element<'a, Message, Theme, Renderer> {
+    row![
+        animated_status_dot(color),
+        text(label).size(tokens::text::SMALL),
+    ]
+    .spacing(tokens::spacing::XS)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// Animated colored dot + label + optional detail text on the right.
+pub fn animated_status_row<'a, Message: Clone + 'a>(
+    color: Color,
+    label: &'a str,
+    detail: Option<&'a str>,
+) -> Element<'a, Message, Theme, Renderer> {
+    let mut r = row![
+        animated_status_dot(color),
+        text(label).size(tokens::text::SMALL),
+    ]
+    .spacing(tokens::spacing::XS)
+    .align_y(iced::Alignment::Center);
+
+    if let Some(d) = detail {
+        r = r.push(text(d).size(tokens::text::TINY).style(palette::neutral_text));
+    }
+
+    r.into()
 }
 
 /// Colored dot + label + optional detail text on the right.

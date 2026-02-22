@@ -9,6 +9,7 @@ mod ruler;
 use super::traits::Chart;
 use crate::chart::Message;
 use crate::components::layout::multi_split::DRAG_SIZE;
+use crate::style::animation;
 use data::{DrawingId, DrawingTool};
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
@@ -206,6 +207,24 @@ pub fn canvas_interaction<T: Chart>(
     ) && matches!(chart_state.interaction, Interaction::Decelerating { .. })
     {
         chart_state.interaction = Interaction::None;
+    }
+
+    // Drive deceleration physics on any incoming event while decelerating.
+    // Only horizontal momentum is applied (vertical momentum feels disorienting
+    // on trading charts where price levels have meaning).
+    if let Interaction::Decelerating { ref mut velocity } = chart_state.interaction {
+        let state = chart.state();
+        let new_x = state.translation.x + velocity.x / state.scaling;
+        let new_translation = Vector::new(new_x, state.translation.y);
+
+        velocity.x *= animation::deceleration::FRICTION;
+        velocity.y = 0.0;
+
+        if velocity.x.abs() < animation::deceleration::STOP_THRESHOLD {
+            chart_state.interaction = Interaction::None;
+        }
+
+        return Some(canvas::Action::publish(Message::Translated(new_translation)));
     }
 
     let interaction = &mut chart_state.interaction;

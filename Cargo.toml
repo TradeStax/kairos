@@ -21,3 +21,4 @@ num-traits = "0.2.19"
 rustc-hash = "2.1.1"
 enum-map = "2.7.3"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
+iced_anim = { version = "0.3", features = ["derive"] }

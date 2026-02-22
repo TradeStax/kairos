@@ -3,6 +3,7 @@ use iced::advanced::overlay;
 use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree};
 use iced::advanced::{Clipboard, Shell, Widget};
+use iced_core::Renderer as _;
 use iced::time::{self, Duration, Instant};
 use iced::widget::{button, column, container, row, space, text};
 use iced::{
@@ -12,7 +13,7 @@ use iced::{
 use iced::{Border, mouse, padding, theme, window};
 
 use crate::style;
-use crate::style::tokens;
+use crate::style::{animation, tokens};
 
 pub const DEFAULT_TIMEOUT: u64 = 8;
 
@@ -367,19 +368,33 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
         shell: &mut Shell<'_, Message>,
     ) {
         if let Event::Window(window::Event::RedrawRequested(now)) = &event {
+            let enter_dur = animation::duration::TOAST_ENTER;
+            let exit_dur = animation::duration::TOAST_EXIT;
+            let timeout = time::seconds(self.timeout_secs);
+
             self.instants
                 .iter_mut()
                 .enumerate()
                 .for_each(|(index, maybe_instant)| {
                     if let Some(instant) = maybe_instant.as_mut() {
-                        let remaining =
-                            time::seconds(self.timeout_secs).saturating_sub(instant.elapsed());
+                        let elapsed = instant.elapsed();
+                        let remaining = timeout.saturating_sub(elapsed);
 
                         if remaining == Duration::ZERO {
                             maybe_instant.take();
                             shell.publish((self.on_close)(index));
                         } else {
-                            shell.request_redraw_at(*now + remaining);
+                            // Request frequent redraws during enter/exit
+                            // animation windows for smooth motion.
+                            let in_enter = elapsed < enter_dur;
+                            let in_exit = remaining < exit_dur;
+                            if in_enter || in_exit {
+                                shell.request_redraw_at(
+                                    *now + Duration::from_millis(16),
+                                );
+                            } else {
+                                shell.request_redraw_at(*now + remaining);
+                            }
                         }
                     }
                 });
@@ -425,16 +440,54 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
         cursor: mouse::Cursor,
     ) {
         let viewport = layout.bounds();
+        let enter_dur = animation::duration::TOAST_ENTER;
+        let exit_dur = animation::duration::TOAST_EXIT;
+        let timeout = time::seconds(self.timeout_secs);
 
-        for ((child, state), layout) in self
+        for (((child, state), layout), instant) in self
             .toasts
             .iter()
             .zip(self.state.iter())
             .zip(layout.children())
+            .zip(self.instants.iter())
         {
-            child
-                .as_widget()
-                .draw(state, renderer, theme, style, layout, cursor, &viewport);
+            // Compute slide offset for enter/exit animation
+            let offset_y = if let Some(instant) = instant {
+                let elapsed = instant.elapsed();
+                let remaining = timeout.saturating_sub(elapsed);
+
+                if elapsed < enter_dur {
+                    // Slide in: ease-out from -20px to 0
+                    let progress = elapsed.as_millis() as f32
+                        / enter_dur.as_millis() as f32;
+                    let ease_out = 1.0 - (1.0 - progress).powi(2);
+                    (1.0 - ease_out) * -20.0
+                } else if remaining < exit_dur {
+                    // Slide out: ease-in from 0 to -20px
+                    let exit_progress = remaining.as_millis() as f32
+                        / exit_dur.as_millis() as f32;
+                    (1.0 - exit_progress) * -20.0
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
+
+            if offset_y.abs() > 0.01 {
+                renderer.with_translation(
+                    Vector::new(0.0, offset_y),
+                    |renderer| {
+                        child.as_widget().draw(
+                            state, renderer, theme, style, layout, cursor, &viewport,
+                        );
+                    },
+                );
+            } else {
+                child.as_widget().draw(
+                    state, renderer, theme, style, layout, cursor, &viewport,
+                );
+            }
         }
     }
 

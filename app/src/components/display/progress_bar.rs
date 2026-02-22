@@ -2,9 +2,10 @@
 
 use iced::Element;
 use iced::widget::{column, progress_bar, row, text};
+use iced_anim::AnimationBuilder;
 
 use crate::style;
-use crate::style::tokens;
+use crate::style::{animation, tokens};
 
 pub struct ProgressBarBuilder<'a, Message> {
     value: f32,
@@ -42,42 +43,56 @@ impl<'a, Message: 'a> ProgressBarBuilder<'a, Message> {
         self
     }
 
-    pub fn into_element(self) -> Element<'a, Message> {
-        let bar = progress_bar(0.0..=self.max, self.value)
-            .girth(self.girth)
-            .style(style::progress_bar);
+    pub fn into_element(self) -> Element<'a, Message>
+    where
+        Message: Clone,
+    {
+        let max = self.max;
+        let girth = self.girth;
+        let show_percentage = self.show_percentage;
+        let label = self.label.map(|l| l.to_string());
 
-        let mut content = column![].spacing(tokens::spacing::XXS);
+        AnimationBuilder::new(self.value, move |current_value| {
+            let bar = progress_bar(0.0..=max, current_value)
+                .girth(girth)
+                .style(style::progress_bar);
 
-        if let Some(lbl) = self.label {
-            let mut header = row![text(lbl).size(tokens::text::SMALL)].spacing(tokens::spacing::XS);
+            let mut content = column![].spacing(tokens::spacing::XXS);
 
-            if self.show_percentage {
-                let pct = if self.max > 0.0 {
-                    (self.value / self.max * 100.0) as u32
+            if let Some(ref lbl) = label {
+                let mut header =
+                    row![text(lbl.clone()).size(tokens::text::SMALL)].spacing(tokens::spacing::XS);
+
+                if show_percentage {
+                    let pct = if max > 0.0 {
+                        (current_value / max * 100.0) as u32
+                    } else {
+                        0
+                    };
+                    header = header.push(text(format!("{pct}%")).size(tokens::text::TINY));
+                }
+
+                content = content.push(header);
+            } else if show_percentage {
+                let pct = if max > 0.0 {
+                    (current_value / max * 100.0) as u32
                 } else {
                     0
                 };
-                header = header.push(text(format!("{pct}%")).size(tokens::text::TINY));
+                content = content.push(text(format!("{pct}%")).size(tokens::text::TINY));
             }
 
-            content = content.push(header);
-        } else if self.show_percentage {
-            let pct = if self.max > 0.0 {
-                (self.value / self.max * 100.0) as u32
-            } else {
-                0
-            };
-            content = content.push(text(format!("{pct}%")).size(tokens::text::TINY));
-        }
+            content = content.push(bar);
 
-        content = content.push(bar);
-
-        content.into()
+            content.into()
+        })
+        .animation(animation::spring::SUBTLE)
+        .animates_layout(false)
+        .into()
     }
 }
 
-impl<'a, Message: 'a> From<ProgressBarBuilder<'a, Message>> for Element<'a, Message> {
+impl<'a, Message: Clone + 'a> From<ProgressBarBuilder<'a, Message>> for Element<'a, Message> {
     fn from(builder: ProgressBarBuilder<'a, Message>) -> Self {
         builder.into_element()
     }

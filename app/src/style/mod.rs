@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod button;
 mod canvas;
 mod container;
