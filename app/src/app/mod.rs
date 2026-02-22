@@ -71,9 +71,6 @@ impl Kairos {
     pub(crate) const REGISTRY_SENTINEL_FEED: uuid::Uuid = uuid::Uuid::nil();
 
     pub fn new() -> (Self, Task<Message>) {
-        // Initialize script engine and load indicator scripts (sync, fast)
-        services::initialize_script_registry();
-
         // Load saved state (no I/O beyond disk reads for config, no repo init)
         let saved_state_temp =
             crate::layout::load_saved_state_without_registry(None);

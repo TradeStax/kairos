@@ -21,6 +21,4 @@ pub enum Effect {
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)
     DrawingToolChanged(DrawingTool),
-    /// Script saved — reload the script registry
-    ReloadScripts,
 }

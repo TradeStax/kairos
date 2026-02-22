@@ -91,10 +91,6 @@ pub enum Event {
     DrawingPropertiesChanged(crate::modals::drawing_properties::Message),
     IndicatorManagerInteraction(crate::modals::pane::indicator_manager::Message),
     OpenIndicatorManager,
-    EditorInteraction(iced_code_editor::Message),
-    ScriptSelected(String),
-    NewScript,
-    SaveScript,
 }
 
 pub struct State {

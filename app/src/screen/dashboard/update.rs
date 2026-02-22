@@ -257,10 +257,6 @@ impl Dashboard {
                             pane::Effect::DrawingToolChanged(tool) => {
                                 (Task::none(), Some(Event::DrawingToolChanged(tool)))
                             }
-                            pane::Effect::ReloadScripts => {
-                                crate::app::services::reload_script_registry();
-                                (Task::none(), None)
-                            }
                         };
                         return (task, event);
                     }

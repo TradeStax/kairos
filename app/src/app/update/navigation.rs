@@ -303,23 +303,4 @@ impl Kairos {
         self.handle_window_event(window::Event::CloseRequested(id))
     }
 
-    pub(crate) fn handle_save_focused_script(&mut self) -> Task<Message> {
-        let main_window_id = self.main_window.id;
-        let Some(dashboard) = self.active_dashboard_mut() else {
-            return Task::none();
-        };
-        let Some((window_id, pane)) = dashboard.focus else {
-            return Task::none();
-        };
-        let Some(state) = dashboard.get_mut_pane(main_window_id, window_id, pane) else {
-            return Task::none();
-        };
-        let effect = state.update(
-            dashboard::pane::Event::SaveScript,
-        );
-        if let Some(dashboard::pane::Effect::ReloadScripts) = effect {
-            crate::app::services::reload_script_registry();
-        }
-        Task::none()
-    }
 }

@@ -125,6 +125,5 @@ pub enum Message {
     WindowMinimize(window::Id),
     WindowToggleMaximize(window::Id),
     WindowClose(window::Id),
-    SaveFocusedScript,
     ServicesReady(super::services::AllServicesResult),
 }

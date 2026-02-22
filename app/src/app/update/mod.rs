@@ -202,9 +202,6 @@ impl Kairos {
             Message::WindowClose(id) => {
                 return self.handle_window_close(id);
             }
-            Message::SaveFocusedScript => {
-                return self.handle_save_focused_script();
-            }
             Message::ServicesReady(result) => {
                 return self.handle_services_ready(result);
             }

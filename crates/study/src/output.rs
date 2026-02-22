@@ -591,24 +591,108 @@ pub struct VbpValueAreaConfig {
 
 /// HVN/LVN (Peak & Valley) configuration within VBP.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VbpNodeConfig {
-    pub show_hvn: bool,
-    pub show_lvn: bool,
+    // Detection (shared)
     pub hvn_method: NodeDetectionMethod,
     pub hvn_threshold: f32,
     pub lvn_method: NodeDetectionMethod,
     pub lvn_threshold: f32,
     pub min_prominence: f32,
-    pub hvn_color: SerializableColor,
-    pub hvn_line_style: LineStyleValue,
-    pub hvn_line_width: f32,
-    pub hvn_extend: ExtendDirection,
-    pub lvn_color: SerializableColor,
-    pub lvn_line_style: LineStyleValue,
-    pub lvn_line_width: f32,
-    pub lvn_extend: ExtendDirection,
-    pub show_hvn_labels: bool,
-    pub show_lvn_labels: bool,
+
+    // HVN Zones
+    pub show_hvn_zones: bool,
+    pub hvn_zone_color: SerializableColor,
+    pub hvn_zone_opacity: f32,
+
+    // Peak Line (single dominant HVN)
+    pub show_peak_line: bool,
+    pub peak_color: SerializableColor,
+    pub peak_line_style: LineStyleValue,
+    pub peak_line_width: f32,
+    pub peak_extend: ExtendDirection,
+    pub show_peak_label: bool,
+
+    // Developing Peak
+    pub show_developing_peak: bool,
+    pub developing_peak_color: SerializableColor,
+    pub developing_peak_line_width: f32,
+    pub developing_peak_line_style: LineStyleValue,
+
+    // LVN Zones
+    pub show_lvn_zones: bool,
+    pub lvn_zone_color: SerializableColor,
+    pub lvn_zone_opacity: f32,
+
+    // Valley Line (single deepest LVN)
+    pub show_valley_line: bool,
+    pub valley_color: SerializableColor,
+    pub valley_line_style: LineStyleValue,
+    pub valley_line_width: f32,
+    pub valley_extend: ExtendDirection,
+    pub show_valley_label: bool,
+
+    // Developing Valley
+    pub show_developing_valley: bool,
+    pub developing_valley_color: SerializableColor,
+    pub developing_valley_line_width: f32,
+    pub developing_valley_line_style: LineStyleValue,
+}
+
+impl Default for VbpNodeConfig {
+    fn default() -> Self {
+        Self {
+            hvn_method: NodeDetectionMethod::Percentile,
+            hvn_threshold: 0.85,
+            lvn_method: NodeDetectionMethod::Percentile,
+            lvn_threshold: 0.15,
+            min_prominence: 0.15,
+
+            show_hvn_zones: false,
+            hvn_zone_color: SerializableColor::new(
+                0.0, 0.9, 0.4, 0.5,
+            ),
+            hvn_zone_opacity: 0.08,
+
+            show_peak_line: false,
+            peak_color: SerializableColor::new(
+                0.0, 0.9, 0.4, 0.8,
+            ),
+            peak_line_style: LineStyleValue::Solid,
+            peak_line_width: 1.5,
+            peak_extend: ExtendDirection::None,
+            show_peak_label: false,
+
+            show_developing_peak: false,
+            developing_peak_color: SerializableColor::new(
+                0.0, 0.9, 0.4, 0.5,
+            ),
+            developing_peak_line_width: 1.0,
+            developing_peak_line_style: LineStyleValue::Dashed,
+
+            show_lvn_zones: false,
+            lvn_zone_color: SerializableColor::new(
+                0.9, 0.2, 0.2, 0.5,
+            ),
+            lvn_zone_opacity: 0.08,
+
+            show_valley_line: false,
+            valley_color: SerializableColor::new(
+                0.9, 0.2, 0.2, 0.8,
+            ),
+            valley_line_style: LineStyleValue::Solid,
+            valley_line_width: 1.5,
+            valley_extend: ExtendDirection::None,
+            show_valley_label: false,
+
+            show_developing_valley: false,
+            developing_valley_color: SerializableColor::new(
+                0.9, 0.2, 0.2, 0.5,
+            ),
+            developing_valley_line_width: 1.0,
+            developing_valley_line_style: LineStyleValue::Dashed,
+        }
+    }
 }
 
 /// Anchored VWAP configuration within VBP.
@@ -758,12 +842,24 @@ pub struct VbpData {
     /// Developing POC: (timestamp_ms, poc_price_units) per candle
     #[serde(skip)]
     pub developing_poc_points: Vec<(u64, i64)>,
-    /// Detected high volume nodes
+    /// Detected HVN zones: (lo_price_units, hi_price_units)
     #[serde(skip)]
-    pub hvn_nodes: Vec<VolumeNode>,
-    /// Detected low volume nodes
+    pub hvn_zones: Vec<(i64, i64)>,
+    /// Detected LVN zones: (lo_price_units, hi_price_units)
     #[serde(skip)]
-    pub lvn_nodes: Vec<VolumeNode>,
+    pub lvn_zones: Vec<(i64, i64)>,
+    /// Single dominant peak node
+    #[serde(skip)]
+    pub peak_node: Option<VolumeNode>,
+    /// Single deepest valley node
+    #[serde(skip)]
+    pub valley_node: Option<VolumeNode>,
+    /// Developing peak polyline: (timestamp_ms, price_units)
+    #[serde(skip)]
+    pub developing_peak_points: Vec<(u64, i64)>,
+    /// Developing valley polyline: (timestamp_ms, price_units)
+    #[serde(skip)]
+    pub developing_valley_points: Vec<(u64, i64)>,
     /// Anchored VWAP: (timestamp_ms, vwap_price)
     #[serde(skip)]
     pub vwap_points: Vec<(u64, f32)>,
@@ -804,8 +900,16 @@ impl Clone for VbpData {
             developing_poc_points: self
                 .developing_poc_points
                 .clone(),
-            hvn_nodes: self.hvn_nodes.clone(),
-            lvn_nodes: self.lvn_nodes.clone(),
+            hvn_zones: self.hvn_zones.clone(),
+            lvn_zones: self.lvn_zones.clone(),
+            peak_node: self.peak_node.clone(),
+            valley_node: self.valley_node.clone(),
+            developing_peak_points: self
+                .developing_peak_points
+                .clone(),
+            developing_valley_points: self
+                .developing_valley_points
+                .clone(),
             vwap_points: self.vwap_points.clone(),
             vwap_upper_points: self.vwap_upper_points.clone(),
             vwap_lower_points: self.vwap_lower_points.clone(),

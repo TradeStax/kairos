@@ -41,12 +41,10 @@ open = "5.3.2"
 fern = "0.7.1"
 tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
 futures = "0.3"
-iced-code-editor = "0.3.4"
 
 exchange = { version = "0.1.0", path = "../crates/exchange", package = "kairos-exchange" }
 data = { version = "0.1.0", path = "../crates/data", package = "kairos-data" }
 study = { version = "0.1.0", path = "../crates/study", package = "kairos-study" }
-script = { version = "0.1.0", path = "../crates/script", package = "kairos-script" }
 
 [build-dependencies]
 winresource = "0.1"

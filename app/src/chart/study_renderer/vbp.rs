@@ -3,15 +3,20 @@
 //! Renders horizontal volume bars anchored to the candle time range.
 //! Multi-pass rendering with clear draw order:
 //!
-//! 1. VA fill rectangle (behind everything)
-//! 2. Volume bars (5 modes, with VA dimming)
-//! 3. VAH/VAL lines
-//! 4. HVN/LVN lines
-//! 5. POC line (enhanced with style/extension)
-//! 6. Developing POC polyline
-//! 7. VWAP line + bands
-//! 8. Bounding rect outline
-//! 9. Price labels
+//! 1.  VA fill rectangle (behind everything)
+//! 1b. HVN zone fills
+//! 1c. LVN zone fills
+//! 2.  Volume bars (5 modes, with VA dimming)
+//! 3.  VAH/VAL lines
+//! 4.  Peak line (single dominant HVN)
+//! 4b. Valley line (single deepest LVN)
+//! 5.  POC line (enhanced with style/extension)
+//! 6.  Developing POC polyline
+//! 6b. Developing Peak polyline
+//! 6c. Developing Valley polyline
+//! 7.  VWAP line + bands
+//! 8.  Bounding rect outline
+//! 9.  Price labels (POC, VA, Peak, Valley, VWAP)
 
 use crate::chart::study_renderer::coord;
 use crate::chart::ViewState;
@@ -22,7 +27,7 @@ use study::config::LineStyleValue;
 use study::orderflow::profile_core;
 use study::output::{
     ExtendDirection, ProfileLevel, VbpData, VbpGroupingMode,
-    VbpResolvedCache, VbpType, VolumeNode,
+    VbpResolvedCache, VbpType,
 };
 
 /// Minimum row height in screen pixels for readable bars.
@@ -241,6 +246,34 @@ pub fn render_vbp(
         );
     }
 
+    // ── Pass 1b: HVN zone fills ─────────────────────────────────
+    if vbp.node_config.show_hvn_zones && !vbp.hvn_zones.is_empty()
+    {
+        draw_zone_fills(
+            frame,
+            &vbp.hvn_zones,
+            vbp.node_config.hvn_zone_color,
+            vbp.node_config.hvn_zone_opacity,
+            state,
+            anchor_x,
+            box_right,
+        );
+    }
+
+    // ── Pass 1c: LVN zone fills ─────────────────────────────────
+    if vbp.node_config.show_lvn_zones && !vbp.lvn_zones.is_empty()
+    {
+        draw_zone_fills(
+            frame,
+            &vbp.lvn_zones,
+            vbp.node_config.lvn_zone_color,
+            vbp.node_config.lvn_zone_opacity,
+            state,
+            anchor_x,
+            box_right,
+        );
+    }
+
     // ── Pass 2: Volume bars ──────────────────────────────────────
     match vbp.vbp_type {
         VbpType::Volume => {
@@ -323,34 +356,44 @@ pub fn render_vbp(
         );
     }
 
-    // ── Pass 4: HVN/LVN lines ───────────────────────────────────
-    if vbp.node_config.show_hvn && !vbp.hvn_nodes.is_empty() {
-        draw_volume_nodes(
-            frame,
-            &vbp.hvn_nodes,
-            to_iced_color(vbp.node_config.hvn_color, 1.0),
-            &vbp.node_config.hvn_line_style,
-            vbp.node_config.hvn_line_width,
-            &vbp.node_config.hvn_extend,
-            state,
-            anchor_x,
-            box_right,
-            bounds,
-        );
+    // ── Pass 4: Peak line (single) ─────────────────────────────
+    if vbp.node_config.show_peak_line {
+        if let Some(ref node) = vbp.peak_node {
+            let y = state
+                .price_to_y(Price::from_units(node.price_units));
+            draw_horizontal_line(
+                frame,
+                y,
+                to_iced_color(vbp.node_config.peak_color, 1.0),
+                &vbp.node_config.peak_line_style,
+                vbp.node_config.peak_line_width,
+                &vbp.node_config.peak_extend,
+                anchor_x,
+                box_right,
+                bounds,
+                state,
+            );
+        }
     }
-    if vbp.node_config.show_lvn && !vbp.lvn_nodes.is_empty() {
-        draw_volume_nodes(
-            frame,
-            &vbp.lvn_nodes,
-            to_iced_color(vbp.node_config.lvn_color, 1.0),
-            &vbp.node_config.lvn_line_style,
-            vbp.node_config.lvn_line_width,
-            &vbp.node_config.lvn_extend,
-            state,
-            anchor_x,
-            box_right,
-            bounds,
-        );
+
+    // ── Pass 4b: Valley line (single) ────────────────────────────
+    if vbp.node_config.show_valley_line {
+        if let Some(ref node) = vbp.valley_node {
+            let y = state
+                .price_to_y(Price::from_units(node.price_units));
+            draw_horizontal_line(
+                frame,
+                y,
+                to_iced_color(vbp.node_config.valley_color, 1.0),
+                &vbp.node_config.valley_line_style,
+                vbp.node_config.valley_line_width,
+                &vbp.node_config.valley_extend,
+                anchor_x,
+                box_right,
+                bounds,
+                state,
+            );
+        }
     }
 
     // ── Pass 5: POC line ─────────────────────────────────────────
@@ -372,6 +415,34 @@ pub fn render_vbp(
         && !vbp.developing_poc_points.is_empty()
     {
         draw_developing_poc(frame, vbp, state);
+    }
+
+    // ── Pass 6b: Developing Peak ─────────────────────────────────
+    if vbp.node_config.show_developing_peak
+        && !vbp.developing_peak_points.is_empty()
+    {
+        draw_developing_line(
+            frame,
+            &vbp.developing_peak_points,
+            vbp.node_config.developing_peak_color,
+            vbp.node_config.developing_peak_line_width,
+            &vbp.node_config.developing_peak_line_style,
+            state,
+        );
+    }
+
+    // ── Pass 6c: Developing Valley ───────────────────────────────
+    if vbp.node_config.show_developing_valley
+        && !vbp.developing_valley_points.is_empty()
+    {
+        draw_developing_line(
+            frame,
+            &vbp.developing_valley_points,
+            vbp.node_config.developing_valley_color,
+            vbp.node_config.developing_valley_line_width,
+            &vbp.node_config.developing_valley_line_style,
+            state,
+        );
     }
 
     // ── Pass 7: VWAP + bands ─────────────────────────────────────
@@ -760,28 +831,75 @@ fn draw_va_lines(
     }
 }
 
-// ── HVN/LVN lines ──────────────────────────────────────────────────
+// ── Zone fills ──────────────────────────────────────────────────────
 
-fn draw_volume_nodes(
+fn draw_zone_fills(
     frame: &mut Frame,
-    nodes: &[VolumeNode],
-    color: Color,
-    line_style: &LineStyleValue,
-    line_width: f32,
-    extend: &ExtendDirection,
+    zones: &[(i64, i64)],
+    color: data::SerializableColor,
+    opacity: f32,
     state: &ViewState,
     anchor_x: f32,
     box_right: f32,
-    bounds: Size,
 ) {
-    for node in nodes {
-        let y = state
-            .price_to_y(Price::from_units(node.price_units));
-        draw_horizontal_line(
-            frame, y, color, line_style, line_width, extend,
-            anchor_x, box_right, bounds, state,
+    let fill_color = to_iced_color(color, opacity);
+    for &(lo, hi) in zones {
+        let y_lo = state.price_to_y(Price::from_units(lo));
+        let y_hi = state.price_to_y(Price::from_units(hi));
+        let y_top = y_hi.min(y_lo);
+        let y_height = (y_hi - y_lo).abs().max(1.0);
+        frame.fill_rectangle(
+            Point::new(anchor_x, y_top),
+            Size::new(box_right - anchor_x, y_height),
+            fill_color,
         );
     }
+}
+
+// ── Developing line (shared helper) ─────────────────────────────────
+
+fn draw_developing_line(
+    frame: &mut Frame,
+    points: &[(u64, i64)],
+    color: data::SerializableColor,
+    line_width: f32,
+    line_style: &LineStyleValue,
+    state: &ViewState,
+) {
+    if points.len() < 2 {
+        return;
+    }
+
+    let color = to_iced_color(color, 1.0);
+    let width =
+        coord::effective_line_width(line_width, state.scaling);
+    let dash = coord::line_dash_for_style(line_style);
+
+    let path = Path::new(|builder| {
+        let x0 = state.interval_to_x(points[0].0);
+        let y0 =
+            state.price_to_y(Price::from_units(points[0].1));
+        builder.move_to(Point::new(x0, y0));
+
+        for &(ts, price_units) in &points[1..] {
+            let x = state.interval_to_x(ts);
+            let y =
+                state.price_to_y(Price::from_units(price_units));
+            builder.line_to(Point::new(x, y));
+        }
+    });
+
+    frame.stroke(
+        &path,
+        Stroke::with_color(
+            Stroke {
+                width,
+                line_dash: dash,
+                ..Stroke::default()
+            },
+            color,
+        ),
+    );
 }
 
 // ── Enhanced POC ────────────────────────────────────────────────────
@@ -1041,19 +1159,19 @@ fn draw_price_labels(
         }
     }
 
-    // HVN labels
-    if vbp.node_config.show_hvn
-        && vbp.node_config.show_hvn_labels
+    // Peak label
+    if vbp.node_config.show_peak_line
+        && vbp.node_config.show_peak_label
     {
-        let color =
-            to_iced_color(vbp.node_config.hvn_color, 1.0);
-        for node in &vbp.hvn_nodes {
+        if let Some(ref node) = vbp.peak_node {
             let y = state.price_to_y(Price::from_units(
                 node.price_units,
             ));
+            let color =
+                to_iced_color(vbp.node_config.peak_color, 1.0);
             draw_label(
                 frame,
-                &format!("HVN {:.2}", node.price),
+                &format!("Peak {:.2}", node.price),
                 label_x,
                 y,
                 color,
@@ -1061,19 +1179,21 @@ fn draw_price_labels(
         }
     }
 
-    // LVN labels
-    if vbp.node_config.show_lvn
-        && vbp.node_config.show_lvn_labels
+    // Valley label
+    if vbp.node_config.show_valley_line
+        && vbp.node_config.show_valley_label
     {
-        let color =
-            to_iced_color(vbp.node_config.lvn_color, 1.0);
-        for node in &vbp.lvn_nodes {
+        if let Some(ref node) = vbp.valley_node {
             let y = state.price_to_y(Price::from_units(
                 node.price_units,
             ));
+            let color = to_iced_color(
+                vbp.node_config.valley_color,
+                1.0,
+            );
             draw_label(
                 frame,
-                &format!("LVN {:.2}", node.price),
+                &format!("Valley {:.2}", node.price),
                 label_x,
                 y,
                 color,

@@ -1,65 +1,13 @@
 use crate::infra::secrets::SecretsManager;
 use data::config::secrets::{ApiKeyStatus, ApiProvider};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
-/// Global script registry (initialized once, reloadable via Mutex).
-static SCRIPT_REGISTRY: OnceLock<Mutex<script::ScriptRegistry>> = OnceLock::new();
-
-/// Initialize the script engine and registry.
-///
-/// Discovers all bundled and user scripts, compiles them,
-/// and stores the registry in a global `OnceLock<Mutex<>>` for reuse.
-pub fn initialize_script_registry() {
-    SCRIPT_REGISTRY.get_or_init(|| {
-        match script::ScriptEngine::new() {
-            Ok(mut engine) => {
-                let registry = script::ScriptRegistry::new(&mut engine);
-                let count = registry.list().len();
-                log::info!("Script engine initialized: {} indicators loaded", count);
-                Mutex::new(registry)
-            }
-            Err(e) => {
-                log::error!("Failed to initialize script engine: {}", e);
-                // Return empty registry on failure - native studies still work
-                Mutex::new(script::ScriptRegistry::empty())
-            }
-        }
-    });
-}
-
-/// Reload the script registry after scripts are saved/created.
-///
-/// Re-discovers and compiles all scripts, replacing the existing registry.
-pub fn reload_script_registry() {
-    if let Some(mutex) = SCRIPT_REGISTRY.get() {
-        match script::ScriptEngine::new() {
-            Ok(mut engine) => {
-                let new_reg = script::ScriptRegistry::new(&mut engine);
-                let count = new_reg.list().len();
-                log::info!("Script registry reloaded: {} indicators", count);
-                if let Ok(mut guard) = mutex.lock() {
-                    *guard = new_reg;
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to reload script registry: {}", e);
-            }
-        }
-    }
-}
-
-/// Create a unified StudyRegistry that includes both native and scripted studies.
+/// Create a StudyRegistry with all native studies.
 ///
 /// Call this instead of `StudyRegistry::new()` to get a registry with all
 /// available indicators.
 pub fn create_unified_registry() -> study::StudyRegistry {
-    let mut registry = study::StudyRegistry::new();
-    if let Some(mutex) = SCRIPT_REGISTRY.get() {
-        if let Ok(guard) = mutex.lock() {
-            guard.register_into(&mut registry);
-        }
-    }
-    registry
+    study::StudyRegistry::new()
 }
 
 /// Initialize options services from environment or keyring

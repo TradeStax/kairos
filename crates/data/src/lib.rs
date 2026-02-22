@@ -44,7 +44,7 @@ pub use state::{
     AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
     DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
     Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileLengthUnit, ProfilePeriod,
-    ScriptEditorConfig, Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
+    Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
     VisualConfig, WindowSpec, load_state, save_state,
 };
 

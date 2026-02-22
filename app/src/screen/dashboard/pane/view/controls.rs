@@ -34,7 +34,7 @@ impl State {
         };
 
         let treat_as_starter =
-            matches!(&self.content, Content::Starter | Content::ScriptEditor { .. })
+            matches!(&self.content, Content::Starter)
                 || !self.content.initialized();
 
         let tooltip_pos = tooltip::Position::Bottom;

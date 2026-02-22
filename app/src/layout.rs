@@ -165,32 +165,6 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                 data::ContentKind::Ladder => pane::Content::Ladder(None),
                 data::ContentKind::ComparisonChart => pane::Content::Comparison(None),
                 data::ContentKind::ProfileChart => pane::Content::Starter,
-                data::ContentKind::ScriptEditor => {
-                    let loader = script::ScriptLoader::new();
-                    let script_list = pane::build_script_list(&loader);
-                    let script_path = settings
-                        .visual_config
-                        .as_ref()
-                        .and_then(|vc| vc.clone().script_editor())
-                        .and_then(|cfg| cfg.script_path.map(std::path::PathBuf::from));
-                    let editor = if let Some(ref p) = script_path {
-                        if let Ok(content) = std::fs::read_to_string(p) {
-                            iced_code_editor::CodeEditor::new(&content, "js")
-                                .with_line_numbers_enabled(true)
-                        } else {
-                            iced_code_editor::CodeEditor::new("", "js")
-                                .with_line_numbers_enabled(true)
-                        }
-                    } else {
-                        iced_code_editor::CodeEditor::new("", "js")
-                            .with_line_numbers_enabled(true)
-                    };
-                    pane::Content::ScriptEditor {
-                        editor,
-                        script_path,
-                        script_list,
-                    }
-                }
             };
 
             Configuration::Pane(pane::State::from_config(

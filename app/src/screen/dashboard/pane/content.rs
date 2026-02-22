@@ -9,109 +9,7 @@ use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales
 
 use data::{ContentKind, DrawingTool, HeatmapIndicator, Settings, ViewConfig, VisualConfig};
 use exchange::FuturesTickerInfo;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
-
-/// An entry in the script file list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptEntry {
-    pub path: PathBuf,
-    pub name: String,
-    pub is_bundled: bool,
-}
-
-impl std::fmt::Display for ScriptEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-/// Scan bundled + user script directories and return a sorted list.
-pub fn build_script_list(loader: &script::ScriptLoader) -> Vec<ScriptEntry> {
-    let mut entries = Vec::new();
-    let mut seen_stems = std::collections::HashSet::new();
-
-    // User scripts first (they override bundled)
-    if loader.user_dir().is_dir() {
-        if let Ok(dir_entries) = std::fs::read_dir(loader.user_dir()) {
-            for entry in dir_entries.flatten() {
-                let path = entry.path();
-                if path.is_file()
-                    && path.extension().and_then(|e| e.to_str()) == Some("js")
-                {
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    seen_stems.insert(stem.clone());
-                    entries.push(ScriptEntry {
-                        name: stem,
-                        path,
-                        is_bundled: false,
-                    });
-                }
-            }
-        }
-    }
-
-    // Bundled scripts (skip if overridden by user)
-    if let Some(bundled_dir) = loader.bundled_dir() {
-        if let Ok(dir_entries) = std::fs::read_dir(bundled_dir) {
-            for entry in dir_entries.flatten() {
-                let path = entry.path();
-                if path.is_file()
-                    && path.extension().and_then(|e| e.to_str()) == Some("js")
-                {
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if !seen_stems.contains(&stem) {
-                        entries.push(ScriptEntry {
-                            name: stem,
-                            path,
-                            is_bundled: true,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-    entries
-}
-
-/// Generate a unique "untitled_N" name for a new script.
-pub fn generate_unique_name(user_dir: &Path) -> String {
-    for i in 1.. {
-        let name = format!("untitled_{}", i);
-        let path = user_dir.join(format!("{}.js", name));
-        if !path.exists() {
-            return name;
-        }
-    }
-    "untitled".to_string()
-}
-
-/// Default JS indicator template for new scripts.
-pub fn script_template(name: &str) -> String {
-    format!(
-        r##"indicator("{name}", {{ overlay: false }});
-
-const length = input.int("Length", 14, {{ min: 1, max: 200 }});
-const source = input.source("Source", close);
-const result = ta.sma(source, length);
-
-plot(result, "{name}", {{ color: "#2196F3" }});
-
-export {{}};
-"##,
-        name = name
-    )
-}
 
 #[derive(Default)]
 pub enum Content {
@@ -131,11 +29,6 @@ pub enum Content {
     TimeAndSales(Option<TimeAndSales>),
     Ladder(Option<Ladder>),
     Comparison(Option<ComparisonChart>),
-    ScriptEditor {
-        editor: iced_code_editor::CodeEditor,
-        script_path: Option<PathBuf>,
-        script_list: Vec<ScriptEntry>,
-    },
     Profile {
         chart: Option<ProfileChart>,
         layout: ViewConfig,
@@ -203,7 +96,7 @@ impl Content {
                 },
                 study_ids: vec![],
             },
-            ContentKind::Starter | ContentKind::ScriptEditor => Content::Starter,
+            ContentKind::Starter => Content::Starter,
         }
     }
 
@@ -230,12 +123,6 @@ impl Content {
             ContentKind::ComparisonChart => Content::Comparison(None),
             ContentKind::TimeAndSales => Content::TimeAndSales(None),
             ContentKind::Ladder => Content::Ladder(None),
-            ContentKind::ScriptEditor => Content::ScriptEditor {
-                editor: iced_code_editor::CodeEditor::new("", "javascript")
-                    .with_line_numbers_enabled(true),
-                script_path: None,
-                script_list: vec![],
-            },
             ContentKind::ProfileChart => Content::Profile {
                 chart: None,
                 layout: ViewConfig {
@@ -255,7 +142,7 @@ impl Content {
             Content::Ladder(panel) => Some(panel.as_ref()?.last_update()),
             Content::Comparison(chart) => Some(chart.as_ref()?.last_update()),
             Content::Profile { chart, .. } => Some(chart.as_ref()?.last_update()),
-            Content::Starter | Content::ScriptEditor { .. } => None,
+            Content::Starter => None,
         }
     }
 
@@ -435,7 +322,6 @@ impl Content {
             Content::Comparison(_) => ContentKind::ComparisonChart,
             Content::Profile { .. } => ContentKind::ProfileChart,
             Content::Starter => ContentKind::Starter,
-            Content::ScriptEditor { .. } => ContentKind::ScriptEditor,
         }
     }
 
@@ -447,7 +333,7 @@ impl Content {
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
             Content::Profile { chart, .. } => chart.is_some(),
-            Content::Starter | Content::ScriptEditor { .. } => true,
+            Content::Starter => true,
         }
     }
 
@@ -481,7 +367,7 @@ impl Content {
             Content::Ladder(panel) => *panel = None,
             Content::Comparison(chart) => *chart = None,
             Content::Profile { chart, .. } => *chart = None,
-            Content::Starter | Content::ScriptEditor { .. } => {}
+            Content::Starter => {}
         }
     }
 
@@ -643,7 +529,6 @@ impl PartialEq for Content {
                 | (Content::TimeAndSales(_), Content::TimeAndSales(_))
                 | (Content::Ladder(_), Content::Ladder(_))
                 | (Content::Comparison(_), Content::Comparison(_))
-                | (Content::ScriptEditor { .. }, Content::ScriptEditor { .. })
                 | (Content::Profile { .. }, Content::Profile { .. })
         )
     }

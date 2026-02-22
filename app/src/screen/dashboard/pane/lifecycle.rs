@@ -206,7 +206,7 @@ impl State {
             }
             Content::TimeAndSales(_panel) => {}
             Content::Ladder(_panel) => {}
-            Content::Starter | Content::ScriptEditor { .. } => {}
+            Content::Starter => {}
         }
     }
 
@@ -273,7 +273,7 @@ impl State {
                 }
                 None
             }
-            Content::Starter | Content::ScriptEditor { .. } => None,
+            Content::Starter => None,
             Content::Comparison(_) => None,
         }
     }
@@ -317,7 +317,7 @@ impl State {
                 }
             }
             Content::Ladder(_) | Content::TimeAndSales(_) => Some(100),
-            Content::Starter | Content::ScriptEditor { .. } => None,
+            Content::Starter => None,
         }
     }
 

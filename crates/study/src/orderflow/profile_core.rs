@@ -374,6 +374,170 @@ pub fn detect_volume_nodes(
     (hvn, lvn)
 }
 
+/// Detect volume zones and single peak/valley in a profile.
+///
+/// Builds contiguous HVN and LVN zones, plus the single dominant
+/// peak (highest-volume HVN-qualifying level) and deepest valley
+/// (lowest-volume LVN-qualifying level).
+///
+/// Returns `(hvn_zones, lvn_zones, peak, valley)`.
+pub fn detect_volume_zones(
+    levels: &[ProfileLevel],
+    hvn_method: crate::output::NodeDetectionMethod,
+    hvn_threshold: f32,
+    lvn_method: crate::output::NodeDetectionMethod,
+    lvn_threshold: f32,
+    min_prominence: f32,
+) -> (
+    Vec<(i64, i64)>,
+    Vec<(i64, i64)>,
+    Option<crate::output::VolumeNode>,
+    Option<crate::output::VolumeNode>,
+) {
+    use crate::output::{NodeDetectionMethod, VolumeNode};
+
+    if levels.len() < 3 {
+        return (Vec::new(), Vec::new(), None, None);
+    }
+
+    let volumes: Vec<f32> = levels
+        .iter()
+        .map(|l| l.buy_volume + l.sell_volume)
+        .collect();
+
+    let mut total_vol = 0.0_f32;
+    let mut max_vol = 0.0_f32;
+    let mut sum_sq = 0.0_f32;
+    for &v in &volumes {
+        total_vol += v;
+        max_vol = max_vol.max(v);
+        sum_sq += v * v;
+    }
+    if total_vol <= 0.0 {
+        return (Vec::new(), Vec::new(), None, None);
+    }
+
+    let mean_vol = total_vol / volumes.len() as f32;
+    let variance =
+        sum_sq / volumes.len() as f32 - mean_vol * mean_vol;
+    let std_dev = variance.max(0.0).sqrt();
+
+    // Compute HVN cutoff
+    let hvn_cutoff = match hvn_method {
+        NodeDetectionMethod::Percentile => {
+            percentile_value(&volumes, hvn_threshold)
+        }
+        NodeDetectionMethod::Relative => max_vol * hvn_threshold,
+        NodeDetectionMethod::StdDev => {
+            if std_dev < f32::EPSILON {
+                max_vol + 1.0
+            } else {
+                mean_vol + std_dev * hvn_threshold
+            }
+        }
+    };
+
+    // Compute LVN cutoff
+    let lvn_cutoff = match lvn_method {
+        NodeDetectionMethod::Percentile => {
+            percentile_value(&volumes, lvn_threshold)
+        }
+        NodeDetectionMethod::Relative => max_vol * lvn_threshold,
+        NodeDetectionMethod::StdDev => {
+            if std_dev < f32::EPSILON {
+                -1.0
+            } else {
+                (mean_vol - std_dev * lvn_threshold).max(0.0)
+            }
+        }
+    };
+
+    // Build HVN zones — contiguous runs of levels above cutoff
+    let mut hvn_zones = Vec::new();
+    let mut zone_start: Option<i64> = None;
+    for (i, level) in levels.iter().enumerate() {
+        if volumes[i] >= hvn_cutoff {
+            if zone_start.is_none() {
+                zone_start = Some(level.price_units);
+            }
+        } else if let Some(start) = zone_start.take() {
+            let end = levels[i - 1].price_units;
+            hvn_zones.push((start, end));
+        }
+    }
+    if let Some(start) = zone_start {
+        hvn_zones.push((
+            start,
+            levels.last().unwrap().price_units,
+        ));
+    }
+
+    // Build LVN zones — contiguous runs of levels below cutoff
+    let mut lvn_zones = Vec::new();
+    let mut zone_start: Option<i64> = None;
+    for (i, level) in levels.iter().enumerate() {
+        if volumes[i] <= lvn_cutoff && volumes[i] > 0.0 {
+            if zone_start.is_none() {
+                zone_start = Some(level.price_units);
+            }
+        } else if let Some(start) = zone_start.take() {
+            let end = levels[i - 1].price_units;
+            lvn_zones.push((start, end));
+        }
+    }
+    if let Some(start) = zone_start {
+        lvn_zones.push((
+            start,
+            levels.last().unwrap().price_units,
+        ));
+    }
+
+    // Find single dominant peak (highest volume HVN with
+    // prominence)
+    let mut peak: Option<VolumeNode> = None;
+    for (i, level) in levels.iter().enumerate() {
+        if volumes[i] >= hvn_cutoff
+            && prominence(i, &volumes) >= min_prominence
+        {
+            let better = match &peak {
+                Some(p) => volumes[i] > p.volume,
+                None => true,
+            };
+            if better {
+                peak = Some(VolumeNode {
+                    price_units: level.price_units,
+                    price: level.price,
+                    volume: volumes[i],
+                });
+            }
+        }
+    }
+
+    // Find single deepest valley (lowest volume LVN with
+    // prominence)
+    let mut valley: Option<VolumeNode> = None;
+    for (i, level) in levels.iter().enumerate() {
+        if volumes[i] <= lvn_cutoff
+            && volumes[i] > 0.0
+            && prominence_inverse(i, &volumes) >= min_prominence
+        {
+            let better = match &valley {
+                Some(v) => volumes[i] < v.volume,
+                None => true,
+            };
+            if better {
+                valley = Some(VolumeNode {
+                    price_units: level.price_units,
+                    price: level.price,
+                    volume: volumes[i],
+                });
+            }
+        }
+    }
+
+    (hvn_zones, lvn_zones, peak, valley)
+}
+
 /// Compute the Nth percentile value from a set of volumes.
 fn percentile_value(volumes: &[f32], pct: f32) -> f32 {
     let mut working: Vec<f32> = volumes.to_vec();
@@ -672,5 +836,154 @@ mod tests {
             hvn.iter().map(|n| n.price).collect();
         assert!(hvn_prices.contains(&101.0));
         assert!(!hvn_prices.contains(&99.0));
+    }
+
+    // ── detect_volume_zones tests ────────────────────────────────
+
+    #[test]
+    fn test_detect_zones_two_clusters() {
+        use crate::output::NodeDetectionMethod;
+        // Two HVN clusters separated by a low-volume gap
+        let levels = make_profile_levels(&[
+            (98.0, 80.0),  // HVN cluster 1
+            (99.0, 90.0),  // HVN cluster 1
+            (100.0, 85.0), // HVN cluster 1
+            (101.0, 10.0), // gap
+            (102.0, 12.0), // gap
+            (103.0, 88.0), // HVN cluster 2
+            (104.0, 95.0), // HVN cluster 2
+        ]);
+
+        let (hvn_zones, _, _, _) = detect_volume_zones(
+            &levels,
+            NodeDetectionMethod::Relative,
+            0.8,
+            NodeDetectionMethod::Relative,
+            0.15,
+            0.0,
+        );
+
+        assert_eq!(
+            hvn_zones.len(),
+            2,
+            "Should find two HVN zones"
+        );
+        // First zone covers 98-100
+        assert_eq!(
+            hvn_zones[0].0,
+            Price::from_f64(98.0).units()
+        );
+        assert_eq!(
+            hvn_zones[0].1,
+            Price::from_f64(100.0).units()
+        );
+        // Second zone covers 103-104
+        assert_eq!(
+            hvn_zones[1].0,
+            Price::from_f64(103.0).units()
+        );
+        assert_eq!(
+            hvn_zones[1].1,
+            Price::from_f64(104.0).units()
+        );
+    }
+
+    #[test]
+    fn test_detect_zones_single_level() {
+        use crate::output::NodeDetectionMethod;
+        // Single qualifying HVN level forms a zone of width 1
+        let levels = make_profile_levels(&[
+            (98.0, 10.0),
+            (99.0, 10.0),
+            (100.0, 100.0), // single HVN
+            (101.0, 10.0),
+            (102.0, 10.0),
+        ]);
+
+        let (hvn_zones, _, _, _) = detect_volume_zones(
+            &levels,
+            NodeDetectionMethod::Relative,
+            0.9,
+            NodeDetectionMethod::Relative,
+            0.15,
+            0.0,
+        );
+
+        assert_eq!(hvn_zones.len(), 1);
+        // Zone start == zone end (single level)
+        assert_eq!(hvn_zones[0].0, hvn_zones[0].1);
+    }
+
+    #[test]
+    fn test_detect_zones_peak_prominence() {
+        use crate::output::NodeDetectionMethod;
+        // Two HVN-qualifying levels, but only one with prominence
+        let levels = make_profile_levels(&[
+            (98.0, 78.0),
+            (99.0, 80.0),  // above cutoff but low prominence
+            (100.0, 79.0),
+            (101.0, 20.0),
+            (102.0, 100.0), // dominant peak
+            (103.0, 20.0),
+        ]);
+
+        let (_, _, peak, _) = detect_volume_zones(
+            &levels,
+            NodeDetectionMethod::Relative,
+            0.75,
+            NodeDetectionMethod::Relative,
+            0.15,
+            0.3,
+        );
+
+        assert!(peak.is_some());
+        let peak = peak.unwrap();
+        assert_eq!(peak.price, 102.0);
+    }
+
+    #[test]
+    fn test_detect_zones_valley_selection() {
+        use crate::output::NodeDetectionMethod;
+        // Valley is the minimum-volume LVN-qualifying level
+        let levels = make_profile_levels(&[
+            (98.0, 50.0),
+            (99.0, 8.0), // LVN
+            (100.0, 80.0),
+            (101.0, 5.0), // deepest valley
+            (102.0, 70.0),
+            (103.0, 12.0), // LVN
+            (104.0, 60.0),
+        ]);
+
+        let (_, _, _, valley) = detect_volume_zones(
+            &levels,
+            NodeDetectionMethod::Relative,
+            0.8,
+            NodeDetectionMethod::Relative,
+            0.2,
+            0.0,
+        );
+
+        assert!(valley.is_some());
+        let valley = valley.unwrap();
+        assert_eq!(valley.price, 101.0);
+        assert_eq!(valley.volume, 5.0);
+    }
+
+    #[test]
+    fn test_detect_zones_empty() {
+        use crate::output::NodeDetectionMethod;
+        let (hvn_z, lvn_z, peak, valley) = detect_volume_zones(
+            &[],
+            NodeDetectionMethod::Percentile,
+            0.9,
+            NodeDetectionMethod::Percentile,
+            0.1,
+            0.0,
+        );
+        assert!(hvn_z.is_empty());
+        assert!(lvn_z.is_empty());
+        assert!(peak.is_none());
+        assert!(valley.is_none());
     }
 }

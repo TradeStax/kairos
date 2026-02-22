@@ -137,9 +137,6 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
         };
         match key {
             keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::GoBack),
-            keyboard::Key::Character(ref c) if c.as_str() == "s" && modifiers.command() => {
-                Some(Message::SaveFocusedScript)
-            }
             // Ctrl+Shift+Z → Redo drawing (must be before Ctrl+Z)
             keyboard::Key::Character(ref c)
                 if c.as_str() == "z" && modifiers.command() && modifiers.shift() =>

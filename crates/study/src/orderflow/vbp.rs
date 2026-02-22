@@ -74,18 +74,47 @@ const DEFAULT_VA_FILL_COLOR: SerializableColor = SerializableColor {
     b: 1.0,
     a: 0.15,
 };
-const DEFAULT_HVN_COLOR: SerializableColor = SerializableColor {
+const DEFAULT_PEAK_COLOR: SerializableColor = SerializableColor {
     r: 0.0,
     g: 0.9,
     b: 0.4,
     a: 0.8,
 };
-const DEFAULT_LVN_COLOR: SerializableColor = SerializableColor {
-    r: 0.9,
-    g: 0.2,
-    b: 0.2,
-    a: 0.8,
-};
+const DEFAULT_DEV_PEAK_COLOR: SerializableColor =
+    SerializableColor {
+        r: 0.0,
+        g: 0.9,
+        b: 0.4,
+        a: 0.5,
+    };
+const DEFAULT_HVN_ZONE_COLOR: SerializableColor =
+    SerializableColor {
+        r: 0.0,
+        g: 0.9,
+        b: 0.4,
+        a: 0.5,
+    };
+const DEFAULT_VALLEY_COLOR: SerializableColor =
+    SerializableColor {
+        r: 0.9,
+        g: 0.2,
+        b: 0.2,
+        a: 0.8,
+    };
+const DEFAULT_DEV_VALLEY_COLOR: SerializableColor =
+    SerializableColor {
+        r: 0.9,
+        g: 0.2,
+        b: 0.2,
+        a: 0.5,
+    };
+const DEFAULT_LVN_ZONE_COLOR: SerializableColor =
+    SerializableColor {
+        r: 0.9,
+        g: 0.2,
+        b: 0.2,
+        a: 0.5,
+    };
 const DEFAULT_VWAP_COLOR: SerializableColor = SerializableColor {
     r: 0.0,
     g: 0.9,
@@ -749,25 +778,15 @@ impl VbpStudy {
         });
 
         // ── Peak & Valley Tab (Tab6) ──────────────────────────────
-        let hvn_section = Some(ParameterSection {
-            label: "HVN (High Volume Nodes)",
+
+        // Section 0: Detection (always visible)
+        let det_section = Some(ParameterSection {
+            label: "Detection",
             order: 0,
         });
         params.push(ParameterDef {
-            key: "hvn_show".into(),
-            label: "Show HVN".into(),
-            description: "Show high volume nodes".into(),
-            kind: ParameterKind::Boolean,
-            default: ParameterValue::Boolean(false),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 0,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::Always,
-        });
-        params.push(ParameterDef {
-            key: "hvn_method".into(),
-            label: "Method".into(),
+            key: "node_hvn_method".into(),
+            label: "HVN Method".into(),
             description: "HVN detection method".into(),
             kind: ParameterKind::Choice {
                 options: &["Percentile", "Relative", "Std Dev"],
@@ -776,14 +795,14 @@ impl VbpStudy {
                 "Percentile".to_string(),
             ),
             tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 1,
+            section: det_section,
+            order: 0,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
+            visible_when: Visibility::Always,
         });
         params.push(ParameterDef {
-            key: "hvn_threshold".into(),
-            label: "Threshold".into(),
+            key: "node_hvn_threshold".into(),
+            label: "HVN Threshold".into(),
             description: "HVN detection threshold".into(),
             kind: ParameterKind::Float {
                 min: 0.1,
@@ -792,100 +811,14 @@ impl VbpStudy {
             },
             default: ParameterValue::Float(0.85),
             tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 2,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "hvn_color".into(),
-            label: "Color".into(),
-            description: "HVN line color".into(),
-            kind: ParameterKind::Color,
-            default: ParameterValue::Color(DEFAULT_HVN_COLOR),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 3,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "hvn_line_style".into(),
-            label: "Style".into(),
-            description: "HVN line style".into(),
-            kind: ParameterKind::LineStyle,
-            default: ParameterValue::LineStyle(
-                LineStyleValue::Dotted,
-            ),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 4,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "hvn_line_width".into(),
-            label: "Width".into(),
-            description: "HVN line width".into(),
-            kind: ParameterKind::Float {
-                min: 0.5,
-                max: 4.0,
-                step: 0.5,
-            },
-            default: ParameterValue::Float(1.0),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 5,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "hvn_extend".into(),
-            label: "Extend".into(),
-            description: "Extend HVN lines".into(),
-            kind: ParameterKind::Choice {
-                options: &["None", "Left", "Right", "Both"],
-            },
-            default: ParameterValue::Choice("None".to_string()),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 6,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "hvn_show_labels".into(),
-            label: "Show Labels".into(),
-            description: "Show labels at HVN lines".into(),
-            kind: ParameterKind::Boolean,
-            default: ParameterValue::Boolean(false),
-            tab: ParameterTab::Tab6,
-            section: hvn_section,
-            order: 7,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("hvn_show"),
-        });
-
-        // LVN section
-        let lvn_section = Some(ParameterSection {
-            label: "LVN (Low Volume Nodes)",
+            section: det_section,
             order: 1,
-        });
-        params.push(ParameterDef {
-            key: "lvn_show".into(),
-            label: "Show LVN".into(),
-            description: "Show low volume nodes".into(),
-            kind: ParameterKind::Boolean,
-            default: ParameterValue::Boolean(false),
-            tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 0,
             format: DisplayFormat::Auto,
             visible_when: Visibility::Always,
         });
         params.push(ParameterDef {
-            key: "lvn_method".into(),
-            label: "Method".into(),
+            key: "node_lvn_method".into(),
+            label: "LVN Method".into(),
             description: "LVN detection method".into(),
             kind: ParameterKind::Choice {
                 options: &["Percentile", "Relative", "Std Dev"],
@@ -894,14 +827,14 @@ impl VbpStudy {
                 "Percentile".to_string(),
             ),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 1,
+            section: det_section,
+            order: 2,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::Always,
         });
         params.push(ParameterDef {
-            key: "lvn_threshold".into(),
-            label: "Threshold".into(),
+            key: "node_lvn_threshold".into(),
+            label: "LVN Threshold".into(),
             description: "LVN detection threshold".into(),
             kind: ParameterKind::Float {
                 min: 0.1,
@@ -910,41 +843,197 @@ impl VbpStudy {
             },
             default: ParameterValue::Float(0.15),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 2,
-            format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
-        });
-        params.push(ParameterDef {
-            key: "lvn_color".into(),
-            label: "Color".into(),
-            description: "LVN line color".into(),
-            kind: ParameterKind::Color,
-            default: ParameterValue::Color(DEFAULT_LVN_COLOR),
-            tab: ParameterTab::Tab6,
-            section: lvn_section,
+            section: det_section,
             order: 3,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::Always,
         });
         params.push(ParameterDef {
-            key: "lvn_line_style".into(),
-            label: "Style".into(),
-            description: "LVN line style".into(),
-            kind: ParameterKind::LineStyle,
-            default: ParameterValue::LineStyle(
-                LineStyleValue::Dotted,
-            ),
+            key: "node_min_prominence".into(),
+            label: "Min Prominence".into(),
+            description: "Minimum prominence to qualify".into(),
+            kind: ParameterKind::Float {
+                min: 0.0,
+                max: 1.0,
+                step: 0.05,
+            },
+            default: ParameterValue::Float(0.15),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
+            section: det_section,
             order: 4,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::Always,
+        });
+
+        // Section 1: HVN Zones
+        let hvn_zone_section = Some(ParameterSection {
+            label: "HVN Zones",
+            order: 1,
         });
         params.push(ParameterDef {
-            key: "lvn_line_width".into(),
+            key: "hvn_zone_show".into(),
+            label: "Show HVN Zones".into(),
+            description: "Show high volume zone shading".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: hvn_zone_section,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "hvn_zone_color".into(),
+            label: "Color".into(),
+            description: "HVN zone fill color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(
+                DEFAULT_HVN_ZONE_COLOR,
+            ),
+            tab: ParameterTab::Tab6,
+            section: hvn_zone_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("hvn_zone_show"),
+        });
+        params.push(ParameterDef {
+            key: "hvn_zone_opacity".into(),
+            label: "Opacity".into(),
+            description: "HVN zone fill opacity".into(),
+            kind: ParameterKind::Float {
+                min: 0.02,
+                max: 0.3,
+                step: 0.02,
+            },
+            default: ParameterValue::Float(0.08),
+            tab: ParameterTab::Tab6,
+            section: hvn_zone_section,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("hvn_zone_show"),
+        });
+
+        // Section 2: Peak Line
+        let peak_section = Some(ParameterSection {
+            label: "Peak Line",
+            order: 2,
+        });
+        params.push(ParameterDef {
+            key: "peak_show".into(),
+            label: "Show Peak".into(),
+            description: "Show dominant peak line".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "peak_color".into(),
+            label: "Color".into(),
+            description: "Peak line color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(DEFAULT_PEAK_COLOR),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("peak_show"),
+        });
+        params.push(ParameterDef {
+            key: "peak_line_style".into(),
+            label: "Style".into(),
+            description: "Peak line style".into(),
+            kind: ParameterKind::LineStyle,
+            default: ParameterValue::LineStyle(
+                LineStyleValue::Solid,
+            ),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("peak_show"),
+        });
+        params.push(ParameterDef {
+            key: "peak_line_width".into(),
             label: "Width".into(),
-            description: "LVN line width".into(),
+            description: "Peak line width".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 4.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("peak_show"),
+        });
+        params.push(ParameterDef {
+            key: "peak_extend".into(),
+            label: "Extend".into(),
+            description: "Extend peak line".into(),
+            kind: ParameterKind::Choice {
+                options: &["None", "Left", "Right", "Both"],
+            },
+            default: ParameterValue::Choice("None".to_string()),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 4,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("peak_show"),
+        });
+        params.push(ParameterDef {
+            key: "peak_show_label".into(),
+            label: "Show Label".into(),
+            description: "Show label at peak line".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: peak_section,
+            order: 5,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("peak_show"),
+        });
+
+        // Section 3: Developing Peak
+        let dev_peak_section = Some(ParameterSection {
+            label: "Developing Peak",
+            order: 3,
+        });
+        params.push(ParameterDef {
+            key: "dev_peak_show".into(),
+            label: "Show Developing Peak".into(),
+            description: "Show developing peak polyline".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: dev_peak_section,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "dev_peak_color".into(),
+            label: "Color".into(),
+            description: "Developing peak color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(
+                DEFAULT_DEV_PEAK_COLOR,
+            ),
+            tab: ParameterTab::Tab6,
+            section: dev_peak_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("dev_peak_show"),
+        });
+        params.push(ParameterDef {
+            key: "dev_peak_line_width".into(),
+            label: "Width".into(),
+            description: "Developing peak line width".into(),
             kind: ParameterKind::Float {
                 min: 0.5,
                 max: 4.0,
@@ -952,59 +1041,220 @@ impl VbpStudy {
             },
             default: ParameterValue::Float(1.0),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 5,
+            section: dev_peak_section,
+            order: 2,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::WhenTrue("dev_peak_show"),
         });
         params.push(ParameterDef {
-            key: "lvn_extend".into(),
+            key: "dev_peak_line_style".into(),
+            label: "Style".into(),
+            description: "Developing peak line style".into(),
+            kind: ParameterKind::LineStyle,
+            default: ParameterValue::LineStyle(
+                LineStyleValue::Dashed,
+            ),
+            tab: ParameterTab::Tab6,
+            section: dev_peak_section,
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("dev_peak_show"),
+        });
+
+        // Section 4: LVN Zones
+        let lvn_zone_section = Some(ParameterSection {
+            label: "LVN Zones",
+            order: 4,
+        });
+        params.push(ParameterDef {
+            key: "lvn_zone_show".into(),
+            label: "Show LVN Zones".into(),
+            description: "Show low volume zone shading".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: lvn_zone_section,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "lvn_zone_color".into(),
+            label: "Color".into(),
+            description: "LVN zone fill color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(
+                DEFAULT_LVN_ZONE_COLOR,
+            ),
+            tab: ParameterTab::Tab6,
+            section: lvn_zone_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("lvn_zone_show"),
+        });
+        params.push(ParameterDef {
+            key: "lvn_zone_opacity".into(),
+            label: "Opacity".into(),
+            description: "LVN zone fill opacity".into(),
+            kind: ParameterKind::Float {
+                min: 0.02,
+                max: 0.3,
+                step: 0.02,
+            },
+            default: ParameterValue::Float(0.08),
+            tab: ParameterTab::Tab6,
+            section: lvn_zone_section,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("lvn_zone_show"),
+        });
+
+        // Section 5: Valley Line
+        let valley_section = Some(ParameterSection {
+            label: "Valley Line",
+            order: 5,
+        });
+        params.push(ParameterDef {
+            key: "valley_show".into(),
+            label: "Show Valley".into(),
+            description: "Show deepest valley line".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Tab6,
+            section: valley_section,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "valley_color".into(),
+            label: "Color".into(),
+            description: "Valley line color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(DEFAULT_VALLEY_COLOR),
+            tab: ParameterTab::Tab6,
+            section: valley_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("valley_show"),
+        });
+        params.push(ParameterDef {
+            key: "valley_line_style".into(),
+            label: "Style".into(),
+            description: "Valley line style".into(),
+            kind: ParameterKind::LineStyle,
+            default: ParameterValue::LineStyle(
+                LineStyleValue::Solid,
+            ),
+            tab: ParameterTab::Tab6,
+            section: valley_section,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("valley_show"),
+        });
+        params.push(ParameterDef {
+            key: "valley_line_width".into(),
+            label: "Width".into(),
+            description: "Valley line width".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 4.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Tab6,
+            section: valley_section,
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("valley_show"),
+        });
+        params.push(ParameterDef {
+            key: "valley_extend".into(),
             label: "Extend".into(),
-            description: "Extend LVN lines".into(),
+            description: "Extend valley line".into(),
             kind: ParameterKind::Choice {
                 options: &["None", "Left", "Right", "Both"],
             },
             default: ParameterValue::Choice("None".to_string()),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 6,
+            section: valley_section,
+            order: 4,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::WhenTrue("valley_show"),
         });
         params.push(ParameterDef {
-            key: "lvn_show_labels".into(),
-            label: "Show Labels".into(),
-            description: "Show labels at LVN lines".into(),
+            key: "valley_show_label".into(),
+            label: "Show Label".into(),
+            description: "Show label at valley line".into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(false),
             tab: ParameterTab::Tab6,
-            section: lvn_section,
-            order: 7,
+            section: valley_section,
+            order: 5,
             format: DisplayFormat::Auto,
-            visible_when: Visibility::WhenTrue("lvn_show"),
+            visible_when: Visibility::WhenTrue("valley_show"),
         });
 
-        // Detection section
-        let det_section = Some(ParameterSection {
-            label: "Detection",
-            order: 2,
+        // Section 6: Developing Valley
+        let dev_valley_section = Some(ParameterSection {
+            label: "Developing Valley",
+            order: 6,
         });
         params.push(ParameterDef {
-            key: "node_min_prominence".into(),
-            label: "Min Prominence".into(),
-            description: "Minimum prominence to qualify as a node"
-                .into(),
-            kind: ParameterKind::Float {
-                min: 0.0,
-                max: 1.0,
-                step: 0.05,
-            },
-            default: ParameterValue::Float(0.0),
+            key: "dev_valley_show".into(),
+            label: "Show Developing Valley".into(),
+            description: "Show developing valley polyline".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
             tab: ParameterTab::Tab6,
-            section: det_section,
+            section: dev_valley_section,
             order: 0,
             format: DisplayFormat::Auto,
             visible_when: Visibility::Always,
+        });
+        params.push(ParameterDef {
+            key: "dev_valley_color".into(),
+            label: "Color".into(),
+            description: "Developing valley color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(
+                DEFAULT_DEV_VALLEY_COLOR,
+            ),
+            tab: ParameterTab::Tab6,
+            section: dev_valley_section,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("dev_valley_show"),
+        });
+        params.push(ParameterDef {
+            key: "dev_valley_line_width".into(),
+            label: "Width".into(),
+            description: "Developing valley line width".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 4.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.0),
+            tab: ParameterTab::Tab6,
+            section: dev_valley_section,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("dev_valley_show"),
+        });
+        params.push(ParameterDef {
+            key: "dev_valley_line_style".into(),
+            label: "Style".into(),
+            description: "Developing valley line style".into(),
+            kind: ParameterKind::LineStyle,
+            default: ParameterValue::LineStyle(
+                LineStyleValue::Dashed,
+            ),
+            tab: ParameterTab::Tab6,
+            section: dev_valley_section,
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenTrue("dev_valley_show"),
         });
 
         // ── VWAP Tab (Tab7) ───────────────────────────────────────
@@ -1422,64 +1672,132 @@ impl VbpStudy {
     /// Build Node config from current parameter values.
     fn build_node_config(&self) -> VbpNodeConfig {
         VbpNodeConfig {
-            show_hvn: self.config.get_bool("hvn_show", false),
-            show_lvn: self.config.get_bool("lvn_show", false),
             hvn_method: Self::parse_node_method(
-                self.config.get_choice("hvn_method", "Percentile"),
+                self.config
+                    .get_choice("node_hvn_method", "Percentile"),
             ),
             hvn_threshold: self
                 .config
-                .get_float("hvn_threshold", 0.85)
+                .get_float("node_hvn_threshold", 0.85)
                 as f32,
             lvn_method: Self::parse_node_method(
-                self.config.get_choice("lvn_method", "Percentile"),
+                self.config
+                    .get_choice("node_lvn_method", "Percentile"),
             ),
             lvn_threshold: self
                 .config
-                .get_float("lvn_threshold", 0.15)
+                .get_float("node_lvn_threshold", 0.15)
                 as f32,
             min_prominence: self
                 .config
-                .get_float("node_min_prominence", 0.0)
+                .get_float("node_min_prominence", 0.15)
                 as f32,
-            hvn_color: self
+
+            show_hvn_zones: self
                 .config
-                .get_color("hvn_color", DEFAULT_HVN_COLOR),
-            hvn_line_style: self
+                .get_bool("hvn_zone_show", false),
+            hvn_zone_color: self.config.get_color(
+                "hvn_zone_color",
+                DEFAULT_HVN_ZONE_COLOR,
+            ),
+            hvn_zone_opacity: self
+                .config
+                .get_float("hvn_zone_opacity", 0.08)
+                as f32,
+
+            show_peak_line: self
+                .config
+                .get_bool("peak_show", false),
+            peak_color: self
+                .config
+                .get_color("peak_color", DEFAULT_PEAK_COLOR),
+            peak_line_style: self
                 .config
                 .get_line_style(
-                    "hvn_line_style",
-                    LineStyleValue::Dotted,
+                    "peak_line_style",
+                    LineStyleValue::Solid,
                 ),
-            hvn_line_width: self
+            peak_line_width: self
                 .config
-                .get_float("hvn_line_width", 1.0)
+                .get_float("peak_line_width", 1.5)
                 as f32,
-            hvn_extend: Self::parse_extend(
-                self.config.get_choice("hvn_extend", "None"),
+            peak_extend: Self::parse_extend(
+                self.config.get_choice("peak_extend", "None"),
             ),
-            lvn_color: self
+            show_peak_label: self
                 .config
-                .get_color("lvn_color", DEFAULT_LVN_COLOR),
-            lvn_line_style: self
+                .get_bool("peak_show_label", false),
+
+            show_developing_peak: self
+                .config
+                .get_bool("dev_peak_show", false),
+            developing_peak_color: self.config.get_color(
+                "dev_peak_color",
+                DEFAULT_DEV_PEAK_COLOR,
+            ),
+            developing_peak_line_width: self
+                .config
+                .get_float("dev_peak_line_width", 1.0)
+                as f32,
+            developing_peak_line_style: self
                 .config
                 .get_line_style(
-                    "lvn_line_style",
-                    LineStyleValue::Dotted,
+                    "dev_peak_line_style",
+                    LineStyleValue::Dashed,
                 ),
-            lvn_line_width: self
+
+            show_lvn_zones: self
                 .config
-                .get_float("lvn_line_width", 1.0)
-                as f32,
-            lvn_extend: Self::parse_extend(
-                self.config.get_choice("lvn_extend", "None"),
+                .get_bool("lvn_zone_show", false),
+            lvn_zone_color: self.config.get_color(
+                "lvn_zone_color",
+                DEFAULT_LVN_ZONE_COLOR,
             ),
-            show_hvn_labels: self
+            lvn_zone_opacity: self
                 .config
-                .get_bool("hvn_show_labels", false),
-            show_lvn_labels: self
+                .get_float("lvn_zone_opacity", 0.08)
+                as f32,
+
+            show_valley_line: self
                 .config
-                .get_bool("lvn_show_labels", false),
+                .get_bool("valley_show", false),
+            valley_color: self
+                .config
+                .get_color("valley_color", DEFAULT_VALLEY_COLOR),
+            valley_line_style: self
+                .config
+                .get_line_style(
+                    "valley_line_style",
+                    LineStyleValue::Solid,
+                ),
+            valley_line_width: self
+                .config
+                .get_float("valley_line_width", 1.5)
+                as f32,
+            valley_extend: Self::parse_extend(
+                self.config.get_choice("valley_extend", "None"),
+            ),
+            show_valley_label: self
+                .config
+                .get_bool("valley_show_label", false),
+
+            show_developing_valley: self
+                .config
+                .get_bool("dev_valley_show", false),
+            developing_valley_color: self.config.get_color(
+                "dev_valley_color",
+                DEFAULT_DEV_VALLEY_COLOR,
+            ),
+            developing_valley_line_width: self
+                .config
+                .get_float("dev_valley_line_width", 1.0)
+                as f32,
+            developing_valley_line_style: self
+                .config
+                .get_line_style(
+                    "dev_valley_line_style",
+                    LineStyleValue::Dashed,
+                ),
         }
     }
 
@@ -1527,14 +1845,22 @@ impl VbpStudy {
         }
     }
 
-    /// Compute developing POC: walk candles chronologically,
-    /// tracking running volume per price level and emitting the
-    /// running POC price at each candle.
-    fn compute_developing_poc(
+    /// Compute developing features (POC, peak, valley) in a
+    /// single pass over candles. Builds incremental volume profile
+    /// and extracts all three developing series.
+    fn compute_developing_features(
         candle_slice: &[data::Candle],
         tick_size: data::Price,
         group_quantum: i64,
-    ) -> Vec<(u64, i64)> {
+        hvn_method: NodeDetectionMethod,
+        hvn_threshold: f32,
+        lvn_method: NodeDetectionMethod,
+        lvn_threshold: f32,
+        need_poc: bool,
+        need_peak: bool,
+        need_valley: bool,
+    ) -> (Vec<(u64, i64)>, Vec<(u64, i64)>, Vec<(u64, i64)>) {
+        use crate::output::NodeDetectionMethod as NDM;
         use std::collections::HashMap;
 
         let step = group_quantum.max(tick_size.units()).max(1);
@@ -1557,8 +1883,32 @@ impl VbpStudy {
             HashMap::with_capacity(cap * 2);
         let mut poc_price = 0i64;
         let mut poc_vol = 0.0f64;
-        let mut result =
-            Vec::with_capacity(candle_slice.len());
+
+        // Running accumulators for stats
+        let mut total_vol = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        let mut max_vol = 0.0f64;
+        let mut n_levels = 0usize;
+
+        let n = candle_slice.len();
+        let mut poc_pts = if need_poc {
+            Vec::with_capacity(n)
+        } else {
+            Vec::new()
+        };
+        let mut peak_pts = if need_peak {
+            Vec::with_capacity(n)
+        } else {
+            Vec::new()
+        };
+        let mut valley_pts = if need_valley {
+            Vec::with_capacity(n)
+        } else {
+            Vec::new()
+        };
+
+        let mut last_peak_price = 0i64;
+        let mut last_valley_price = 0i64;
 
         for c in candle_slice {
             let low = (c.low.round_to_tick(tick_size).units()
@@ -1570,18 +1920,30 @@ impl VbpStudy {
                 / step)
                 * step;
             let vol = c.volume() as f64;
-            let n_levels = if high >= low {
+            let cnt = if high >= low {
                 ((high - low) / step + 1) as f64
             } else {
                 1.0
             };
-            let vol_per = vol / n_levels;
+            let vol_per = vol / cnt;
 
             let mut p = low;
             while p <= high {
                 let entry =
-                    volume_map.entry(p).or_insert(0.0);
+                    volume_map.entry(p).or_insert_with(|| {
+                        n_levels += 1;
+                        0.0
+                    });
                 *entry += vol_per;
+                // Update running stats
+                total_vol += vol_per;
+                sum_sq += (*entry) * (*entry)
+                    - (*entry - vol_per)
+                        * (*entry - vol_per);
+                if *entry > max_vol {
+                    max_vol = *entry;
+                }
+                // POC tracking
                 if *entry > poc_vol {
                     poc_vol = *entry;
                     poc_price = p;
@@ -1589,10 +1951,126 @@ impl VbpStudy {
                 p += step;
             }
 
-            result.push((c.time.to_millis(), poc_price));
+            let ts = c.time.to_millis();
+
+            if need_poc {
+                poc_pts.push((ts, poc_price));
+            }
+
+            // Compute peak/valley from running profile
+            if (need_peak || need_valley)
+                && n_levels >= 3
+                && total_vol > 0.0
+            {
+                let mean = total_vol / n_levels as f64;
+                let var = sum_sq / n_levels as f64
+                    - mean * mean;
+                let std_dev = var.max(0.0).sqrt();
+
+                if need_peak {
+                    let hvn_cutoff = match hvn_method {
+                        NDM::Percentile => {
+                            let mut vols: Vec<f64> =
+                                volume_map.values().copied().collect();
+                            let idx = ((hvn_threshold
+                                * (vols.len() - 1) as f32)
+                                as usize)
+                                .min(vols.len() - 1);
+                            vols.select_nth_unstable_by(
+                                idx,
+                                |a, b| {
+                                    a.partial_cmp(b).unwrap()
+                                },
+                            );
+                            vols[idx]
+                        }
+                        NDM::Relative => {
+                            max_vol * hvn_threshold as f64
+                        }
+                        NDM::StdDev => {
+                            if std_dev < f64::EPSILON {
+                                max_vol + 1.0
+                            } else {
+                                mean + std_dev
+                                    * hvn_threshold as f64
+                            }
+                        }
+                    };
+
+                    let mut best_price = last_peak_price;
+                    let mut best_vol = 0.0f64;
+                    for (&price, &v) in &volume_map {
+                        if v >= hvn_cutoff && v > best_vol {
+                            best_vol = v;
+                            best_price = price;
+                        }
+                    }
+                    if best_vol > 0.0 {
+                        last_peak_price = best_price;
+                    }
+                    peak_pts.push((ts, last_peak_price));
+                }
+
+                if need_valley {
+                    let lvn_cutoff = match lvn_method {
+                        NDM::Percentile => {
+                            let mut vols: Vec<f64> =
+                                volume_map.values().copied().collect();
+                            let idx = ((lvn_threshold
+                                * (vols.len() - 1) as f32)
+                                as usize)
+                                .min(vols.len() - 1);
+                            vols.select_nth_unstable_by(
+                                idx,
+                                |a, b| {
+                                    a.partial_cmp(b).unwrap()
+                                },
+                            );
+                            vols[idx]
+                        }
+                        NDM::Relative => {
+                            max_vol * lvn_threshold as f64
+                        }
+                        NDM::StdDev => {
+                            if std_dev < f64::EPSILON {
+                                -1.0
+                            } else {
+                                (mean
+                                    - std_dev
+                                        * lvn_threshold
+                                            as f64)
+                                    .max(0.0)
+                            }
+                        }
+                    };
+
+                    let mut best_price = last_valley_price;
+                    let mut best_vol = f64::MAX;
+                    for (&price, &v) in &volume_map {
+                        if v <= lvn_cutoff
+                            && v > 0.0
+                            && v < best_vol
+                        {
+                            best_vol = v;
+                            best_price = price;
+                        }
+                    }
+                    if best_vol < f64::MAX {
+                        last_valley_price = best_price;
+                    }
+                    valley_pts.push((ts, last_valley_price));
+                }
+            } else {
+                if need_peak {
+                    peak_pts.push((ts, last_peak_price));
+                }
+                if need_valley {
+                    valley_pts.push((ts, last_valley_price));
+                }
+            }
         }
 
-        result
+        (poc_pts, peak_pts, valley_pts)
     }
 
     /// Compute anchored VWAP over the candle slice.
@@ -1905,22 +2383,41 @@ impl Study for VbpStudy {
             Some((start, end))
         };
 
-        // Developing POC
-        let developing_poc_points =
-            if poc_config.show_developing_poc {
-                Self::compute_developing_poc(
-                    candle_slice,
-                    input.tick_size,
-                    group_quantum,
-                )
-            } else {
-                Vec::new()
-            };
+        // Developing features (POC, Peak, Valley)
+        let need_dev_poc = poc_config.show_developing_poc;
+        let need_dev_peak = node_config.show_developing_peak;
+        let need_dev_valley = node_config.show_developing_valley;
 
-        // HVN/LVN detection
-        let (hvn_nodes, lvn_nodes) =
-            if node_config.show_hvn || node_config.show_lvn {
-                profile_core::detect_volume_nodes(
+        let (
+            developing_poc_points,
+            developing_peak_points,
+            developing_valley_points,
+        ) = if need_dev_poc || need_dev_peak || need_dev_valley {
+            Self::compute_developing_features(
+                candle_slice,
+                input.tick_size,
+                group_quantum,
+                node_config.hvn_method,
+                node_config.hvn_threshold,
+                node_config.lvn_method,
+                node_config.lvn_threshold,
+                need_dev_poc,
+                need_dev_peak,
+                need_dev_valley,
+            )
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+
+        // Zone + peak/valley detection
+        let any_node_feature = node_config.show_hvn_zones
+            || node_config.show_lvn_zones
+            || node_config.show_peak_line
+            || node_config.show_valley_line;
+
+        let (hvn_zones, lvn_zones, peak_node, valley_node) =
+            if any_node_feature {
+                profile_core::detect_volume_zones(
                     &levels,
                     node_config.hvn_method,
                     node_config.hvn_threshold,
@@ -1929,7 +2426,7 @@ impl Study for VbpStudy {
                     node_config.min_prominence,
                 )
             } else {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), None, None)
             };
 
         // Anchored VWAP
@@ -1962,8 +2459,12 @@ impl Study for VbpStudy {
             node_config,
             vwap_config,
             developing_poc_points,
-            hvn_nodes,
-            lvn_nodes,
+            hvn_zones,
+            lvn_zones,
+            peak_node,
+            valley_node,
+            developing_peak_points,
+            developing_valley_points,
             vwap_points,
             vwap_upper_points,
             vwap_lower_points,
@@ -2294,41 +2795,47 @@ mod tests {
     }
 
     #[test]
-    fn test_vbp_hvn_lvn_integration() {
+    fn test_vbp_peak_valley_integration() {
         let mut study = VbpStudy::new();
         study
             .set_parameter(
-                "hvn_show",
+                "peak_show",
                 ParameterValue::Boolean(true),
             )
             .unwrap();
         study
             .set_parameter(
-                "lvn_show",
+                "valley_show",
                 ParameterValue::Boolean(true),
             )
             .unwrap();
         study
             .set_parameter(
-                "hvn_method",
+                "hvn_zone_show",
+                ParameterValue::Boolean(true),
+            )
+            .unwrap();
+        study
+            .set_parameter(
+                "node_hvn_method",
                 ParameterValue::Choice("Relative".to_string()),
             )
             .unwrap();
         study
             .set_parameter(
-                "hvn_threshold",
+                "node_hvn_threshold",
                 ParameterValue::Float(0.5),
             )
             .unwrap();
         study
             .set_parameter(
-                "lvn_method",
+                "node_lvn_method",
                 ParameterValue::Choice("Relative".to_string()),
             )
             .unwrap();
         study
             .set_parameter(
-                "lvn_threshold",
+                "node_lvn_threshold",
                 ParameterValue::Float(0.2),
             )
             .unwrap();
@@ -2350,9 +2857,10 @@ mod tests {
             StudyOutput::Vbp(data) => {
                 // With these candles we should get some levels
                 assert!(!data.levels.is_empty());
-                // Nodes computed (may or may not find any)
-                assert!(data.node_config.show_hvn);
-                assert!(data.node_config.show_lvn);
+                // Config flags are set
+                assert!(data.node_config.show_peak_line);
+                assert!(data.node_config.show_valley_line);
+                assert!(data.node_config.show_hvn_zones);
             }
             _ => panic!("Expected Vbp output"),
         }
@@ -2403,7 +2911,7 @@ mod tests {
             .unwrap();
         study
             .set_parameter(
-                "hvn_show",
+                "peak_show",
                 ParameterValue::Boolean(true),
             )
             .unwrap();

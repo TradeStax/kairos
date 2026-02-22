@@ -5,7 +5,6 @@ pub(crate) mod helpers;
 mod kline;
 mod modal_stack;
 mod profile;
-mod script_editor;
 mod starter;
 
 pub(crate) use modal_stack::CompactControls;
@@ -47,7 +46,7 @@ impl State {
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
         let mut stream_info_element = if matches!(
             self.content,
-            Content::Starter | Content::ScriptEditor { .. }
+            Content::Starter
         ) {
             row![]
         } else {
@@ -84,7 +83,7 @@ impl State {
             // Visual separator between ticker group and basis modifier
             stream_info_element = stream_info_element
                 .push(crate::components::primitives::separator::vertical_divider());
-        } else if !matches!(self.content, Content::Starter | Content::ScriptEditor { .. }) {
+        } else if !matches!(self.content, Content::Starter) {
             let content = row![label_text("Choose a ticker")]
                 .align_y(Alignment::Center)
                 .spacing(tokens::spacing::XS);
@@ -339,18 +338,6 @@ impl State {
                     compact_controls,
                     uninitialized_base,
                     timezone,
-                    tickers_info,
-                    ticker_ranges,
-                );
-                for e in extras {
-                    stream_info_element = stream_info_element.push(e);
-                }
-                body
-            }
-            Content::ScriptEditor { .. } => {
-                let (body, extras) = self.view_script_editor_body(
-                    id,
-                    compact_controls,
                     tickers_info,
                     ticker_ranges,
                 );
