@@ -121,7 +121,7 @@ pub enum SelectedIndicator {
 pub struct IndicatorManagerModal {
     pub(super) search_query: String,
     pub(super) category_filter: CategoryFilter,
-    pub(super) selected: Option<SelectedIndicator>,
+    pub(crate) selected: Option<SelectedIndicator>,
     pub(super) settings_tab: SettingsTab,
     /// Study snapshots for reading params (created once on modal open)
     pub(super) study_snapshots: Vec<(String, Box<dyn study::Study>)>,

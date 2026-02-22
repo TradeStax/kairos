@@ -26,6 +26,10 @@ pub struct ChartState {
     pub prev_pan_cursor: Option<Point>,
     /// Smoothed pan velocity (exponential moving average)
     pub pan_velocity: Vector,
+    /// Currently selected study overlay index (into chart.studies())
+    pub selected_study_overlay: Option<usize>,
+    /// Last study overlay click for double-click detection
+    pub last_study_overlay_click: Option<(std::time::Instant, usize)>,
 }
 
 /// Current interaction mode for the chart
@@ -71,6 +75,11 @@ pub enum Interaction {
     },
     /// Placing a cloned drawing (follows cursor, click to confirm)
     PlacingClone,
+    /// Selected a locked drawing; next move starts pan, release clears (no capture)
+    SelectedLockedDrawing {
+        /// Cursor position at press (used as pan start when user drags)
+        press_pos: Point,
+    },
     /// Decelerating after a pan gesture ended with velocity
     Decelerating {
         /// Current velocity (screen-space pixels per tick)
@@ -195,6 +204,9 @@ pub fn canvas_interaction<T: Chart>(
             Interaction::EditingDrawing { id, .. } => {
                 return drawing::handle_editing_release(interaction, id);
             }
+            Interaction::SelectedLockedDrawing { .. } => {
+                *interaction = Interaction::None;
+            }
             _ => {}
         }
     }
@@ -257,6 +269,20 @@ pub fn canvas_interaction<T: Chart>(
                             return Some(canvas::Action::request_redraw().and_capture());
                         }
 
+                        // Hit test study overlay first
+                        if let Some(idx) =
+                            chart.hit_test_study_overlay(canvas_pos)
+                        {
+                            return Some(
+                                canvas::Action::publish(
+                                    Message::StudyOverlayContextMenu(
+                                        canvas_pos, idx,
+                                    ),
+                                )
+                                .and_capture(),
+                            );
+                        }
+
                         // Hit test to check if right-click is on a drawing
                         let drawing_id = chart.hit_test_drawing(canvas_pos, bounds.size());
 
@@ -292,9 +318,48 @@ pub fn canvas_interaction<T: Chart>(
                                 );
                             }
                             Interaction::None
+                            | Interaction::SelectedLockedDrawing { .. }
                             | Interaction::Panning { .. }
                             | Interaction::Zoomin { .. }
                             | Interaction::Decelerating { .. } => {
+                                // Hit-test study overlay labels
+                                if let Some(idx) =
+                                    chart.hit_test_study_overlay(canvas_pos)
+                                {
+                                    use std::time::Instant;
+                                    let now = Instant::now();
+                                    let is_double = chart_state
+                                        .last_study_overlay_click
+                                        .is_some_and(|(t, prev_idx)| {
+                                            prev_idx == idx
+                                                && now.duration_since(t).as_millis()
+                                                    < 400
+                                        });
+
+                                    if is_double {
+                                        chart_state.last_study_overlay_click = None;
+                                        return Some(
+                                            canvas::Action::publish(
+                                                Message::StudyOverlayDoubleClick(idx),
+                                            )
+                                            .and_capture(),
+                                        );
+                                    }
+
+                                    chart_state.last_study_overlay_click =
+                                        Some((now, idx));
+                                    chart_state.selected_study_overlay = Some(idx);
+                                    return Some(
+                                        canvas::Action::publish(
+                                            Message::StudyOverlaySelect(idx),
+                                        )
+                                        .and_capture(),
+                                    );
+                                }
+
+                                // Clear study overlay selection on click elsewhere
+                                chart_state.selected_study_overlay = None;
+
                                 // Try entering drawing mode first
                                 if let Some(action) = drawing::handle_enter_drawing(
                                     chart,
@@ -379,6 +444,29 @@ pub fn canvas_interaction<T: Chart>(
                         last_screen_pos,
                         drag_committed,
                     ),
+                    Interaction::SelectedLockedDrawing { press_pos } => {
+                        let cursor_in_bounds = match cursor_position {
+                            Some(p) => p,
+                            None => {
+                                return Some(canvas::Action::publish(
+                                    Message::CrosshairMoved(cursor_position),
+                                ))
+                            }
+                        };
+                        chart_state.prev_pan_cursor = Some(cursor_in_bounds);
+                        chart_state.pan_velocity = Vector::ZERO;
+                        let state = chart.state();
+                        *interaction = Interaction::Panning {
+                            translation: state.translation,
+                            start: press_pos,
+                        };
+                        pan_zoom::handle_panning(
+                            chart,
+                            state.translation,
+                            press_pos,
+                            cursor_in_bounds,
+                        )
+                    }
                     Interaction::None | Interaction::Ruler { .. } => {
                         Some(canvas::Action::publish(
                             Message::CrosshairMoved(cursor_position),

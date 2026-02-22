@@ -31,13 +31,19 @@ pub enum ContextMenuKind {
         id: DrawingId,
         locked: bool,
     },
+    /// Right-clicked a study overlay label
+    StudyOverlay {
+        position: Point,
+        study_index: usize,
+    },
 }
 
 impl ContextMenuKind {
     pub fn position(&self) -> Point {
         match self {
             ContextMenuKind::Chart { position }
-            | ContextMenuKind::Drawing { position, .. } => *position,
+            | ContextMenuKind::Drawing { position, .. }
+            | ContextMenuKind::StudyOverlay { position, .. } => *position,
         }
     }
 }
@@ -52,6 +58,7 @@ pub enum ContextMenuAction {
     ToggleLockDrawing(DrawingId),
     CloneDrawing(DrawingId),
     OpenDrawingProperties(DrawingId),
+    OpenStudyProperties(usize),
 }
 
 #[derive(Debug, Clone)]

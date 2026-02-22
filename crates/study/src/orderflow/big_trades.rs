@@ -161,22 +161,6 @@ impl BigTradesStudy {
             },
             // ── Style / Size ─────────────────────────────────
             ParameterDef {
-                key: "std_dev".into(),
-                label: "Std Dev".into(),
-                description: "Standard deviations for size normalization".into(),
-                kind: ParameterKind::Float {
-                    min: 0.5,
-                    max: 5.0,
-                    step: 0.1,
-                },
-                default: ParameterValue::Float(2.0),
-                tab: ParameterTab::Style,
-                section: None,
-                order: 2,
-                format: DisplayFormat::Auto,
-                visible_when: Visibility::Always,
-            },
-            ParameterDef {
                 key: "min_size".into(),
                 label: "Min Size".into(),
                 description: "Minimum marker radius in pixels".into(),
@@ -188,7 +172,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Float(8.0),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 3,
+                order: 2,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -204,7 +188,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Float(36.0),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 4,
+                order: 3,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -221,7 +205,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Float(0.10),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 5,
+                order: 4,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -237,7 +221,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Float(0.60),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 6,
+                order: 5,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -249,7 +233,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Color(DEFAULT_ASK_COLOR),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 7,
+                order: 6,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -261,7 +245,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Color(DEFAULT_BID_COLOR),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 8,
+                order: 7,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -278,7 +262,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Float(10.0),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 9,
+                order: 8,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -290,7 +274,7 @@ impl BigTradesStudy {
                 default: ParameterValue::Color(DEFAULT_TEXT_COLOR),
                 tab: ParameterTab::Style,
                 section: None,
-                order: 10,
+                order: 9,
                 format: DisplayFormat::Auto,
                 visible_when: Visibility::Always,
             },
@@ -662,6 +646,10 @@ fn flush_block(
 impl BigTradesStudy {
     /// Build marker render config from current parameters.
     /// Used by the renderer to control marker appearance.
+    ///
+    /// `scale_min` is set to `filter_min` (the threshold at which
+    /// trades appear) and `scale_max` is derived from accumulated
+    /// markers so that sizing scales linearly with contract count.
     pub fn build_marker_render_config(&self) -> MarkerRenderConfig {
         let shape_str =
             self.config.get_choice("marker_shape", "Circle");
@@ -671,10 +659,38 @@ impl BigTradesStudy {
             _ => MarkerShape::Circle,
         };
 
+        let filter_min = self
+            .config
+            .get_int("filter_min", DEFAULT_FILTER_MIN)
+            as f64;
+        let filter_max = self
+            .config
+            .get_int("filter_max", DEFAULT_FILTER_MAX)
+            as f64;
+
+        // Derive scale range from filter params + observed data.
+        // scale_min = filter_min (smallest trade shown → min_size)
+        // scale_max = filter_max if set, otherwise observed max
+        let scale_min = filter_min.max(1.0);
+        let observed_max = self
+            .accumulated_markers
+            .iter()
+            .map(|m| m.contracts)
+            .fold(0.0f64, f64::max);
+        let scale_max = if filter_max > 0.0 {
+            filter_max
+        } else if observed_max > scale_min {
+            observed_max
+        } else {
+            // Fallback: 10x filter_min gives reasonable default range
+            scale_min * 10.0
+        };
+
         MarkerRenderConfig {
             shape,
             hollow: self.config.get_bool("hollow", false),
-            std_dev: self.config.get_float("std_dev", 2.0) as f32,
+            scale_min,
+            scale_max,
             min_size: self.config.get_float("min_size", 8.0) as f32,
             max_size: self.config.get_float("max_size", 36.0) as f32,
             min_opacity: self
@@ -805,6 +821,10 @@ impl Study for BigTradesStudy {
         self.accumulated_markers = markers;
         self.cached_candle_boundaries = candle_boundaries;
         self.cached_boundaries_candle_count = input.candles.len();
+        // Rebuild render config now that markers are populated
+        // (scale_max depends on observed max contracts)
+        self.cached_render_config =
+            self.build_marker_render_config();
         self.output = Self::rebuild_output(
             &self.accumulated_markers,
             pending_marker.as_ref(),
@@ -884,6 +904,12 @@ impl Study for BigTradesStudy {
 
         // Only rebuild output if something changed
         if markers_changed || pending_marker.is_some() {
+            // Rebuild render config if new markers changed the
+            // observed max (scale_max derives from marker data)
+            if markers_changed {
+                self.cached_render_config =
+                    self.build_marker_render_config();
+            }
             self.output = Self::rebuild_output(
                 &self.accumulated_markers,
                 pending_marker.as_ref(),
@@ -1592,7 +1618,10 @@ mod tests {
         assert_eq!(config.shape, MarkerShape::Circle);
         assert!(!config.hollow);
         assert!(config.show_text);
-        assert!((config.std_dev - 2.0).abs() < f32::EPSILON);
+        // Default filter_min=50 → scale_min=50
+        assert!((config.scale_min - 50.0).abs() < f64::EPSILON);
+        // No markers yet → fallback 10x filter_min
+        assert!((config.scale_max - 500.0).abs() < f64::EPSILON);
         assert!((config.min_size - 8.0).abs() < f32::EPSILON);
         assert!((config.max_size - 36.0).abs() < f32::EPSILON);
         assert!((config.min_opacity - 0.10).abs() < f32::EPSILON);

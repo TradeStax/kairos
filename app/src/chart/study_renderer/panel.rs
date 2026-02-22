@@ -11,9 +11,10 @@ use crate::chart::core::PanelStudyInfo;
 use crate::chart::scale::{AxisLabel, linear};
 use crate::chart::{Message, ViewState};
 use crate::components::primitives::AZERET_MONO;
+use crate::style;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Event, Geometry, Path, Stroke};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, mouse};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 use study::output::{BarSeries, HistogramBar, LineSeries, StudyOutput};
 
 /// Canvas program that renders panel studies in screen coordinates.
@@ -21,24 +22,146 @@ pub struct StudyPanelCanvas<'a> {
     pub panels: Vec<PanelStudyInfo<'a>>,
     pub state: &'a ViewState,
     pub cache: &'a Cache,
+    pub crosshair_cache: &'a Cache,
+}
+
+/// Interaction state for the study panel canvas.
+#[derive(Default, Debug, Clone)]
+pub struct PanelInteraction {
+    /// Active panning state
+    panning: Option<PanelPanning>,
+    /// Whether shift is held
+    shift_held: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PanelPanning {
+    translation: Vector,
+    start: Point,
 }
 
 impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
-    type State = ();
+    type State = PanelInteraction;
 
     fn update(
         &self,
-        _state: &mut (),
-        _event: &Event,
-        _bounds: Rectangle,
-        _cursor: mouse::Cursor,
+        panel_state: &mut PanelInteraction,
+        event: &Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        None
+        let cursor_position = cursor.position_in(bounds);
+
+        // Handle button release — end panning
+        if let Event::Mouse(mouse::Event::ButtonReleased(_)) = event
+            && panel_state.panning.is_some()
+        {
+            panel_state.panning = None;
+        }
+
+        match event {
+            Event::Mouse(mouse_event) => match mouse_event {
+                mouse::Event::ButtonPressed(mouse::Button::Left) => {
+                    let pos = cursor_position?;
+                    panel_state.panning = Some(PanelPanning {
+                        translation: self.state.translation,
+                        start: pos,
+                    });
+                    Some(canvas::Action::capture())
+                }
+                mouse::Event::CursorMoved { .. } => {
+                    if let Some(panning) = panel_state.panning {
+                        let pos = cursor_position?;
+                        let state = self.state;
+                        let msg = Message::Translated(
+                            panning.translation
+                                + (pos - panning.start)
+                                    * (1.0 / state.scaling),
+                        );
+                        return Some(
+                            canvas::Action::publish(msg).and_capture(),
+                        );
+                    }
+
+                    // Crosshair: emit CrosshairMoved so main chart
+                    // invalidates the crosshair cache
+                    if cursor_position.is_some() {
+                        return Some(canvas::Action::publish(
+                            Message::CrosshairMoved(cursor_position),
+                        ));
+                    }
+
+                    None
+                }
+                mouse::Event::WheelScrolled { delta } => {
+                    let _pos = cursor_position?;
+
+                    let y = match delta {
+                        mouse::ScrollDelta::Lines { y, .. }
+                        | mouse::ScrollDelta::Pixels { y, .. } => y,
+                    };
+
+                    let cursor_to_center = cursor_position.map(|p| {
+                        Point::new(
+                            p.x - bounds.width / 2.0,
+                            p.y - bounds.height / 2.0,
+                        )
+                    })?;
+
+                    let is_wheel_scroll = !matches!(
+                        self.state.layout.autoscale,
+                        Some(data::Autoscale::FitAll)
+                    );
+
+                    let message = if panel_state.shift_held {
+                        Message::YScaling(
+                            y / 2.0,
+                            cursor_to_center.y,
+                            is_wheel_scroll,
+                        )
+                    } else {
+                        Message::XScaling(
+                            y / 2.0,
+                            cursor_to_center.x,
+                            is_wheel_scroll,
+                        )
+                    };
+
+                    Some(canvas::Action::publish(message).and_capture())
+                }
+                mouse::Event::CursorLeft => Some(
+                    canvas::Action::publish(Message::CursorLeft),
+                ),
+                _ => None,
+            },
+            Event::Keyboard(key_event) => match key_event {
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(
+                        iced::keyboard::key::Named::Shift,
+                    ),
+                    ..
+                } => {
+                    panel_state.shift_held = true;
+                    None
+                }
+                iced::keyboard::Event::KeyReleased {
+                    key: iced::keyboard::Key::Named(
+                        iced::keyboard::key::Named::Shift,
+                    ),
+                    ..
+                } => {
+                    panel_state.shift_held = false;
+                    None
+                }
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     fn draw(
         &self,
-        _state: &(),
+        _state: &PanelInteraction,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
@@ -86,7 +209,90 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                 });
             }
         });
-        vec![geo]
+
+        // Crosshair layer — draws a vertical dashed line synced with
+        // the main chart's crosshair position.  Uses crosshair_interval
+        // (set by both main chart and panel cursor) so the line appears
+        // regardless of which canvas the cursor is in.
+        let crosshair_geo =
+            self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
+                let dashed_line = style::dashed_line(theme);
+
+                let interval = self
+                    .state
+                    .crosshair_interval
+                    .get()
+                    .or(self.state.remote_crosshair);
+
+                if let Some(interval) = interval {
+                    draw_panel_remote_crosshair(
+                        self.state,
+                        frame,
+                        bounds.size(),
+                        interval,
+                        dashed_line,
+                    );
+                }
+            });
+
+        vec![geo, crosshair_geo]
+    }
+}
+
+/// Draw a remote crosshair vertical line in the study panel.
+fn draw_panel_remote_crosshair(
+    state: &ViewState,
+    frame: &mut canvas::Frame,
+    bounds: Size,
+    interval: u64,
+    dashed_line: Stroke<'_>,
+) {
+    let region = state.visible_region(bounds);
+
+    match state.basis {
+        data::ChartBasis::Time(_) => {
+            let chart_x = state.interval_to_x(interval);
+            let x_min = region.x;
+            let range = region.width;
+            if range.abs() < f32::EPSILON {
+                return;
+            }
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+            if screen_x < 0.0 || screen_x > bounds.width {
+                return;
+            }
+            frame.stroke(
+                &Path::line(
+                    Point::new(screen_x, 0.0),
+                    Point::new(screen_x, bounds.height),
+                ),
+                dashed_line,
+            );
+        }
+        data::ChartBasis::Tick(aggregation) => {
+            let agg = u64::from(aggregation);
+            if agg == 0 {
+                return;
+            }
+            let cell_index = -(interval as f32 / agg as f32);
+            let chart_x = cell_index * state.cell_width;
+            let x_min = region.x;
+            let range = region.width;
+            if range.abs() < f32::EPSILON {
+                return;
+            }
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+            if screen_x < 0.0 || screen_x > bounds.width {
+                return;
+            }
+            frame.stroke(
+                &Path::line(
+                    Point::new(screen_x, 0.0),
+                    Point::new(screen_x, bounds.height),
+                ),
+                dashed_line,
+            );
+        }
     }
 }
 

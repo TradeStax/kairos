@@ -5,7 +5,7 @@ use crate::chart::{
     Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
 };
-use data::state::pane::{ProfileConfig, ProfilePeriod};
+use data::state::pane::ProfileConfig;
 use data::util::count_decimals;
 use data::{
     Autoscale, Candle, ChartBasis, ChartData,
@@ -51,6 +51,7 @@ pub struct ProfileChart {
     last_visible_range: Option<(u64, u64)>,
     panel_cache: Cache,
     panel_labels_cache: Cache,
+    panel_crosshair_cache: Cache,
 }
 
 impl Chart for ProfileChart {
@@ -64,6 +65,7 @@ impl Chart for ProfileChart {
 
     fn invalidate_crosshair(&mut self) {
         self.chart.cache.clear_crosshair();
+        self.panel_crosshair_cache.clear();
     }
 
     fn invalidate_all(&mut self) {
@@ -77,7 +79,10 @@ impl Chart for ProfileChart {
 
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
-        Vector::new(chart.translation.x, chart.translation.y)
+        let x_translation = 0.5
+            * (chart.bounds.width / chart.scaling)
+            - (8.0 * chart.cell_width / chart.scaling);
+        Vector::new(x_translation, chart.translation.y)
     }
 
     fn supports_fit_autoscaling(&self) -> bool {
@@ -91,11 +96,11 @@ impl Chart for ProfileChart {
 
     fn plot_limits(&self) -> PlotLimits {
         PlotLimits {
-            max_cell_width: 1.0,
-            min_cell_width: 1.0,
+            max_cell_width: 100.0,
+            min_cell_width: 0.01,
             max_cell_height: 200.0,
             min_cell_height: 0.1,
-            default_cell_width: 1.0,
+            default_cell_width: 4.0,
         }
     }
 
@@ -113,6 +118,10 @@ impl Chart for ProfileChart {
 
     fn panel_labels_cache(&self) -> Option<&Cache> {
         Some(&self.panel_labels_cache)
+    }
+
+    fn panel_crosshair_cache(&self) -> Option<&Cache> {
+        Some(&self.panel_crosshair_cache)
     }
 }
 
@@ -141,7 +150,7 @@ impl ProfileChart {
             .map(|p| Price::from_units(p.units()))
             .unwrap_or(Price::from_f32(0.0));
 
-        // latest_x is not meaningful for profile, but ViewState needs it
+        let default_cell_width = 4.0;
         let latest_x = chart_data.candles.last().map(|c| c.time.0).unwrap_or(0);
 
         let mut chart = ViewState::new(
@@ -153,11 +162,16 @@ impl ProfileChart {
                 splits: layout.splits,
                 autoscale: Some(Autoscale::FitAll),
             },
-            1.0, // cell_width fixed at 1.0
+            default_cell_width,
             cell_height,
         );
         chart.base_price_y = base_price_y;
         chart.latest_x = latest_x;
+
+        let x_translation = 0.5
+            * (chart.bounds.width / chart.scaling)
+            - (8.0 * chart.cell_width / chart.scaling);
+        chart.translation.x = x_translation;
         chart.translation.y = -chart.bounds.height / 2.0;
 
         let mut profile_study = VbpStudy::new();
@@ -182,6 +196,7 @@ impl ProfileChart {
             last_visible_range: None,
             panel_cache: Cache::default(),
             panel_labels_cache: Cache::default(),
+            panel_crosshair_cache: Cache::default(),
         };
         profile.recompute_profile();
         profile
@@ -230,16 +245,18 @@ impl ProfileChart {
         }
     }
 
-    /// Extract both the profile output and its render config.
-    fn profile_and_config(
+    /// Extract all profiles and the render config.
+    fn profiles_and_config(
         &self,
     ) -> Option<(
-        &ProfileOutput,
+        &[ProfileOutput],
         &study::output::ProfileRenderConfig,
     )> {
         match self.profile_study.output() {
-            StudyOutput::Profile(profiles, config) => {
-                profiles.first().map(|p| (p, config))
+            StudyOutput::Profile(profiles, config)
+                if !profiles.is_empty() =>
+            {
+                Some((profiles.as_slice(), config))
             }
             _ => None,
         }
@@ -256,20 +273,12 @@ impl ProfileChart {
 
     /// Rebuild the volume profile via the internal VbpStudy.
     fn recompute_profile(&mut self) {
-        // Compute fingerprint (scoped borrow so we can mutate
-        // self.fingerprint afterwards).
-        let fp = {
-            let (cs, ts) = resolve_data_slice(
-                &self.chart_data,
-                &self.display_config,
-            );
-            (
-                ts.len(),
-                ts.first().map(|t| t.time.0).unwrap_or(0),
-                ts.last().map(|t| t.time.0).unwrap_or(0),
-                cs.len(),
-            )
-        };
+        let fp = (
+            self.chart_data.trades.len(),
+            self.chart_data.trades.first().map(|t| t.time.0).unwrap_or(0),
+            self.chart_data.trades.last().map(|t| t.time.0).unwrap_or(0),
+            self.chart_data.candles.len(),
+        );
         if fp == self.fingerprint
             && !matches!(
                 self.profile_study.output(),
@@ -287,20 +296,15 @@ impl ProfileChart {
             &self.ticker_info,
         );
 
-        // Feed sliced data into the study. We borrow chart_data
-        // separately from profile_study for disjoint access.
-        let (candle_slice, trade_slice) = resolve_data_slice(
-            &self.chart_data,
-            &self.display_config,
-        );
+        // Always pass all data — split mode handles segmentation
         let trades: Option<&[Trade]> =
-            if !trade_slice.is_empty() {
-                Some(trade_slice)
+            if !self.chart_data.trades.is_empty() {
+                Some(&self.chart_data.trades)
             } else {
                 None
             };
         let input = StudyInput {
-            candles: candle_slice,
+            candles: &self.chart_data.candles,
             trades,
             basis: self.basis,
             tick_size: DomainPrice::from_f32(
@@ -311,14 +315,6 @@ impl ProfileChart {
         if let Err(e) = self.profile_study.compute(&input) {
             log::warn!("Profile study compute error: {e}");
         }
-    }
-
-    /// Resolve the data slice based on period settings.
-    fn resolve_data_slice(&self) -> (&[Candle], &[Trade]) {
-        resolve_data_slice(
-            &self.chart_data,
-            &self.display_config,
-        )
     }
 
     pub fn invalidate(&mut self) {
@@ -372,6 +368,7 @@ impl ProfileChart {
         chart.cache.clear_all();
         self.panel_cache.clear();
         self.panel_labels_cache.clear();
+        self.panel_crosshair_cache.clear();
 
         // Check if visible range changed (triggers study recompute)
         if chart.bounds.width > 0.0 {
@@ -477,82 +474,6 @@ impl ChartDrawingAccess for ProfileChart {
     }
 }
 
-/// Resolve the candle/trade data slice based on period settings.
-///
-/// Free function to allow disjoint borrows (chart_data vs study).
-fn resolve_data_slice<'a>(
-    data: &'a ChartData,
-    cfg: &ProfileConfig,
-) -> (&'a [Candle], &'a [Trade]) {
-    match cfg.period {
-        ProfilePeriod::AllData => {
-            (&data.candles, &data.trades)
-        }
-        ProfilePeriod::Length => {
-            let cutoff_ms = compute_length_cutoff(data, cfg);
-            let cs = data
-                .candles
-                .partition_point(|c| c.time.0 < cutoff_ms);
-            let ts = data
-                .trades
-                .partition_point(|t| t.time.0 < cutoff_ms);
-            (&data.candles[cs..], &data.trades[ts..])
-        }
-        ProfilePeriod::Custom => {
-            let start = cfg.custom_start as u64;
-            let end = cfg.custom_end as u64;
-            if start == 0 && end == 0 {
-                return (&data.candles, &data.trades);
-            }
-            let cs =
-                data.candles.partition_point(|c| c.time.0 < start);
-            let ce =
-                data.candles.partition_point(|c| c.time.0 <= end);
-            let ts =
-                data.trades.partition_point(|t| t.time.0 < start);
-            let te =
-                data.trades.partition_point(|t| t.time.0 <= end);
-            (&data.candles[cs..ce], &data.trades[ts..te])
-        }
-    }
-}
-
-fn compute_length_cutoff(
-    data: &ChartData,
-    cfg: &ProfileConfig,
-) -> u64 {
-    use data::state::pane::ProfileLengthUnit;
-    let latest_ms = data
-        .candles
-        .last()
-        .map(|c| c.time.0)
-        .or_else(|| data.trades.last().map(|t| t.time.0))
-        .unwrap_or(0);
-
-    match cfg.length_unit {
-        ProfileLengthUnit::Days => {
-            let ms =
-                cfg.length_value as u64 * 24 * 60 * 60 * 1000;
-            latest_ms.saturating_sub(ms)
-        }
-        ProfileLengthUnit::Minutes => {
-            let ms = cfg.length_value as u64 * 60 * 1000;
-            latest_ms.saturating_sub(ms)
-        }
-        ProfileLengthUnit::Contracts => {
-            let target = cfg.length_value as f64;
-            let mut accum = 0.0;
-            for trade in data.trades.iter().rev() {
-                accum += trade.quantity.value();
-                if accum >= target {
-                    return trade.time.0;
-                }
-            }
-            0
-        }
-    }
-}
-
 /// Map a [`ProfileConfig`] onto a [`VbpStudy`]'s parameters so
 /// the study produces the same output the old manual code did.
 ///
@@ -584,8 +505,49 @@ fn apply_profile_config_to_study(
     };
     set!("vbp_type", ParameterValue::Choice(vbp_type.into()));
 
-    // ── Period: always "Custom" (caller pre-slices data) ──────
-    set!("period", ParameterValue::Choice("Custom".into()));
+    // ── Period — always Split mode ──────────────────────────────
+    set!(
+        "period",
+        ParameterValue::Choice("Split".into())
+    );
+
+    // Map ProfileSplitUnit + split_value to VBP study params
+    use data::state::pane::ProfileSplitUnit;
+    let interval_str = match (cfg.split_unit, cfg.split_value) {
+        (ProfileSplitUnit::Days, 1) => "1 Day",
+        (ProfileSplitUnit::Hours, 4) => "4 Hours",
+        (ProfileSplitUnit::Hours, 2) => "2 Hours",
+        (ProfileSplitUnit::Hours, 1) => "1 Hour",
+        (ProfileSplitUnit::Minutes, 30) => "30 Minutes",
+        (ProfileSplitUnit::Minutes, 15) => "15 Minutes",
+        _ => "Custom",
+    };
+    set!(
+        "split_interval",
+        ParameterValue::Choice(interval_str.into())
+    );
+
+    // For custom intervals, set split_unit and split_value
+    if interval_str == "Custom" {
+        let unit_str = match cfg.split_unit {
+            ProfileSplitUnit::Days => "Days",
+            ProfileSplitUnit::Hours => "Hours",
+            ProfileSplitUnit::Minutes => "Minutes",
+        };
+        set!(
+            "split_unit",
+            ParameterValue::Choice(unit_str.into())
+        );
+        set!(
+            "split_value",
+            ParameterValue::Integer(cfg.split_value.max(1))
+        );
+    }
+
+    set!(
+        "max_profiles",
+        ParameterValue::Integer(cfg.max_profiles.max(1))
+    );
 
     // ── Tick grouping ─────────────────────────────────────────
     // ProfileChart bakes auto_group_factor into the quantum.

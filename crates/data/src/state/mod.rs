@@ -42,7 +42,7 @@ pub use chart::ChartState;
 pub use layout::{Axis, Dashboard, Layout, LayoutManager, Layouts, Pane};
 pub use pane::{
     ComparisonConfig, ContentKind, HeatmapConfig, KlineConfig, LadderConfig, LinkGroup,
-    ProfileConfig, ProfileDisplayType, ProfileLengthUnit, ProfilePeriod,
+    ProfileConfig, ProfileDisplayType, ProfileSplitUnit,
     Settings, StudyInstanceConfig, TimeAndSalesConfig, VisualConfig,
 };
 pub use persistence::{StateVersion, load_state, save_state};

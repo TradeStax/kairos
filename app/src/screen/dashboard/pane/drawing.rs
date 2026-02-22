@@ -109,7 +109,15 @@ impl State {
         }
 
         let constrained = constrain_for_creation(chart, screen_point, shift_held);
-        let point = screen_to_drawing_point(chart, constrained);
+        let mut point = screen_to_drawing_point(chart, constrained);
+
+        // Snap VBP preview Y to candle open price
+        if chart.drawings().active_tool() == DrawingTool::VolumeProfile {
+            if let Some(open) = chart.candle_open_at_time(point.time) {
+                point.price = open;
+            }
+        }
+
         chart.drawings_mut().update_preview(point);
         chart.invalidate_crosshair_cache();
     }

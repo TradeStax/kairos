@@ -1,15 +1,12 @@
 //! Crosshair Overlay
 //!
-//! Draws horizontal and vertical crosshair lines that snap to price/time grid,
-//! with label boxes at the Y-axis (price) and X-axis (time) edges.
+//! Draws horizontal and vertical crosshair lines that snap to price/time grid.
+//! Time/date labels are rendered by AxisLabelsX on the X-axis widget.
 
 use crate::chart::core::{Interaction, ViewState};
-use crate::components::primitives::AZERET_MONO;
 use crate::style;
-use crate::style::tokens;
 use data::ChartBasis;
-use iced::theme::palette::Extended;
-use iced::widget::canvas::{Frame, Path, Text};
+use iced::widget::canvas::{Frame, Path};
 use iced::{Point, Size, Theme};
 
 /// Result of drawing crosshair - the snapped price and interval values
@@ -34,7 +31,6 @@ pub fn draw_crosshair(
 ) -> CrosshairResult {
     let region = state.visible_region(bounds);
     let dashed_line = style::dashed_line(theme);
-    let palette = theme.extended_palette();
 
     let highest_p = state.y_to_price(region.y);
     let lowest_p = state.y_to_price(region.y + region.height);
@@ -88,22 +84,23 @@ pub fn draw_crosshair(
                 dashed_line,
             );
 
-            // Time label box at bottom edge
-            let time_text = format_timestamp(rounded_timestamp);
-            draw_time_label(frame, palette, &time_text, snapped_x, bounds);
-
             rounded_timestamp
         }
         ChartBasis::Tick(aggregation) => {
-            let (chart_x_min, chart_x_max) = (region.x, region.x + region.width);
-            let crosshair_pos = chart_x_min + (cursor_position.x / bounds.width) * region.width;
+            let (chart_x_min, chart_x_max) =
+                (region.x, region.x + region.width);
+            let crosshair_pos = chart_x_min
+                + (cursor_position.x / bounds.width) * region.width;
 
-            let cell_index = (crosshair_pos / state.cell_width).round();
+            let cell_index =
+                (crosshair_pos / state.cell_width).round();
 
             let snapped_crosshair = cell_index * state.cell_width;
-            let snap_ratio = (snapped_crosshair - chart_x_min) / (chart_x_max - chart_x_min);
+            let snap_ratio = (snapped_crosshair - chart_x_min)
+                / (chart_x_max - chart_x_min);
 
-            let rounded_tick = (-cell_index as u64) * (u64::from(aggregation));
+            let rounded_tick =
+                (-cell_index as u64) * (u64::from(aggregation));
 
             let snapped_x = snap_ratio * bounds.width;
 
@@ -114,10 +111,6 @@ pub fn draw_crosshair(
                 ),
                 dashed_line,
             );
-
-            // Tick label box at bottom edge
-            let tick_text = format!("#{}", rounded_tick);
-            draw_time_label(frame, palette, &tick_text, snapped_x, bounds);
 
             rounded_tick
         }
@@ -131,8 +124,9 @@ pub fn draw_crosshair(
 
 /// Draw a remote crosshair vertical line from a linked pane.
 ///
-/// Only draws the vertical line and time label (no horizontal price line)
+/// Only draws the vertical line (no horizontal price line)
 /// since the remote pane may have a different price scale.
+/// Time labels are rendered by AxisLabelsX.
 pub fn draw_remote_crosshair(
     state: &ViewState,
     frame: &mut Frame,
@@ -142,11 +136,9 @@ pub fn draw_remote_crosshair(
 ) {
     let region = state.visible_region(bounds);
     let dashed_line = style::dashed_line(theme);
-    let palette = theme.extended_palette();
 
     match state.basis {
         ChartBasis::Time(_) => {
-            // Convert interval to chart X coordinate, then to screen X
             let chart_x = state.interval_to_x(interval);
             let x_min = region.x;
             let x_max = region.x + region.width;
@@ -156,7 +148,8 @@ pub fn draw_remote_crosshair(
                 return;
             }
 
-            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+            let screen_x =
+                ((chart_x - x_min) / range) * bounds.width;
 
             if screen_x < 0.0 || screen_x > bounds.width {
                 return;
@@ -169,12 +162,8 @@ pub fn draw_remote_crosshair(
                 ),
                 dashed_line,
             );
-
-            let time_text = format_timestamp(interval);
-            draw_time_label(frame, palette, &time_text, screen_x, bounds);
         }
         ChartBasis::Tick(aggregation) => {
-            // Convert tick index back to cell position
             let agg = u64::from(aggregation);
             if agg == 0 {
                 return;
@@ -190,7 +179,8 @@ pub fn draw_remote_crosshair(
                 return;
             }
 
-            let screen_x = ((chart_x - x_min) / range) * bounds.width;
+            let screen_x =
+                ((chart_x - x_min) / range) * bounds.width;
 
             if screen_x < 0.0 || screen_x > bounds.width {
                 return;
@@ -203,54 +193,6 @@ pub fn draw_remote_crosshair(
                 ),
                 dashed_line,
             );
-
-            let tick_text = format!("#{}", interval);
-            draw_time_label(frame, palette, &tick_text, screen_x, bounds);
         }
     }
-}
-
-/// Draw a time/tick label box at the bottom edge of the chart.
-fn draw_time_label(
-    frame: &mut Frame,
-    palette: &Extended,
-    label: &str,
-    x: f32,
-    bounds: Size,
-) {
-    let text_size = tokens::text::SMALL;
-    let char_width = text_size * 0.7;
-    let pad_x = 4.0;
-    let pad_y = 2.0;
-    let label_w = label.len() as f32 * char_width + pad_x * 2.0;
-    let label_h = text_size + pad_y * 2.0;
-
-    let label_x = (x - label_w / 2.0).clamp(0.0, bounds.width - label_w);
-    let label_y = bounds.height - label_h;
-
-    frame.fill_rectangle(
-        Point::new(label_x, label_y),
-        Size::new(label_w, label_h),
-        palette.secondary.base.color,
-    );
-
-    frame.fill_text(Text {
-        content: label.to_string(),
-        position: Point::new(label_x + pad_x, label_y + pad_y),
-        size: iced::Pixels(text_size),
-        color: palette.secondary.base.text,
-        font: AZERET_MONO,
-        ..Text::default()
-    });
-}
-
-/// Format a millisecond timestamp to a short time string.
-pub(crate) fn format_timestamp(ms: u64) -> String {
-    if ms == 0 {
-        return String::new();
-    }
-    let secs = (ms / 1000) as i64;
-    let hours = (secs / 3600) % 24;
-    let minutes = (secs / 60) % 60;
-    format!("{:02}:{:02}", hours, minutes)
 }

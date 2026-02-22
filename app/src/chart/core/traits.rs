@@ -138,6 +138,14 @@ pub trait Chart: canvas::Program<Message> {
         self.drawings().is_some_and(|d| d.has_clone_pending())
     }
 
+    // ── Study overlay hit testing ────────────────────────────────
+
+    /// Hit-test the study overlay text labels at the given screen
+    /// point. Returns the study index if a label was hit.
+    fn hit_test_study_overlay(&self, _point: Point) -> Option<usize> {
+        None
+    }
+
     // ── Panel study methods ───────────────────────────────────────
 
     /// Get all studies attached to this chart.
@@ -170,6 +178,11 @@ pub trait Chart: canvas::Program<Message> {
 
     /// Get the cache used for panel Y-axis label rendering.
     fn panel_labels_cache(&self) -> Option<&Cache> {
+        None
+    }
+
+    /// Get the cache used for the panel crosshair overlay.
+    fn panel_crosshair_cache(&self) -> Option<&Cache> {
         None
     }
 }

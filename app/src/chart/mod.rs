@@ -83,8 +83,10 @@ pub enum Message {
     ContextMenu(Point, Option<data::DrawingId>),
     // Double-click on a selected drawing
     DrawingDoubleClick(data::DrawingId),
-    // Indicator panel clicked (panel index among non-overlay indicators)
-    IndicatorClicked(usize),
+    // Study overlay interactions (index into chart.studies())
+    StudyOverlaySelect(usize),
+    StudyOverlayDoubleClick(usize),
+    StudyOverlayContextMenu(Point, usize),
 }
 
 /// Chart action for side effects
@@ -302,7 +304,23 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
                 *split = (size * 100.0).round() / 100.0;
             }
         }
-        Message::CrosshairMoved(_) | Message::CursorLeft => {
+        Message::CrosshairMoved(pos) => {
+            if let Some(p) = pos {
+                let state = chart.state();
+                let bounds = state.bounds.size();
+                if bounds.width > f32::EPSILON {
+                    let region = state.visible_region(bounds);
+                    let (interval, _) =
+                        state.snap_x_to_index(p.x, bounds, region);
+                    state.crosshair_interval.set(Some(interval));
+                }
+            } else {
+                chart.state().crosshair_interval.set(None);
+            }
+            return chart.invalidate_crosshair();
+        }
+        Message::CursorLeft => {
+            chart.state().crosshair_interval.set(None);
             return chart.invalidate_crosshair();
         }
         // Drawing messages are handled at the pane level where we have mutable access
@@ -320,7 +338,9 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
         | Message::ClonePlacementCancel
         | Message::ContextMenu(_, _)
         | Message::DrawingDoubleClick(_)
-        | Message::IndicatorClicked(_) => {
+        | Message::StudyOverlaySelect(_)
+        | Message::StudyOverlayDoubleClick(_)
+        | Message::StudyOverlayContextMenu(_, _) => {
             // These are handled by the pane/dashboard, not the chart itself
             return;
         }
@@ -351,6 +371,7 @@ pub fn view<'a, T: Chart>(
         interval_keys: chart.interval_keys(),
         autoscaling: state.layout.autoscale,
         remote_crosshair: state.remote_crosshair,
+        crosshair_interval: state.crosshair_interval.get(),
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -460,17 +481,25 @@ pub fn view<'a, T: Chart>(
                 column![].into()
             };
 
+        let panel_crosshair_cache = chart.panel_crosshair_cache();
+        let crosshair_cache_ref = panel_crosshair_cache
+            .unwrap_or(cache);
+
         let panel_canvas =
             Canvas::new(StudyPanelCanvas {
                 panels,
                 state,
                 cache,
+                crosshair_cache: crosshair_cache_ref,
             })
             .width(Length::Fill)
             .height(Length::Fill);
 
         let panel_row: Element<'_, Message> = row![
-            container(panel_canvas)
+            container(
+                mouse_area(panel_canvas)
+                    .on_exit(Message::CursorLeft)
+            )
                 .width(Length::FillPortion(10)),
             rule::vertical(1).style(style::split_ruler),
             container(panel_y_axis).width(y_labels_width)

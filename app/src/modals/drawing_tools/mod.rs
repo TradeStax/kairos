@@ -136,7 +136,7 @@ impl SidebarGroup {
 
     /// Whether this group opens a flyout submenu (vs direct click).
     pub fn has_submenu(&self) -> bool {
-        !matches!(self, SidebarGroup::Select)
+        !matches!(self, SidebarGroup::Select | SidebarGroup::Analysis)
     }
 
     /// Check if a tool belongs to this group.
@@ -230,6 +230,11 @@ pub enum Message {
     ToggleSnap,
     /// Expand/collapse a sidebar group flyout
     ExpandGroup(Option<SidebarGroup>),
+    /// Category button clicked — select its tool and toggle the flyout
+    GroupClicked {
+        tool: DrawingTool,
+        group: SidebarGroup,
+    },
 }
 
 /// Action returned from the panel
@@ -304,6 +309,15 @@ impl DrawingToolsPanel {
                 self.expanded_group = group;
                 None
             }
+            Message::GroupClicked { tool, group } => {
+                self.set_active_tool(tool);
+                if self.expanded_group == Some(group) {
+                    self.expanded_group = None;
+                } else {
+                    self.expanded_group = Some(group);
+                }
+                Some(Action::SelectTool(tool))
+            }
         }
     }
 }
@@ -330,6 +344,6 @@ pub fn tool_icon(tool: DrawingTool) -> Icon {
         DrawingTool::DateRange => Icon::DrawDateRange,       // E831
         DrawingTool::BuyCalculator => Icon::DrawBuyCalc,     // E826 trending-up
         DrawingTool::SellCalculator => Icon::DrawSellCalc,   // E835 trending-down
-        DrawingTool::VolumeProfile => Icon::DrawPriceRange,  // reuse price range icon
+        DrawingTool::VolumeProfile => Icon::DrawVolumeProfile, // E836 align-left
     }
 }

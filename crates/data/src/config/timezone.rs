@@ -103,7 +103,7 @@ impl UserTimezone {
         }
     }
 
-    /// Formats a `DateTime` with detailed format for crosshair display
+    /// Formats a `DateTime` with date-only format for crosshair display.
     pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, interval: u64) -> String {
         if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
             if interval < 10000 {
@@ -118,6 +118,24 @@ impl UserTimezone {
                 UserTimezone::Utc => datetime
                     .with_timezone(&chrono::Utc)
                     .format("%a %b %-d")
+                    .to_string(),
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    /// Formats a `DateTime` to just time (HH:MM) for crosshair display.
+    pub fn format_crosshair_time(&self, timestamp_millis: i64) -> String {
+        if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
+            match self {
+                UserTimezone::Local => datetime
+                    .with_timezone(&chrono::Local)
+                    .format("%H:%M")
+                    .to_string(),
+                UserTimezone::Utc => datetime
+                    .with_timezone(&chrono::Utc)
+                    .format("%H:%M")
                     .to_string(),
             }
         } else {

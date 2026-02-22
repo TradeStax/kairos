@@ -9,6 +9,7 @@ use data::{ChartBasis, ViewConfig};
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 use iced::{Length, Rectangle, Size, Vector};
+use std::cell::Cell;
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
 
@@ -71,6 +72,12 @@ pub struct ViewState {
     pub layout: ViewConfig,
     /// Remote crosshair interval from a linked pane (timestamp ms or tick index)
     pub remote_crosshair: Option<u64>,
+    /// Current crosshair interval (snapped) — set whenever cursor is in
+    /// either the main chart canvas or the study panel canvas.  Both
+    /// canvases read this to draw a synchronised vertical crosshair.
+    /// Uses `Cell` so the main chart's `draw()` can update it and the
+    /// study panel's `draw()` can read the fresh value in the same frame.
+    pub crosshair_interval: Cell<Option<u64>>,
 }
 
 impl ViewState {
@@ -100,6 +107,7 @@ impl ViewState {
             ticker_info,
             layout,
             remote_crosshair: None,
+            crosshair_interval: Cell::new(None),
         }
     }
 

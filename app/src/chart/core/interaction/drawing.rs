@@ -140,16 +140,20 @@ pub fn handle_selection_click<T: Chart>(
 
         *last_selection_click = Some((std::time::Instant::now(), id));
 
-        // Locked drawings can be selected but not moved
-        if !chart.is_drawing_locked(id) {
-            *interaction = Interaction::EditingDrawing {
-                id,
-                edit_mode: DrawingEditMode::Moving,
-                last_screen_pos: cursor_in_bounds,
-                drag_committed: false, // wait for drag threshold
+        if chart.is_drawing_locked(id) {
+            // Locked: select but do not capture; drag will start pan on first move
+            *interaction = Interaction::SelectedLockedDrawing {
+                press_pos: cursor_in_bounds,
             };
+            return Some(canvas::Action::publish(Message::DrawingSelect(id)));
         }
 
+        *interaction = Interaction::EditingDrawing {
+            id,
+            edit_mode: DrawingEditMode::Moving,
+            last_screen_pos: cursor_in_bounds,
+            drag_committed: false, // wait for drag threshold
+        };
         return Some(canvas::Action::publish(Message::DrawingSelect(id)).and_capture());
     }
 

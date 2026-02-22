@@ -250,7 +250,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     }
 
                     // Draw crosshair
-                    let _result = crate::chart::overlay::draw_crosshair(
+                    let result = crate::chart::overlay::draw_crosshair(
                         chart,
                         frame,
                         theme,
@@ -259,11 +259,16 @@ impl canvas::Program<Message> for HeatmapChart {
                         interaction,
                     );
 
-                    // Skip tooltip during interactions
-                    if matches!(interaction, Interaction::Panning { .. })
-                        || matches!(interaction, Interaction::Ruler { start } if start.is_some())
-                    {
-                    }
+                    chart.crosshair_interval.set(Some(result.interval));
+                } else if let Some(interval) = chart.crosshair_interval.get() {
+                    // Crosshair driven by study panel cursor
+                    crate::chart::overlay::draw_remote_crosshair(
+                        chart,
+                        frame,
+                        theme,
+                        bounds_size,
+                        interval,
+                    );
                 } else if let Some(interval) = chart.remote_crosshair {
                     // Remote crosshair from linked pane
                     crate::chart::overlay::draw_remote_crosshair(
@@ -305,7 +310,10 @@ impl canvas::Program<Message> for HeatmapChart {
                     mouse::Interaction::default()
                 }
             }
-            Interaction::None | Interaction::Ruler { .. } | Interaction::Decelerating { .. } => {
+            Interaction::None
+            | Interaction::SelectedLockedDrawing { .. }
+            | Interaction::Ruler { .. }
+            | Interaction::Decelerating { .. } => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
                     if self
                         .hit_test_drawing_handle(cursor_position, bounds.size())

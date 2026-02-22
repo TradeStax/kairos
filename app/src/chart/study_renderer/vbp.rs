@@ -214,10 +214,14 @@ pub fn render_vbp_multi(
     state: &ViewState,
     bounds: Size,
 ) {
+    let region = state.visible_region(bounds);
+    let vis_left = region.x;
+    let vis_right = region.x + region.width;
+
     for profile in profiles {
         let (ax, br) = profile_x_range(profile, state, bounds);
-        // Skip off-screen profiles
-        if ax.max(br) < 0.0 || ax.min(br) > bounds.width {
+        // Skip profiles entirely outside the visible region
+        if br < vis_left || ax > vis_right {
             continue;
         }
         render_vbp(
@@ -259,9 +263,7 @@ pub fn render_vbp(
     }
 
     let segment_width = (box_right - anchor_x).abs();
-    let visible_width = bounds.width / state.scaling;
-    let max_bar_length =
-        segment_width.min(visible_width) * config.width_pct;
+    let max_bar_length = segment_width * config.width_pct;
 
     // Estimate bar height from adjacent price levels
     let bar_height = if resolved.levels.len() >= 2 {
@@ -879,6 +881,7 @@ fn draw_va_fill(
         anchor_x,
         box_right,
         &config.va_config.va_extend,
+        state,
         bounds,
     );
 
@@ -1405,7 +1408,7 @@ fn draw_horizontal_line(
     state: &ViewState,
 ) {
     let (x_left, x_right) =
-        extend_x_range(anchor_x, box_right, extend, bounds);
+        extend_x_range(anchor_x, box_right, extend, state, bounds);
     let width =
         coord::effective_line_width(line_width, state.scaling);
     let dash = coord::line_dash_for_style(line_style);
@@ -1428,17 +1431,23 @@ fn draw_horizontal_line(
 }
 
 /// Compute the X range for a horizontal line with extension.
+///
+/// Uses chart-space visible region for extension boundaries.
 fn extend_x_range(
     anchor_x: f32,
     box_right: f32,
     extend: &ExtendDirection,
+    state: &ViewState,
     bounds: Size,
 ) -> (f32, f32) {
+    let region = state.visible_region(bounds);
+    let vis_left = region.x;
+    let vis_right = region.x + region.width;
     match extend {
         ExtendDirection::None => (anchor_x, box_right),
-        ExtendDirection::Left => (0.0, box_right),
-        ExtendDirection::Right => (anchor_x, bounds.width),
-        ExtendDirection::Both => (0.0, bounds.width),
+        ExtendDirection::Left => (vis_left, box_right),
+        ExtendDirection::Right => (anchor_x, vis_right),
+        ExtendDirection::Both => (vis_left, vis_right),
     }
 }
 

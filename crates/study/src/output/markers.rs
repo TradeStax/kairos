@@ -75,7 +75,12 @@ impl std::fmt::Display for MarkerShape {
 pub struct MarkerRenderConfig {
     pub shape: MarkerShape,
     pub hollow: bool,
-    pub std_dev: f32,
+    /// Lower bound of the contract range for size scaling
+    /// (typically filter_min). Trades at this value get min_size.
+    pub scale_min: f64,
+    /// Upper bound of the contract range for size scaling.
+    /// Trades at or above this value get max_size.
+    pub scale_max: f64,
     pub min_size: f32,
     pub max_size: f32,
     pub min_opacity: f32,
@@ -90,7 +95,8 @@ impl Default for MarkerRenderConfig {
         Self {
             shape: MarkerShape::Circle,
             hollow: false,
-            std_dev: 2.0,
+            scale_min: 50.0,
+            scale_max: 500.0,
             min_size: 8.0,
             max_size: 36.0,
             min_opacity: 0.10,

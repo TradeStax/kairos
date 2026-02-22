@@ -17,7 +17,7 @@ use iced::Vector;
 use iced::widget::canvas::Cache;
 use study::{CandleRenderConfig, Study as _};
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
 impl Chart for KlineChart {
@@ -31,6 +31,7 @@ impl Chart for KlineChart {
 
     fn invalidate_crosshair(&mut self) {
         self.chart.cache.clear_crosshair();
+        self.panel_crosshair_cache.clear();
     }
 
     fn invalidate_all(&mut self) {
@@ -101,6 +102,18 @@ impl Chart for KlineChart {
     fn panel_labels_cache(&self) -> Option<&Cache> {
         Some(&self.panel_labels_cache)
     }
+
+    fn panel_crosshair_cache(&self) -> Option<&Cache> {
+        Some(&self.panel_crosshair_cache)
+    }
+
+    fn hit_test_study_overlay(&self, point: iced::Point) -> Option<usize> {
+        self.study_overlay_rects
+            .borrow()
+            .iter()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(idx, _)| *idx)
+    }
 }
 
 /// Reason studies need recomputation.
@@ -132,12 +145,16 @@ pub struct KlineChart {
     panel_cache: Cache,
     /// Rendering cache for panel Y-axis labels
     panel_labels_cache: Cache,
+    /// Rendering cache for panel crosshair overlay
+    panel_crosshair_cache: Cache,
     /// Whether to show the debug performance overlay
     pub(crate) show_debug_info: bool,
     /// Last draw() call instant — uses Cell for interior mutability during draw
     last_draw_instant: Cell<Instant>,
     /// Rolling frame time in ms — uses Cell for interior mutability during draw
     last_frame_time_ms: Cell<f32>,
+    /// Hit-test rectangles for study overlay labels (populated during draw)
+    pub(crate) study_overlay_rects: RefCell<Vec<(usize, iced::Rectangle)>>,
 }
 
 impl KlineChart {
@@ -202,9 +219,11 @@ impl KlineChart {
             last_visible_range: None,
             panel_cache: Cache::default(),
             panel_labels_cache: Cache::default(),
+            panel_crosshair_cache: Cache::default(),
             show_debug_info: false,
             last_draw_instant: Cell::new(Instant::now()),
             last_frame_time_ms: Cell::new(0.0),
+            study_overlay_rects: RefCell::new(Vec::new()),
         }
     }
 
@@ -424,6 +443,7 @@ impl KlineChart {
         chart.cache.clear_all();
         self.panel_cache.clear();
         self.panel_labels_cache.clear();
+        self.panel_crosshair_cache.clear();
 
         // Check if visible range changed (triggers VBP recompute)
         if chart.bounds.width > 0.0 {

@@ -275,14 +275,16 @@ fn draw_handles(
     state: &ViewState,
     drawing: &Drawing,
     bounds: Size,
-    _palette: &Extended,
+    palette: &Extended,
 ) {
     let handles = drawing.handle_positions(state, bounds);
     let handle_half = tokens::drawing::HANDLE_SIZE / 2.0;
-    let stroke_color = Color::from_rgb(0.7, 0.7, 0.7);
+    let fill_color = palette.background.strong.color;
+    let stroke_color = palette.background.base.text;
 
     for handle in handles {
         let circle = Path::circle(handle, handle_half);
+        frame.fill(&circle, fill_color);
         frame.stroke(
             &circle,
             Stroke::default().with_color(stroke_color).with_width(1.5),

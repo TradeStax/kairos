@@ -57,6 +57,9 @@ pub enum AxisLabel {
     X {
         bounds: Rectangle,
         label: LabelContent,
+        /// Optional secondary line (date) rendered smaller above the
+        /// main label (time). Used for crosshair labels.
+        date_label: Option<LabelContent>,
     },
     Y {
         bounds: Rectangle,
@@ -73,7 +76,8 @@ impl AxisLabel {
         is_crosshair: bool,
         palette: &Extended,
     ) -> Self {
-        let content_width = text_content.len() as f32 * (TEXT_SIZE / 2.6);
+        let content_width =
+            text_content.len() as f32 * (TEXT_SIZE / 2.6);
 
         let rect = Rectangle {
             x: center_x_position - content_width,
@@ -100,6 +104,55 @@ impl AxisLabel {
         AxisLabel::X {
             bounds: rect,
             label,
+            date_label: None,
+        }
+    }
+
+    /// Create a two-line crosshair X label: date (small, above) +
+    /// time (normal, below), each with its own background rect.
+    pub fn new_x_crosshair(
+        center_x: f32,
+        time_text: String,
+        date_text: String,
+        axis_bounds: Rectangle,
+        palette: &Extended,
+    ) -> Self {
+        let date_size: f32 = 9.0;
+        let time_size: f32 = TEXT_SIZE;
+
+        // Width driven by the wider of the two lines
+        let date_w = date_text.len() as f32 * (date_size / 2.6);
+        let time_w = time_text.len() as f32 * (time_size / 2.6);
+        let half_w = date_w.max(time_w);
+
+        let rect = Rectangle {
+            x: center_x - half_w,
+            y: 0.0,
+            width: 2.0 * half_w,
+            height: axis_bounds.height,
+        };
+
+        let bg = palette.secondary.base.color;
+        let fg = palette.secondary.base.text;
+
+        let label = LabelContent {
+            content: time_text,
+            background_color: Some(bg),
+            text_color: fg,
+            text_size: time_size,
+        };
+
+        let date_label = Some(LabelContent {
+            content: date_text,
+            background_color: Some(bg),
+            text_color: fg.scale_alpha(0.65),
+            text_size: date_size,
+        });
+
+        AxisLabel::X {
+            bounds: rect,
+            label,
+            date_label,
         }
     }
 
@@ -139,32 +192,87 @@ impl AxisLabel {
 
     fn draw(&self, frame: &mut Frame) {
         match self {
-            AxisLabel::X { bounds, label } => {
+            AxisLabel::X {
+                bounds,
+                label,
+                date_label,
+            } => {
                 let frame_bounds = frame.size();
-                if bounds.x + bounds.width < 0.0 || bounds.x > frame_bounds.width {
+                if bounds.x + bounds.width < 0.0
+                    || bounds.x > frame_bounds.width
+                {
                     return;
                 }
 
-                if let Some(background_color) = label.background_color {
+                if let Some(date) = date_label {
+                    // Two-line crosshair: date (small) on top,
+                    // time (normal) below, separate backgrounds.
+                    let cx = bounds.x + bounds.width / 2.0;
+                    let v_pad = 2.0;
+                    let gap = 2.0;
+
+                    let date_rect_y = bounds.y;
+                    let date_rect_h = date.text_size + v_pad * 2.0;
+
+                    let time_rect_y = date_rect_y + date_rect_h + gap;
+                    let time_rect_h = label.text_size + v_pad * 2.0;
+
+                    if let Some(bg) = date.background_color {
+                        frame.fill_rectangle(
+                            Point::new(bounds.x, date_rect_y),
+                            Size::new(bounds.width, date_rect_h),
+                            bg,
+                        );
+                    }
+
+                    if let Some(bg) = label.background_color {
+                        frame.fill_rectangle(
+                            Point::new(bounds.x, time_rect_y),
+                            Size::new(bounds.width, time_rect_h),
+                            bg,
+                        );
+                    }
+
+                    frame.fill_text(canvas::Text {
+                        content: date.content.clone(),
+                        position: Point::new(cx, date_rect_y + v_pad),
+                        size: date.text_size.into(),
+                        color: date.text_color,
+                        align_x: Alignment::Center.into(),
+                        font: AZERET_MONO,
+                        ..canvas::Text::default()
+                    });
+
+                    frame.fill_text(canvas::Text {
+                        content: label.content.clone(),
+                        position: Point::new(cx, time_rect_y + v_pad),
+                        size: label.text_size.into(),
+                        color: label.text_color,
+                        align_x: Alignment::Center.into(),
+                        font: AZERET_MONO,
+                        ..canvas::Text::default()
+                    });
+                } else if let Some(bg) = label.background_color {
                     frame.fill_rectangle(
                         Point::new(bounds.x, bounds.y),
                         Size::new(bounds.width, bounds.height),
-                        background_color,
+                        bg,
                     );
                 }
 
-                let label = canvas::Text {
-                    content: label.content.clone(),
-                    position: bounds.center(),
-                    size: label.text_size.into(),
-                    color: label.text_color,
-                    align_y: Alignment::Center.into(),
-                    align_x: Alignment::Center.into(),
-                    font: AZERET_MONO,
-                    ..canvas::Text::default()
-                };
-
-                frame.fill_text(label);
+                if date_label.is_none() {
+                    // Single-line label (regular axis tick)
+                    frame.fill_text(canvas::Text {
+                        content: label.content.clone(),
+                        position: bounds.center(),
+                        size: label.text_size.into(),
+                        color: label.text_color,
+                        align_y: Alignment::Center.into(),
+                        align_x: Alignment::Center.into(),
+                        font: AZERET_MONO,
+                        ..canvas::Text::default()
+                    });
+                }
             }
             AxisLabel::Y {
                 bounds,
@@ -232,6 +340,8 @@ pub struct AxisLabelsX<'a> {
     pub autoscaling: Option<Autoscale>,
     /// Remote crosshair interval from a linked pane
     pub remote_crosshair: Option<u64>,
+    /// Current crosshair interval (from main chart or study panel)
+    pub crosshair_interval: Option<u64>,
 }
 
 impl AxisLabelsX<'_> {
@@ -272,10 +382,15 @@ impl AxisLabelsX<'_> {
                 let array_index = last_index - offset;
                 let timestamp = interval_keys.get(array_index)?;
 
-                let text_content = self
-                    .timezone
-                    .format_crosshair_timestamp(*timestamp as i64, agg.into());
-                Some(AxisLabel::new_x(snap_x, text_content, bounds, true, palette))
+                let date_text = self.timezone.format_crosshair_timestamp(
+                    *timestamp as i64,
+                    agg.into(),
+                );
+                let time_text =
+                    self.timezone.format_crosshair_time(*timestamp as i64);
+                Some(AxisLabel::new_x_crosshair(
+                    snap_x, time_text, date_text, bounds, palette,
+                ))
             }
             ChartBasis::Time(timeframe) => {
                 let x_min = self.x_to_interval(region.x) as f64;
@@ -296,14 +411,17 @@ impl AxisLabelsX<'_> {
                 }
 
                 let tf_ms = timeframe.to_milliseconds();
-                let text_content = self
-                    .timezone
-                    .format_crosshair_timestamp(interval as i64, tf_ms);
-                Some(AxisLabel::new_x(
+                let date_text = self.timezone.format_crosshair_timestamp(
+                    interval as i64,
+                    tf_ms,
+                );
+                let time_text =
+                    self.timezone.format_crosshair_time(interval as i64);
+                Some(AxisLabel::new_x_crosshair(
                     snap_x as f32,
-                    text_content,
+                    time_text,
+                    date_text,
                     bounds,
-                    true,
                     palette,
                 ))
             }
@@ -354,53 +472,71 @@ impl AxisLabelsX<'_> {
                 let array_index = last_index - offset;
 
                 if let Some(timestamp) = interval_keys.get(array_index) {
-                    let text_content = self
+                    let date_text = self.timezone.format_crosshair_timestamp(
+                        *timestamp as i64,
+                        interval.into(),
+                    );
+                    let time_text = self
                         .timezone
-                        .format_crosshair_timestamp(*timestamp as i64, interval.into());
+                        .format_crosshair_time(*timestamp as i64);
 
-                    return Some(AxisLabel::new_x(
-                        snap_x,
-                        text_content,
-                        bounds,
-                        true,
-                        palette,
+                    return Some(AxisLabel::new_x_crosshair(
+                        snap_x, time_text, date_text, bounds, palette,
                     ));
                 }
             }
             ChartBasis::Time(timeframe) => {
-                let (_, crosshair_ratio, _) = self.calc_crosshair_pos(cursor_pos, region);
+                let (_, crosshair_ratio, _) =
+                    self.calc_crosshair_pos(cursor_pos, region);
 
                 let x_min = self.x_to_interval(region.x);
-                let x_max = self.x_to_interval(region.x + region.width);
+                let x_max =
+                    self.x_to_interval(region.x + region.width);
 
-                let crosshair_millis =
-                    x_min as f64 + f64::from(crosshair_ratio) * (x_max as f64 - x_min as f64);
+                let crosshair_millis = x_min as f64
+                    + f64::from(crosshair_ratio)
+                        * (x_max as f64 - x_min as f64);
 
                 let interval = timeframe.to_milliseconds();
 
                 let crosshair_time =
-                    chrono::DateTime::from_timestamp_millis(crosshair_millis as i64)?;
-                let rounded_timestamp =
-                    (crosshair_time.timestamp_millis() as f64 / (interval as f64)).round() as u64
-                        * interval;
+                    chrono::DateTime::from_timestamp_millis(
+                        crosshair_millis as i64,
+                    )?;
+                let rounded_timestamp = (crosshair_time
+                    .timestamp_millis()
+                    as f64
+                    / (interval as f64))
+                    .round() as u64
+                    * interval;
 
-                let snap_ratio =
-                    (rounded_timestamp as f64 - x_min as f64) / (x_max as f64 - x_min as f64);
+                let snap_ratio = (rounded_timestamp as f64
+                    - x_min as f64)
+                    / (x_max as f64 - x_min as f64);
 
                 let snap_x = snap_ratio * f64::from(bounds.width);
-                if snap_x.is_nan() || snap_x < 0.0 || snap_x > f64::from(bounds.width) {
+                if snap_x.is_nan()
+                    || snap_x < 0.0
+                    || snap_x > f64::from(bounds.width)
+                {
                     return None;
                 }
 
-                let text_content = self
+                let date_text = self
                     .timezone
-                    .format_crosshair_timestamp(rounded_timestamp as i64, interval);
+                    .format_crosshair_timestamp(
+                        rounded_timestamp as i64,
+                        interval,
+                    );
+                let time_text = self
+                    .timezone
+                    .format_crosshair_time(rounded_timestamp as i64);
 
-                return Some(AxisLabel::new_x(
+                return Some(AxisLabel::new_x_crosshair(
                     snap_x as f32,
-                    text_content,
+                    time_text,
+                    date_text,
                     bounds,
-                    true,
                     palette,
                 ));
             }
@@ -570,8 +706,10 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                 && let Some(label) = self.generate_crosshair(cursor_pos, region, bounds, palette)
             {
                 labels.push(label);
-            } else if let Some(interval) = self.remote_crosshair {
-                // Show time label for remote crosshair from linked pane
+            } else if let Some(interval) = self.crosshair_interval
+                .or(self.remote_crosshair)
+            {
+                // Show time label for crosshair from study panel or linked pane
                 if let Some(label) =
                     self.generate_remote_crosshair_label(interval, region, bounds, palette)
                 {

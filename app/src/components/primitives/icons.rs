@@ -71,6 +71,7 @@ pub enum Icon {
     DrawDateRange,      // calendar
     DrawBuyCalc,        // buy calculator (trending-up)
     DrawSellCalc,       // sell calculator (trending-down)
+    DrawVolumeProfile,  // align-left
     // ── UI chrome ────────────────────────────────────────────────
     ExpandRight, // chevron-right
     SnapOn,      // zap
@@ -142,6 +143,7 @@ impl From<Icon> for char {
             Icon::DrawDateRange => '\u{E830}',      // calendar
             Icon::DrawBuyCalc => '\u{E826}',        // trending-up
             Icon::DrawSellCalc => '\u{E835}',       // trending-down
+            Icon::DrawVolumeProfile => '\u{E836}',  // align-left
             // ── UI chrome ────────────────────────────────────────
             Icon::ExpandRight => '\u{E831}', // chevron-right
             Icon::SnapOn => '\u{E833}',      // zap

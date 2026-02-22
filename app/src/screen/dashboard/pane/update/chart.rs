@@ -9,8 +9,21 @@ impl State {
         msg: chart::Message,
     ) -> Option<Effect> {
         match msg {
-            chart::Message::IndicatorClicked(_) => {
-                // Indicator panels removed; no-op
+            chart::Message::StudyOverlaySelect(_) => {
+                // Selection state lives in ChartState; no-op here
+            }
+            chart::Message::StudyOverlayDoubleClick(idx) => {
+                self.open_indicator_manager_for_study(idx);
+            }
+            chart::Message::StudyOverlayContextMenu(pos, idx) => {
+                use crate::screen::dashboard::pane::ContextMenuKind;
+
+                self.modal = None;
+                self.context_menu =
+                    Some(ContextMenuKind::StudyOverlay {
+                        position: pos,
+                        study_index: idx,
+                    });
             }
             chart::Message::DrawingClick(point, shift_held) => {
                 if self.handle_drawing_click(point, shift_held) {

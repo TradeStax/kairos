@@ -32,17 +32,21 @@ impl canvas::Program<Message> for ProfileChart {
         let interaction = &state.interaction;
         let chart = self.state();
 
-        // Extract the computed profile + render config from the study.
-        let (profile, render_config) = match self.profile_and_config()
-        {
-            Some((p, c)) if !p.levels.is_empty() => (p, c),
-            _ => return vec![],
-        };
-        if bounds.width == 0.0 {
+        // Extract the computed profiles + render config.
+        let (profiles, render_config) =
+            match self.profiles_and_config() {
+                Some((ps, c)) => (ps, c),
+                _ => return vec![],
+            };
+        if bounds.width == 0.0 || profiles.is_empty() {
             return vec![];
         }
 
-        let profile_levels = &profile.levels;
+        // For tooltip: collect all levels from all profiles
+        let all_levels: Vec<&ProfileLevel> = profiles
+            .iter()
+            .flat_map(|p| p.levels.iter())
+            .collect();
 
         let bounds_size = bounds.size();
         let palette = theme.extended_palette();
@@ -59,20 +63,13 @@ impl canvas::Program<Message> for ProfileChart {
                 frame.scale(chart.scaling);
                 frame.translate(chart.translation);
 
-                // Compute profile-filling x range
-                let full_width = bounds.width / chart.scaling;
-                let anchor_x = -full_width / 2.0;
-                let box_right = full_width / 2.0;
-
-                // Delegate to the unified VBP renderer
-                crate::chart::study_renderer::vbp::render_vbp(
+                // Render profiles using time-based positioning
+                crate::chart::study_renderer::vbp::render_vbp_multi(
                     frame,
-                    profile,
+                    profiles,
                     render_config,
                     chart,
                     bounds_size,
-                    anchor_x,
-                    box_right,
                 );
 
                 // ── Overlay studies ───────────────────────────────────
@@ -143,7 +140,7 @@ impl canvas::Program<Message> for ProfileChart {
                         }
 
                         // Crosshair
-                        let _result =
+                        let result =
                             crate::chart::overlay::draw_crosshair(
                                 chart,
                                 frame,
@@ -153,9 +150,11 @@ impl canvas::Program<Message> for ProfileChart {
                                 interaction,
                             );
 
+                        chart.crosshair_interval.set(Some(result.interval));
+
                         // Profile tooltip
                         draw_profile_tooltip(
-                            profile_levels,
+                            &all_levels,
                             &self.ticker_info,
                             frame,
                             palette,
@@ -163,7 +162,20 @@ impl canvas::Program<Message> for ProfileChart {
                             cursor_position,
                             bounds_size,
                         );
-                    } else if let Some(interval) = chart.remote_crosshair {
+                    } else if let Some(interval) =
+                        chart.crosshair_interval.get()
+                    {
+                        // Crosshair driven by study panel cursor
+                        crate::chart::overlay::draw_remote_crosshair(
+                            chart,
+                            frame,
+                            theme,
+                            bounds_size,
+                            interval,
+                        );
+                    } else if let Some(interval) =
+                        chart.remote_crosshair
+                    {
                         // Remote crosshair from linked pane
                         crate::chart::overlay::draw_remote_crosshair(
                             chart,
@@ -207,6 +219,7 @@ impl canvas::Program<Message> for ProfileChart {
                 }
             }
             Interaction::None
+            | Interaction::SelectedLockedDrawing { .. }
             | Interaction::Ruler { .. }
             | Interaction::Decelerating { .. } => {
                 if cursor.is_over(bounds) {
@@ -221,7 +234,7 @@ impl canvas::Program<Message> for ProfileChart {
 
 /// Draw profile tooltip showing volume at cursor price.
 fn draw_profile_tooltip(
-    levels: &[ProfileLevel],
+    levels: &[&ProfileLevel],
     ticker_info: &exchange::FuturesTickerInfo,
     frame: &mut Frame,
     palette: &Extended,
@@ -240,26 +253,11 @@ fn draw_profile_tooltip(
     let price = chart.y_to_price(chart_y);
     let price_units = price.units();
 
-    // Find nearest level
-    let nearest_idx = levels
-        .partition_point(|l| l.price_units < price_units)
-        .min(levels.len().saturating_sub(1));
-
-    // Check neighbors for closest match
-    let nearest = if nearest_idx > 0 {
-        let prev = &levels[nearest_idx.saturating_sub(1)];
-        let curr =
-            &levels[nearest_idx.min(levels.len() - 1)];
-        if (prev.price_units - price_units).abs()
-            < (curr.price_units - price_units).abs()
-        {
-            prev
-        } else {
-            curr
-        }
-    } else {
-        &levels[0]
-    };
+    // Find nearest level across all profiles
+    let nearest = levels
+        .iter()
+        .min_by_key(|l| (l.price_units - price_units).abs())
+        .unwrap();
 
     let total = nearest.buy_volume + nearest.sell_volume;
     let delta = nearest.buy_volume - nearest.sell_volume;

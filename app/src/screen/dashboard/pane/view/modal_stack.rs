@@ -208,6 +208,18 @@ impl State {
 
                     items
                 }
+                ContextMenuKind::StudyOverlay { study_index, .. } => {
+                    let idx = *study_index;
+                    vec![(
+                        "Properties".into(),
+                        Some(Message::PaneEvent(
+                            pane,
+                            Event::ContextMenuAction(
+                                ContextMenuAction::OpenStudyProperties(idx),
+                            ),
+                        )),
+                    )]
+                }
                 ContextMenuKind::Drawing { id, locked, .. } => {
                     let id = *id;
                     vec![

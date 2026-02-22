@@ -9,8 +9,9 @@ use data::{Candle, ChartBasis, Trade};
 use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Event, Geometry};
+use iced::widget::canvas::{self, Event, Geometry, Stroke};
 use iced::{Color, Point, Rectangle, Renderer, Theme, Vector, mouse};
+use std::cell::RefCell;
 use std::time::Instant;
 
 use super::KlineChart;
@@ -268,7 +269,9 @@ impl canvas::Program<Message> for KlineChart {
                     interaction,
                 );
 
-                draw_crosshair_tooltip(
+                chart.crosshair_interval.set(Some(result.interval));
+
+                let has_candle = draw_crosshair_tooltip(
                     &self.chart_data.candles,
                     &self.basis,
                     &self.ticker_info,
@@ -276,6 +279,30 @@ impl canvas::Program<Message> for KlineChart {
                     palette,
                     result.interval,
                     &self.candle_style,
+                );
+
+                if has_candle && !self.studies.is_empty() {
+                    let y_start = crate::style::tokens::spacing::MD
+                        + crate::style::tokens::text::HEADING;
+                    draw_study_overlay(
+                        &self.studies,
+                        result.interval,
+                        frame,
+                        palette,
+                        y_start,
+                        &self.study_overlay_rects,
+                        state.selected_study_overlay,
+                        cursor_position,
+                    );
+                }
+            } else if let Some(interval) = chart.crosshair_interval.get() {
+                // Crosshair driven by study panel cursor
+                crate::chart::overlay::draw_remote_crosshair(
+                    chart,
+                    frame,
+                    theme,
+                    bounds_size,
+                    interval,
                 );
             } else if let Some(interval) = chart.remote_crosshair {
                 // Remote crosshair from linked pane (only when local cursor absent)
@@ -328,10 +355,21 @@ impl canvas::Program<Message> for KlineChart {
                     mouse::Interaction::default()
                 }
             }
-            Interaction::None | Interaction::Ruler { .. } | Interaction::Decelerating { .. } => {
+            Interaction::None
+            | Interaction::SelectedLockedDrawing { .. }
+            | Interaction::Ruler { .. }
+            | Interaction::Decelerating { .. } => {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
-                    // Check if hovering over a drawing handle
+                    // Check study overlay labels first
                     if self
+                        .study_overlay_rects
+                        .borrow()
+                        .iter()
+                        .any(|(_, r)| r.contains(cursor_position))
+                    {
+                        mouse::Interaction::Pointer
+                    // Check if hovering over a drawing handle
+                    } else if self
                         .hit_test_drawing_handle(cursor_position, bounds.size())
                         .is_some()
                     {
@@ -423,7 +461,7 @@ fn draw_crosshair_tooltip(
     palette: &Extended,
     at_interval: u64,
     candle_style: &CandleStyle,
-) {
+) -> bool {
     let candle_opt = match basis {
         ChartBasis::Time(_) => candles
             .binary_search_by_key(&at_interval, |c| c.time.0)
@@ -527,6 +565,358 @@ fn draw_crosshair_tooltip(
             } else {
                 crate::style::tokens::spacing::XXS
             };
+        }
+        return true;
+    }
+    false
+}
+
+/// Find the value at (or just before) the given interval in a
+/// sorted `(u64, f32)` point series. O(log n) via binary search.
+#[inline]
+fn find_line_value_at(points: &[(u64, f32)], at: u64) -> Option<f32> {
+    if points.is_empty() {
+        return None;
+    }
+    let idx = points.partition_point(|p| p.0 < at);
+    if idx < points.len() && points[idx].0 == at {
+        return Some(points[idx].1);
+    }
+    if idx > 0 {
+        return Some(points[idx - 1].1);
+    }
+    None
+}
+
+/// Emit a study line as two-color segments: label in `base_color`,
+/// value in `value_color`. Advances `y` by `line_height`.
+///
+/// `label` is the study/series name (drawn first).
+/// `value_str` is the formatted number(s) — if non-empty, draws
+/// ` ` + value in the accent color after the label.
+/// `alpha` dims both colors (1.0 = full, <1.0 = dimmed on hover).
+#[inline]
+fn emit_study_line(
+    frame: &mut canvas::Frame,
+    label: &str,
+    value_str: &str,
+    base_color: Color,
+    value_color: Color,
+    x: f32,
+    y: &mut f32,
+    line_height: f32,
+    alpha: f32,
+) {
+    let char_width = TEXT_SIZE * 0.8;
+    let mut cx = x;
+
+    // Label segment (study name) in base color
+    frame.fill_text(canvas::Text {
+        content: label.to_string(),
+        position: Point::new(cx, *y),
+        size: iced::Pixels(TEXT_SIZE),
+        color: base_color.scale_alpha(alpha),
+        font: AZERET_MONO,
+        ..canvas::Text::default()
+    });
+    cx += label.len() as f32 * char_width;
+
+    // Value segment in study color
+    if !value_str.is_empty() {
+        cx += crate::style::tokens::spacing::XXS;
+        frame.fill_text(canvas::Text {
+            content: value_str.to_string(),
+            position: Point::new(cx, *y),
+            size: iced::Pixels(TEXT_SIZE),
+            color: value_color.scale_alpha(alpha),
+            font: AZERET_MONO,
+            ..canvas::Text::default()
+        });
+    }
+
+    *y += line_height;
+}
+
+/// Draw all text entries for a single `StudyOutput`, writing
+/// directly to the frame without intermediate collection.
+/// `buf` is cleared and reused for each line to minimise allocations.
+///
+/// Label text uses `base_color` (theme text); value numbers use the
+/// study's own series color.
+fn draw_output_entries(
+    output: &study::StudyOutput,
+    name: &str,
+    at: u64,
+    frame: &mut canvas::Frame,
+    base_color: Color,
+    x: f32,
+    y: &mut f32,
+    line_height: f32,
+    buf: &mut String,
+    alpha: f32,
+) {
+    use std::fmt::Write;
+
+    match output {
+        study::StudyOutput::Lines(series) => {
+            for s in series {
+                let value_color =
+                    crate::style::theme_bridge::rgba_to_iced_color(
+                        s.color,
+                    );
+                buf.clear();
+                if let Some(v) = find_line_value_at(&s.points, at) {
+                    let _ = write!(buf, "{:.2}", v);
+                }
+                emit_study_line(
+                    frame, &s.label, buf, base_color,
+                    value_color, x, y, line_height, alpha,
+                );
+            }
+        }
+        study::StudyOutput::Band {
+            upper,
+            middle,
+            lower,
+            ..
+        } => {
+            let label = middle
+                .as_ref()
+                .map(|m| m.label.as_str())
+                .unwrap_or(name);
+            let sc = middle
+                .as_ref()
+                .map(|m| m.color)
+                .unwrap_or(upper.color);
+            let value_color =
+                crate::style::theme_bridge::rgba_to_iced_color(sc);
+
+            let u = find_line_value_at(&upper.points, at);
+            let m = middle
+                .as_ref()
+                .and_then(|ms| find_line_value_at(&ms.points, at));
+            let l = find_line_value_at(&lower.points, at);
+
+            buf.clear();
+            match (u, m, l) {
+                (Some(uv), Some(mv), Some(lv)) => {
+                    let _ = write!(
+                        buf, "{:.2} / {:.2} / {:.2}",
+                        uv, mv, lv
+                    );
+                }
+                (Some(uv), None, Some(lv)) => {
+                    let _ = write!(buf, "{:.2} / {:.2}", uv, lv);
+                }
+                _ => {}
+            }
+            emit_study_line(
+                frame, label, buf, base_color,
+                value_color, x, y, line_height, alpha,
+            );
+        }
+        study::StudyOutput::Bars(series) => {
+            for s in series {
+                let value_color = s
+                    .points
+                    .first()
+                    .map(|p| {
+                        crate::style::theme_bridge::rgba_to_iced_color(
+                            p.color,
+                        )
+                    })
+                    .unwrap_or(base_color);
+
+                buf.clear();
+                let val = s
+                    .points
+                    .iter()
+                    .find(|p| p.x == at)
+                    .map(|p| p.value);
+                if let Some(v) = val {
+                    let _ = write!(buf, "{:.2}", v);
+                }
+                emit_study_line(
+                    frame, &s.label, buf, base_color,
+                    value_color, x, y, line_height, alpha,
+                );
+            }
+        }
+        study::StudyOutput::Histogram(bars) => {
+            let value_color = bars
+                .first()
+                .map(|b| {
+                    crate::style::theme_bridge::rgba_to_iced_color(
+                        b.color,
+                    )
+                })
+                .unwrap_or(base_color);
+
+            buf.clear();
+            let idx = bars.partition_point(|b| b.x < at);
+            let val = if idx < bars.len() && bars[idx].x == at {
+                Some(bars[idx].value)
+            } else if idx > 0 {
+                Some(bars[idx - 1].value)
+            } else {
+                None
+            };
+            if let Some(v) = val {
+                let _ = write!(buf, "{:.2}", v);
+            }
+            emit_study_line(
+                frame, name, buf, base_color,
+                value_color, x, y, line_height, alpha,
+            );
+        }
+        study::StudyOutput::Composite(sub_outputs) => {
+            for sub in sub_outputs {
+                draw_output_entries(
+                    sub, name, at, frame, base_color, x, y,
+                    line_height, buf, alpha,
+                );
+            }
+        }
+        // Non-scalar outputs: show study name only
+        study::StudyOutput::Levels(_)
+        | study::StudyOutput::Profile(_, _)
+        | study::StudyOutput::Footprint(_)
+        | study::StudyOutput::Markers(_) => {
+            emit_study_line(
+                frame, name, "", base_color,
+                base_color, x, y, line_height, alpha,
+            );
+        }
+        study::StudyOutput::Empty => {}
+    }
+}
+
+/// Count the number of text lines a study output produces.
+fn study_line_count(output: &study::StudyOutput) -> usize {
+    match output {
+        study::StudyOutput::Lines(series) => series.len(),
+        study::StudyOutput::Band { .. } => 1,
+        study::StudyOutput::Bars(series) => series.len(),
+        study::StudyOutput::Histogram(_) => 1,
+        study::StudyOutput::Composite(subs) => {
+            subs.iter().map(|s| study_line_count(s)).sum()
+        }
+        study::StudyOutput::Levels(_)
+        | study::StudyOutput::Profile(_, _)
+        | study::StudyOutput::Footprint(_)
+        | study::StudyOutput::Markers(_) => 1,
+        study::StudyOutput::Empty => 0,
+    }
+}
+
+/// Draw study indicator text below the OHLCV crosshair tooltip.
+///
+/// Runs inside the crosshair cache (invalidated on every cursor
+/// move), so we minimise per-frame allocations:
+/// - Single reusable `String` buffer for formatting
+/// - No intermediate `Vec` collection — draw directly to frame
+/// - Binary search (O(log n)) for value lookups
+///
+/// Also populates `hit_rects` so the interaction layer can hit-test
+/// clicks on individual study labels. Non-hovered studies are dimmed
+/// when the cursor is over any study label.
+fn draw_study_overlay(
+    studies: &[Box<dyn study::Study>],
+    at_interval: u64,
+    frame: &mut canvas::Frame,
+    palette: &Extended,
+    y_start: f32,
+    hit_rects: &RefCell<Vec<(usize, Rectangle)>>,
+    selected: Option<usize>,
+    cursor_position: Point,
+) {
+    let line_height = TEXT_SIZE + crate::style::tokens::spacing::XXS;
+    let x = crate::style::tokens::spacing::MD;
+    let base_color = palette.background.base.text;
+
+    let hit_width: f32 = 300.0;
+    let pad: f32 = 2.0;
+
+    // Pass 1: pre-compute rects to determine hover
+    let mut rects: Vec<(usize, Rectangle)> = Vec::new();
+    let mut y = y_start;
+    for (index, study) in studies.iter().enumerate() {
+        let output = study.output();
+        let lines = study_line_count(&output);
+        if lines == 0 {
+            continue;
+        }
+        let y_before = y;
+        let rect_height = lines as f32 * line_height;
+        y += rect_height;
+
+        rects.push((index, Rectangle {
+            x: x - pad,
+            y: y_before - pad,
+            width: hit_width + 2.0 * pad,
+            height: rect_height + 2.0 * pad,
+        }));
+    }
+
+    let hovered_index = rects
+        .iter()
+        .find(|(_, r)| r.contains(cursor_position))
+        .map(|(idx, _)| *idx);
+
+    *hit_rects.borrow_mut() = rects;
+
+    // Pass 2: draw with dim for non-hovered studies
+    let mut buf = String::with_capacity(64);
+    y = y_start;
+
+    for (index, study) in studies.iter().enumerate() {
+        let output = study.output();
+        if matches!(output, study::StudyOutput::Empty) {
+            continue;
+        }
+
+        let alpha = match hovered_index {
+            Some(h) if h != index => 0.35,
+            _ => 1.0,
+        };
+
+        let y_before = y;
+
+        draw_output_entries(
+            output,
+            study.name(),
+            at_interval,
+            frame,
+            base_color,
+            x,
+            &mut y,
+            line_height,
+            &mut buf,
+            alpha,
+        );
+
+        let rect_height = y - y_before;
+        if rect_height > 0.0 && selected == Some(index) {
+            let rect = Rectangle {
+                x: x - pad,
+                y: y_before - pad,
+                width: hit_width + 2.0 * pad,
+                height: rect_height + 2.0 * pad,
+            };
+            let mut builder = canvas::path::Builder::new();
+            builder.rectangle(rect.position(), rect.size());
+            frame.stroke(
+                &builder.build(),
+                Stroke::default()
+                    .with_width(1.0)
+                    .with_color(
+                        palette
+                            .primary
+                            .base
+                            .color
+                            .scale_alpha(0.4),
+                    ),
+            );
         }
     }
 }

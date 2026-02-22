@@ -502,40 +502,29 @@ impl std::fmt::Display for ProfileDisplayType {
     }
 }
 
-/// Profile chart period selection
+/// Profile chart split unit
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ProfilePeriod {
-    #[default]
-    AllData,
-    Length,
-    Custom,
-}
-
-impl std::fmt::Display for ProfilePeriod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ProfilePeriod::AllData => write!(f, "All Data"),
-            ProfilePeriod::Length => write!(f, "Length"),
-            ProfilePeriod::Custom => write!(f, "Custom"),
-        }
-    }
-}
-
-/// Profile chart length unit
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ProfileLengthUnit {
+pub enum ProfileSplitUnit {
     #[default]
     Days,
+    Hours,
     Minutes,
-    Contracts,
 }
 
-impl std::fmt::Display for ProfileLengthUnit {
+impl ProfileSplitUnit {
+    pub const ALL: &'static [Self] = &[
+        Self::Days,
+        Self::Hours,
+        Self::Minutes,
+    ];
+}
+
+impl std::fmt::Display for ProfileSplitUnit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProfileLengthUnit::Days => write!(f, "Days"),
-            ProfileLengthUnit::Minutes => write!(f, "Minutes"),
-            ProfileLengthUnit::Contracts => write!(f, "Contracts"),
+            ProfileSplitUnit::Days => write!(f, "Days"),
+            ProfileSplitUnit::Hours => write!(f, "Hours"),
+            ProfileSplitUnit::Minutes => write!(f, "Minutes"),
         }
     }
 }
@@ -547,17 +536,13 @@ pub struct ProfileConfig {
     #[serde(default)]
     pub display_type: ProfileDisplayType,
 
-    // Period
+    // Split interval
     #[serde(default)]
-    pub period: ProfilePeriod,
-    #[serde(default)]
-    pub length_unit: ProfileLengthUnit,
-    #[serde(default = "default_length_value")]
-    pub length_value: i64,
-    #[serde(default)]
-    pub custom_start: i64,
-    #[serde(default)]
-    pub custom_end: i64,
+    pub split_unit: ProfileSplitUnit,
+    #[serde(default = "default_split_value")]
+    pub split_value: i64,
+    #[serde(default = "default_max_profiles")]
+    pub max_profiles: i64,
 
     // Tick grouping
     #[serde(default = "default_true")]
@@ -673,8 +658,11 @@ fn default_true() -> bool {
 fn default_one() -> i64 {
     1
 }
-fn default_length_value() -> i64 {
-    5
+fn default_split_value() -> i64 {
+    1
+}
+fn default_max_profiles() -> i64 {
+    20
 }
 fn default_va_pct() -> f32 {
     0.7
@@ -705,11 +693,9 @@ impl Default for ProfileConfig {
     fn default() -> Self {
         Self {
             display_type: ProfileDisplayType::default(),
-            period: ProfilePeriod::default(),
-            length_unit: ProfileLengthUnit::default(),
-            length_value: default_length_value(),
-            custom_start: 0,
-            custom_end: 0,
+            split_unit: ProfileSplitUnit::default(),
+            split_value: default_split_value(),
+            max_profiles: default_max_profiles(),
             auto_grouping: true,
             auto_group_factor: 1,
             manual_ticks: 1,

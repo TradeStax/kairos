@@ -43,7 +43,7 @@ pub use services::{
 pub use state::{
     AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
     DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
-    Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileLengthUnit, ProfilePeriod,
+    Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileSplitUnit,
     Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
     VisualConfig, WindowSpec, load_state, save_state,
 };

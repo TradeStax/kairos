@@ -8,8 +8,8 @@ use crate::style::{self, tokens};
 
 use data::state::pane::{
     ProfileConfig, ProfileDisplayType, ProfileExtendDirection,
-    ProfileLengthUnit, ProfileLineStyle, ProfileNodeDetectionMethod,
-    ProfilePeriod, VisualConfig,
+    ProfileLineStyle, ProfileNodeDetectionMethod,
+    ProfileSplitUnit, VisualConfig,
 };
 
 use iced::{
@@ -185,83 +185,59 @@ fn data_tab<'a>(
             ))
     };
 
-    // Period
-    let period_section = {
-        let make_period_radio =
-            |label: &str, p: ProfilePeriod| {
-                let c = cfg.clone();
-                radio(
-                    label,
-                    p,
-                    Some(cfg.period),
-                    move |value| {
-                        let mut new = c.clone();
-                        new.period = value;
-                        cfg_msg(pane, new)
-                    },
-                )
-                .spacing(tokens::spacing::XS)
-            };
+    // Split interval
+    let split_section = {
+        let c = cfg.clone();
+        let unit_picker = pick_list(
+            ProfileSplitUnit::ALL,
+            Some(cfg.split_unit),
+            move |value| {
+                let mut new = c.clone();
+                new.split_unit = value;
+                cfg_msg(pane, new)
+            },
+        )
+        .width(Length::Fixed(120.0));
 
-        let mut section = FormSectionBuilder::new("Period")
-            .push(make_period_radio(
-                "All Data",
-                ProfilePeriod::AllData,
-            ))
-            .push(make_period_radio(
-                "Length",
-                ProfilePeriod::Length,
-            ))
-            .push(make_period_radio(
-                "Custom Range",
-                ProfilePeriod::Custom,
-            ));
+        let c2 = cfg.clone();
+        let value_slider = labeled_slider(
+            "Split value",
+            1.0..=100.0,
+            cfg.split_value as f32,
+            move |value| {
+                let mut new = c2.clone();
+                new.split_value = value.round() as i64;
+                cfg_msg(pane, new)
+            },
+            |value| format!("{}", value.round()),
+            Some(1.0),
+        );
 
-        if cfg.period == ProfilePeriod::Length {
-            let make_unit =
-                |label: &str, u: ProfileLengthUnit| {
-                    let c = cfg.clone();
-                    radio(
-                        label,
-                        u,
-                        Some(cfg.length_unit),
-                        move |value| {
-                            let mut new = c.clone();
-                            new.length_unit = value;
-                            cfg_msg(pane, new)
-                        },
-                    )
-                    .spacing(tokens::spacing::XS)
-                };
+        FormSectionBuilder::new("Split Interval")
+            .push(
+                row![unit_picker, value_slider]
+                    .spacing(tokens::spacing::MD)
+                    .align_y(Alignment::End),
+            )
+    };
 
-            let units = row![
-                make_unit("Days", ProfileLengthUnit::Days),
-                make_unit("Min", ProfileLengthUnit::Minutes),
-                make_unit(
-                    "Contracts",
-                    ProfileLengthUnit::Contracts
-                ),
-            ]
-            .spacing(tokens::spacing::MD);
+    // Max profiles
+    let max_profiles_section = {
+        let c = cfg.clone();
+        let slider = labeled_slider(
+            "Max profiles",
+            1.0..=50.0,
+            cfg.max_profiles as f32,
+            move |value| {
+                let mut new = c.clone();
+                new.max_profiles = value.round() as i64;
+                cfg_msg(pane, new)
+            },
+            |value| format!("{}", value.round()),
+            Some(1.0),
+        );
 
-            let c = cfg.clone();
-            let length_slider = labeled_slider(
-                "Length value",
-                1.0..=500.0,
-                cfg.length_value as f32,
-                move |value| {
-                    let mut new = c.clone();
-                    new.length_value = value.round() as i64;
-                    cfg_msg(pane, new)
-                },
-                |value| format!("{}", value.round()),
-                Some(1.0),
-            );
-
-            section = section.push(units).push(length_slider);
-        }
-
-        section
+        FormSectionBuilder::new("Max Profiles").push(slider)
     };
 
     // Tick Grouping
@@ -337,7 +313,8 @@ fn data_tab<'a>(
 
     column![
         display_section,
-        period_section,
+        split_section,
+        max_profiles_section,
         grouping_section,
         va_pct_section,
     ]

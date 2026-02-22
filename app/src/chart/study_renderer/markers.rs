@@ -3,7 +3,7 @@
 //! Renders `TradeMarker` bubbles (Big Trades) on the chart overlay.
 //! Each marker is drawn as a sized/colored shape at (time, vwap_price)
 //! with an optional contract count label. Supports circle, square, and
-//! text-only shapes with statistical std-dev-based sizing and per-marker
+//! text-only shapes with linear contract-based sizing and per-marker
 //! opacity.
 
 use crate::chart::ViewState;
@@ -28,28 +28,8 @@ pub fn render_markers(
     let visible_region = state.visible_region(bounds);
     let (earliest, latest) = state.interval_range(&visible_region);
 
-    // Streaming stats: zero-allocation two-value accumulator
-    let (mut n, mut sum, mut sum_sq) = (0usize, 0.0f64, 0.0f64);
-    for m in markers {
-        if m.time >= earliest && m.time <= latest {
-            n += 1;
-            sum += m.contracts;
-            sum_sq += m.contracts * m.contracts;
-        }
-    }
-    if n == 0 {
-        return;
-    }
-    let count = n;
-    let mean = sum / count as f64;
-    let sd: f64 = if count > 1 {
-        ((sum_sq / count as f64) - mean * mean)
-            .max(0.0)
-            .sqrt()
-            .max(f64::EPSILON)
-    } else {
-        1.0
-    };
+    // Linear scale range from the study's filter parameters
+    let scale_range = config.scale_max - config.scale_min;
 
     for marker in markers {
         // Viewport cull by time range
@@ -60,13 +40,13 @@ pub fn render_markers(
         let x = state.interval_to_x(marker.time);
         let y = state.price_to_y(Price::from_units(marker.price));
 
-        // Statistical sizing: z-score mapped to [0, 1]
-        let t = if count == 1 {
-            0.5 // single marker → midpoint size
+        // Linear sizing: map contracts in [scale_min, scale_max] → [0, 1]
+        let t = if scale_range > 0.0 {
+            ((marker.contracts - config.scale_min) / scale_range)
+                .clamp(0.0, 1.0) as f32
         } else {
-            let z = (marker.contracts - mean) / sd;
-            ((z / config.std_dev as f64) * 0.5 + 0.5).clamp(0.0, 1.0)
-        } as f32;
+            0.5
+        };
 
         let radius = lerp(config.min_size, config.max_size, t);
         // Divide by scaling for consistent screen-pixel size

@@ -135,6 +135,59 @@ impl State {
         self.modal = Some(Modal::IndicatorManager(manager));
     }
 
+    /// Open the indicator manager with a specific study pre-selected.
+    pub(super) fn open_indicator_manager_for_study(
+        &mut self,
+        study_index: usize,
+    ) {
+        use crate::chart::Chart;
+        use crate::modals::pane::indicator_manager::{
+            IndicatorManagerModal, SelectedIndicator,
+        };
+
+        // Resolve the study ID from the index
+        let study_id = match &self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                c.studies().get(study_index).map(|s| s.id().to_string())
+            }
+            Content::Profile { chart: Some(c), .. } => {
+                c.studies().get(study_index).map(|s| s.id().to_string())
+            }
+            _ => None,
+        };
+
+        let Some(study_id) = study_id else {
+            // Index out of bounds — fall back to normal manager
+            self.open_indicator_manager();
+            return;
+        };
+
+        let content_kind = self.content.kind();
+        let active_study_ids = match &self.content {
+            Content::Kline { study_ids, .. }
+            | Content::Profile { study_ids, .. } => study_ids.clone(),
+            _ => vec![],
+        };
+        let studies: Vec<Box<dyn study::Study>> = match &self.content {
+            Content::Kline { chart: Some(c), .. } => {
+                c.studies().iter().map(|s| s.clone_study()).collect()
+            }
+            Content::Profile { chart: Some(c), .. } => {
+                c.studies().iter().map(|s| s.clone_study()).collect()
+            }
+            _ => vec![],
+        };
+
+        let mut manager = IndicatorManagerModal::new(
+            content_kind,
+            active_study_ids,
+            studies,
+        );
+        manager.selected =
+            Some(SelectedIndicator::Study(study_id));
+        self.modal = Some(Modal::IndicatorManager(manager));
+    }
+
     fn show_modal_with_focus(
         &mut self,
         requested_modal: Modal,

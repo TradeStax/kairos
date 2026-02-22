@@ -299,6 +299,9 @@ impl State {
             ContextMenuAction::OpenDrawingProperties(id) => {
                 self.handle_open_drawing_properties(id);
             }
+            ContextMenuAction::OpenStudyProperties(idx) => {
+                self.open_indicator_manager_for_study(idx);
+            }
         }
         None
     }

@@ -4,7 +4,7 @@
 //! settings, and drawing tools with flyout submenus.
 
 use crate::{
-    components::display::tooltip::button_with_tooltip,
+    components::display::tooltip::{button_with_tooltip, tooltip},
     components::primitives::{Icon, icon_text},
     layout::SavedState,
     modals::drawing_tools::{self, DrawingToolsPanel, SidebarGroup},
@@ -151,7 +151,7 @@ impl Sidebar {
                 || self
                     .is_menu_active(sidebar::Menu::ThemeEditor);
 
-            iced::widget::mouse_area(
+            let btn = iced::widget::mouse_area(
                 button(
                     row![
                         icon_text(Icon::Cog, 14)
@@ -172,8 +172,15 @@ impl Sidebar {
                 .on_press(Message::Settings(
                     settings::Message::ToggleFlyout(!is_expanded),
                 )),
-            )
-            .into()
+            );
+
+            let tip = if is_expanded {
+                None
+            } else {
+                Some("Settings")
+            };
+
+            tooltip(btn, tip, tooltip_position)
         };
 
         let mut content = column![]
@@ -225,16 +232,15 @@ impl Sidebar {
                 let is_expanded =
                     self.drawing_tools.expanded_group == Some(group);
 
-                // For groups with submenus, toggle the flyout.
+                // For groups with submenus, select the tool
+                // and toggle the flyout.
                 // For Select, directly activate the tool.
                 let msg = if group.has_submenu() {
-                    let target = if is_expanded {
-                        None
-                    } else {
-                        Some(group)
-                    };
                     Message::DrawingTools(
-                        drawing_tools::Message::ExpandGroup(target),
+                        drawing_tools::Message::GroupClicked {
+                            tool: selected_tool,
+                            group,
+                        },
                     )
                 } else {
                     Message::DrawingTools(
@@ -245,7 +251,8 @@ impl Sidebar {
                 };
 
                 if group.has_submenu() {
-                    // Show chevron on hover instead of tooltip
+                    let label = group.label();
+
                     let btn_content = iced::widget::mouse_area(
                         button(
                             row![
@@ -269,7 +276,10 @@ impl Sidebar {
                         .on_press(msg),
                     );
 
-                    btn_content.into()
+                    let tip =
+                        if is_expanded { None } else { Some(label) };
+
+                    tooltip(btn_content, tip, tooltip_position)
                 } else {
                     // Select button: normal tooltip
                     button_with_tooltip(
