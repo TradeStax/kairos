@@ -130,7 +130,7 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
                     container::Style {
                         background: Some(
                             Color {
-                                a: 0.8,
+                                a: tokens::alpha::BACKDROP,
                                 ..Color::BLACK
                             }
                             .into(),

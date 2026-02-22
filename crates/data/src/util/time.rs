@@ -1,31 +1,11 @@
 //! Time and date utilities
 
 use chrono::{DateTime, Datelike, Timelike};
-use serde::{Deserialize, Deserializer};
 
 const DAY_MS: u64 = 86_400_000;
 const HOUR_MS: u64 = 3_600_000;
 const MINUTE_MS: u64 = 60_000;
 const SECOND_MS: u64 = 1_000;
-
-/// Deserialize a value, falling back to `Default` if parsing fails.
-///
-/// Used with `#[serde(deserialize_with)]` to gracefully handle
-/// configuration changes without breaking saved state files.
-pub fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, D::Error>
-where
-    T: Deserialize<'a> + Default,
-    D: Deserializer<'a>,
-{
-    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
-    match T::deserialize(v) {
-        Ok(val) => Ok(val),
-        Err(e) => {
-            log::debug!("Deserialization failed, using default: {}", e);
-            Ok(T::default())
-        }
-    }
-}
 
 pub fn format_duration_ms(diff_ms: u64) -> String {
     if diff_ms >= DAY_MS {

@@ -1,4 +1,9 @@
-use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart};
+use crate::chart::{
+    candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart,
+    profile::ProfileChart,
+};
+use crate::chart::Chart;
+use crate::chart::drawing::ChartDrawingAccess;
 use crate::components::layout::reorderable_list as column_drag;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
 
@@ -131,6 +136,11 @@ pub enum Content {
         script_path: Option<PathBuf>,
         script_list: Vec<ScriptEntry>,
     },
+    Profile {
+        chart: Option<ProfileChart>,
+        layout: ViewConfig,
+        study_ids: Vec<String>,
+    },
 }
 
 impl Content {
@@ -185,6 +195,14 @@ impl Content {
                 )))
             }
             ContentKind::ComparisonChart => Content::Comparison(None),
+            ContentKind::ProfileChart => Content::Profile {
+                chart: None,
+                layout: ViewConfig {
+                    splits: vec![],
+                    autoscale: Some(data::Autoscale::FitAll),
+                },
+                study_ids: vec![],
+            },
             ContentKind::Starter | ContentKind::ScriptEditor => Content::Starter,
         }
     }
@@ -218,6 +236,14 @@ impl Content {
                 script_path: None,
                 script_list: vec![],
             },
+            ContentKind::ProfileChart => Content::Profile {
+                chart: None,
+                layout: ViewConfig {
+                    splits: vec![],
+                    autoscale: Some(data::Autoscale::FitAll),
+                },
+                study_ids: vec![],
+            },
         }
     }
 
@@ -228,6 +254,7 @@ impl Content {
             Content::TimeAndSales(panel) => Some(panel.as_ref()?.last_update()),
             Content::Ladder(panel) => Some(panel.as_ref()?.last_update()),
             Content::Comparison(chart) => Some(chart.as_ref()?.last_update()),
+            Content::Profile { chart, .. } => Some(chart.as_ref()?.last_update()),
             Content::Starter | Content::ScriptEditor { .. } => None,
         }
     }
@@ -251,24 +278,32 @@ impl Content {
     }
 
     pub fn toggle_study(&mut self, study_id: &str) {
-        if let Content::Kline {
-            chart, study_ids, ..
-        } = self
-        {
-            if let Some(pos) = study_ids.iter().position(|id| id == study_id) {
-                study_ids.remove(pos);
-                if let Some(c) = chart {
-                    c.remove_study(study_id);
-                }
-            } else {
-                let registry = crate::app::services::create_unified_registry();
-                if let Some(study) = registry.create(study_id) {
-                    study_ids.push(study_id.to_string());
-                    if let Some(c) = chart {
-                        c.add_study(study);
+        macro_rules! toggle {
+            ($chart:expr, $study_ids:expr) => {
+                if let Some(pos) = $study_ids.iter().position(|id| id == study_id) {
+                    $study_ids.remove(pos);
+                    if let Some(c) = $chart {
+                        c.remove_study(study_id);
+                    }
+                } else {
+                    let registry = crate::app::services::create_unified_registry();
+                    if let Some(study) = registry.create(study_id) {
+                        $study_ids.push(study_id.to_string());
+                        if let Some(c) = $chart {
+                            c.add_study(study);
+                        }
                     }
                 }
-            }
+            };
+        }
+        match self {
+            Content::Kline {
+                chart, study_ids, ..
+            } => toggle!(chart, study_ids),
+            Content::Profile {
+                chart, study_ids, ..
+            } => toggle!(chart, study_ids),
+            _ => {}
         }
     }
 
@@ -278,8 +313,14 @@ impl Content {
         key: &str,
         value: study::ParameterValue,
     ) {
-        if let Content::Kline { chart: Some(c), .. } = self {
-            c.update_study_parameter(study_id, key, value);
+        match self {
+            Content::Kline { chart: Some(c), .. } => {
+                c.update_study_parameter(study_id, key, value);
+            }
+            Content::Profile { chart: Some(c), .. } => {
+                c.update_study_parameter(study_id, key, value);
+            }
+            _ => {}
         }
     }
 
@@ -304,6 +345,7 @@ impl Content {
             }
             (Content::Kline { chart: Some(c), .. }, VisualConfig::Kline(cfg)) => {
                 c.set_candle_style(cfg.candle_style);
+                c.set_show_debug_info(cfg.show_debug_info);
             }
             (Content::TimeAndSales(Some(panel)), VisualConfig::TimeAndSales(cfg)) => {
                 // Convert state config to panel config
@@ -337,6 +379,9 @@ impl Content {
             (Content::Comparison(_), VisualConfig::Comparison(_cfg)) => {
                 // ComparisonChart doesn't expose set_config for runtime changes
                 // Config is set during construction
+            }
+            (Content::Profile { chart: Some(c), .. }, VisualConfig::Profile(cfg)) => {
+                c.set_display_config(cfg.into());
             }
             _ => {}
         }
@@ -375,7 +420,10 @@ impl Content {
     }
 
     pub fn has_indicators(&self) -> bool {
-        matches!(self, Content::Kline { .. } | Content::Heatmap { .. })
+        matches!(
+            self,
+            Content::Kline { .. } | Content::Heatmap { .. } | Content::Profile { .. }
+        )
     }
 
     pub fn kind(&self) -> ContentKind {
@@ -385,6 +433,7 @@ impl Content {
             Content::TimeAndSales(_) => ContentKind::TimeAndSales,
             Content::Ladder(_) => ContentKind::Ladder,
             Content::Comparison(_) => ContentKind::ComparisonChart,
+            Content::Profile { .. } => ContentKind::ProfileChart,
             Content::Starter => ContentKind::Starter,
             Content::ScriptEditor { .. } => ContentKind::ScriptEditor,
         }
@@ -397,6 +446,7 @@ impl Content {
             Content::TimeAndSales(panel) => panel.is_some(),
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
+            Content::Profile { chart, .. } => chart.is_some(),
             Content::Starter | Content::ScriptEditor { .. } => true,
         }
     }
@@ -406,6 +456,7 @@ impl Content {
         match self {
             Content::Kline { chart: Some(c), .. } => c.append_trade(trade),
             Content::Heatmap { chart: Some(c), .. } => c.append_trade(trade),
+            Content::Profile { chart: Some(c), .. } => c.append_trade(trade),
             _ => {}
         }
     }
@@ -415,6 +466,7 @@ impl Content {
         match self {
             Content::Kline { chart: Some(c), .. } => c.rebuild_from_trades(trades),
             Content::Heatmap { chart: Some(c), .. } => c.rebuild_from_trades(trades),
+            Content::Profile { chart: Some(c), .. } => c.rebuild_from_trades(trades),
             _ => {}
         }
     }
@@ -428,45 +480,85 @@ impl Content {
             Content::TimeAndSales(panel) => *panel = None,
             Content::Ladder(panel) => *panel = None,
             Content::Comparison(chart) => *chart = None,
+            Content::Profile { chart, .. } => *chart = None,
             Content::Starter | Content::ScriptEditor { .. } => {}
+        }
+    }
+
+    /// Get a reference to the chart's drawing system (if content is a
+    /// drawable chart type with a loaded chart).
+    pub fn drawing_chart(&self) -> Option<&dyn ChartDrawingAccess> {
+        match self {
+            Content::Kline { chart: Some(c), .. } => Some(c),
+            Content::Heatmap { chart: Some(c), .. } => Some(c),
+            Content::Profile { chart: Some(c), .. } => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Get a mutable reference to the chart's drawing system.
+    pub fn drawing_chart_mut(&mut self) -> Option<&mut dyn ChartDrawingAccess> {
+        match self {
+            Content::Kline { chart: Some(c), .. } => Some(c),
+            Content::Heatmap { chart: Some(c), .. } => Some(c),
+            Content::Profile { chart: Some(c), .. } => Some(c),
+            _ => None,
         }
     }
 
     /// Set the active drawing tool on the chart
     pub fn set_drawing_tool(&mut self, tool: DrawingTool) {
-        use crate::chart::Chart;
-        match self {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.set_tool(tool);
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.set_tool(tool);
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.drawing_chart_mut() {
+            chart.drawings_mut().set_tool(tool);
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Toggle snap mode for drawing tools
     pub fn toggle_drawing_snap(&mut self) {
-        match self {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.toggle_snap();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.toggle_snap();
-            }
-            _ => {}
+        if let Some(chart) = self.drawing_chart_mut() {
+            chart.drawings_mut().toggle_snap();
         }
     }
 
     /// Get the current drawing tool (if chart is active)
     pub fn drawing_tool(&self) -> Option<DrawingTool> {
+        self.drawing_chart().map(|c| c.drawings().active_tool())
+    }
+
+    /// Scroll the chart to show the latest data.
+    pub fn scroll_to_latest(&mut self) {
         match self {
-            Content::Kline { chart: Some(c), .. } => Some(c.drawings.active_tool()),
-            Content::Heatmap { chart: Some(c), .. } => Some(c.drawings.active_tool()),
-            _ => None,
+            Content::Kline { chart: Some(c), .. } => {
+                c.mut_state().layout.autoscale = Some(data::Autoscale::CenterLatest);
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.mut_state().layout.autoscale = Some(data::Autoscale::CenterLatest);
+            }
+            Content::Profile { chart: Some(c), .. } => {
+                c.mut_state().layout.autoscale = Some(data::Autoscale::CenterLatest);
+            }
+            _ => {}
+        }
+    }
+
+    /// Apply a zoom step to the X-axis (positive = zoom in, negative = zoom out).
+    pub fn zoom_step(&mut self, factor: f32) {
+        const ZOOM_BASE: f32 = 1.5;
+        match self {
+            Content::Kline { chart: Some(c), .. } => {
+                let state = c.mut_state();
+                state.cell_width = (state.cell_width * ZOOM_BASE.powf(factor)).clamp(2.0, 200.0);
+            }
+            Content::Heatmap { chart: Some(c), .. } => {
+                let state = c.mut_state();
+                state.cell_width = (state.cell_width * ZOOM_BASE.powf(factor)).clamp(2.0, 200.0);
+            }
+            Content::Profile { chart: Some(c), .. } => {
+                let state = c.mut_state();
+                state.cell_width = (state.cell_width * ZOOM_BASE.powf(factor)).clamp(2.0, 200.0);
+            }
+            _ => {}
         }
     }
 
@@ -486,9 +578,10 @@ impl Content {
 
     /// Serialize active study configs for persistence
     pub fn serialize_studies(&self) -> Vec<data::StudyInstanceConfig> {
-        match self {
-            Content::Kline { chart: Some(c), study_ids, .. } => {
-                c.studies()
+        macro_rules! serialize {
+            ($chart:expr, $study_ids:expr) => {
+                $chart
+                    .studies()
                     .iter()
                     .map(|s| {
                         let parameters = s
@@ -496,28 +589,41 @@ impl Content {
                             .values
                             .iter()
                             .filter_map(|(k, v)| {
-                                serde_json::to_value(v).ok().map(|jv| (k.clone(), jv))
+                                serde_json::to_value(v)
+                                    .ok()
+                                    .map(|jv| (k.clone(), jv))
                             })
                             .collect();
                         data::StudyInstanceConfig {
                             study_id: s.id().to_string(),
-                            enabled: study_ids.contains(&s.id().to_string()),
+                            enabled: $study_ids
+                                .contains(&s.id().to_string()),
                             parameters,
                         }
                     })
                     .collect()
-            }
+            };
+        }
+        match self {
+            Content::Kline {
+                chart: Some(c),
+                study_ids,
+                ..
+            } => serialize!(c, study_ids),
+            Content::Profile {
+                chart: Some(c),
+                study_ids,
+                ..
+            } => serialize!(c, study_ids),
             _ => vec![],
         }
     }
 
     /// Serialize drawings for persistence
     pub fn serialize_drawings(&self) -> Vec<data::SerializableDrawing> {
-        match self {
-            Content::Kline { chart: Some(c), .. } => c.drawings.to_serializable(),
-            Content::Heatmap { chart: Some(c), .. } => c.drawings.to_serializable(),
-            _ => vec![],
-        }
+        self.drawing_chart()
+            .map(|c| c.drawings().to_serializable())
+            .unwrap_or_default()
     }
 }
 
@@ -538,6 +644,7 @@ impl PartialEq for Content {
                 | (Content::Ladder(_), Content::Ladder(_))
                 | (Content::Comparison(_), Content::Comparison(_))
                 | (Content::ScriptEditor { .. }, Content::ScriptEditor { .. })
+                | (Content::Profile { .. }, Content::Profile { .. })
         )
     }
 }

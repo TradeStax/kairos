@@ -306,20 +306,30 @@ impl Kairos {
         Task::none()
     }
 
-    pub(crate) fn handle_update_loading_status(&mut self) -> Task<Message> {
-        let Some(service) = &self.market_data_service else {
+    pub(crate) fn fetch_loading_statuses(&mut self) -> Task<Message> {
+        let Some(service) = self.market_data_service.clone() else {
             return Task::none();
         };
 
-        let all_statuses = service.get_all_loading_statuses();
+        Task::perform(
+            async move { service.get_all_loading_statuses().await },
+            |statuses| {
+                Message::Chart(ChartMessage::LoadingStatusesReady(statuses))
+            },
+        )
+    }
 
+    pub(crate) fn dispatch_loading_statuses(
+        &mut self,
+        all_statuses: std::collections::HashMap<String, LoadingStatus>,
+    ) -> Task<Message> {
         for (chart_key, status) in all_statuses {
             for layout in &self.layout_manager.layouts {
                 if let Some((pane_id, _)) =
                     layout.dashboard.charts.iter().find(|(_, chart_state)| {
                         let config = &chart_state.config;
                         let key = format!(
-                            "{:?}-{:?}-{:?}",
+                            "{}-{:?}-{:?}",
                             config.ticker, config.basis, config.date_range
                         );
                         key == chart_key
@@ -327,7 +337,10 @@ impl Kairos {
                 {
                     return Task::done(Message::Dashboard {
                         layout_id: Some(layout.id.unique),
-                        event: dashboard::Message::ChangePaneStatus(*pane_id, status.clone()),
+                        event: dashboard::Message::ChangePaneStatus(
+                            *pane_id,
+                            status.clone(),
+                        ),
                     });
                 }
             }

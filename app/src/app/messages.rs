@@ -21,6 +21,7 @@ pub enum ChartMessage {
         result: Result<data::ChartData, String>,
     },
     UpdateLoadingStatus,
+    LoadingStatusesReady(std::collections::HashMap<String, data::LoadingStatus>),
 }
 
 #[cfg(feature = "options")]
@@ -46,8 +47,7 @@ pub enum DownloadMessage {
     },
     DataCostEstimated {
         pane_id: uuid::Uuid,
-        #[allow(clippy::type_complexity)]
-        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+        result: Result<data::DataRequestEstimate, String>,
     },
     DownloadData {
         pane_id: uuid::Uuid,
@@ -69,7 +69,7 @@ pub enum DownloadMessage {
     ApiKeySetup(modals::download::ApiKeySetupMessage),
     HistoricalDownload(modals::download::HistoricalDownloadMessage),
     HistoricalDownloadCostEstimated {
-        result: Result<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>), String>,
+        result: Result<data::DataRequestEstimate, String>,
     },
     HistoricalDownloadComplete {
         ticker: data::FuturesTicker,
@@ -126,4 +126,5 @@ pub enum Message {
     WindowToggleMaximize(window::Id),
     WindowClose(window::Id),
     SaveFocusedScript,
+    ServicesReady(super::services::AllServicesResult),
 }

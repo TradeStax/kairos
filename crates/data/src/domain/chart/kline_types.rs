@@ -1,7 +1,7 @@
 //! Kline (candlestick) chart types
 
 use crate::domain::entities::Candle;
-use crate::domain::types::Timestamp;
+use crate::domain::types::{Price, Timestamp};
 
 /// Kline data point (candle with metadata)
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub struct KlineTrades {
 
 #[derive(Debug, Clone)]
 pub struct TradeCell {
-    pub price: i64,
+    pub price: Price,
     pub buy_volume: f32,
     pub sell_volume: f32,
 }
@@ -35,13 +35,13 @@ pub struct TradeCell {
 /// Point of control
 #[derive(Debug, Clone, Copy)]
 pub struct PointOfControl {
-    pub price: i64,
+    pub price: Price,
     pub volume: f32,
 }
 
 /// Naked point of control
 #[derive(Debug, Clone, Copy)]
 pub struct NPoc {
-    pub price: i64,
+    pub price: Price,
     pub time: Timestamp,
 }

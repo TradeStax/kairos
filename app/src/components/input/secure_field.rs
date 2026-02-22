@@ -3,7 +3,7 @@
 use iced::widget::{column, row, text, text_input};
 use iced::{Element, Length};
 
-use crate::style::{palette, tokens};
+use crate::style::{self, palette, tokens};
 
 pub struct SecureFieldBuilder<'a, Message> {
     label: &'a str,
@@ -59,7 +59,8 @@ impl<'a, Message: 'a> SecureFieldBuilder<'a, Message> {
     {
         let mut input = text_input(self.placeholder, self.value)
             .on_input(self.on_input)
-            .secure(self.secure);
+            .secure(self.secure)
+            .style(|theme, status| style::validated_text_input(theme, status, true));
 
         if let Some(w) = self.width {
             input = input.width(w);
@@ -71,11 +72,11 @@ impl<'a, Message: 'a> SecureFieldBuilder<'a, Message> {
             let indicator = if self.is_set {
                 text("(set)")
                     .size(tokens::text::TINY)
-                    .color(palette::success_color())
+                    .style(palette::success_text)
             } else {
                 text("(not set)")
                     .size(tokens::text::TINY)
-                    .color(palette::neutral_color())
+                    .style(palette::neutral_text)
             };
             row![label_widget, indicator]
                 .spacing(tokens::spacing::XS)

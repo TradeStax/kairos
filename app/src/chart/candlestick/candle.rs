@@ -55,6 +55,7 @@ pub fn draw_candle(
     style: &CandleStyle,
     x_position: f32,
     candle: &Candle,
+    volume_ratio: Option<f32>,
 ) {
     let y_open = price_to_y(domain_to_exchange_price(candle.open));
     let y_high = price_to_y(domain_to_exchange_price(candle.high));
@@ -64,11 +65,16 @@ pub fn draw_candle(
     let colors = ResolvedColors::resolve(style, palette);
     let is_bull = candle.close >= candle.open;
 
-    let body_color = if is_bull {
+    let mut body_color = if is_bull {
         colors.bull_body
     } else {
         colors.bear_body
     };
+
+    // Apply volume-based opacity: range 0.4 (low volume) to 1.0 (high volume)
+    if let Some(ratio) = volume_ratio {
+        body_color = body_color.scale_alpha(0.4 + 0.6 * ratio);
+    }
 
     let body_x = x_position - (candle_width / 2.0);
     let body_y = y_open.min(y_close);

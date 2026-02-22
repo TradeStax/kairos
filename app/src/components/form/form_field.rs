@@ -1,7 +1,7 @@
 use iced::widget::{column, container, row, text};
 use iced::{Alignment, Element, Length};
 
-use crate::style::tokens;
+use crate::style::{palette, tokens};
 
 /// Builder for a labelled form control with optional validation error and
 /// tooltip.
@@ -83,7 +83,7 @@ impl<'a, Message: 'a> FormFieldBuilder<'a, Message> {
             control_col = control_col.push(
                 text(err)
                     .size(tokens::text::TINY)
-                    .color(iced::Color::from_rgb(0.9, 0.2, 0.2)),
+                    .style(palette::error_text),
             );
         }
 

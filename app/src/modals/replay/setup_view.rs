@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::components::display::progress_bar::ProgressBarBuilder;
-use crate::components::display::status_dot::status_badge;
+use crate::components::display::status_dot::status_badge_themed;
 use crate::components::primitives::icon_button::toolbar_icon;
 use crate::components::primitives::label::{small, title};
 use crate::components::primitives::{Icon, icon_text};
@@ -30,9 +30,9 @@ impl ReplayManager {
 
         if let Some(popup) = self.active_popup {
             let (popup_content, offset_y) = match popup {
-                Popup::StreamPicker => (self.view_stream_popup(), STREAM_POPUP_Y),
-                Popup::DatePicker => (self.view_date_popup(), DATETIME_POPUP_Y),
-                Popup::TimePicker => (self.view_time_popup(), DATETIME_POPUP_Y),
+                Popup::StreamPicker => (self.view_stream_popup(), tokens::replay_layout::STREAM_POPUP_Y),
+                Popup::DatePicker => (self.view_date_popup(), tokens::replay_layout::DATETIME_POPUP_Y),
+                Popup::TimePicker => (self.view_time_popup(), tokens::replay_layout::DATETIME_POPUP_Y),
             };
 
             let align_x = match popup {
@@ -141,7 +141,7 @@ impl ReplayManager {
         }
 
         if let Some(ref err) = self.error {
-            col = col.push(small(err.as_str()).color(palette::error_color()));
+            col = col.push(small(err.as_str()).style(palette::error_text));
         }
 
         col
@@ -163,7 +163,7 @@ impl ReplayManager {
         let display: Element<'_, Message> = if value.is_empty() {
             text(placeholder)
                 .size(tokens::text::BODY)
-                .color(palette::neutral_color())
+                .style(palette::neutral_text)
                 .into()
         } else {
             text(value).size(tokens::text::BODY).into()
@@ -206,7 +206,7 @@ impl ReplayManager {
                 container(
                     text("No historical connections")
                         .size(tokens::text::TINY)
-                        .color(palette::neutral_color()),
+                        .style(palette::neutral_text),
                 )
                 .width(Length::Fill)
                 .padding(tokens::spacing::MD)
@@ -225,7 +225,7 @@ impl ReplayManager {
                     stream.date_range.end.format("%m/%d"),
                 ))
                 .size(tokens::text::TINY)
-                .color(palette::neutral_color());
+                .style(palette::neutral_text);
 
                 let item = button(column![ticker_label, detail].spacing(tokens::spacing::XXS))
                     .width(Length::Fill)
@@ -290,10 +290,10 @@ impl ReplayManager {
                     container(
                         text(wd)
                             .size(tokens::text::TINY)
-                            .color(palette::neutral_color())
+                            .style(palette::neutral_text)
                             .align_x(Alignment::Center),
                     )
-                    .width(CALENDAR_CELL),
+                    .width(tokens::replay_layout::CALENDAR_CELL),
                 );
             }
             r
@@ -309,7 +309,7 @@ impl ReplayManager {
 
         // Leading blanks
         for _ in 0..offset {
-            week_row = week_row.push(container(text("")).width(CALENDAR_CELL));
+            week_row = week_row.push(container(text("")).width(tokens::replay_layout::CALENDAR_CELL));
         }
 
         for day in 1..=total_days {
@@ -323,7 +323,7 @@ impl ReplayManager {
                 .align_x(Alignment::Center)
                 .width(Length::Fill);
 
-            let mut day_btn = button(day_text).width(CALENDAR_CELL).padding([7.0, 0.0]);
+            let mut day_btn = button(day_text).width(tokens::replay_layout::CALENDAR_CELL).padding([7.0, 0.0]);
 
             if in_range && !is_weekend {
                 day_btn =
@@ -358,7 +358,7 @@ impl ReplayManager {
         let remaining = (offset + total_days as usize) % 7;
         if remaining != 0 {
             for _ in 0..(7 - remaining) {
-                week_row = week_row.push(container(text("")).width(CALENDAR_CELL));
+                week_row = week_row.push(container(text("")).width(tokens::replay_layout::CALENDAR_CELL));
             }
             grid = grid.push(week_row);
         }
@@ -380,7 +380,7 @@ impl ReplayManager {
         let h_label = container(
             text("H")
                 .size(tokens::text::TINY)
-                .color(palette::neutral_color())
+                .style(palette::neutral_text)
                 .align_x(Alignment::Center),
         )
         .width(Length::Fill)
@@ -389,7 +389,7 @@ impl ReplayManager {
         let m_label = container(
             text("M")
                 .size(tokens::text::TINY)
-                .color(palette::neutral_color())
+                .style(palette::neutral_text)
                 .align_x(Alignment::Center),
         )
         .width(Length::Fill)
@@ -473,10 +473,11 @@ impl ReplayManager {
     fn view_setup_active(&self) -> iced::widget::Column<'_, Message> {
         let mut col = column![title("Replay")].spacing(tokens::spacing::MD);
 
-        let status_color = match self.playback_status {
-            PlaybackStatus::Playing => palette::success_color(),
-            PlaybackStatus::Paused => palette::warning_color(),
-            PlaybackStatus::Stopped => palette::neutral_color(),
+        let playback = self.playback_status;
+        let status_color_fn = move |theme: &iced::Theme| match playback {
+            PlaybackStatus::Playing => palette::success_color(theme),
+            PlaybackStatus::Paused => palette::warning_color(theme),
+            PlaybackStatus::Stopped => palette::neutral_color(theme),
         };
         let status_label = match self.playback_status {
             PlaybackStatus::Playing => "Playing",
@@ -495,7 +496,7 @@ impl ReplayManager {
 
         col = col.push(
             row![
-                status_badge(status_color, status_label),
+                status_badge_themed(status_color_fn, status_label),
                 space::horizontal().width(Length::Fill),
                 info_text,
             ]
@@ -503,7 +504,7 @@ impl ReplayManager {
         );
 
         if let Some(ref stream) = self.selected_stream {
-            col = col.push(small(stream.label.as_str()).color(palette::neutral_color()));
+            col = col.push(small(stream.label.as_str()).style(palette::neutral_text));
         }
 
         let end_btn = button(

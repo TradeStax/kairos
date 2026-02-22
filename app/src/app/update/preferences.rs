@@ -48,41 +48,23 @@ impl Kairos {
                 log::info!(
                     "Reinitializing Databento service with new API key..."
                 );
-                if let Some(result) =
-                    services::initialize_market_data_service()
-                {
-                    self.market_data_service =
-                        Some(result.service.clone());
-                    self.replay_engine =
-                        services::create_replay_engine(Some(&result));
-                    self.notifications.push(Toast::new(
-                        Notification::Info(
-                            "Databento service initialized"
-                                .to_string(),
-                        ),
-                    ));
-                } else {
-                    self.notifications.push(Toast::error(
-                        "Failed to initialize Databento service"
-                            .to_string(),
-                    ));
-                }
+                // Service init is now async — delegate to Task::perform
+                // and handle result via ServicesReady
+                return Task::perform(
+                    services::initialize_all_services(),
+                    Message::ServicesReady,
+                );
             }
             data::config::secrets::ApiProvider::Massive => {
                 #[cfg(feature = "options")]
                 {
                     log::info!("Reinitializing Massive service with new API key...");
-                    let (options_service, _) =
-                        services::initialize_options_services();
-                    self.options_service = options_service;
-                    if self.options_service.is_some() {
-                        self.notifications.push(Toast::new(
-                            Notification::Info(
-                                "Options service initialized"
-                                    .to_string(),
-                            ),
-                        ));
-                    }
+                    // Options init is now async — delegate to
+                    // Task::perform and handle via ServicesReady
+                    return Task::perform(
+                        services::initialize_all_services(),
+                        Message::ServicesReady,
+                    );
                 }
                 #[cfg(not(feature = "options"))]
                 {

@@ -7,18 +7,38 @@ mod helpers;
 mod view;
 
 use data::{
-    DrawingId, DrawingStyle, DrawingTool, FibonacciConfig, LabelAlignment, LineStyle,
-    SerializableColor, SerializableDrawing,
+    CalcMode, DrawingId, DrawingStyle, DrawingTool, FibonacciConfig, FuturesTickerInfo,
+    LabelAlignment, LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing,
 };
 use palette::Hsva;
 
 // ── State ─────────────────────────────────────────────────────────────
+
+/// Which color picker is currently open.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PickerKind {
+    LineColor,
+    FillColor,
+    TpColor,
+    SlColor,
+}
+
+/// Active tab in the properties modal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Style,
+    Levels,   // Fibonacci only
+    Position, // Calculator only
+    Labels,   // Calculator only
+    Display,
+}
 
 /// The drawing properties modal state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawingPropertiesModal {
     pub(super) drawing_id: DrawingId,
     pub(super) tool: DrawingTool,
+    pub(super) active_tab: Tab,
     // Editable style fields
     pub(super) stroke_color: SerializableColor,
     pub(super) stroke_width: f32,
@@ -29,6 +49,13 @@ pub struct DrawingPropertiesModal {
     pub(super) label_alignment: LabelAlignment,
     pub(super) text: Option<String>,
     pub(super) fibonacci: Option<FibonacciConfig>,
+    // Position calculator fields
+    pub(super) position_calc: Option<PositionCalcConfig>,
+    pub(super) editing_target_color: Option<Hsva>,
+    pub(super) editing_stop_color: Option<Hsva>,
+    pub(super) hex_input_target: Option<String>,
+    pub(super) hex_input_stop: Option<String>,
+    pub(super) ticker_info: Option<FuturesTickerInfo>,
     // Meta fields
     pub(super) locked: bool,
     pub(super) visible: bool,
@@ -36,13 +63,12 @@ pub struct DrawingPropertiesModal {
     // Snapshot & original for live preview + undo
     pub(super) before_snapshot: SerializableDrawing,
     pub(super) original: DrawingUpdate,
-    // UI state
+    // UI state — single active picker replaces four booleans
+    pub(super) active_picker: Option<PickerKind>,
     pub(super) editing_stroke_color: Option<Hsva>,
     pub(super) editing_fill_color: Option<Hsva>,
     pub(super) hex_input_stroke: Option<String>,
     pub(super) hex_input_fill: Option<String>,
-    pub(super) show_stroke_picker: bool,
-    pub(super) show_fill_picker: bool,
 }
 
 impl DrawingPropertiesModal {
@@ -55,6 +81,7 @@ impl DrawingPropertiesModal {
         visible: bool,
         label: Option<String>,
         snapshot: SerializableDrawing,
+        ticker_info: Option<FuturesTickerInfo>,
     ) -> Self {
         let original = DrawingUpdate {
             style: style.clone(),
@@ -62,9 +89,18 @@ impl DrawingPropertiesModal {
             visible,
             label: label.clone(),
         };
+        let initial_tab = if matches!(
+            tool,
+            DrawingTool::BuyCalculator | DrawingTool::SellCalculator
+        ) {
+            Tab::Position
+        } else {
+            Tab::Style
+        };
         Self {
             drawing_id,
             tool,
+            active_tab: initial_tab,
             stroke_color: style.stroke_color,
             stroke_width: style.stroke_width,
             line_style: style.line_style,
@@ -74,17 +110,22 @@ impl DrawingPropertiesModal {
             label_alignment: style.label_alignment,
             text: style.text.clone(),
             fibonacci: style.fibonacci.clone(),
+            position_calc: style.position_calc.clone(),
+            editing_target_color: None,
+            editing_stop_color: None,
+            hex_input_target: None,
+            hex_input_stop: None,
+            ticker_info,
             locked,
             visible,
             label,
             before_snapshot: snapshot,
             original,
+            active_picker: None,
             editing_stroke_color: None,
             editing_fill_color: None,
             hex_input_stroke: None,
             hex_input_fill: None,
-            show_stroke_picker: false,
-            show_fill_picker: false,
         }
     }
 
@@ -111,6 +152,7 @@ impl DrawingPropertiesModal {
                 label_alignment: self.label_alignment,
                 fibonacci: self.fibonacci.clone(),
                 text: self.text.clone(),
+                position_calc: self.position_calc.clone(),
             },
             locked: self.locked,
             visible: self.visible,
@@ -136,6 +178,13 @@ impl DrawingPropertiesModal {
         matches!(self.tool, DrawingTool::TextLabel)
     }
 
+    fn has_position_calc(&self) -> bool {
+        matches!(
+            self.tool,
+            DrawingTool::BuyCalculator | DrawingTool::SellCalculator
+        )
+    }
+
     fn has_labels(&self) -> bool {
         !matches!(self.tool, DrawingTool::TextLabel)
     }
@@ -151,8 +200,22 @@ impl DrawingPropertiesModal {
         )
     }
 
+    pub(super) fn available_tabs(&self) -> Vec<Tab> {
+        if self.has_position_calc() {
+            vec![Tab::Position, Tab::Style, Tab::Labels]
+        } else if self.has_fibonacci() {
+            vec![Tab::Style, Tab::Levels, Tab::Display]
+        } else {
+            vec![Tab::Style, Tab::Display]
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Option<Action> {
         match message {
+            Message::SwitchTab(tab) => {
+                self.active_tab = tab;
+                self.active_picker = None;
+            }
             Message::StrokeColorChanged(hsva) => {
                 self.hex_input_stroke = None;
                 self.editing_stroke_color = Some(hsva);
@@ -240,17 +303,165 @@ impl DrawingPropertiesModal {
                     }
                 }
             }
+            Message::CalcQuantityChanged(q) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.quantity = q.clamp(1, 999);
+                }
+            }
+            Message::CalcTargetColorChanged(hsva) => {
+                self.hex_input_target = None;
+                self.editing_target_color = Some(hsva);
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.target_color = data::config::theme::hsva_to_rgba(hsva);
+                }
+            }
+            Message::CalcStopColorChanged(hsva) => {
+                self.hex_input_stop = None;
+                self.editing_stop_color = Some(hsva);
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.stop_color = data::config::theme::hsva_to_rgba(hsva);
+                }
+            }
+            Message::CalcTargetOpacityChanged(o) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.target_opacity = o;
+                }
+            }
+            Message::CalcStopOpacityChanged(o) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.stop_opacity = o;
+                }
+            }
+            Message::CalcLabelFontSizeChanged(s) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.label_font_size = s;
+                }
+            }
+            Message::CalcShowTargetLabelToggled(v) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.show_target_label = v;
+                }
+            }
+            Message::CalcShowEntryLabelToggled(v) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.show_entry_label = v;
+                }
+            }
+            Message::CalcShowStopLabelToggled(v) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.show_stop_label = v;
+                }
+            }
+            Message::CalcShowPnlToggled(v) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.show_pnl = v;
+                }
+            }
+            Message::CalcShowTicksToggled(v) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.show_ticks = v;
+                }
+            }
+            Message::CalcTargetModeChanged(mode) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.target_mode = mode;
+                    if mode != CalcMode::Free && calc.target_value == 0.0 {
+                        calc.target_value = match mode {
+                            CalcMode::Ticks => 10.0,
+                            CalcMode::Money => 500.0,
+                            CalcMode::Free => 0.0,
+                        };
+                    }
+                }
+            }
+            Message::CalcStopModeChanged(mode) => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.stop_mode = mode;
+                    if mode != CalcMode::Free && calc.stop_value == 0.0 {
+                        calc.stop_value = match mode {
+                            CalcMode::Ticks => 10.0,
+                            CalcMode::Money => 500.0,
+                            CalcMode::Free => 0.0,
+                        };
+                    }
+                }
+            }
+            Message::CalcTargetValueChanged(s) => {
+                if let Some(ref mut calc) = self.position_calc
+                    && let Ok(v) = s.parse::<f64>()
+                {
+                    calc.target_value = v.max(0.0);
+                }
+            }
+            Message::CalcStopValueChanged(s) => {
+                if let Some(ref mut calc) = self.position_calc
+                    && let Ok(v) = s.parse::<f64>()
+                {
+                    calc.stop_value = v.max(0.0);
+                }
+            }
+            Message::CalcTargetHexInput(input) => {
+                if let Some(ref mut calc) = self.position_calc
+                    && let Some(rgba) =
+                        data::config::theme::hex_to_rgba_safe(&input)
+                {
+                    calc.target_color = rgba;
+                    self.editing_target_color =
+                        Some(data::config::theme::rgba_to_hsva(rgba));
+                }
+                self.hex_input_target = Some(input);
+            }
+            Message::CalcStopHexInput(input) => {
+                if let Some(ref mut calc) = self.position_calc
+                    && let Some(rgba) =
+                        data::config::theme::hex_to_rgba_safe(&input)
+                {
+                    calc.stop_color = rgba;
+                    self.editing_stop_color =
+                        Some(data::config::theme::rgba_to_hsva(rgba));
+                }
+                self.hex_input_stop = Some(input);
+            }
+            Message::CalcResetColorsToDefault => {
+                if let Some(ref mut calc) = self.position_calc {
+                    calc.target_color = PositionCalcConfig::DEFAULT_TARGET_COLOR;
+                    calc.stop_color = PositionCalcConfig::DEFAULT_STOP_COLOR;
+                    self.editing_target_color = None;
+                    self.editing_stop_color = None;
+                    self.hex_input_target = None;
+                    self.hex_input_stop = None;
+                }
+            }
+            Message::ToggleTargetColorPicker => {
+                self.active_picker = if self.active_picker == Some(PickerKind::TpColor) {
+                    None
+                } else {
+                    Some(PickerKind::TpColor)
+                };
+            }
+            Message::ToggleStopColorPicker => {
+                self.active_picker = if self.active_picker == Some(PickerKind::SlColor) {
+                    None
+                } else {
+                    Some(PickerKind::SlColor)
+                };
+            }
             Message::ToggleStrokePicker => {
-                self.show_stroke_picker = !self.show_stroke_picker;
-                self.show_fill_picker = false;
+                self.active_picker = if self.active_picker == Some(PickerKind::LineColor) {
+                    None
+                } else {
+                    Some(PickerKind::LineColor)
+                };
             }
             Message::ToggleFillPicker => {
-                self.show_fill_picker = !self.show_fill_picker;
-                self.show_stroke_picker = false;
+                self.active_picker = if self.active_picker == Some(PickerKind::FillColor) {
+                    None
+                } else {
+                    Some(PickerKind::FillColor)
+                };
             }
             Message::DismissColorPicker => {
-                self.show_stroke_picker = false;
-                self.show_fill_picker = false;
+                self.active_picker = None;
             }
             Message::Apply => {
                 let update = self.build_update();
@@ -269,6 +480,8 @@ impl DrawingPropertiesModal {
 /// Messages for the drawing properties modal.
 #[derive(Debug, Clone)]
 pub enum Message {
+    // Tab navigation
+    SwitchTab(Tab),
     // Style
     StrokeColorChanged(Hsva),
     StrokeHexInput(String),
@@ -291,6 +504,27 @@ pub enum Message {
     FibExtendLinesToggled(bool),
     FibLevelVisibilityToggled(usize, bool),
     FibLevelColorChanged(usize, Hsva),
+    // Position calculator
+    CalcQuantityChanged(u32),
+    CalcTargetModeChanged(CalcMode),
+    CalcStopModeChanged(CalcMode),
+    CalcTargetValueChanged(String),
+    CalcStopValueChanged(String),
+    CalcTargetColorChanged(Hsva),
+    CalcStopColorChanged(Hsva),
+    CalcTargetHexInput(String),
+    CalcStopHexInput(String),
+    CalcTargetOpacityChanged(f32),
+    CalcStopOpacityChanged(f32),
+    CalcLabelFontSizeChanged(f32),
+    CalcShowTargetLabelToggled(bool),
+    CalcShowEntryLabelToggled(bool),
+    CalcShowStopLabelToggled(bool),
+    CalcShowPnlToggled(bool),
+    CalcShowTicksToggled(bool),
+    CalcResetColorsToDefault,
+    ToggleTargetColorPicker,
+    ToggleStopColorPicker,
     // Color picker
     ToggleStrokePicker,
     ToggleFillPicker,

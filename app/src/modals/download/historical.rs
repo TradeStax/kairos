@@ -114,7 +114,7 @@ impl HistoricalDownloadModal {
                 };
                 let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
                 let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
-                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
+                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
                 return Some(Action::DownloadRequested {
                     ticker,
                     schema,
@@ -136,7 +136,7 @@ impl HistoricalDownloadModal {
         self.download_progress = DownloadProgress::CheckingCost;
         let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
         let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
-        let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
+        let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
         Some(Action::EstimateRequested {
             ticker,
             schema,
@@ -152,7 +152,7 @@ impl HistoricalDownloadModal {
         Some(Action::EstimateRequested {
             ticker,
             schema,
-            date_range: DateRange::new(first, last),
+            date_range: DateRange::new(first, last).ok()?,
         })
     }
 

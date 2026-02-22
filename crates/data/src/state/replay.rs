@@ -153,7 +153,8 @@ impl ReplayState {
             status: PlaybackStatus::Stopped,
             speed: SpeedPreset::Normal,
             position: now,
-            time_range: TimeRange::new(Timestamp::from_millis(now), Timestamp::from_millis(now)),
+            time_range: TimeRange::new(Timestamp::from_millis(now), Timestamp::from_millis(now))
+                .expect("invariant: equal timestamps form a valid zero-duration range"),
             ticker_info: None,
             is_loaded: false,
             trade_count: 0,
@@ -191,7 +192,8 @@ impl ReplayState {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         self.status = PlaybackStatus::Stopped;
         self.position = now;
-        self.time_range = TimeRange::new(Timestamp::from_millis(now), Timestamp::from_millis(now));
+        self.time_range = TimeRange::new(Timestamp::from_millis(now), Timestamp::from_millis(now))
+            .expect("invariant: equal timestamps form a valid zero-duration range");
         self.ticker_info = None;
         self.is_loaded = false;
         self.trade_count = 0;
@@ -326,7 +328,8 @@ impl ReplayData {
 
         let end = trades_map.keys().last().copied().unwrap_or(start);
 
-        let time_range = TimeRange::new(Timestamp::from_millis(start), Timestamp::from_millis(end));
+        let time_range = TimeRange::new(Timestamp::from_millis(start), Timestamp::from_millis(end))
+            .expect("invariant: start <= end from BTreeMap first/last keys");
 
         Self {
             trades: trades_map,

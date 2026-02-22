@@ -5,6 +5,7 @@ use crate::chart::TEXT_SIZE;
 use crate::components::primitives::AZERET_MONO;
 
 use super::{Interaction, Message};
+use crate::chart::core::x_to_interval as x_to_interval_fn;
 use data::ChartBasis;
 use data::{Autoscale, util::round_to_tick};
 use iced::{
@@ -344,23 +345,7 @@ impl AxisLabelsX<'_> {
     }
 
     fn x_to_interval(&self, x: f32) -> u64 {
-        match self.basis {
-            ChartBasis::Time(timeframe) => {
-                let interval = timeframe.to_milliseconds() as f64;
-
-                if x <= 0.0 {
-                    let diff = (f64::from(-x / self.cell_width) * interval) as u64;
-                    self.max.saturating_sub(diff)
-                } else {
-                    let diff = (f64::from(x / self.cell_width) * interval) as u64;
-                    self.max.saturating_add(diff)
-                }
-            }
-            ChartBasis::Tick(_) => {
-                let tick = -(x / self.cell_width);
-                tick.round() as u64
-            }
-        }
+        x_to_interval_fn(x, self.max as f64, self.cell_width, &self.basis)
     }
 }
 

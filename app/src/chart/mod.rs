@@ -10,6 +10,7 @@ pub mod drawing;
 pub mod heatmap;
 pub mod overlay;
 pub mod perf;
+pub mod profile;
 pub(crate) mod scale;
 pub mod study_renderer;
 
@@ -26,9 +27,9 @@ use crate::style;
 use data::{Autoscale, ChartBasis};
 use scale::{AxisLabelsX, AxisLabelsY};
 
-use iced::widget::canvas::{Canvas, Frame};
+use iced::widget::canvas::Canvas;
 use iced::{
-    Alignment, Element, Length, Point, Rectangle, Size, Theme, Vector,
+    Alignment, Element, Length, Point, Rectangle, Theme, Vector,
     widget::{button, center, column, container, mouse_area, row, rule, text, tooltip},
 };
 
@@ -245,37 +246,36 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
 
             let state = chart.mut_state();
 
-            if state.layout.autoscale == Some(Autoscale::FitAll) {
-                state.layout.autoscale = None;
+            if !(*delta < 0.0 && state.cell_height > min_cell_height
+                || *delta > 0.0 && state.cell_height < max_cell_height)
+            {
+                return;
             }
 
-            if *delta < 0.0 && state.cell_height > min_cell_height
-                || *delta > 0.0 && state.cell_height < max_cell_height
-            {
-                let (old_scaling, old_translation_y) = { (state.scaling, state.translation.y) };
+            let zoom_factor = if *is_wheel_scroll {
+                ZOOM_SENSITIVITY
+            } else {
+                ZOOM_SENSITIVITY * 3.0
+            };
 
-                let zoom_factor = if *is_wheel_scroll {
-                    ZOOM_SENSITIVITY
-                } else {
-                    ZOOM_SENSITIVITY * 3.0
-                };
+            let new_height = (state.cell_height * ZOOM_BASE.powf(delta / zoom_factor))
+                .clamp(min_cell_height, max_cell_height);
 
-                let new_height = (state.cell_height * ZOOM_BASE.powf(delta / zoom_factor))
-                    .clamp(min_cell_height, max_cell_height);
+            let (old_scaling, old_translation_y) = (state.scaling, state.translation.y);
 
-                let cursor_chart_y = cursor_to_center_y / old_scaling - old_translation_y;
+            let cursor_chart_y = cursor_to_center_y / old_scaling - old_translation_y;
+            let cursor_price = state.y_to_price(cursor_chart_y);
 
-                let cursor_price = state.y_to_price(cursor_chart_y);
+            state.cell_height = new_height;
 
-                state.cell_height = new_height;
+            let new_cursor_y = state.price_to_y(cursor_price);
 
-                let new_cursor_y = state.price_to_y(cursor_price);
-
+            if !new_cursor_y.is_nan() && !cursor_chart_y.is_nan() {
                 state.translation.y -= new_cursor_y - cursor_chart_y;
+            }
 
-                if *is_wheel_scroll {
-                    state.layout.autoscale = None;
-                }
+            if *is_wheel_scroll {
+                state.layout.autoscale = None;
             }
         }
         Message::BoundsChanged(bounds) => {
@@ -391,7 +391,7 @@ pub fn view<'a, T: Chart>(
             translation_y: state.translation.y,
             scaling: state.scaling,
             decimals: state.decimals,
-            min: state.base_price_y.to_f32_lossy(),
+            min: state.base_price_y.to_f32(),
             last_price: state.last_price,
             tick_size: state.tick_size.to_f32_lossy(),
             cell_height: state.cell_height,
@@ -496,84 +496,3 @@ pub fn view<'a, T: Chart>(
         .into()
 }
 
-/// Volume quantities and colors for a buy/sell bar.
-pub struct VolumeBarSpec {
-    pub buy_qty: f32,
-    pub sell_qty: f32,
-    pub max_qty: f32,
-    pub buy_color: iced::Color,
-    pub sell_color: iced::Color,
-    pub alpha: f32,
-}
-
-/// Draw a volume bar with buy/sell proportions
-pub fn draw_volume_bar(
-    frame: &mut Frame,
-    start_x: f32,
-    start_y: f32,
-    spec: &VolumeBarSpec,
-    bar_length: f32,
-    thickness: f32,
-    horizontal: bool,
-) {
-    let buy_qty = spec.buy_qty;
-    let sell_qty = spec.sell_qty;
-    let max_qty = spec.max_qty;
-    let buy_color = spec.buy_color;
-    let sell_color = spec.sell_color;
-    let bar_color_alpha = spec.alpha;
-
-    let total_qty = buy_qty + sell_qty;
-    if total_qty <= 0.0 || max_qty <= 0.0 {
-        return;
-    }
-
-    let total_bar_length = (total_qty / max_qty) * bar_length;
-
-    let buy_proportion = buy_qty / total_qty;
-    let sell_proportion = sell_qty / total_qty;
-
-    let buy_bar_length = buy_proportion * total_bar_length;
-    let sell_bar_length = sell_proportion * total_bar_length;
-
-    if horizontal {
-        let start_y = start_y - (thickness / 2.0);
-
-        if sell_qty > 0.0 {
-            frame.fill_rectangle(
-                Point::new(start_x, start_y),
-                Size::new(sell_bar_length, thickness),
-                sell_color.scale_alpha(bar_color_alpha),
-            );
-        }
-
-        if buy_qty > 0.0 {
-            frame.fill_rectangle(
-                Point::new(start_x + sell_bar_length, start_y),
-                Size::new(buy_bar_length, thickness),
-                buy_color.scale_alpha(bar_color_alpha),
-            );
-        }
-    } else {
-        let start_x = start_x - (thickness / 2.0);
-
-        if sell_qty > 0.0 {
-            frame.fill_rectangle(
-                Point::new(start_x, start_y + (bar_length - sell_bar_length)),
-                Size::new(thickness, sell_bar_length),
-                sell_color.scale_alpha(bar_color_alpha),
-            );
-        }
-
-        if buy_qty > 0.0 {
-            frame.fill_rectangle(
-                Point::new(
-                    start_x,
-                    start_y + (bar_length - sell_bar_length - buy_bar_length),
-                ),
-                Size::new(thickness, buy_bar_length),
-                buy_color.scale_alpha(bar_color_alpha),
-            );
-        }
-    }
-}

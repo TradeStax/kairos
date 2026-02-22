@@ -124,7 +124,8 @@ impl TradeRepository for CompositeTradeRepository {
         ticker: &FuturesTicker,
         date: chrono::NaiveDate,
     ) -> RepositoryResult<Vec<Trade>> {
-        let date_range = DateRange::new(date, date);
+        let date_range = DateRange::new(date, date)
+            .expect("invariant: equal dates form a valid single-day range");
         self.get_trades(ticker, &date_range).await
     }
 
@@ -266,7 +267,8 @@ mod tests {
         let date_range = DateRange::new(
             chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
             chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
-        );
+        )
+        .expect("invariant: equal dates form a valid single-day range");
 
         let result = composite
             .get_merged_trades(&ticker, &date_range)

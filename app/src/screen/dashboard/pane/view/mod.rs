@@ -4,14 +4,17 @@ mod heatmap;
 pub(crate) mod helpers;
 mod kline;
 mod modal_stack;
+mod profile;
 mod script_editor;
 mod starter;
 
 pub(crate) use modal_stack::CompactControls;
 
 use crate::{
+    components::display::empty_state::EmptyStateBuilder,
+    components::display::progress_bar::ProgressBarBuilder,
     components::input::link_group_button::link_group_button,
-    components::primitives::{exchange_icon, icon_text, label::*},
+    components::primitives::{exchange_icon, icon_text, label::*, Icon},
     modals::{self, pane::Modal},
     screen::dashboard::panel,
     style::{self, palette, tokens},
@@ -78,6 +81,9 @@ impl State {
                 .padding([4, 10]);
 
             stream_info_element = stream_info_element.push(tickers_list_btn);
+            // Visual separator between ticker group and basis modifier
+            stream_info_element = stream_info_element
+                .push(crate::components::primitives::separator::vertical_divider());
         } else if !matches!(self.content, Content::Starter | Content::ScriptEditor { .. }) {
             let content = row![label_text("Choose a ticker")]
                 .align_y(Alignment::Center)
@@ -122,44 +128,75 @@ impl State {
 
         let uninitialized_base = |kind: ContentKind| -> Element<'a, Message> {
             if self.loading_status.is_loading() {
-                let status_text = match &self.loading_status {
+                let (status_text, progress_value, progress_max) = match &self.loading_status {
                     data::LoadingStatus::Downloading {
                         schema,
                         days_complete,
                         days_total,
                         ..
-                    } => {
-                        format!("Downloading {} ({}/{})", schema, days_complete, days_total)
-                    }
+                    } => (
+                        format!("Downloading {} ({}/{})", schema, days_complete, days_total),
+                        Some(*days_complete as f32),
+                        Some(*days_total as f32),
+                    ),
                     data::LoadingStatus::LoadingFromCache {
                         schema,
                         days_loaded,
                         days_total,
                         ..
-                    } => {
-                        format!("Loading {} ({}/{})", schema, days_loaded, days_total)
-                    }
+                    } => (
+                        format!("Loading {} ({}/{})", schema, days_loaded, days_total),
+                        Some(*days_loaded as f32),
+                        Some(*days_total as f32),
+                    ),
                     data::LoadingStatus::Building {
                         operation,
                         progress,
-                    } => {
-                        format!("{} ({:.0}%)", operation, progress * 100.0)
-                    }
-                    _ => "Loading\u{2026}".to_string(),
+                    } => (
+                        format!("{} ({:.0}%)", operation, progress * 100.0),
+                        Some(*progress * 100.0),
+                        Some(100.0_f32),
+                    ),
+                    _ => ("Loading\u{2026}".to_string(), None, None),
                 };
-                center(heading(status_text)).into()
+
+                let content: Element<'a, Message> = if let (Some(val), Some(max)) =
+                    (progress_value, progress_max)
+                {
+                    column![
+                        text(status_text.clone()).size(tokens::text::SMALL),
+                        ProgressBarBuilder::<Message>::new(val, max)
+                            .show_percentage(false)
+                            .into_element()
+                    ]
+                    .spacing(tokens::spacing::XS)
+                    .width(Length::Fixed(240.0))
+                    .align_x(Alignment::Center)
+                    .into()
+                } else {
+                    heading(status_text).into()
+                };
+                center(content).into()
             } else if let data::LoadingStatus::Error { message } = &self.loading_status {
-                let content = column![heading(kind.to_string()), title(message)]
-                    .spacing(tokens::spacing::MD)
-                    .align_x(Alignment::Center);
+                let content = column![
+                    text(char::from(Icon::Close).to_string())
+                        .font(crate::components::primitives::ICONS_FONT)
+                        .size(tokens::chart::EMPTY_STATE_ICON_SIZE)
+                        .style(palette::error_text),
+                    heading(kind.to_string()),
+                    title(message)
+                ]
+                .spacing(tokens::spacing::MD)
+                .align_x(Alignment::Center);
 
                 center(content).into()
             } else {
-                let content = column![heading(kind.to_string()), title("No ticker selected")]
-                    .spacing(tokens::spacing::MD)
-                    .align_x(Alignment::Center);
-
-                center(content).into()
+                center(
+                    EmptyStateBuilder::new("Select a ticker to start charting")
+                        .icon(Icon::ChartOutline)
+                        .into_element(),
+                )
+                .into()
             }
         };
 
@@ -294,6 +331,22 @@ impl State {
                 }
                 body
             }
+            Content::Profile { chart, .. } => {
+                let (body, extras) = self.view_profile_body(
+                    id,
+                    chart,
+                    modifier,
+                    compact_controls,
+                    uninitialized_base,
+                    timezone,
+                    tickers_info,
+                    ticker_ranges,
+                );
+                for e in extras {
+                    stream_info_element = stream_info_element.push(e);
+                }
+                body
+            }
             Content::ScriptEditor { .. } => {
                 let (body, extras) = self.view_script_editor_body(
                     id,
@@ -315,40 +368,71 @@ impl State {
                 days_total,
                 ..
             } => {
-                stream_info_element = stream_info_element.push(text(format!(
-                    "Downloading {} ({}/{})",
-                    schema, days_complete, days_total
-                )));
+                stream_info_element = stream_info_element.push(
+                    text(format!(
+                        "Downloading {} ({}/{})",
+                        schema, days_complete, days_total
+                    ))
+                    .size(tokens::text::SMALL)
+                    .style(palette::info_text),
+                );
             }
             data::LoadingStatus::LoadingFromCache {
                 schema,
                 days_loaded,
                 ..
             } => {
-                stream_info_element = stream_info_element
-                    .push(text(format!("Loading {} ({} days)", schema, days_loaded)));
+                stream_info_element = stream_info_element.push(
+                    text(format!("Loading {} ({} days)", schema, days_loaded))
+                        .size(tokens::text::SMALL)
+                        .style(palette::info_text),
+                );
             }
             data::LoadingStatus::Building {
                 operation,
                 progress,
             } => {
-                stream_info_element = stream_info_element.push(text(format!(
-                    "{} ({:.0}%)",
-                    operation,
-                    progress * 100.0
-                )));
+                stream_info_element = stream_info_element.push(
+                    text(format!("{} ({:.0}%)", operation, progress * 100.0))
+                        .size(tokens::text::SMALL)
+                        .style(palette::info_text),
+                );
             }
             data::LoadingStatus::Ready | data::LoadingStatus::Idle => {
-                if self.feed_id.is_none()
+                if self.feed_id.is_some()
                     && self.ticker_info.is_some()
                     && self.content.initialized()
                 {
-                    stream_info_element =
-                        stream_info_element.push(colored("Disconnected", palette::warning_color()));
+                    stream_info_element = stream_info_element.push(
+                        crate::components::display::status_dot::status_badge_themed(
+                            |theme| {
+                                let p = theme.extended_palette();
+                                p.success.base.color
+                            },
+                            "LIVE",
+                        ),
+                    );
+                } else if self.feed_id.is_none()
+                    && self.ticker_info.is_some()
+                    && self.content.initialized()
+                {
+                    stream_info_element = stream_info_element.push(
+                        crate::components::display::status_dot::status_badge_themed(
+                            |theme| {
+                                let p = theme.extended_palette();
+                                p.danger.base.color
+                            },
+                            "Disconnected",
+                        ),
+                    );
                 }
             }
             data::LoadingStatus::Error { message } => {
-                stream_info_element = stream_info_element.push(text(format!("Error: {}", message)));
+                stream_info_element = stream_info_element.push(
+                    text(format!("Error: {}", message))
+                        .size(tokens::text::SMALL)
+                        .style(palette::error_text),
+                );
             }
         }
 

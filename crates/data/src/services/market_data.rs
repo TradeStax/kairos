@@ -13,8 +13,9 @@ use crate::repository::{
     DepthRepository, DownloadRepository, RepositoryError, TradeRepository,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 /// Service error types
 #[derive(Error, Debug)]
@@ -61,6 +62,17 @@ impl AppError for ServiceError {
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
+
+/// Estimate of data availability and cost for a requested date range
+#[derive(Debug, Clone)]
+pub struct DataRequestEstimate {
+    pub date_range: crate::domain::types::DateRange,
+    pub total_days: usize,
+    pub cached_dates: Vec<chrono::NaiveDate>,
+    pub uncached_dates: Vec<chrono::NaiveDate>,
+    pub uncached_count: usize,
+    pub estimated_cost_usd: f64,
+}
 
 /// Market data service
 ///
@@ -118,11 +130,8 @@ impl MarketDataService {
     }
 
     /// Update loading status for a chart key
-    fn set_loading_status(&self, key: &str, status: LoadingStatus) {
-        let mut map = self
-            .loading_status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    async fn set_loading_status(&self, key: &str, status: LoadingStatus) {
+        let mut map = self.loading_status.lock().await;
         map.insert(key.to_string(), status);
     }
 
@@ -166,7 +175,8 @@ impl MarketDataService {
                 days_complete: 0,
                 current_day: effective_date_range.start.to_string(),
             },
-        );
+        )
+        .await;
 
         // Step 1: Fetch trades from repository WITH PROGRESS CALLBACK
         // Create a progress callback that updates loading_status
@@ -174,8 +184,9 @@ impl MarketDataService {
         let chart_key_clone = chart_key.clone();
         let progress_callback: Box<dyn Fn(LoadingStatus) + Send + Sync> =
             Box::new(move |status: LoadingStatus| {
-                let mut map = crate::lock_or_recover(&status_map_clone);
-                map.insert(chart_key_clone.clone(), status);
+                if let Ok(mut map) = status_map_clone.try_lock() {
+                    map.insert(chart_key_clone.clone(), status);
+                }
             });
 
         let trades = match self
@@ -190,7 +201,8 @@ impl MarketDataService {
                     LoadingStatus::Error {
                         message: format!("Failed to fetch trades: {:?}", e),
                     },
-                );
+                )
+                .await;
                 return Err(ServiceError::Repository(e));
             }
         };
@@ -212,7 +224,8 @@ impl MarketDataService {
                 operation: format!("Aggregating {} trades", trades.len()),
                 progress: 0.3,
             },
-        );
+        )
+        .await;
 
         // Step 2: Aggregate to target basis
         let candles = match self.aggregate_to_basis(&trades, config.basis, ticker_info) {
@@ -223,7 +236,8 @@ impl MarketDataService {
                     LoadingStatus::Error {
                         message: format!("Failed to aggregate: {:?}", e),
                     },
-                );
+                )
+                .await;
                 return Err(e);
             }
         };
@@ -241,7 +255,8 @@ impl MarketDataService {
                 operation: format!("Built {} candles", candles.len()),
                 progress: 0.6,
             },
-        );
+        )
+        .await;
 
         // Step 3: Load depth data for heatmap charts
         let mut chart_data = ChartData::from_trades(trades, candles);
@@ -263,7 +278,8 @@ impl MarketDataService {
                     days_complete: 0,
                     current_day: effective_date_range.start.to_string(),
                 },
-            );
+            )
+            .await;
 
             let depth_start = std::time::Instant::now();
             match self
@@ -288,7 +304,8 @@ impl MarketDataService {
                             ),
                             progress: 0.9,
                         },
-                    );
+                    )
+                    .await;
 
                     chart_data = chart_data.with_depth(depth_snapshots);
                 }
@@ -303,7 +320,7 @@ impl MarketDataService {
         }
 
         // Update status: ready
-        self.set_loading_status(&chart_key, LoadingStatus::Ready);
+        self.set_loading_status(&chart_key, LoadingStatus::Ready).await;
 
         // Step 4: Return chart data with depth (if heatmap)
         Ok(chart_data)
@@ -381,16 +398,13 @@ impl MarketDataService {
     /// Get loading status for a chart configuration
     ///
     /// This can be used by the UI to show progress during data loading.
-    pub fn get_loading_status(&self, config: &ChartConfig) -> LoadingStatus {
+    pub async fn get_loading_status(&self, config: &ChartConfig) -> LoadingStatus {
         let chart_key = format!(
             "{}-{:?}-{:?}",
             config.ticker, config.basis, config.date_range
         );
 
-        let status_map = self
-            .loading_status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let status_map = self.loading_status.lock().await;
         status_map
             .get(&chart_key)
             .cloned()
@@ -400,22 +414,16 @@ impl MarketDataService {
     /// Get all loading statuses
     ///
     /// Returns all ongoing operations across all charts.
-    pub fn get_all_loading_statuses(&self) -> HashMap<String, LoadingStatus> {
-        let status_map = self
-            .loading_status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    pub async fn get_all_loading_statuses(&self) -> HashMap<String, LoadingStatus> {
+        let status_map = self.loading_status.lock().await;
         status_map.clone()
     }
 
     /// Clear completed and errored loading statuses
     ///
     /// Removes Ready, Idle, and Error statuses, keeping only active operations.
-    pub fn clear_old_statuses(&self) {
-        let mut status_map = self
-            .loading_status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    pub async fn clear_old_statuses(&self) {
+        let mut status_map = self.loading_status.lock().await;
 
         status_map.retain(|_, status| {
             matches!(
@@ -443,7 +451,7 @@ impl MarketDataService {
         ticker: &FuturesTicker,
         schema_discriminant: u16,
         date_range: &DateRange,
-    ) -> ServiceResult<(usize, usize, usize, String, f64, Vec<chrono::NaiveDate>)> {
+    ) -> ServiceResult<DataRequestEstimate> {
         let download_repo = self.download_repo.as_ref().ok_or_else(|| {
             ServiceError::InvalidConfig("Download repository not configured".into())
         })?;
@@ -469,8 +477,13 @@ impl MarketDataService {
         );
 
         let total_days = date_range.num_days() as usize;
-        let cached_days = coverage.cached_count;
-        let uncached_days = coverage.uncached_count;
+        let uncached_count = coverage.uncached_count;
+
+        // Derive uncached dates from date range minus cached dates
+        let uncached_dates: Vec<chrono::NaiveDate> = date_range
+            .dates()
+            .filter(|d| !coverage.cached_dates.contains(d))
+            .collect();
 
         // Get cost for FULL range
         let full_range_cost = download_repo
@@ -484,12 +497,12 @@ impl MarketDataService {
         );
 
         // Calculate ACTUAL download cost (only for uncached days)
-        let actual_cost_usd = if total_days > 0 && uncached_days > 0 {
+        let estimated_cost_usd = if total_days > 0 && uncached_count > 0 {
             let cost_per_day = full_range_cost / total_days as f64;
-            let cost = cost_per_day * uncached_days as f64;
+            let cost = cost_per_day * uncached_count as f64;
             log::info!(
                 "Actual cost for {} uncached days: ${:.4} (${:.4}/day)",
-                uncached_days,
+                uncached_count,
                 cost,
                 cost_per_day
             );
@@ -498,32 +511,14 @@ impl MarketDataService {
             0.0
         };
 
-        // Format gaps description
-        let gaps_desc = if coverage.gaps.is_empty() {
-            "All days cached".to_string()
-        } else {
-            let gap_strs: Vec<String> = coverage
-                .gaps
-                .iter()
-                .map(|(start, end): &(chrono::NaiveDate, chrono::NaiveDate)| {
-                    if start == end {
-                        format!("{}", start.format("%b %d"))
-                    } else {
-                        format!("{} to {}", start.format("%b %d"), end.format("%b %d"))
-                    }
-                })
-                .collect();
-            format!("Gaps: {}", gap_strs.join(", "))
-        };
-
-        Ok((
+        Ok(DataRequestEstimate {
+            date_range: *date_range,
             total_days,
-            cached_days,
-            uncached_days,
-            gaps_desc,
-            actual_cost_usd,
-            coverage.cached_dates,
-        ))
+            cached_dates: coverage.cached_dates,
+            uncached_dates,
+            uncached_count,
+            estimated_cost_usd,
+        })
     }
 
     /// Download data to cache without loading into memory

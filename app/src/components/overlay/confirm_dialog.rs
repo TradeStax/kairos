@@ -13,16 +13,6 @@ pub struct ConfirmDialog<M> {
     pub on_confirm_btn_text: Option<String>,
 }
 
-#[allow(dead_code)]
-impl<M> ConfirmDialog<M> {
-    pub fn new(message: String, on_confirm: Box<M>) -> Self {
-        Self {
-            message,
-            on_confirm,
-            on_confirm_btn_text: None,
-        }
-    }
-}
 
 /// Builder for a confirmation dialog that renders on top of a base element.
 ///

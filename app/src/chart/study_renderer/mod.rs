@@ -5,19 +5,22 @@
 
 mod band;
 mod bar;
+pub(crate) mod coord;
+
+pub use bar::{VolumeBarSpec, draw_volume_bar};
 pub(crate) mod footprint;
 mod histogram;
 mod levels;
 mod line;
 mod markers;
 mod profile;
+mod vbp;
 pub mod panel;
 
 use crate::chart::ViewState;
 use iced::Size;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::Frame;
-use study::output::MarkerRenderConfig;
 use study::{StudyOutput, StudyPlacement};
 
 /// Render a study output onto a chart canvas frame.
@@ -31,7 +34,6 @@ pub fn render_study_output(
     state: &ViewState,
     bounds: Size,
     placement: StudyPlacement,
-    marker_config: Option<&MarkerRenderConfig>,
     palette: Option<&Extended>,
 ) {
     match output {
@@ -67,54 +69,38 @@ pub fn render_study_output(
         StudyOutput::Profile(profile_data) => {
             profile::render_profile(frame, profile_data, state, bounds);
         }
-        StudyOutput::Markers(m) => {
-            let default_config = MarkerRenderConfig::default();
-            let config = marker_config.unwrap_or(&default_config);
-            markers::render_markers(frame, m, state, bounds, config);
+        StudyOutput::Markers(data) => {
+            markers::render_markers(
+                frame,
+                &data.markers,
+                state,
+                bounds,
+                &data.render_config,
+            );
+        }
+        StudyOutput::Vbp(data) => {
+            vbp::render_vbp(frame, data, state, bounds);
+        }
+        StudyOutput::Composite(outputs) => {
+            for sub_output in outputs {
+                render_study_output(
+                    frame,
+                    sub_output,
+                    state,
+                    bounds,
+                    placement,
+                    palette,
+                );
+            }
         }
         StudyOutput::Footprint(data) => {
             if let Some(pal) = palette {
-                footprint::render_footprint(frame, data, state, bounds, pal);
+                footprint::render_footprint(
+                    frame, data, state, bounds, pal,
+                );
             }
         }
         StudyOutput::Empty => {}
     }
 }
 
-/// Helper: compute min/max Y for a set of f32 values.
-fn value_range(values: impl Iterator<Item = f32>) -> Option<(f32, f32)> {
-    let mut min = f32::MAX;
-    let mut max = f32::MIN;
-    let mut count = 0u32;
-
-    for v in values {
-        if v < min {
-            min = v;
-        }
-        if v > max {
-            max = v;
-        }
-        count += 1;
-    }
-
-    if count == 0 {
-        None
-    } else {
-        // Add small padding so lines don't sit on the edge
-        let range = max - min;
-        let pad = if range > 0.0 { range * 0.05 } else { 1.0 };
-        Some((min - pad, max + pad))
-    }
-}
-
-/// Map a value to a Y pixel coordinate within a panel.
-///
-/// `min`/`max` define the value range; `height` is the pixel height.
-/// Returns 0 at max, `height` at min (screen Y increases downward).
-fn value_to_panel_y(value: f32, min: f32, max: f32, height: f32) -> f32 {
-    if max <= min {
-        height
-    } else {
-        height - ((value - min) / (max - min)) * height
-    }
-}

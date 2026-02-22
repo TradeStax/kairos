@@ -218,9 +218,9 @@ pub fn create_client(config: MassiveConfig) -> MassiveResult<MassiveClient> {
     MassiveClient::new(config)
 }
 
-/// Validate API key format
+/// Validate API key format — delegates to the shared implementation in `util`.
 pub fn validate_api_key(api_key: &str) -> bool {
-    !api_key.is_empty() && api_key.len() >= 10
+    crate::util::validate_api_key(api_key)
 }
 
 #[cfg(test)]

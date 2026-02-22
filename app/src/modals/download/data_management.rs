@@ -126,7 +126,7 @@ impl DataManagementPanel {
                 };
                 let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
                 let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
-                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date);
+                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
                 return Some(Action::DownloadRequested {
                     ticker,
                     schema,
@@ -146,7 +146,7 @@ impl DataManagementPanel {
         let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
         let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
         let range = date_range
-            .unwrap_or_else(|| DateRange::new(self.calendar.start_date, self.calendar.end_date));
+            .or_else(|| DateRange::new(self.calendar.start_date, self.calendar.end_date).ok())?;
         Some(Action::EstimateRequested {
             ticker,
             schema,
@@ -189,11 +189,13 @@ impl DataManagementPanel {
             (self.calendar.end_date, self.calendar.start_date)
         };
         DateRange::new(start, end)
+            .expect("invariant: start <= end after normalization")
     }
 
     fn viewing_month_range(&self) -> DateRange {
         let (first, last) = self.calendar.viewing_month_range();
         DateRange::new(first, last)
+            .expect("invariant: month first day <= last day")
     }
 
     pub fn request_initial_estimation(&mut self) -> Option<Action> {

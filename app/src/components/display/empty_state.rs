@@ -44,7 +44,9 @@ impl<'a, Message: 'a> EmptyStateBuilder<'a, Message> {
             .spacing(tokens::spacing::LG);
 
         if let Some(icon) = self.icon {
-            let icon_text = text(char::from(icon).to_string()).font(ICONS_FONT).size(32);
+            let icon_text = text(char::from(icon).to_string())
+                .font(ICONS_FONT)
+                .size(tokens::chart::EMPTY_STATE_ICON_SIZE);
             col = col.push(icon_text);
         }
 

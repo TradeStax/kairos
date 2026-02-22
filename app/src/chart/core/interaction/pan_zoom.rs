@@ -19,7 +19,8 @@ pub fn handle_panning<T: Chart>(
 
 /// Handle scroll wheel zoom events
 ///
-/// Scroll wheel always zooms the X-axis (time) via cell_width adjustment.
+/// Scroll wheel zooms the X-axis (time) by default. When Shift is held,
+/// it zooms the Y-axis (price) instead.
 /// FitAll mode anchors zoom to the latest visible candle and preserves autoscale.
 /// Other modes use cursor-anchored zoom.
 pub fn handle_scroll_zoom<T: Chart>(
@@ -27,6 +28,7 @@ pub fn handle_scroll_zoom<T: Chart>(
     interaction: &Interaction,
     delta: &mouse::ScrollDelta,
     cursor_to_center: Point,
+    shift_held: bool,
 ) -> Option<canvas::Action<Message>> {
     if matches!(interaction, Interaction::Panning { .. }) {
         return Some(canvas::Action::capture());
@@ -42,8 +44,11 @@ pub fn handle_scroll_zoom<T: Chart>(
     // Other modes: cursor-anchored zoom (is_wheel_scroll=true)
     let is_wheel_scroll = !matches!(state.layout.autoscale, Some(data::Autoscale::FitAll));
 
-    Some(
-        canvas::Action::publish(Message::XScaling(y / 2.0, cursor_to_center.x, is_wheel_scroll))
-            .and_capture(),
-    )
+    let message = if shift_held {
+        Message::YScaling(y / 2.0, cursor_to_center.y, is_wheel_scroll)
+    } else {
+        Message::XScaling(y / 2.0, cursor_to_center.x, is_wheel_scroll)
+    };
+
+    Some(canvas::Action::publish(message).and_capture())
 }

@@ -1,8 +1,7 @@
 use iced::Element;
-use iced::widget::{column, rule};
+use iced::widget::column;
 
 use crate::components::layout::section_header::SectionHeaderBuilder;
-use crate::style;
 use crate::style::tokens;
 
 /// Builder for a group of form fields under a section header.
@@ -10,7 +9,6 @@ pub struct FormSectionBuilder<'a, Message> {
     title: String,
     fields: Vec<Element<'a, Message>>,
     spacing: f32,
-    with_top_divider: bool,
     with_header_divider: bool,
     header_trailing: Option<Element<'a, Message>>,
 }
@@ -21,7 +19,6 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
             title: title.into(),
             fields: Vec::new(),
             spacing: tokens::spacing::LG,
-            with_top_divider: false,
             with_header_divider: true,
             header_trailing: None,
         }
@@ -39,12 +36,6 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
         self
     }
 
-    /// When true, draw a horizontal rule above the section header.
-    pub fn with_top_divider(mut self, show: bool) -> Self {
-        self.with_top_divider = show;
-        self
-    }
-
     /// When true, draw a divider line under the section header title.
     pub fn with_header_divider(mut self, show: bool) -> Self {
         self.with_header_divider = show;
@@ -59,10 +50,6 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
 
     pub fn into_element(self) -> Element<'a, Message> {
         let mut outer = column![].spacing(tokens::spacing::MD);
-
-        if self.with_top_divider {
-            outer = outer.push(rule::horizontal(1).style(style::split_ruler));
-        }
 
         let mut header = SectionHeaderBuilder::new(self.title)
             .with_divider(self.with_header_divider);

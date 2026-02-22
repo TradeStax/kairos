@@ -1,8 +1,10 @@
 mod candle;
 mod render;
+mod studies;
 
 use crate::chart::{
-    Chart, PanelStudyInfo, PlotConstants, ViewState, drawing::DrawingManager,
+    Chart, PanelStudyInfo, PlotConstants, ViewState,
+    drawing::{ChartDrawingAccess, DrawingManager},
 };
 use data::state::pane::CandleStyle;
 use data::util::count_decimals;
@@ -15,6 +17,7 @@ use iced::Vector;
 use iced::widget::canvas::Cache;
 use study::CandleRenderConfig;
 
+use std::cell::Cell;
 use std::time::Instant;
 
 impl Chart for KlineChart {
@@ -106,6 +109,10 @@ impl Chart for KlineChart {
         self.drawings.is_selected(id)
     }
 
+    fn is_drawing_locked(&self, id: data::DrawingId) -> bool {
+        self.drawings.get(id).is_some_and(|d| d.locked)
+    }
+
     fn has_clone_pending(&self) -> bool {
         self.drawings.has_clone_pending()
     }
@@ -145,7 +152,7 @@ impl PlotConstants for KlineChart {
     }
 
     fn min_cell_height(&self) -> f32 {
-        1.0
+        0.1
     }
 
     fn default_cell_width(&self) -> f32 {
@@ -160,17 +167,25 @@ pub struct KlineChart {
     ticker_info: FuturesTickerInfo,
     last_tick: Instant,
     /// Drawing manager for chart annotations
-    pub drawings: DrawingManager,
+    drawings: DrawingManager,
     /// Candlestick visual style
     pub(crate) candle_style: CandleStyle,
     /// Overlay studies (Big Trades, etc.)
     studies: Vec<Box<dyn study::Study>>,
     /// Whether studies need recomputation on next invalidate
     studies_dirty: bool,
+    /// Last visible time range passed to studies (for detecting view changes)
+    last_visible_range: Option<(u64, u64)>,
     /// Rendering cache for panel-placement studies
     panel_cache: Cache,
     /// Rendering cache for panel Y-axis labels
     panel_labels_cache: Cache,
+    /// Whether to show the debug performance overlay
+    pub(crate) show_debug_info: bool,
+    /// Last draw() call instant — uses Cell for interior mutability during draw
+    last_draw_instant: Cell<Instant>,
+    /// Rolling frame time in ms — uses Cell for interior mutability during draw
+    last_frame_time_ms: Cell<f32>,
 }
 
 impl KlineChart {
@@ -188,26 +203,12 @@ impl KlineChart {
         let default_cell_width = 4.0;
         let autoscale_x_cells = 8.0;
 
-        // Calculate price scale from candles
-        let (scale_high, scale_low) = if !chart_data.candles.is_empty() {
-            let end_idx = chart_data.candles.len();
-            let start_idx = end_idx.saturating_sub(initial_candle_window);
-
-            let recent_candles = &chart_data.candles[start_idx..end_idx];
-            let high = recent_candles
-                .iter()
-                .map(|c| domain_to_exchange_price(c.high))
-                .max()
-                .unwrap_or(Price::from_f32(0.0));
-            let low = recent_candles
-                .iter()
-                .map(|c| domain_to_exchange_price(c.low))
-                .min()
-                .unwrap_or(Price::from_f32(0.0));
-            (high, low)
-        } else {
-            (Price::from_f32(100.0), Price::from_f32(0.0))
-        };
+        let (_, _, cell_height) = compute_initial_price_scale(
+            &chart_data.candles,
+            initial_candle_window,
+            ticker_info.tick_size,
+            cell_height_ratio,
+        );
 
         let base_price_y = chart_data
             .candles
@@ -216,16 +217,6 @@ impl KlineChart {
             .unwrap_or(Price::from_f32(0.0));
 
         let latest_x = chart_data.candles.last().map(|c| c.time.0).unwrap_or(0);
-
-        let low_rounded = scale_low.round_to_side_step(true, step.into());
-        let high_rounded = scale_high.round_to_side_step(false, step.into());
-
-        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step.into())
-            .map(|n| n.saturating_sub(1))
-            .unwrap_or(1)
-            .max(1) as f32;
-
-        let cell_height = (200.0 * cell_height_ratio) / y_ticks;
 
         let mut chart = ViewState::new(
             basis,
@@ -256,8 +247,12 @@ impl KlineChart {
             candle_style: CandleStyle::default(),
             studies: Vec::new(),
             studies_dirty: false,
+            last_visible_range: None,
             panel_cache: Cache::default(),
             panel_labels_cache: Cache::default(),
+            show_debug_info: false,
+            last_draw_instant: Cell::new(Instant::now()),
+            last_frame_time_ms: Cell::new(0.0),
         }
     }
 
@@ -295,35 +290,13 @@ impl KlineChart {
         let cell_height_ratio = self.candle_replace_config()
             .map(|c| c.cell_height_ratio)
             .unwrap_or(1.0);
-        let (scale_high, scale_low) = if !self.chart_data.candles.is_empty() {
-            let end_idx = self.chart_data.candles.len();
-            let start_idx = end_idx.saturating_sub(initial_window);
 
-            let recent_candles = &self.chart_data.candles[start_idx..end_idx];
-            let high = recent_candles
-                .iter()
-                .map(|c| domain_to_exchange_price(c.high))
-                .max()
-                .unwrap_or(Price::from_f32(0.0));
-            let low = recent_candles
-                .iter()
-                .map(|c| domain_to_exchange_price(c.low))
-                .min()
-                .unwrap_or(Price::from_f32(0.0));
-            (high, low)
-        } else {
-            (Price::from_f32(100.0), Price::from_f32(0.0))
-        };
-
-        let low_rounded = scale_low.round_to_side_step(true, step.into());
-        let high_rounded = scale_high.round_to_side_step(false, step.into());
-
-        let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step.into())
-            .map(|n| n.saturating_sub(1))
-            .unwrap_or(1)
-            .max(1) as f32;
-
-        let cell_height = (200.0 * cell_height_ratio) / y_ticks;
+        let (_, _, cell_height) = compute_initial_price_scale(
+            &self.chart_data.candles,
+            initial_window,
+            ticker_info.tick_size,
+            cell_height_ratio,
+        );
 
         self.chart.cell_height = cell_height;
         self.chart.basis = new_basis;
@@ -356,6 +329,11 @@ impl KlineChart {
     pub fn set_candle_style(&mut self, style: CandleStyle) {
         self.candle_style = style;
         self.invalidate();
+    }
+
+    pub fn set_show_debug_info(&mut self, show: bool) {
+        self.show_debug_info = show;
+        self.chart.cache.clear_crosshair();
     }
 
     pub fn chart_layout(&self) -> ViewConfig {
@@ -495,6 +473,29 @@ impl KlineChart {
         self.panel_cache.clear();
         self.panel_labels_cache.clear();
 
+        // Check if visible range changed (triggers VBP recompute)
+        if chart.bounds.width > 0.0 {
+            let region = chart.visible_region(chart.bounds.size());
+            let (earliest, latest) = chart.interval_range(&region);
+            let new_range = if earliest < latest {
+                Some((earliest, latest))
+            } else {
+                None
+            };
+            if new_range != self.last_visible_range {
+                self.last_visible_range = new_range;
+                // Only mark dirty if studies depend on visible_range
+                let has_range_dependent =
+                    self.studies.iter().any(|s| {
+                        s.placement()
+                            == study::StudyPlacement::Background
+                    });
+                if has_range_dependent {
+                    self.studies_dirty = true;
+                }
+            }
+        }
+
         if self.studies_dirty {
             self.recompute_studies();
             self.studies_dirty = false;
@@ -503,6 +504,41 @@ impl KlineChart {
         self.last_tick = Instant::now();
     }
 
+    /// Get a reference to the drawing manager
+    pub fn drawings(&self) -> &DrawingManager {
+        &self.drawings
+    }
+
+    /// Get a mutable reference to the drawing manager (invalidates drawing cache)
+    pub fn drawings_mut(&mut self) -> &mut DrawingManager {
+        self.chart.cache.clear_drawings();
+        &mut self.drawings
+    }
+}
+
+impl ChartDrawingAccess for KlineChart {
+    fn drawings(&self) -> &DrawingManager {
+        &self.drawings
+    }
+
+    fn drawings_mut(&mut self) -> &mut DrawingManager {
+        &mut self.drawings
+    }
+
+    fn view_state(&self) -> &ViewState {
+        &self.chart
+    }
+
+    fn invalidate_drawings_cache(&mut self) {
+        self.chart.cache.clear_drawings();
+    }
+
+    fn invalidate_crosshair_cache(&mut self) {
+        self.chart.cache.clear_crosshair();
+    }
+}
+
+impl KlineChart {
     /// Rebuild the chart from scratch with the given trades.
     ///
     /// Clears all existing trades and candles, then replays the
@@ -625,92 +661,55 @@ impl KlineChart {
         }
     }
 
-    // ── Study management ──────────────────────────────────────────────
-
-    pub fn add_study(&mut self, study: Box<dyn study::Study>) {
-        let is_panel = study.placement() == study::StudyPlacement::Panel;
-
-        // Enforce: only one CandleReplace study at a time
-        if study.placement() == study::StudyPlacement::CandleReplace {
-            self.studies.retain(|s| {
-                s.placement() != study::StudyPlacement::CandleReplace
-            });
-        }
-        self.studies.push(study);
-
-        // Ensure splits has a default entry for the main/panel divider
-        if is_panel && self.chart.layout.splits.is_empty() {
-            self.chart.layout.splits.push(0.75);
-        }
-
-        self.studies_dirty = true;
-        self.invalidate();
-    }
-
-    pub fn remove_study(&mut self, id: &str) {
-        self.studies.retain(|s| s.id() != id);
-
-        // If no panel studies remain, clear the splits vector
-        let has_panels = self
-            .studies
-            .iter()
-            .any(|s| s.placement() == study::StudyPlacement::Panel);
-        if !has_panels {
-            self.chart.layout.splits.clear();
-        }
-
-        self.invalidate();
-    }
-
-    /// Mark studies as needing recomputation (e.g. after parameter changes).
-    pub fn mark_studies_dirty(&mut self) {
-        self.studies_dirty = true;
-    }
-
-    pub fn studies(&self) -> &[Box<dyn study::Study>] {
-        &self.studies
-    }
-
-    pub fn studies_mut(&mut self) -> &mut Vec<Box<dyn study::Study>> {
-        &mut self.studies
-    }
-
-    pub fn update_study_parameter(
-        &mut self,
-        study_id: &str,
-        key: &str,
-        value: study::ParameterValue,
-    ) {
-        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id) {
-            if let Err(e) = s.set_parameter(key, value) {
-                log::warn!("Failed to set study parameter: {}", e);
-            }
-        }
-        self.recompute_studies();
-        self.invalidate();
-    }
-
-    fn recompute_studies(&mut self) {
-        if self.studies.is_empty() {
-            return;
-        }
-        let input = study::StudyInput {
-            candles: &self.chart_data.candles,
-            trades: Some(&self.chart_data.trades),
-            basis: self.basis,
-            tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
-            visible_range: None,
-        };
-        for s in &mut self.studies {
-            if let Err(e) = s.compute(&input) {
-                log::warn!("Study '{}' compute error: {}", s.id(), e);
-            }
-        }
-    }
 }
 
 /// Convert domain price to exchange price
 #[inline]
 pub(crate) fn domain_to_exchange_price(price: DomainPrice) -> Price {
     Price::from_units(price.units())
+}
+
+/// Compute initial price scale from a slice of candles.
+///
+/// Returns `(price_high, price_low, cell_height)` based on the most recent
+/// `window` candles. `cell_height_ratio` controls the vertical pixel density.
+fn compute_initial_price_scale(
+    candles: &[Candle],
+    window: usize,
+    tick_size: f32,
+    cell_height_ratio: f32,
+) -> (Price, Price, f32) {
+    let step = PriceStep::from_f32(tick_size);
+
+    let (scale_high, scale_low) = if !candles.is_empty() {
+        let end_idx = candles.len();
+        let start_idx = end_idx.saturating_sub(window);
+
+        let recent_candles = &candles[start_idx..end_idx];
+        let high = recent_candles
+            .iter()
+            .map(|c| domain_to_exchange_price(c.high))
+            .max()
+            .unwrap_or(Price::from_f32(0.0));
+        let low = recent_candles
+            .iter()
+            .map(|c| domain_to_exchange_price(c.low))
+            .min()
+            .unwrap_or(Price::from_f32(0.0));
+        (high, low)
+    } else {
+        (Price::from_f32(100.0), Price::from_f32(0.0))
+    };
+
+    let low_rounded = scale_low.round_to_side_step(true, step.into());
+    let high_rounded = scale_high.round_to_side_step(false, step.into());
+
+    let y_ticks = Price::steps_between_inclusive(low_rounded, high_rounded, step.into())
+        .map(|n| n.saturating_sub(1))
+        .unwrap_or(1)
+        .max(1) as f32;
+
+    let cell_height = (200.0 * cell_height_ratio) / y_ticks;
+
+    (scale_high, scale_low, cell_height)
 }

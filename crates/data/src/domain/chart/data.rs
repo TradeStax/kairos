@@ -2,7 +2,7 @@
 
 use crate::domain::entities::{Candle, DepthSnapshot, Trade};
 use crate::domain::types::{TimeRange, Timestamp};
-use crate::feed::FeedId;
+use crate::domain::types::FeedId;
 
 /// Kind of data gap detected during multi-feed merging
 #[derive(Debug, Clone, PartialEq)]
@@ -95,8 +95,10 @@ impl ChartData {
             (trades.first(), trades.last())
         {
             TimeRange::new(first.time, last.time)
+                .expect("invariant: first trade time <= last trade time in sorted vec")
         } else {
             TimeRange::new(Timestamp(0), Timestamp(0))
+                .expect("invariant: equal timestamps are a valid empty range")
         };
 
         Self {

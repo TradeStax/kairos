@@ -3,12 +3,15 @@
 //! Highlights price levels where there is a significant imbalance between
 //! buying and selling pressure, comparing diagonal bid/ask levels.
 
-use crate::config::{LineStyleValue, ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
+};
 use crate::error::StudyError;
+use crate::orderflow::profile_core;
 use crate::output::{PriceLevel, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
-use std::collections::BTreeMap;
 
 const DEFAULT_THRESHOLD: f64 = 3.0;
 
@@ -74,42 +77,62 @@ impl ImbalanceStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "threshold",
-                label: "Threshold",
-                description: "Imbalance ratio threshold",
+                key: "threshold".into(),
+                label: "Threshold".into(),
+                description: "Imbalance ratio threshold".into(),
                 kind: ParameterKind::Float {
                     min: 1.0,
                     max: 10.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(DEFAULT_THRESHOLD),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "buy_color",
-                label: "Buy Color",
-                description: "Color for buy imbalances",
+                key: "buy_color".into(),
+                label: "Buy Color".into(),
+                description: "Color for buy imbalances".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_BUY_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "sell_color",
-                label: "Sell Color",
-                description: "Color for sell imbalances",
+                key: "sell_color".into(),
+                label: "Sell Color".into(),
+                description: "Color for sell imbalances".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_SELL_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "ignore_zeros",
-                label: "Ignore Zeros",
-                description: "Skip levels with zero volume",
+                key: "ignore_zeros".into(),
+                label: "Ignore Zeros".into(),
+                description: "Skip levels with zero volume".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(true),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("imbalance");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -151,15 +174,8 @@ impl Study for ImbalanceStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -173,68 +189,43 @@ impl Study for ImbalanceStudy {
             return Ok(());
         }
 
-        let step = input.tick_size.units();
-        if step <= 0 {
+        if input.tick_size.units() <= 0 {
             self.output = StudyOutput::Empty;
             return Ok(());
         }
 
         // Build a buy/sell volume profile from candle data
-        let mut profile: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
-
-        for c in input.candles {
-            let low_units = c.low.round_to_tick(input.tick_size).units();
-            let high_units = c.high.round_to_tick(input.tick_size).units();
-
-            if high_units < low_units {
-                continue;
-            }
-
-            let num_levels = ((high_units - low_units) / step + 1) as f64;
-            if num_levels <= 0.0 {
-                continue;
-            }
-
-            let buy_per_level = c.buy_volume.value() / num_levels;
-            let sell_per_level = c.sell_volume.value() / num_levels;
-
-            let mut price_units = low_units;
-            while price_units <= high_units {
-                let entry = profile.entry(price_units).or_insert((0.0, 0.0));
-                entry.0 += buy_per_level;
-                entry.1 += sell_per_level;
-                price_units += step;
-            }
-        }
+        let profile =
+            profile_core::build_profile_from_candles(
+                input.candles,
+                input.tick_size,
+                input.tick_size.units(),
+            );
 
         // Check adjacent levels for imbalances
-        let prices: Vec<i64> = profile.keys().copied().collect();
         let mut levels = Vec::new();
 
-        for i in 0..prices.len().saturating_sub(1) {
-            let price = prices[i];
-            let higher_price = prices[i + 1];
-
-            let (_, sell_qty) = profile[&price];
-            let (diag_buy_qty, _) = profile[&higher_price];
+        for i in 0..profile.len().saturating_sub(1) {
+            let sell_qty = profile[i].sell_volume;
+            let diag_buy_qty = profile[i + 1].buy_volume;
 
             if let Some(imbalance_type) = check_imbalance(
-                sell_qty as f32,
-                diag_buy_qty as f32,
+                sell_qty,
+                diag_buy_qty,
                 threshold,
                 ignore_zeros,
             ) {
                 let (level_price, color, label) = match imbalance_type {
                     ImbalanceType::Buy { ratio } => {
-                        (higher_price, buy_color, format!("Buy {:.1}x", ratio))
+                        (profile[i + 1].price, buy_color, format!("Buy {:.1}x", ratio))
                     }
                     ImbalanceType::Sell { ratio } => {
-                        (price, sell_color, format!("Sell {:.1}x", ratio))
+                        (profile[i].price, sell_color, format!("Sell {:.1}x", ratio))
                     }
                 };
 
                 levels.push(PriceLevel {
-                    price: data::Price::from_units(level_price).to_f64(),
+                    price: level_price,
                     label,
                     color,
                     style: LineStyleValue::Solid,
@@ -294,6 +285,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     #[test]

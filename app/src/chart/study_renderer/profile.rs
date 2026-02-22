@@ -7,40 +7,21 @@
 use crate::chart::ViewState;
 use exchange::util::Price;
 use iced::widget::canvas::Frame;
-use iced::{Color, Point, Size};
+use iced::{Point, Size};
 use study::output::{ProfileData, ProfileSide};
-
-/// Colors for volume profile rendering
-const BUY_COLOR: Color = Color {
-    r: 0.18,
-    g: 0.60,
-    b: 0.45,
-    a: 0.6,
-};
-const SELL_COLOR: Color = Color {
-    r: 0.75,
-    g: 0.22,
-    b: 0.22,
-    a: 0.6,
-};
-const POC_COLOR: Color = Color {
-    r: 1.0,
-    g: 0.84,
-    b: 0.0,
-    a: 0.8,
-};
-const VALUE_AREA_COLOR: Color = Color {
-    r: 0.5,
-    g: 0.5,
-    b: 0.7,
-    a: 0.15,
-};
 
 /// Render a volume profile.
 pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewState, bounds: Size) {
+    use crate::style::theme_bridge::rgba_to_iced_color;
+
     if profile.levels.is_empty() {
         return;
     }
+
+    let buy_color = rgba_to_iced_color(profile.buy_color);
+    let sell_color = rgba_to_iced_color(profile.sell_color);
+    let poc_color = rgba_to_iced_color(profile.poc_color);
+    let va_color = rgba_to_iced_color(profile.value_area_color);
 
     // Find the maximum total volume across all levels for normalization
     let max_volume = profile
@@ -54,12 +35,12 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
     }
 
     // Maximum bar length as a fraction of chart width
-    let max_bar_length = bounds.width * 0.25;
+    let max_bar_length = bounds.width * profile.width_pct;
 
     // Estimate bar height from adjacent price levels
     let bar_height = if profile.levels.len() >= 2 {
-        let y0 = state.price_to_y(Price::from_f32_lossy(profile.levels[0].price as f32));
-        let y1 = state.price_to_y(Price::from_f32_lossy(profile.levels[1].price as f32));
+        let y0 = state.price_to_y(Price::from_units(profile.levels[0].price_units));
+        let y1 = state.price_to_y(Price::from_units(profile.levels[1].price_units));
         (y1 - y0).abs().max(1.0)
     } else {
         state.cell_height.max(1.0)
@@ -70,8 +51,8 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
         && let (Some(vah_level), Some(val_level)) =
             (profile.levels.get(vah_idx), profile.levels.get(val_idx))
     {
-        let y_vah = state.price_to_y(Price::from_f32_lossy(vah_level.price as f32));
-        let y_val = state.price_to_y(Price::from_f32_lossy(val_level.price as f32));
+        let y_vah = state.price_to_y(Price::from_units(vah_level.price_units));
+        let y_val = state.price_to_y(Price::from_units(val_level.price_units));
 
         let top = y_vah.min(y_val);
         let height = (y_vah - y_val).abs();
@@ -80,14 +61,14 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
             frame.fill_rectangle(
                 Point::new(-bounds.width, top),
                 Size::new(bounds.width * 3.0, height),
-                VALUE_AREA_COLOR,
+                va_color,
             );
         }
     }
 
     // Draw each level
     for (idx, level) in profile.levels.iter().enumerate() {
-        let y = state.price_to_y(Price::from_f32_lossy(level.price as f32));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         let total = level.buy_volume + level.sell_volume;
         if total <= 0.0 {
             continue;
@@ -109,14 +90,14 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
                     frame.fill_rectangle(
                         Point::new(start_x, top),
                         Size::new(sell_length, bar_height),
-                        SELL_COLOR,
+                        sell_color,
                     );
                 }
                 if level.buy_volume > 0.0 {
                     frame.fill_rectangle(
                         Point::new(start_x + sell_length, top),
                         Size::new(buy_length, bar_height),
-                        BUY_COLOR,
+                        buy_color,
                     );
                 }
             }
@@ -127,14 +108,14 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
                     frame.fill_rectangle(
                         Point::new(right_x - buy_length, top),
                         Size::new(buy_length, bar_height),
-                        BUY_COLOR,
+                        buy_color,
                     );
                 }
                 if level.sell_volume > 0.0 {
                     frame.fill_rectangle(
                         Point::new(right_x - bar_length, top),
                         Size::new(sell_length, bar_height),
-                        SELL_COLOR,
+                        sell_color,
                     );
                 }
             }
@@ -147,14 +128,14 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
                     frame.fill_rectangle(
                         Point::new(-bounds.width, top),
                         Size::new(sell_bar, bar_height),
-                        SELL_COLOR,
+                        sell_color,
                     );
                 }
                 if level.buy_volume > 0.0 {
                     frame.fill_rectangle(
                         Point::new(bounds.width - buy_bar, top),
                         Size::new(buy_bar, bar_height),
-                        BUY_COLOR,
+                        buy_color,
                     );
                 }
             }
@@ -165,7 +146,7 @@ pub fn render_profile(frame: &mut Frame, profile: &ProfileData, state: &ViewStat
             frame.fill_rectangle(
                 Point::new(-bounds.width, top),
                 Size::new(bounds.width * 3.0, bar_height),
-                POC_COLOR.scale_alpha(0.15),
+                poc_color.scale_alpha(0.15),
             );
         }
     }

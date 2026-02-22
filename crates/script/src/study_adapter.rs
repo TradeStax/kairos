@@ -1,9 +1,10 @@
 //! ScriptStudy: implements the Study trait, bridging JS scripts to the chart renderer.
 
 use crate::error::ScriptError;
+use crate::limits;
 use crate::manifest::ScriptManifest;
 use crate::runtime::{drawing, globals, inputs, math, plot, ta};
-use rquickjs::Runtime;
+use rquickjs::{Context, Runtime};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use study::config::{ParameterDef, ParameterValue, StudyConfig};
@@ -11,16 +12,10 @@ use study::error::StudyError;
 use study::output::StudyOutput;
 use study::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 
-const MEMORY_LIMIT: usize = 16 * 1024 * 1024;
-const MAX_STACK_SIZE: usize = 512 * 1024;
-const GC_THRESHOLD: usize = 2 * 1024 * 1024;
-const TIMEOUT_MS: u64 = 100;
-
 /// A script-backed indicator that implements the Study trait.
 ///
-/// Each compute() call creates a fresh JS runtime+context, injects
-/// candle/trade data and current parameter values, executes the script,
-/// and converts plot commands into StudyOutput.
+/// The JS runtime and context are created once in `new()` and reused across
+/// `compute()` calls, avoiding the overhead of runtime creation per call.
 pub struct ScriptStudy {
     manifest: ScriptManifest,
     bytecode: Arc<Vec<u8>>,
@@ -28,11 +23,20 @@ pub struct ScriptStudy {
     parameters: Vec<ParameterDef>,
     primary_output: StudyOutput,
     secondary_outputs: Vec<StudyOutput>,
+    output: StudyOutput,
+    runtime: Runtime,
+    context: Context,
 }
 
 impl ScriptStudy {
     /// Create a new ScriptStudy from a manifest and compiled bytecode.
-    pub fn new(manifest: ScriptManifest, bytecode: Arc<Vec<u8>>) -> Self {
+    pub fn new(manifest: ScriptManifest, bytecode: Arc<Vec<u8>>) -> Result<Self, ScriptError> {
+        let runtime = Runtime::new()?;
+        runtime.set_memory_limit(limits::MEMORY_LIMIT);
+        runtime.set_max_stack_size(limits::MAX_STACK_SIZE);
+        runtime.set_gc_threshold(limits::GC_THRESHOLD);
+        let context = Context::full(&runtime)?;
+
         let parameters: Vec<ParameterDef> =
             manifest.inputs.iter().map(|i| i.to_parameter_def()).collect();
 
@@ -41,30 +45,36 @@ impl ScriptStudy {
             config.set(input.key.clone(), input.default.clone());
         }
 
-        Self {
+        Ok(Self {
             manifest,
             bytecode,
             config,
             parameters,
             primary_output: StudyOutput::Empty,
             secondary_outputs: Vec::new(),
-        }
+            output: StudyOutput::Empty,
+            runtime,
+            context,
+        })
     }
 
-    /// Execute the script in a fresh JS context and collect outputs.
-    fn execute(&self, input: &StudyInput) -> Result<Vec<StudyOutput>, ScriptError> {
+    /// Create a fresh runtime + context pair (used by clone_study).
+    fn make_runtime_context() -> Result<(Runtime, Context), ScriptError> {
         let runtime = Runtime::new()?;
-        runtime.set_memory_limit(MEMORY_LIMIT);
-        runtime.set_max_stack_size(MAX_STACK_SIZE);
-        runtime.set_gc_threshold(GC_THRESHOLD);
+        runtime.set_memory_limit(limits::MEMORY_LIMIT);
+        runtime.set_max_stack_size(limits::MAX_STACK_SIZE);
+        runtime.set_gc_threshold(limits::GC_THRESHOLD);
+        let context = Context::full(&runtime)?;
+        Ok((runtime, context))
+    }
 
-        let deadline = Instant::now() + Duration::from_millis(TIMEOUT_MS);
-        runtime
+    /// Execute the script in the persistent JS context and collect outputs.
+    fn execute(&self, input: &StudyInput) -> Result<Vec<StudyOutput>, ScriptError> {
+        let deadline = Instant::now() + Duration::from_millis(limits::TIMEOUT_MS);
+        self.runtime
             .set_interrupt_handler(Some(Box::new(move || Instant::now() > deadline)));
 
-        let ctx = rquickjs::Context::full(&runtime)?;
-
-        let result = ctx.with(|ctx| -> Result<Vec<StudyOutput>, ScriptError> {
+        let result = self.context.with(|ctx| -> Result<Vec<StudyOutput>, ScriptError> {
             // Install compute-pass runtime
             inputs::install_compute_inputs(&ctx, &self.config, &self.manifest.inputs)?;
             globals::inject_candle_globals(&ctx, input.candles, input.tick_size)?;
@@ -92,7 +102,7 @@ impl ScriptStudy {
             ))
         });
 
-        runtime.set_interrupt_handler(None);
+        self.runtime.set_interrupt_handler(None);
         result
     }
 }
@@ -114,10 +124,6 @@ impl Study for ScriptStudy {
         self.manifest.resolved_placement()
     }
 
-    fn marker_render_config(&self) -> Option<study::output::MarkerRenderConfig> {
-        self.manifest.marker_render_config.clone()
-    }
-
     fn candle_render_config(&self) -> Option<study::output::CandleRenderConfig> {
         self.manifest.candle_render_config
     }
@@ -128,6 +134,10 @@ impl Study for ScriptStudy {
 
     fn config(&self) -> &StudyConfig {
         &self.config
+    }
+
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn set_parameter(
@@ -157,6 +167,13 @@ impl Study for ScriptStudy {
                 } else {
                     Vec::new()
                 };
+                self.output = if self.secondary_outputs.is_empty() {
+                    self.primary_output.clone()
+                } else {
+                    let mut all = vec![self.primary_output.clone()];
+                    all.extend(self.secondary_outputs.iter().cloned());
+                    StudyOutput::Composite(all)
+                };
                 Ok(())
             }
             Err(e) => {
@@ -167,21 +184,27 @@ impl Study for ScriptStudy {
                 );
                 self.primary_output = StudyOutput::Empty;
                 self.secondary_outputs.clear();
+                self.output = StudyOutput::Empty;
                 Err(study::StudyError::Compute(e.to_string()))
             }
         }
     }
 
     fn output(&self) -> &StudyOutput {
-        &self.primary_output
+        &self.output
     }
 
     fn reset(&mut self) {
         self.primary_output = StudyOutput::Empty;
         self.secondary_outputs.clear();
+        self.output = StudyOutput::Empty;
     }
 
     fn clone_study(&self) -> Box<dyn Study> {
+        // Runtime and Context are not Clone in a meaningful way for isolation,
+        // so create fresh instances for the cloned study.
+        let (runtime, context) = Self::make_runtime_context()
+            .expect("failed to create JS runtime for cloned ScriptStudy");
         Box::new(ScriptStudy {
             manifest: self.manifest.clone(),
             bytecode: self.bytecode.clone(),
@@ -189,6 +212,9 @@ impl Study for ScriptStudy {
             parameters: self.parameters.clone(),
             primary_output: StudyOutput::Empty,
             secondary_outputs: Vec::new(),
+            output: StudyOutput::Empty,
+            runtime,
+            context,
         })
     }
 }

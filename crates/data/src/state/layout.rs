@@ -54,7 +54,7 @@ pub struct Layout {
 }
 
 /// Layout manager state
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LayoutManager {
     pub layouts: Vec<Layout>,
     /// Name of active layout

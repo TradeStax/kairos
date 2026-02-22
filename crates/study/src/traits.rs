@@ -1,6 +1,6 @@
-use crate::config::{ParameterDef, ParameterValue, StudyConfig};
+use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
 use crate::error::StudyError;
-use crate::output::{CandleRenderConfig, MarkerRenderConfig, StudyOutput};
+use crate::output::{CandleRenderConfig, StudyOutput};
 use data::{Candle, ChartBasis, Price, Trade};
 
 /// Core trait for all technical studies and indicators.
@@ -23,8 +23,40 @@ pub trait Study: Send + Sync {
     /// Current configuration snapshot
     fn config(&self) -> &StudyConfig;
 
-    /// Update a single parameter by key
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError>;
+    /// Mutable access to configuration for the default
+    /// `set_parameter` implementation.
+    fn config_mut(&mut self) -> &mut StudyConfig;
+
+    /// Update a single parameter by key.
+    ///
+    /// Default implementation validates against `parameters()` definitions
+    /// and sets the value. Override only if custom cross-field validation
+    /// is needed.
+    fn set_parameter(
+        &mut self,
+        key: &str,
+        value: ParameterValue,
+    ) -> Result<(), StudyError> {
+        // Borrow parameters slice before mutable borrow of config
+        let params = self.parameters();
+        let def = params
+            .iter()
+            .find(|p| p.key == key)
+            .ok_or_else(|| StudyError::InvalidParameter {
+                key: key.to_string(),
+                reason: "unknown parameter".to_string(),
+            })?;
+
+        def.validate(&value).map_err(|reason| {
+            StudyError::InvalidParameter {
+                key: key.to_string(),
+                reason,
+            }
+        })?;
+
+        self.config_mut().set(key, value);
+        Ok(())
+    }
 
     /// Compute study values from input data
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError>;
@@ -45,15 +77,16 @@ pub trait Study: Send + Sync {
     /// Reset all computed data
     fn reset(&mut self);
 
-    /// Optional render configuration for trade marker studies.
-    fn marker_render_config(&self) -> Option<MarkerRenderConfig> {
-        None
-    }
-
     /// Optional render configuration for CandleReplace studies.
     /// Returns layout constants that override the chart's default
     /// cell sizing, zoom bounds, and initial candle window.
     fn candle_render_config(&self) -> Option<CandleRenderConfig> {
+        None
+    }
+
+    /// Optional custom tab labels for the settings UI.
+    /// Returns (label, tab) pairs. When None, default tab names are used.
+    fn tab_labels(&self) -> Option<&[(&'static str, ParameterTab)]> {
         None
     }
 
@@ -62,7 +95,10 @@ pub trait Study: Send + Sync {
 }
 
 /// Study category for grouping in menus and search.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash,
+    serde::Serialize, serde::Deserialize,
+)]
 pub enum StudyCategory {
     Trend,
     Momentum,
@@ -87,7 +123,10 @@ impl std::fmt::Display for StudyCategory {
 }
 
 /// Where a study renders relative to the price chart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash,
+    serde::Serialize, serde::Deserialize,
+)]
 pub enum StudyPlacement {
     /// Drawn on the price chart (SMA, Bollinger, VWAP)
     Overlay,

@@ -21,7 +21,7 @@ impl AppError for InternalError {
         match self {
             InternalError::Chart(msg) => format!("Chart error: {}", msg),
             InternalError::Data(msg) => format!("Data error: {}", msg),
-            InternalError::Rendering(msg) => {
+            InternalError::Rendering(_msg) => {
                 "A rendering error occurred. Try refreshing the chart.".to_string()
             }
         }

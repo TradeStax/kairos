@@ -100,6 +100,7 @@ pub fn convert_plot_commands(
                     .iter()
                     .map(|l| ProfileLevel {
                         price: l.price,
+                        price_units: data::Price::from_f64(l.price).units(),
                         buy_volume: l.buy_volume as f32,
                         sell_volume: l.sell_volume as f32,
                     })
@@ -109,6 +110,13 @@ pub fn convert_plot_commands(
                     levels: profile_levels,
                     poc: *poc_index,
                     value_area: *value_area,
+                    buy_color: data::Rgba::new(0.18, 0.55, 0.82, 0.6),
+                    sell_color: data::Rgba::new(0.82, 0.28, 0.28, 0.6),
+                    poc_color: data::Rgba::new(1.0, 0.84, 0.0, 0.8),
+                    value_area_color: data::Rgba::new(
+                        0.5, 0.5, 0.5, 0.15,
+                    ),
+                    width_pct: 0.3,
                 }));
             }
             PlotCommand::Footprint {
@@ -196,7 +204,10 @@ pub fn convert_plot_commands(
     }
 
     if !markers.is_empty() {
-        outputs.push(StudyOutput::Markers(markers));
+        outputs.push(StudyOutput::Markers(study::output::MarkerData {
+            markers,
+            render_config: study::output::MarkerRenderConfig::default(),
+        }));
     }
 
     if !levels.is_empty() {

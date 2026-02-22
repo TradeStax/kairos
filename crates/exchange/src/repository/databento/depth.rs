@@ -3,9 +3,11 @@
 //! Implements DepthRepository using Databento's HistoricalDataManager.
 //! Provides automatic per-day caching of MBP-10 depth data for heatmap visualization.
 
-use crate::adapter::databento::{DatabentoConfig, HistoricalDataManager};
+use super::find_cache_gaps;
+use super::mapper;
+use crate::adapter::databento::{DatabentoConfig, HistoricalDataManager, cache::CacheManager};
 use chrono::NaiveDate;
-use kairos_data::domain::{DateRange, DepthSnapshot, FuturesTicker, Price, Timestamp};
+use kairos_data::domain::{DateRange, DepthSnapshot, FuturesTicker};
 use kairos_data::repository::{
     DepthRepository, RepositoryError, RepositoryResult, RepositoryStats,
 };
@@ -16,8 +18,14 @@ use tokio::sync::Mutex;
 ///
 /// Wraps HistoricalDataManager to implement the repository pattern.
 /// Handles per-day caching of MBP-10 depth snapshots.
+///
+/// The `cache` field is an `Arc<CacheManager>` shared with the manager.
+/// Read-only operations (cache checks, gap detection) use it directly without
+/// acquiring the manager lock, so they never block concurrent downloads.
 pub struct DatabentoDepthRepository {
     manager: Arc<Mutex<HistoricalDataManager>>,
+    /// Shared cache reference — accessed without the manager lock for read-only checks.
+    cache: Arc<CacheManager>,
 }
 
 impl DatabentoDepthRepository {
@@ -27,41 +35,19 @@ impl DatabentoDepthRepository {
             .await
             .map_err(|e| RepositoryError::Remote(format!("Failed to create manager: {:?}", e)))?;
 
+        let cache = manager.cache();
         Ok(Self {
             manager: Arc::new(Mutex::new(manager)),
+            cache,
         })
     }
 
     /// Create from existing manager (for testing)
     pub fn from_manager(manager: HistoricalDataManager) -> Self {
+        let cache = manager.cache();
         Self {
             manager: Arc::new(Mutex::new(manager)),
-        }
-    }
-
-    /// Convert exchange::types::Depth to domain::DepthSnapshot
-    fn convert_depth_snapshot(time: u64, depth: &crate::types::Depth) -> DepthSnapshot {
-        use kairos_data::domain::Quantity;
-        use std::collections::BTreeMap;
-
-        // Convert bids (exchange uses i64 keys, domain uses Price keys)
-        let bids: BTreeMap<Price, Quantity> = depth
-            .bids
-            .iter()
-            .map(|(price_units, qty)| (Price::from_units(*price_units), Quantity(*qty as f64)))
-            .collect();
-
-        // Convert asks
-        let asks: BTreeMap<Price, Quantity> = depth
-            .asks
-            .iter()
-            .map(|(price_units, qty)| (Price::from_units(*price_units), Quantity(*qty as f64)))
-            .collect();
-
-        DepthSnapshot {
-            time: Timestamp(time),
-            bids,
-            asks,
+            cache,
         }
     }
 }
@@ -75,17 +61,8 @@ impl DepthRepository for DatabentoDepthRepository {
     ) -> RepositoryResult<Vec<DepthSnapshot>> {
         let mut manager = self.manager.lock().await;
 
-        // Convert DateRange to chrono DateTime range
-        let start = date_range
-            .start
-            .and_hms_opt(0, 0, 0)
-            .ok_or_else(|| RepositoryError::InvalidData("Invalid start date".to_string()))?
-            .and_utc();
-        let end = date_range
-            .end
-            .and_hms_opt(23, 59, 59)
-            .ok_or_else(|| RepositoryError::InvalidData("Invalid end date".to_string()))?
-            .and_utc();
+        let start = mapper::date_range_start_utc(date_range.start)?;
+        let end = mapper::date_range_end_utc(date_range.end)?;
 
         let symbol = ticker.as_str();
 
@@ -148,7 +125,7 @@ impl DepthRepository for DatabentoDepthRepository {
         // Convert to domain depth snapshots
         let domain_snapshots: Vec<DepthSnapshot> = decimated
             .iter()
-            .map(|(time, depth)| Self::convert_depth_snapshot(*time, depth))
+            .map(|(time, depth)| mapper::convert_depth_snapshot(*time, depth))
             .collect();
 
         log::debug!(
@@ -159,16 +136,10 @@ impl DepthRepository for DatabentoDepthRepository {
         Ok(domain_snapshots)
     }
 
+    /// Check cache without acquiring the manager lock.
     async fn has_depth(&self, ticker: &FuturesTicker, date: NaiveDate) -> RepositoryResult<bool> {
-        let manager = self.manager.lock().await;
         let symbol = ticker.as_str();
-
-        // Check if cache has this day
-        let has_cached = manager
-            .cache
-            .has_cached(symbol, databento::dbn::Schema::Mbp10, date)
-            .await;
-
+        let has_cached = self.cache.has_cached(symbol, databento::dbn::Schema::Mbp10, date).await;
         Ok(has_cached)
     }
 
@@ -177,7 +148,8 @@ impl DepthRepository for DatabentoDepthRepository {
         ticker: &FuturesTicker,
         date: NaiveDate,
     ) -> RepositoryResult<Vec<DepthSnapshot>> {
-        let date_range = DateRange::new(date, date);
+        let date_range = DateRange::new(date, date)
+            .expect("invariant: same date for start and end");
         self.get_depth(ticker, &date_range).await
     }
 
@@ -191,46 +163,14 @@ impl DepthRepository for DatabentoDepthRepository {
         Ok(())
     }
 
+    /// Detect cache gaps without acquiring the manager lock.
     async fn find_gaps(
         &self,
         ticker: &FuturesTicker,
         date_range: &DateRange,
     ) -> RepositoryResult<Vec<DateRange>> {
-        let manager = self.manager.lock().await;
-        let symbol = ticker.as_str();
-
-        let mut gaps = Vec::new();
-        let mut current = date_range.start;
-
-        while current <= date_range.end {
-            if !manager
-                .cache
-                .has_cached(symbol, databento::dbn::Schema::Mbp10, current)
-                .await
-            {
-                // Start of a new gap
-                let gap_start = current;
-                let mut gap_end = current;
-
-                // Find consecutive uncached days
-                while gap_end <= date_range.end
-                    && !manager
-                        .cache
-                        .has_cached(symbol, databento::dbn::Schema::Mbp10, gap_end)
-                        .await
-                {
-                    gap_end += chrono::Duration::days(1);
-                }
-
-                gap_end -= chrono::Duration::days(1);
-                gaps.push(DateRange::new(gap_start, gap_end));
-                current = gap_end + chrono::Duration::days(1);
-            } else {
-                current += chrono::Duration::days(1);
-            }
-        }
-
-        Ok(gaps)
+        find_cache_gaps(&self.cache, ticker.as_str(), databento::dbn::Schema::Mbp10, date_range)
+            .await
     }
 
     async fn stats(&self) -> RepositoryResult<RepositoryStats> {

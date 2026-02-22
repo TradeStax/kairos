@@ -12,7 +12,6 @@ impl Dashboard {
         &mut self,
         message: Message,
         main_window: &Window,
-        _layout_id: &uuid::Uuid,
     ) -> (Task<Message>, Option<Event>) {
         match message {
             Message::SavePopoutSpecs(specs) => {
@@ -309,22 +308,6 @@ impl Dashboard {
                     }),
                 );
             }
-            Message::DataCostEstimated {
-                pane_id,
-                total_days: _,
-                cached_days: _,
-                uncached_days: _,
-                gaps_desc: _,
-                actual_cost_usd: _,
-                cached_dates: _,
-            } => {
-                // This message variant is deprecated - pane modals shouldn't use data management
-                // Data management is now sidebar-only
-                log::warn!(
-                    "DataCostEstimated for pane {} - ignoring (sidebar-only feature)",
-                    pane_id
-                );
-            }
             Message::DownloadData {
                 pane_id,
                 ticker,
@@ -382,6 +365,61 @@ impl Dashboard {
                     && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
                 {
                     state.content.toggle_drawing_snap();
+                }
+            }
+            Message::DrawingUndo => {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
+                    && let Some(chart) = state.content.drawing_chart_mut()
+                {
+                    chart.drawings_mut().undo();
+                    chart.invalidate_drawings_cache();
+                    chart.invalidate_crosshair_cache();
+                }
+            }
+            Message::DrawingRedo => {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
+                    && let Some(chart) = state.content.drawing_chart_mut()
+                {
+                    chart.drawings_mut().redo();
+                    chart.invalidate_drawings_cache();
+                    chart.invalidate_crosshair_cache();
+                }
+            }
+            Message::DrawingDuplicate => {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
+                    && let Some(chart) = state.content.drawing_chart_mut()
+                {
+                    let selected: Vec<_> =
+                        chart.drawings().selected_ids().iter().copied().collect();
+                    for id in selected {
+                        if let Some(drawing) = chart.drawings().get(id) {
+                            let mut clone = drawing.clone_with_new_id();
+                            // Offset slightly so it's visually distinct
+                            for point in &mut clone.points {
+                                point.time += 5000; // 5 sec offset
+                            }
+                            chart.drawings_mut().add_drawing(clone);
+                        }
+                    }
+                    chart.invalidate_drawings_cache();
+                    chart.invalidate_crosshair_cache();
+                }
+            }
+            Message::ScrollToLatest => {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
+                {
+                    state.content.scroll_to_latest();
+                }
+            }
+            Message::ZoomStep(factor) => {
+                if let Some((window_id, pane)) = self.focus
+                    && let Some(state) = self.get_mut_pane(main_window.id, window_id, pane)
+                {
+                    state.content.zoom_step(factor);
                 }
             }
             Message::ReplayTrades(ticker_info, trades) => {

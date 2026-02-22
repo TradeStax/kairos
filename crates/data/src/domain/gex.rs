@@ -372,7 +372,7 @@ impl GexProfile {
             .exposures
             .iter()
             .map(|e| e.total_gamma)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .max_by(|a, b| a.total_cmp(b))
             .unwrap_or(0.0);
 
         if max_gamma == 0.0 {
@@ -418,7 +418,7 @@ impl GexProfile {
 
         // Sort by importance
         self.key_levels
-            .sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
+            .sort_by(|a, b| b.importance.total_cmp(&a.importance));
     }
 
     /// Find the zero gamma level (where net gamma crosses zero)
@@ -495,7 +495,7 @@ impl GexProfile {
         let call_wall_exposure = self
             .exposures
             .iter()
-            .max_by(|a, b| a.call_gamma.abs().partial_cmp(&b.call_gamma.abs()).unwrap());
+            .max_by(|a, b| a.call_gamma.abs().total_cmp(&b.call_gamma.abs()));
 
         if let Some(exposure) = call_wall_exposure
             && exposure.call_gamma.abs() > 0.0
@@ -507,7 +507,7 @@ impl GexProfile {
         let put_wall_exposure = self
             .exposures
             .iter()
-            .max_by(|a, b| a.put_gamma.abs().partial_cmp(&b.put_gamma.abs()).unwrap());
+            .max_by(|a, b| a.put_gamma.abs().total_cmp(&b.put_gamma.abs()));
 
         if let Some(exposure) = put_wall_exposure
             && exposure.put_gamma.abs() > 0.0
@@ -559,7 +559,7 @@ impl GexProfile {
                     GexLevelType::StrongResistance | GexLevelType::Resistance
                 )
             })
-            .max_by(|a, b| a.importance.partial_cmp(&b.importance).unwrap())
+            .max_by(|a, b| a.importance.total_cmp(&b.importance))
     }
 
     /// Get the strongest support level
@@ -572,7 +572,7 @@ impl GexProfile {
                     GexLevelType::StrongSupport | GexLevelType::Support
                 )
             })
-            .max_by(|a, b| a.importance.partial_cmp(&b.importance).unwrap())
+            .max_by(|a, b| a.importance.total_cmp(&b.importance))
     }
 
     /// Get exposure at a specific strike price

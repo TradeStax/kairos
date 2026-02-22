@@ -3,12 +3,15 @@
 //! The Point of Control is the price level with the highest traded volume
 //! within a rolling lookback window.
 
-use crate::config::{LineStyleValue, ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
+};
 use crate::error::StudyError;
+use crate::orderflow::profile_core;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
-use std::collections::BTreeMap;
 
 const DEFAULT_LOOKBACK: i64 = 20;
 
@@ -31,35 +34,50 @@ impl PocStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "lookback",
-                label: "Lookback",
-                description: "Number of candles for rolling POC",
+                key: "lookback".into(),
+                label: "Lookback".into(),
+                description: "Number of candles for rolling POC".into(),
                 kind: ParameterKind::Integer { min: 1, max: 500 },
                 default: ParameterValue::Integer(DEFAULT_LOOKBACK),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "color",
-                label: "Color",
-                description: "POC line color",
+                key: "color".into(),
+                label: "Color".into(),
+                description: "POC line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "width",
-                label: "Width",
-                description: "Line width in pixels",
+                key: "width".into(),
+                label: "Width".into(),
+                description: "Line width in pixels".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 5.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(DEFAULT_WIDTH),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("poc");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -76,43 +94,12 @@ impl Default for PocStudy {
     }
 }
 
-/// Find the POC price from a set of candles by building a simple volume profile.
-/// Distributes each candle's volume across its price range at tick_size increments,
-/// then returns the price with the highest total volume.
+/// Find the POC price from a set of candles using the canonical profile builder.
 fn find_poc_from_candles(candles: &[data::Candle], tick_size: data::Price) -> Option<f64> {
-    let mut volume_map: BTreeMap<i64, f64> = BTreeMap::new();
-    let step = tick_size.units();
-
-    if step <= 0 {
-        return None;
-    }
-
-    for c in candles {
-        let low_units = c.low.round_to_tick(tick_size).units();
-        let high_units = c.high.round_to_tick(tick_size).units();
-
-        if high_units < low_units {
-            continue;
-        }
-
-        let num_levels = ((high_units - low_units) / step + 1) as f64;
-        if num_levels <= 0.0 {
-            continue;
-        }
-
-        let vol_per_level = c.volume() as f64 / num_levels;
-
-        let mut price_units = low_units;
-        while price_units <= high_units {
-            *volume_map.entry(price_units).or_insert(0.0) += vol_per_level;
-            price_units += step;
-        }
-    }
-
-    volume_map
-        .into_iter()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(units, _)| data::Price::from_units(units).to_f64())
+    let levels =
+        profile_core::build_profile_from_candles(candles, tick_size, tick_size.units());
+    let poc_idx = profile_core::find_poc_index(&levels)?;
+    Some(levels[poc_idx].price)
 }
 
 impl Study for PocStudy {
@@ -140,15 +127,8 @@ impl Study for PocStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -213,6 +193,7 @@ mod tests {
             Volume(vol * 0.6),
             Volume(vol * 0.4),
         )
+        .expect("test: valid candle")
     }
 
     #[test]

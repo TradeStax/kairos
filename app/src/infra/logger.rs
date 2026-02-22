@@ -2,7 +2,6 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
-    process,
     sync::mpsc,
     thread,
 };
@@ -151,6 +150,7 @@ impl Drop for BackgroundLogger {
 }
 
 struct Logger {
+    path: PathBuf,
     file: fs::File,
     current_size: u64,
 }
@@ -165,9 +165,38 @@ impl Logger {
         let size = file.metadata()?.len();
 
         Ok(Logger {
+            path: path.clone(),
             file,
             current_size: size,
         })
+    }
+
+    fn rotate(&mut self) -> io::Result<()> {
+        // Flush and drop the current file handle by replacing with a new one
+        self.file.flush()?;
+
+        // Determine the .old path next to the current log file
+        let old_path = self
+            .path
+            .parent()
+            .map(|p| p.join("kairos.log.old"))
+            .unwrap_or_else(|| PathBuf::from("kairos.log.old"));
+
+        // Rename current log to .old (overwriting any previous)
+        if let Err(e) = fs::rename(&self.path, &old_path) {
+            eprintln!("Failed to rename log file during rotation: {e}");
+        }
+
+        // Open a fresh log file
+        let new_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+
+        self.file = new_file;
+        self.current_size = 0;
+
+        Ok(())
     }
 }
 
@@ -176,18 +205,10 @@ impl Write for Logger {
         let buf_len = buf.len() as u64;
 
         if self.current_size + buf_len > MAX_LOG_FILE_SIZE {
-            let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
-            let error_msg = format!(
-                "\n{}:FATAL -- Log file size would exceed the maximum allowed size of {} bytes\n",
-                timestamp, MAX_LOG_FILE_SIZE
-            );
-
-            eprintln!("{error_msg}");
-
-            let _ = self.file.write_all(error_msg.as_bytes());
-            let _ = self.file.flush();
-
-            process::abort();
+            if let Err(e) = self.rotate() {
+                eprintln!("Failed to rotate log file: {e}");
+                return Ok(buf.len());
+            }
         }
 
         let bytes = self.file.write(buf)?;

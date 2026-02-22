@@ -93,7 +93,6 @@ impl Kairos {
                             crate::screen::dashboard::Dashboard::from_config(
                                 crate::layout::configuration(ser.pane),
                                 popout_windows,
-                                uid,
                                 self.market_data_service.clone(),
                                 self.data_index.clone(),
                             );
@@ -219,7 +218,7 @@ impl Kairos {
         let layout_id = id.unwrap_or(active_layout.unique);
 
         if let Some(dashboard) = self.layout_manager.mut_dashboard(layout_id) {
-            let (main_task, event) = dashboard.update(msg, &main_window, &layout_id);
+            let (main_task, event) = dashboard.update(msg, &main_window);
 
             let additional_task = match event {
                 Some(dashboard::Event::LoadChart {

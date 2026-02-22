@@ -80,6 +80,11 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
         false
     }
 
+    /// Check if a specific drawing is locked
+    fn is_drawing_locked(&self, _id: DrawingId) -> bool {
+        false
+    }
+
     /// Check if a clone placement is in progress
     fn has_clone_pending(&self) -> bool {
         false

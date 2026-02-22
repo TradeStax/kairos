@@ -4,11 +4,14 @@
 //! same-side fills within a configurable time window, computing a
 //! VWAP-weighted price, and outputting them as sized/colored markers.
 
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{
-    MarkerRenderConfig, MarkerShape, StudyOutput, TradeMarker,
-    TradeMarkerDebug,
+    MarkerData, MarkerRenderConfig, MarkerShape, StudyOutput,
+    TradeMarker, TradeMarkerDebug,
 };
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
@@ -56,169 +59,254 @@ impl BigTradesStudy {
         let params = vec![
             // ── Data Settings ────────────────────────────────
             ParameterDef {
-                key: "days_to_load",
-                label: "Days to Load",
-                description: "Number of days of trade data to analyze",
+                key: "days_to_load".into(),
+                label: "Days to Load".into(),
+                description: "Number of days of trade data to analyze".into(),
                 kind: ParameterKind::Integer { min: 1, max: 30 },
                 default: ParameterValue::Integer(DEFAULT_DAYS_TO_LOAD),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "filter_min",
-                label: "Filter Min",
-                description: "Minimum contracts to display (0 = none)",
+                key: "filter_min".into(),
+                label: "Filter Min".into(),
+                description: "Minimum contracts to display (0 = none)".into(),
                 kind: ParameterKind::Integer {
                     min: 0,
                     max: 100000,
                 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MIN),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "filter_max",
-                label: "Filter Max",
-                description: "Maximum contracts to display (0 = none)",
+                key: "filter_max".into(),
+                label: "Filter Max".into(),
+                description: "Maximum contracts to display (0 = none)".into(),
                 kind: ParameterKind::Integer {
                     min: 0,
                     max: 100000,
                 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MAX),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "aggregation_window_ms",
-                label: "Aggregation Window",
-                description: "Max ms gap between fills to merge",
+                key: "aggregation_window_ms".into(),
+                label: "Aggregation Window".into(),
+                description: "Max ms gap between fills to merge".into(),
                 kind: ParameterKind::Integer {
                     min: 10,
                     max: 5000,
                 },
                 default: ParameterValue::Integer(DEFAULT_AGGREGATION_WINDOW_MS),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 3,
+                format: DisplayFormat::Integer { suffix: " ms" },
+                visible_when: Visibility::Always,
             },
             // ── Style / General ──────────────────────────────
             ParameterDef {
-                key: "marker_shape",
-                label: "Marker Shape",
-                description: "Shape used for markers",
+                key: "marker_shape".into(),
+                label: "Marker Shape".into(),
+                description: "Shape used for markers".into(),
                 kind: ParameterKind::Choice {
                     options: &["Circle", "Square", "Text Only"],
                 },
                 default: ParameterValue::Choice("Circle".to_string()),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "hollow",
-                label: "Hollow Fill",
-                description: "Draw markers as outlines only",
+                key: "hollow".into(),
+                label: "Hollow Fill".into(),
+                description: "Draw markers as outlines only".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(false),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "show_text",
-                label: "Show Text",
-                description: "Show contract count text on markers",
+                key: "show_text".into(),
+                label: "Show Text".into(),
+                description: "Show contract count text on markers".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(true),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Style / Size ─────────────────────────────────
             ParameterDef {
-                key: "std_dev",
-                label: "Std Dev",
-                description: "Standard deviations for size normalization",
+                key: "std_dev".into(),
+                label: "Std Dev".into(),
+                description: "Standard deviations for size normalization".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 5.0,
                     step: 0.1,
                 },
                 default: ParameterValue::Float(2.0),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "min_size",
-                label: "Min Size",
-                description: "Minimum marker radius in pixels",
+                key: "min_size".into(),
+                label: "Min Size".into(),
+                description: "Minimum marker radius in pixels".into(),
                 kind: ParameterKind::Float {
                     min: 2.0,
                     max: 60.0,
                     step: 1.0,
                 },
                 default: ParameterValue::Float(8.0),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 3,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "max_size",
-                label: "Max Size",
-                description: "Maximum marker radius in pixels",
+                key: "max_size".into(),
+                label: "Max Size".into(),
+                description: "Maximum marker radius in pixels".into(),
                 kind: ParameterKind::Float {
                     min: 10.0,
                     max: 100.0,
                     step: 1.0,
                 },
                 default: ParameterValue::Float(36.0),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 4,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Style / Color ────────────────────────────────
             ParameterDef {
-                key: "min_opacity",
-                label: "Min Opacity",
-                description: "Opacity for smallest markers",
+                key: "min_opacity".into(),
+                label: "Min Opacity".into(),
+                description: "Opacity for smallest markers".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(0.10),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 5,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "max_opacity",
-                label: "Max Opacity",
-                description: "Opacity for largest markers",
+                key: "max_opacity".into(),
+                label: "Max Opacity".into(),
+                description: "Opacity for largest markers".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(0.60),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 6,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "ask_color",
-                label: "Ask Color",
-                description: "Color for ask-side (sell) markers",
+                key: "ask_color".into(),
+                label: "Ask Color".into(),
+                description: "Color for ask-side (buy) markers".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_ASK_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 7,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "bid_color",
-                label: "Bid Color",
-                description: "Color for bid-side (buy) markers",
+                key: "bid_color".into(),
+                label: "Bid Color".into(),
+                description: "Color for bid-side (sell) markers".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_BID_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 8,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Style / Text ─────────────────────────────────
             ParameterDef {
-                key: "text_size",
-                label: "Text Size",
-                description: "Font size for marker labels",
+                key: "text_size".into(),
+                label: "Text Size".into(),
+                description: "Font size for marker labels".into(),
                 kind: ParameterKind::Float {
                     min: 6.0,
                     max: 20.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(10.0),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 9,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "text_color",
-                label: "Text Color",
-                description: "Color for marker label text",
+                key: "text_color".into(),
+                label: "Text Color".into(),
+                description: "Color for marker label text".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_TEXT_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 10,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Debug ────────────────────────────────────────
             ParameterDef {
-                key: "show_debug",
-                label: "Show Debug",
-                description: "Show debug annotations on markers",
+                key: "show_debug".into(),
+                label: "Show Debug".into(),
+                description: "Show debug annotations on markers".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(false),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("big_trades");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -329,11 +417,17 @@ impl BigTradesStudy {
     }
 
     /// Finalize output from accumulated markers.
-    fn finalize_output(markers: &[TradeMarker]) -> StudyOutput {
+    fn finalize_output(
+        markers: &[TradeMarker],
+        render_config: MarkerRenderConfig,
+    ) -> StudyOutput {
         if markers.is_empty() {
             StudyOutput::Empty
         } else {
-            StudyOutput::Markers(markers.to_vec())
+            StudyOutput::Markers(MarkerData {
+                markers: markers.to_vec(),
+                render_config,
+            })
         }
     }
 }
@@ -468,11 +562,12 @@ fn flush_block(
         return;
     }
 
-    // is_buy (bid-side) maps to bid_color, !is_buy (ask-side) maps to ask_color
+    // Buy aggressor lifts the ask → ask_color (green)
+    // Sell aggressor hits the bid → bid_color (red)
     let color = if block.is_buy {
-        params.bid_color
-    } else {
         params.ask_color
+    } else {
+        params.bid_color
     };
     let label = if params.show_text {
         Some(format_contracts(block.total_qty))
@@ -546,6 +641,41 @@ fn flush_block(
     });
 }
 
+impl BigTradesStudy {
+    /// Build marker render config from current parameters.
+    /// Used by the renderer to control marker appearance.
+    pub fn build_marker_render_config(&self) -> MarkerRenderConfig {
+        let shape_str =
+            self.config.get_choice("marker_shape", "Circle");
+        let shape = match shape_str {
+            "Square" => MarkerShape::Square,
+            "Text Only" => MarkerShape::TextOnly,
+            _ => MarkerShape::Circle,
+        };
+
+        MarkerRenderConfig {
+            shape,
+            hollow: self.config.get_bool("hollow", false),
+            std_dev: self.config.get_float("std_dev", 2.0) as f32,
+            min_size: self.config.get_float("min_size", 8.0) as f32,
+            max_size: self.config.get_float("max_size", 36.0) as f32,
+            min_opacity: self
+                .config
+                .get_float("min_opacity", 0.10) as f32,
+            max_opacity: self
+                .config
+                .get_float("max_opacity", 0.60) as f32,
+            show_text: self.config.get_bool("show_text", true),
+            text_size: self
+                .config
+                .get_float("text_size", 10.0) as f32,
+            text_color: self
+                .config
+                .get_color("text_color", DEFAULT_TEXT_COLOR),
+        }
+    }
+}
+
 impl Study for BigTradesStudy {
     fn id(&self) -> &str {
         "big_trades"
@@ -571,19 +701,8 @@ impl Study for BigTradesStudy {
         &self.config
     }
 
-    fn set_parameter(
-        &mut self,
-        key: &str,
-        value: ParameterValue,
-    ) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -631,7 +750,10 @@ impl Study for BigTradesStudy {
         self.processed_trade_count = trades.len();
         self.pending_block = pending;
         self.accumulated_markers = markers.clone();
-        self.output = Self::finalize_output(&markers);
+        self.output = Self::finalize_output(
+            &markers,
+            self.build_marker_render_config(),
+        );
         Ok(())
     }
 
@@ -705,36 +827,15 @@ impl Study for BigTradesStudy {
             );
         }
 
-        self.output = Self::finalize_output(&all_markers);
+        self.output = Self::finalize_output(
+            &all_markers,
+            self.build_marker_render_config(),
+        );
         Ok(())
     }
 
     fn output(&self) -> &StudyOutput {
         &self.output
-    }
-
-    fn marker_render_config(&self) -> Option<MarkerRenderConfig> {
-        let shape_str = self.config.get_choice("marker_shape", "Circle");
-        let shape = match shape_str {
-            "Square" => MarkerShape::Square,
-            "Text Only" => MarkerShape::TextOnly,
-            _ => MarkerShape::Circle,
-        };
-
-        Some(MarkerRenderConfig {
-            shape,
-            hollow: self.config.get_bool("hollow", false),
-            std_dev: self.config.get_float("std_dev", 2.0) as f32,
-            min_size: self.config.get_float("min_size", 8.0) as f32,
-            max_size: self.config.get_float("max_size", 36.0) as f32,
-            min_opacity: self.config.get_float("min_opacity", 0.10) as f32,
-            max_opacity: self.config.get_float("max_opacity", 0.60) as f32,
-            show_text: self.config.get_bool("show_text", true),
-            text_size: self.config.get_float("text_size", 10.0) as f32,
-            text_color: self
-                .config
-                .get_color("text_color", DEFAULT_TEXT_COLOR),
-        })
     }
 
     fn reset(&mut self) {
@@ -783,6 +884,7 @@ mod tests {
             Volume(0.0),
             Volume(0.0),
         )
+        .expect("test: valid candle")
     }
 
     fn study_input<'a>(
@@ -821,7 +923,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         assert!(m[0].is_buy);
         assert!(
@@ -866,7 +969,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         assert!(m[0].is_buy);
         assert!(
@@ -898,7 +1002,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         // VWAP = (7*5432.75 + 13*5433.25) / 20 = 5433.075
         let expected = (7.0 * 5432.75 + 13.0 * 5433.25) / 20.0;
@@ -935,7 +1040,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 2);
     }
 
@@ -955,7 +1061,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 2);
         assert!(m[0].is_buy);
         assert!(!m[1].is_buy);
@@ -982,7 +1089,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(
             m.len(),
             1,
@@ -1019,7 +1127,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         assert!(
             (m[0].contracts - 70.0).abs() < f64::EPSILON,
@@ -1092,7 +1201,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         let debug = m[0].debug.as_ref().expect("debug should be set");
         assert_eq!(debug.fill_count, 2);
@@ -1123,7 +1233,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         assert!(
             (m[0].contracts - 60.0).abs() < f64::EPSILON,
@@ -1162,7 +1273,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         // Marker time should snap to candle open (0),
         // not the raw mid_time (150_150)
@@ -1202,7 +1314,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         assert_eq!(
             m[0].time, 300_000,
@@ -1240,7 +1353,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1);
         // Candle index 1 (middle), reverse index = 2 - 1 = 1
         assert_eq!(
@@ -1288,7 +1402,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(
             m.len(),
             2,
@@ -1336,7 +1451,8 @@ mod tests {
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         // Should merge into a single marker on tick charts
         assert_eq!(
             m.len(),
@@ -1375,7 +1491,8 @@ mod tests {
             matches!(output, StudyOutput::Markers(_)),
             "Expected Markers"
         );
-        let StudyOutput::Markers(m) = output else { unreachable!() };
+        let StudyOutput::Markers(md) = output else { unreachable!() };
+        let m = &md.markers;
         assert_eq!(m.len(), 1, "filter_max should exclude 60-lot trade");
         assert!(
             (m[0].contracts - 30.0).abs() < f64::EPSILON,
@@ -1407,9 +1524,7 @@ mod tests {
     #[test]
     fn test_marker_render_config() {
         let study = BigTradesStudy::new();
-        let config = study
-            .marker_render_config()
-            .expect("Big Trades should return MarkerRenderConfig");
+        let config = study.build_marker_render_config();
         assert_eq!(config.shape, MarkerShape::Circle);
         assert!(!config.hollow);
         assert!(config.show_text);

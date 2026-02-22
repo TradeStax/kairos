@@ -116,27 +116,6 @@ impl Kairos {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn restart(&mut self) -> Task<Message> {
-        let mut windows_to_close: Vec<window::Id> = self
-            .active_dashboard()
-            .map(|d| d.popout.keys().copied().collect())
-            .unwrap_or_default();
-        windows_to_close.push(self.main_window.id);
-
-        let close_windows = Task::batch(
-            windows_to_close
-                .into_iter()
-                .map(window::close)
-                .collect::<Vec<_>>(),
-        );
-
-        let (new_state, init_task) = Kairos::new();
-        *self = new_state;
-
-        close_windows.chain(init_task)
-    }
-
     pub fn handle_layout_clone(&mut self, id: uuid::Uuid) {
         let manager = &mut self.layout_manager;
 
@@ -165,7 +144,6 @@ impl Kairos {
             let dashboard = Dashboard::from_config(
                 configuration(ser_dashboard.pane.clone()),
                 popout_windows,
-                old_id,
                 self.market_data_service.clone(),
                 self.data_index.clone(),
             );

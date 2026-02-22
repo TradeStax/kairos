@@ -14,17 +14,6 @@ use data::services::VolumeBucket;
 use data::state::replay::{PlaybackStatus, SpeedPreset};
 use data::{DateRange, FuturesTicker, FuturesTickerInfo, UserTimezone};
 
-// ── Layout offset constants ───────────────────────────────────────────
-// Pre-calculated Y offsets to position popups *below* their trigger buttons.
-// Accounts for modal padding(12), line heights (1.3x font size), and spacing.
-// modal_pad(12) + title(18) + MD(8) + label(17) + XS(4) + btn(28) = 87 + gap
-pub(super) const STREAM_POPUP_Y: f32 = 90.0;
-// stream(87) + MD(8) + label(17) + XS(4) + btn(28) = 144 + gap
-pub(super) const DATETIME_POPUP_Y: f32 = 148.0;
-
-// Square calendar day cell size
-pub(super) const CALENDAR_CELL: f32 = 26.0;
-
 /// Which popup is currently open (only one at a time).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Popup {

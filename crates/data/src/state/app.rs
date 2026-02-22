@@ -198,15 +198,9 @@ impl AppState {
     }
 }
 
-/// Layout manager state (persistence shell)
-///
-/// Wraps `state::layout::LayoutManager` for backward-compatible
-/// serialization inside `AppState`.
-#[derive(Clone, Serialize, Deserialize, Default)]
-pub struct LayoutManager {
-    pub layouts: Vec<super::layout::Layout>,
-    pub active_layout: Option<String>,
-}
+/// Re-export the canonical LayoutManager from state::layout.
+/// The thin wrapper has been removed; all callers should use this type directly.
+pub use super::layout::LayoutManager;
 
 #[cfg(test)]
 mod tests {

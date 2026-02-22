@@ -8,17 +8,21 @@
 //!   -> Saves each day individually for future reuse
 
 mod aggregation;
+mod depth;
 mod download;
 mod gaps;
 mod manager;
+mod ohlcv;
+mod trades;
 
 use super::{DatabentoConfig, DatabentoError, cache::CacheManager, client};
 use databento::HistoricalClient;
+use std::sync::Arc;
 
 /// Manages historical data fetching and caching
 pub struct HistoricalDataManager {
     pub(crate) client: HistoricalClient,
-    pub(crate) cache: CacheManager, // Made pub(crate) for repository access
+    pub(crate) cache: Arc<CacheManager>,
     pub(crate) config: DatabentoConfig,
 }
 
@@ -27,7 +31,7 @@ impl HistoricalDataManager {
     pub async fn new(config: DatabentoConfig) -> Result<Self, DatabentoError> {
         let client = client::create_historical_client(&config)?;
 
-        let cache = CacheManager::new(&config);
+        let cache = Arc::new(CacheManager::new(&config));
         cache.init().await?;
 
         log::debug!(
@@ -39,6 +43,11 @@ impl HistoricalDataManager {
             cache,
             config,
         })
+    }
+
+    /// Get a shared reference to the cache for lock-free read operations.
+    pub fn cache(&self) -> Arc<CacheManager> {
+        Arc::clone(&self.cache)
     }
 
     /// Get cache statistics

@@ -112,9 +112,10 @@ impl ConnectionsMenu {
     }
 
     fn view_connection_row<'a>(&self, feed: &'a DataFeed) -> Element<'a, ConnectionsMenuMessage> {
-        let status_color = palette::status_color(&feed.status);
-
-        let status_dot = components::display::status_dot(status_color);
+        let feed_status = feed.status.clone();
+        let status_dot = components::display::status_dot_themed(
+            move |theme| palette::status_color(theme, &feed_status),
+        );
 
         let feed_id = feed.id;
         let is_connected = feed.status.is_connected();

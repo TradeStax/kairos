@@ -6,7 +6,7 @@
 pub use crate::domain::panel::{ChaseTracker, TradeAggregator};
 
 pub mod ladder {
-    pub use crate::domain::panel::ChaseTracker;
+    pub use crate::domain::panel::{ChaseTracker, GroupedDepth, LadderTrade};
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,23 +33,6 @@ pub mod ladder {
     }
 
     pub use crate::domain::Side;
-
-    /// Grouped depth level
-    #[derive(Debug, Clone)]
-    pub struct GroupedDepth {
-        pub price: i64,
-        pub buy_qty: f32,
-        pub sell_qty: f32,
-    }
-
-    /// A single trade entry in the ladder
-    #[derive(Debug, Clone)]
-    pub struct LadderTrade {
-        pub time: u64,
-        pub price: i64,
-        pub qty: f32,
-        pub is_sell: bool,
-    }
 
     /// Trade store for ladder
     #[derive(Debug, Clone, Default)]

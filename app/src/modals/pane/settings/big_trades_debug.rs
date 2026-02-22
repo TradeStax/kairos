@@ -12,13 +12,7 @@ use iced::{
 };
 use study::output::{StudyOutput, TradeMarker};
 
-const COL_TIME: f32 = 100.0;
-const COL_SIDE: f32 = 40.0;
-const COL_QTY: f32 = 50.0;
-const COL_VWAP: f32 = 80.0;
-const COL_FILLS: f32 = 40.0;
-const COL_WINDOW: f32 = 65.0;
-const COL_RANGE: f32 = 130.0;
+use tokens::debug_table::*;
 
 fn hdr(label: &str, w: f32) -> iced::widget::Text<'_> {
     text(label).size(11).width(Length::Fixed(w))
@@ -34,7 +28,7 @@ pub fn big_trades_debug_view<'a>(
     tick_size: f32,
 ) -> Element<'a, Message> {
     let markers: &[TradeMarker] = match output {
-        StudyOutput::Markers(m) => m,
+        StudyOutput::Markers(data) => &data.markers,
         _ => &[],
     };
 

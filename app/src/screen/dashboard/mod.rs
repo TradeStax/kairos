@@ -48,15 +48,6 @@ pub enum Message {
         schema: exchange::DownloadSchema,
         date_range: data::DateRange,
     },
-    DataCostEstimated {
-        pane_id: uuid::Uuid,
-        total_days: usize,
-        cached_days: usize,
-        uncached_days: usize,
-        gaps_desc: String,
-        actual_cost_usd: f64,
-        cached_dates: Vec<chrono::NaiveDate>,
-    },
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
@@ -74,6 +65,11 @@ pub enum Message {
     },
     DrawingToolSelected(data::DrawingTool),
     DrawingSnapToggled,
+    DrawingUndo,
+    DrawingRedo,
+    DrawingDuplicate,
+    ScrollToLatest,
+    ZoomStep(f32),
     ExchangeEvent(exchange::Event),
     ReplayTrades(FuturesTickerInfo, Vec<data::Trade>),
     ReplayRebuild(FuturesTickerInfo, Vec<data::Trade>),
@@ -150,7 +146,6 @@ impl Dashboard {
     pub fn from_config(
         panes: Configuration<pane::State>,
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
-        _layout_id: uuid::Uuid,
         market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {

@@ -15,7 +15,7 @@ pub fn create_historical_client(
     Ok(client)
 }
 
-/// Validate API key format
+/// Validate API key format — delegates to the shared implementation in `util`.
 pub fn validate_api_key(key: &str) -> bool {
-    !key.is_empty() && key.len() > 10
+    crate::util::validate_api_key(key)
 }

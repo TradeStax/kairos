@@ -1,8 +1,11 @@
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use crate::trend::sma::candle_key;
+use crate::util::candle_key;
 use data::SerializableColor;
 
 const DEFAULT_COLOR: SerializableColor = SerializableColor {
@@ -22,28 +25,38 @@ impl ObvStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "color",
-                label: "Color",
-                description: "OBV line color",
+                key: "color".into(),
+                label: "Color".into(),
+                description: "OBV line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "width",
-                label: "Width",
-                description: "Line width",
+                key: "width".into(),
+                label: "Width".into(),
+                description: "Line width".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 5.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(1.5),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("obv");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -85,15 +98,8 @@ impl Study for ObvStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -171,6 +177,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {

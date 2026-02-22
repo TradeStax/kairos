@@ -25,10 +25,12 @@
 
 pub mod data;
 mod render;
+mod studies;
 pub mod trades;
 
 use crate::chart::{
-    Chart, PlotConstants, ViewState, drawing::DrawingManager,
+    Chart, PlotConstants, ViewState,
+    drawing::{ChartDrawingAccess, DrawingManager},
     scale::linear::PriceInfoLabel,
 };
 use crate::modals::pane::settings::study;
@@ -62,7 +64,7 @@ const MIN_CELL_WIDTH: f32 = 1.0;
 /// Maximum cell height in pixels
 const MAX_CELL_HEIGHT: f32 = 10.0;
 /// Minimum cell height in pixels
-const MIN_CELL_HEIGHT: f32 = 1.0;
+const MIN_CELL_HEIGHT: f32 = 0.1;
 
 /// Default cell width
 const DEFAULT_CELL_WIDTH: f32 = 3.0;
@@ -148,6 +150,10 @@ impl Chart for HeatmapChart {
 
     fn is_drawing_selected(&self, id: ::data::DrawingId) -> bool {
         self.drawings.is_selected(id)
+    }
+
+    fn is_drawing_locked(&self, id: ::data::DrawingId) -> bool {
+        self.drawings.get(id).is_some_and(|d| d.locked)
     }
 
     fn has_clone_pending(&self) -> bool {
@@ -245,7 +251,7 @@ pub struct HeatmapChart {
     last_tick: Instant,
 
     /// Drawing manager for chart annotations
-    pub drawings: DrawingManager,
+    drawings: DrawingManager,
 
     /// Cached qty_scales to avoid recomputation when viewport hasn't changed
     qty_scale_cache: Cell<Option<(u64, u64, i64, i64, QtyScale)>>,
@@ -279,7 +285,7 @@ impl HeatmapChart {
         // Process depth snapshots if available
         if let Some(depth_snapshots) = &chart_data.depth_snapshots {
             log::info!(
-                "📊 Processing {} depth snapshots for heatmap...",
+                "Processing {} depth snapshots for heatmap...",
                 depth_snapshots.len()
             );
             let total = depth_snapshots.len();
@@ -292,7 +298,7 @@ impl HeatmapChart {
                     let elapsed = start_time.elapsed().as_secs_f32();
                     let rate = (idx + 1) as f32 / elapsed;
                     log::info!(
-                        "  📊 Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
+                        "  Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
                         idx + 1,
                         total,
                         ((idx + 1) as f32 / total as f32) * 100.0,
@@ -303,20 +309,20 @@ impl HeatmapChart {
 
             let total_time = start_time.elapsed();
             log::info!(
-                "✓ Depth processing complete in {:.2}s",
+                "Depth processing complete in {:.2}s",
                 total_time.as_secs_f32()
             );
         }
 
         // Process trades
         log::info!(
-            "📊 Processing {} trades for heatmap...",
+            "Processing {} trades for heatmap...",
             chart_data.trades.len()
         );
         for trade in &chart_data.trades {
             heatmap_data.add_trade(trade, basis, tick_size);
         }
-        log::info!("✓ Trade processing complete");
+        log::info!("Trade processing complete");
 
         // Calculate initial price from best bid/ask or trades
         let base_price = if let Some(depth_snapshots) = &chart_data.depth_snapshots {
@@ -491,37 +497,6 @@ impl HeatmapChart {
         self.invalidate(None);
     }
 
-    /// Get study configurator
-    pub fn study_configurator(&self) -> &study::Configurator<HeatmapStudy> {
-        &self.study_configurator
-    }
-
-    /// Update study configurator (add/remove/configure studies)
-    pub fn update_study_configurator(&mut self, message: study::Message<HeatmapStudy>) {
-        let studies = &mut self.studies;
-
-        match self.study_configurator.update(message) {
-            Some(study::Action::ToggleStudy(study, is_selected)) => {
-                if is_selected {
-                    let already_exists = studies.iter().any(|s| s.is_same_type(&study));
-                    if !already_exists {
-                        studies.push(study);
-                    }
-                } else {
-                    studies.retain(|s| !s.is_same_type(&study));
-                }
-            }
-            Some(study::Action::ConfigureStudy(study)) => {
-                if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
-                    *existing_study = study;
-                }
-            }
-            None => {}
-        }
-
-        self.invalidate(None);
-    }
-
     /// Get basis interval in milliseconds (None for tick basis)
     pub fn basis_interval(&self) -> Option<u64> {
         match self.basis {
@@ -566,13 +541,8 @@ impl HeatmapChart {
         self.chart.tick_size.to_f32_lossy()
     }
 
-    /// Toggle indicator on/off
-    pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {
-        self.indicators[indicator] = !self.indicators[indicator];
-    }
-
     /// Invalidate caches and trigger redraw
-    pub fn invalidate(&mut self, now: Option<Instant>) -> Option<super::Action> {
+    pub fn invalidate(&mut self, now: Option<Instant>) {
         let chart = &mut self.chart;
 
         if chart.layout.autoscale.is_some() {
@@ -589,8 +559,6 @@ impl HeatmapChart {
         if let Some(t) = now {
             self.last_tick = t;
         }
-
-        None
     }
 
     /// Get last update time
@@ -598,6 +566,41 @@ impl HeatmapChart {
         self.last_tick
     }
 
+    /// Get a reference to the drawing manager
+    pub fn drawings(&self) -> &DrawingManager {
+        &self.drawings
+    }
+
+    /// Get a mutable reference to the drawing manager (invalidates drawing cache)
+    pub fn drawings_mut(&mut self) -> &mut DrawingManager {
+        self.chart.cache.clear_drawings();
+        &mut self.drawings
+    }
+}
+
+impl ChartDrawingAccess for HeatmapChart {
+    fn drawings(&self) -> &DrawingManager {
+        &self.drawings
+    }
+
+    fn drawings_mut(&mut self) -> &mut DrawingManager {
+        &mut self.drawings
+    }
+
+    fn view_state(&self) -> &ViewState {
+        &self.chart
+    }
+
+    fn invalidate_drawings_cache(&mut self) {
+        self.chart.cache.clear_drawings();
+    }
+
+    fn invalidate_crosshair_cache(&mut self) {
+        self.chart.cache.clear_crosshair();
+    }
+}
+
+impl HeatmapChart {
     /// Calculate quantity scales for rendering, with viewport-based caching
     pub(crate) fn calc_qty_scales(
         &self,

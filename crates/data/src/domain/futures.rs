@@ -332,11 +332,6 @@ impl FuturesTicker {
     pub fn market_type(&self) -> &'static str {
         "futures"
     }
-
-    /// Get exchange (alias for venue)
-    pub fn exchange(&self) -> FuturesVenue {
-        self.venue
-    }
 }
 
 impl fmt::Display for FuturesTicker {
@@ -434,10 +429,6 @@ impl FuturesTickerInfo {
 
     pub fn contract_type(&self) -> ContractType {
         self.ticker.contract_type()
-    }
-
-    pub fn exchange(&self) -> FuturesVenue {
-        self.venue()
     }
 
     /// Get min tick size as PriceStep (for compatibility with exchange layer)

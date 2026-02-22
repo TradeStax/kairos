@@ -12,6 +12,8 @@ pub enum DataError {
     Repository(String),
     #[error("State error: {0}")]
     State(String),
+    #[error("Invalid range: {context}")]
+    InvalidRange { context: String },
 }
 
 impl AppError for DataError {
@@ -20,6 +22,7 @@ impl AppError for DataError {
             Self::Service(s) => format!("Service error: {s}"),
             Self::Repository(s) => format!("Data error: {s}"),
             Self::State(s) => format!("State error: {s}"),
+            Self::InvalidRange { context } => format!("Invalid range: {context}"),
         }
     }
 

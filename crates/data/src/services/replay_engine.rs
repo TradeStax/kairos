@@ -149,8 +149,8 @@ pub struct ReplayEngine {
     /// Event sender channel (bounded to prevent memory growth under heavy load)
     event_tx: mpsc::Sender<ReplayEvent>,
 
-    /// Event receiver channel (public for external consumption, Option to allow taking)
-    pub event_rx: Option<mpsc::Receiver<ReplayEvent>>,
+    /// Event receiver channel (private; use take_event_rx() for external access)
+    event_rx: Option<mpsc::Receiver<ReplayEvent>>,
 
     /// Background playback task handle
     playback_handle: Option<tokio::task::JoinHandle<()>>,
@@ -329,20 +329,15 @@ impl ReplayEngine {
             message: "Loading complete".to_string(),
         });
 
+        let (trade_count, depth_count, time_range) = {
+            let st = self.state.read().await;
+            (st.trade_count, st.depth_count, st.time_range)
+        };
         self.emit_event(ReplayEvent::DataLoaded {
             ticker: ticker_info.ticker,
-            trade_count: {
-                let state = self.state.read().await;
-                state.trade_count
-            },
-            depth_count: {
-                let state = self.state.read().await;
-                state.depth_count
-            },
-            time_range: {
-                let state = self.state.read().await;
-                state.time_range
-            },
+            trade_count,
+            depth_count,
+            time_range,
         });
 
         Ok(())
@@ -628,6 +623,11 @@ impl ReplayEngine {
         }));
     }
 
+    /// Take the event receiver (can only be called once; subsequent calls return None)
+    pub fn take_event_rx(&mut self) -> Option<mpsc::Receiver<ReplayEvent>> {
+        self.event_rx.take()
+    }
+
     /// Emit an event (non-blocking, drops event if channel is full)
     fn emit_event(&self, event: ReplayEvent) {
         if let Err(e) = self.event_tx.try_send(event) {
@@ -895,7 +895,8 @@ mod tests {
         let date_range = DateRange::new(
             NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
             NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
-        );
+        )
+        .expect("invariant: start <= end for test date range");
         engine
             .load_data(ticker_info, date_range)
             .await

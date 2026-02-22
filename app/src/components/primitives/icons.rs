@@ -42,8 +42,6 @@ pub enum Icon {
     Checkmark,     // check
     Clone,         // copy
     Sort,          // filter
-    SortDesc,      // chevron-down
-    SortAsc,       // chevron-up
     DragHandle,    // more-vertical
     Folder,        // folder
     ExternalLink,  // external-link
@@ -61,7 +59,6 @@ pub enum Icon {
     DrawExtendedLine,   // custom: edge-to-edge diagonal
     DrawHLine,          // minus
     DrawVLine,          // custom: vertical line
-    DrawTrendLine,      // trending-up
     DrawFibRetracement, // custom: horizontal levels + left bracket
     DrawFibExtension,   // custom: horizontal levels + right bracket
     DrawChannel,        // custom: two parallel diagonal lines
@@ -72,6 +69,8 @@ pub enum Icon {
     DrawArrow,          // arrow-up-right
     DrawPriceRange,     // bar-chart-2
     DrawDateRange,      // calendar
+    DrawBuyCalc,        // buy calculator (trending-up)
+    DrawSellCalc,       // sell calculator (trending-down)
     // ── UI chrome ────────────────────────────────────────────────
     ExpandRight, // chevron-right
     SnapOn,      // zap
@@ -114,8 +113,6 @@ impl From<Icon> for char {
             Icon::Checkmark => '\u{E811}',     // check
             Icon::Clone => '\u{E812}',         // copy
             Icon::Sort => '\u{E813}',          // filter
-            Icon::SortDesc => '\u{E814}',      // chevron-down
-            Icon::SortAsc => '\u{E815}',       // chevron-up
             Icon::DragHandle => '\u{E816}',    // more-vertical
             Icon::Folder => '\u{E817}',        // folder
             Icon::ExternalLink => '\u{E818}',  // external-link
@@ -133,7 +130,6 @@ impl From<Icon> for char {
             Icon::DrawExtendedLine => '\u{E822}',   // custom edge-to-edge
             Icon::DrawHLine => '\u{E823}',          // minus
             Icon::DrawVLine => '\u{E824}',          // custom vertical line
-            Icon::DrawTrendLine => '\u{E826}',      // trending-up
             Icon::DrawFibRetracement => '\u{E827}', // custom levels + left
             Icon::DrawFibExtension => '\u{E828}',   // custom levels + right
             Icon::DrawChannel => '\u{E829}',        // custom parallel lines
@@ -144,12 +140,14 @@ impl From<Icon> for char {
             Icon::DrawArrow => '\u{E82E}',          // arrow-up-right
             Icon::DrawPriceRange => '\u{E82F}',     // bar-chart-2
             Icon::DrawDateRange => '\u{E830}',      // calendar
+            Icon::DrawBuyCalc => '\u{E826}',        // trending-up
+            Icon::DrawSellCalc => '\u{E835}',       // trending-down
             // ── UI chrome ────────────────────────────────────────
             Icon::ExpandRight => '\u{E831}', // chevron-right
             Icon::SnapOn => '\u{E833}',      // zap
             Icon::SnapOff => '\u{E834}',     // zap-off
-            Icon::ChevronUp => '\u{E815}',   // chevron-up (same as SortAsc)
-            Icon::ChevronDown => '\u{E814}', // chevron-down (same as SortDesc)
+            Icon::ChevronUp => '\u{E815}',   // chevron-up
+            Icon::ChevronDown => '\u{E814}', // chevron-down
             // ── Window controls (system font) ────────────────────
             Icon::Minimize => '\u{2013}', // EN DASH
         }

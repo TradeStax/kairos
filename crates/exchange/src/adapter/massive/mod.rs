@@ -30,6 +30,7 @@ pub mod client;
 pub mod decoder;
 pub mod fetcher;
 pub mod mapper;
+pub(crate) mod util;
 
 // Re-export main types
 pub use cache::CacheManager;
@@ -127,18 +128,29 @@ impl MassiveConfig {
         }
     }
 
+    /// Create a new configuration with explicit API key
+    pub fn with_api_key(api_key: String) -> Self {
+        Self::new(api_key)
+    }
+
     /// Create configuration from environment variable (MASSIVE_API_KEY).
-    /// For keyring/UI-configured keys, use `new` with the key from the GUI crate's SecretsManager.
-    pub fn from_env() -> Result<Self, MassiveError> {
-        let key = std::env::var(kairos_data::ApiProvider::Massive.env_var()).map_err(|_| {
-            MassiveError::Config(
-                "Massive API key not configured. Set via UI or MASSIVE_API_KEY environment variable.".to_string(),
-            )
-        })?;
+    /// For keyring/UI-configured keys, use `with_api_key` with the key
+    /// from the GUI crate's SecretsManager.
+    pub fn from_env() -> Result<Self, super::AdapterError> {
+        let key =
+            std::env::var(kairos_data::ApiProvider::Massive.env_var()).map_err(|_| {
+                super::AdapterError::InvalidRequest(
+                    "Massive API key not configured. Set via UI or \
+                     MASSIVE_API_KEY environment variable."
+                        .to_string(),
+                )
+            })?;
         if key.is_empty() {
-            return Err(MassiveError::Config("MASSIVE_API_KEY is empty.".to_string()));
+            return Err(super::AdapterError::InvalidRequest(
+                "MASSIVE_API_KEY is empty.".to_string(),
+            ));
         }
-        Ok(Self::new(key))
+        Ok(Self::with_api_key(key))
     }
 
     /// Validate configuration
@@ -287,6 +299,20 @@ impl MassiveError {
             MassiveError::RateLimit(_) => ErrorSeverity::Recoverable,
             _ => ErrorSeverity::Recoverable,
         }
+    }
+}
+
+impl kairos_data::AppError for MassiveError {
+    fn user_message(&self) -> String {
+        self.user_message()
+    }
+
+    fn is_retriable(&self) -> bool {
+        self.is_retriable()
+    }
+
+    fn severity(&self) -> kairos_data::ErrorSeverity {
+        self.severity()
     }
 }
 

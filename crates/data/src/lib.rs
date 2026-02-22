@@ -36,13 +36,16 @@ pub use repository::{
     RepositoryResult, RepositoryStats, TradeRepository,
 };
 
-pub use services::{CacheManagerService, MarketDataService, ServiceError, merge_segments};
+pub use services::{
+    CacheManagerService, DataRequestEstimate, MarketDataService, ServiceError, merge_segments,
+};
 
 pub use state::{
     AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
     DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
-    Layouts, LinkGroup, Pane, ScriptEditorConfig, Settings, StateVersion, StudyInstanceConfig,
-    TimeAndSalesConfig, VisualConfig, WindowSpec, load_state, save_state,
+    Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileLengthUnit, ProfilePeriod,
+    ScriptEditorConfig, Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
+    VisualConfig, WindowSpec, load_state, save_state,
 };
 
 // Re-export config types
@@ -58,8 +61,8 @@ pub use config::secrets::{ApiKeyStatus, ApiProvider, SecretsError};
 
 // Re-export drawing types
 pub use drawing::{
-    DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment, LineStyle,
-    SerializableColor, SerializableDrawing, SerializablePoint,
+    CalcMode, DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment,
+    LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing, SerializablePoint,
 };
 
 // Re-export feed types

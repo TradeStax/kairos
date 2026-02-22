@@ -68,7 +68,13 @@ impl ScriptRegistry {
     pub fn create(&self, id: &str) -> Option<Box<dyn Study>> {
         let manifest = self.manifests.get(id)?;
         let bytecode = self.bytecodes.get(id)?;
-        Some(Box::new(ScriptStudy::new(manifest.clone(), bytecode.clone())))
+        match ScriptStudy::new(manifest.clone(), bytecode.clone()) {
+            Ok(study) => Some(Box::new(study)),
+            Err(e) => {
+                log::warn!("Failed to create ScriptStudy '{}': {}", id, e);
+                None
+            }
+        }
     }
 
     /// List all loaded script indicators.
@@ -120,7 +126,10 @@ impl ScriptRegistry {
             };
 
             registry.register(id, info, move || {
-                Box::new(ScriptStudy::new(manifest_clone.clone(), bytecode.clone()))
+                Box::new(
+                    ScriptStudy::new(manifest_clone.clone(), bytecode.clone())
+                        .expect("failed to create JS runtime for script study"),
+                )
             });
         }
     }

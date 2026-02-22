@@ -47,17 +47,19 @@ pub struct InputDeclaration {
 }
 
 impl InputDeclaration {
-    /// Convert to a study ParameterDef (borrows key/label/description).
-    ///
-    /// NOTE: This creates owned ParameterDef with leaked &'static str references.
-    /// In practice, manifests live for the entire app lifetime, so this is acceptable.
+    /// Convert to a study ParameterDef.
     pub fn to_parameter_def(&self) -> study::config::ParameterDef {
         study::config::ParameterDef {
-            key: Box::leak(self.key.clone().into_boxed_str()),
-            label: Box::leak(self.label.clone().into_boxed_str()),
-            description: Box::leak(self.description.clone().into_boxed_str()),
+            key: self.key.clone(),
+            label: self.label.clone(),
+            description: self.description.clone(),
             kind: self.kind.clone(),
             default: self.default.clone(),
+            tab: study::config::ParameterTab::Parameters,
+            section: None,
+            order: 0,
+            format: study::config::DisplayFormat::Auto,
+            visible_when: study::config::Visibility::Always,
         }
     }
 }

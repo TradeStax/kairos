@@ -177,6 +177,11 @@ pub enum Action {
     FeedsUpdated,
     OpenHistoricalDownload,
     LoadPreview(FeedId, HistoricalDatasetInfo),
+    /// Persist an API credential via the OS keyring (parent has SecretsManager access).
+    SaveApiKey {
+        provider: data::ApiProvider,
+        key: String,
+    },
 }
 
 impl DataFeedsModal {
@@ -317,33 +322,32 @@ impl DataFeedsModal {
                 if let Some(id) = self.selected_feed {
                     let provider = self.edit_form.provider;
 
-                    if provider == Some(FeedProvider::Databento)
-                        && !self.edit_form.api_key.is_empty()
-                    {
-                        let secrets = crate::infra::secrets::SecretsManager::new();
-                        if let Err(e) = secrets
-                            .set_api_key(data::ApiProvider::Databento, &self.edit_form.api_key)
-                        {
-                            log::warn!("Failed to save Databento API key: {}", e);
-                        }
-                    }
-                    if provider == Some(FeedProvider::Rithmic)
-                        && !self.edit_form.password.is_empty()
-                    {
-                        let secrets = crate::infra::secrets::SecretsManager::new();
-                        if let Err(e) = secrets
-                            .set_api_key(data::ApiProvider::Rithmic, &self.edit_form.password)
-                        {
-                            log::warn!("Failed to save Rithmic password: {}", e);
-                        }
-                    }
-
+                    // Apply form data to the feed config before persisting
                     if let Some(feed) = feed_manager.get_mut(id) {
                         self.apply_form_to_feed(feed);
                     }
 
                     self.is_creating = false;
                     self.has_changes = false;
+
+                    // Delegate credential persistence to the parent (modal has no keyring access)
+                    if provider == Some(FeedProvider::Databento)
+                        && !self.edit_form.api_key.is_empty()
+                    {
+                        return Some(Action::SaveApiKey {
+                            provider: data::ApiProvider::Databento,
+                            key: self.edit_form.api_key.clone(),
+                        });
+                    }
+                    if provider == Some(FeedProvider::Rithmic)
+                        && !self.edit_form.password.is_empty()
+                    {
+                        return Some(Action::SaveApiKey {
+                            provider: data::ApiProvider::Rithmic,
+                            key: self.edit_form.password.clone(),
+                        });
+                    }
+
                     return Some(Action::FeedsUpdated);
                 }
             }

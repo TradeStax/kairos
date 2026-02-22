@@ -1,2 +1,4 @@
+pub mod candle;
 pub mod math;
-pub mod series;
+
+pub use candle::{candle_key, source_value};

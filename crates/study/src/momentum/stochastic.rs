@@ -1,8 +1,12 @@
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
+    Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use crate::trend::sma::candle_key;
+use crate::trend::sma::compute_sma;
+use crate::util::candle_key;
 use data::SerializableColor;
 
 const DEFAULT_K_COLOR: SerializableColor = SerializableColor {
@@ -29,67 +33,102 @@ impl StochasticStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "k_period",
-                label: "%K Period",
-                description: "Lookback period for %K calculation",
+                key: "k_period".into(),
+                label: "%K Period".into(),
+                description: "Lookback period for %K calculation".into(),
                 kind: ParameterKind::Integer { min: 5, max: 50 },
                 default: ParameterValue::Integer(14),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "d_period",
-                label: "%D Period",
-                description: "Smoothing period for %D (signal line)",
+                key: "d_period".into(),
+                label: "%D Period".into(),
+                description: "Smoothing period for %D (signal line)".into(),
                 kind: ParameterKind::Integer { min: 1, max: 20 },
                 default: ParameterValue::Integer(3),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "smooth",
-                label: "Smooth",
-                description: "Smoothing period for %K",
+                key: "smooth".into(),
+                label: "Smooth".into(),
+                description: "Smoothing period for %K".into(),
                 kind: ParameterKind::Integer { min: 1, max: 10 },
                 default: ParameterValue::Integer(3),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "overbought",
-                label: "Overbought",
-                description: "Overbought level",
+                key: "overbought".into(),
+                label: "Overbought".into(),
+                description: "Overbought level".into(),
                 kind: ParameterKind::Float {
                     min: 50.0,
                     max: 100.0,
                     step: 5.0,
                 },
                 default: ParameterValue::Float(80.0),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 3,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "oversold",
-                label: "Oversold",
-                description: "Oversold level",
+                key: "oversold".into(),
+                label: "Oversold".into(),
+                description: "Oversold level".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 50.0,
                     step: 5.0,
                 },
                 default: ParameterValue::Float(20.0),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 4,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "k_color",
-                label: "%K Color",
-                description: "%K line color",
+                key: "k_color".into(),
+                label: "%K Color".into(),
+                description: "%K line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_K_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "d_color",
-                label: "%D Color",
-                description: "%D line color",
+                key: "d_color".into(),
+                label: "%D Color".into(),
+                description: "%D line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_D_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("stochastic");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -104,21 +143,6 @@ impl Default for StochasticStudy {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Compute a simple moving average over a slice.
-fn sma(values: &[f64], period: usize) -> Vec<f64> {
-    if values.len() < period {
-        return vec![];
-    }
-    let mut result = Vec::with_capacity(values.len() - period + 1);
-    let mut sum: f64 = values[..period].iter().sum();
-    result.push(sum / period as f64);
-    for i in period..values.len() {
-        sum += values[i] - values[i - period];
-        result.push(sum / period as f64);
-    }
-    result
 }
 
 impl Study for StochasticStudy {
@@ -146,15 +170,8 @@ impl Study for StochasticStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -195,7 +212,7 @@ impl Study for StochasticStudy {
 
         // Step 2: Smooth %K with SMA
         let smoothed_k = if smooth > 1 {
-            sma(&raw_k, smooth)
+            compute_sma(&raw_k, smooth)
         } else {
             raw_k.clone()
         };
@@ -206,7 +223,7 @@ impl Study for StochasticStudy {
         }
 
         // Step 3: %D = SMA of smoothed %K
-        let d_values = sma(&smoothed_k, d_period);
+        let d_values = compute_sma(&smoothed_k, d_period);
 
         if d_values.is_empty() {
             self.output = StudyOutput::Empty;
@@ -287,6 +304,7 @@ mod tests {
             Volume(100.0),
             Volume(100.0),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {

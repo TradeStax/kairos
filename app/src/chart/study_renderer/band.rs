@@ -3,10 +3,10 @@
 //! Renders Bollinger-style bands: upper line, optional middle line, lower line,
 //! with a semi-transparent fill between upper and lower.
 
-use super::{value_range, value_to_panel_y};
+use super::coord;
 use crate::chart::ViewState;
 use exchange::util::Price;
-use iced::widget::canvas::{Frame, LineDash, Path, Stroke};
+use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::StudyPlacement;
 use study::output::LineSeries;
@@ -33,14 +33,27 @@ pub fn render_band(
             .iter()
             .chain(lower.points.iter())
             .map(|(_, v)| *v);
-        value_range(all_values)
+        coord::value_range(all_values)
     } else {
         None
     };
 
     // Fill between upper and lower
     if fill_opacity > 0.0 {
-        render_band_fill(
+        // Soft glow: slightly expanded fill at lower alpha
+        render_band_fill_with_offset(
+            frame,
+            upper,
+            lower,
+            fill_opacity * 0.3,
+            state,
+            bounds,
+            placement,
+            panel_range,
+            1.0, // 1px expansion beyond band edges
+        );
+        // Main fill
+        render_band_fill_with_offset(
             frame,
             upper,
             lower,
@@ -49,6 +62,7 @@ pub fn render_band(
             bounds,
             placement,
             panel_range,
+            0.0,
         );
     }
 
@@ -76,7 +90,7 @@ fn render_band_line(
     let stroke = Stroke::with_color(
         Stroke {
             width: series.width,
-            line_dash: line_dash_for_style(&series.style),
+            line_dash: coord::line_dash_for_style(&series.style),
             ..Stroke::default()
         },
         color,
@@ -95,7 +109,7 @@ fn render_band_line(
     }
 }
 
-fn render_band_fill(
+fn render_band_fill_with_offset(
     frame: &mut Frame,
     upper: &LineSeries,
     lower: &LineSeries,
@@ -104,31 +118,33 @@ fn render_band_fill(
     bounds: Size,
     placement: StudyPlacement,
     panel_range: Option<(f32, f32)>,
+    offset: f32,
 ) {
     // Build upper and lower screen points with matching x positions.
     // Use the upper series color for the fill.
     let fill_color: Color = crate::style::theme_bridge::rgba_to_iced_color(upper.color);
     let fill_color = fill_color.scale_alpha(fill_opacity);
 
-    // Collect upper points
+    // Collect upper points (offset upward = subtract from screen Y)
     let upper_pts: Vec<Point> = upper
         .points
         .iter()
         .map(|&(x_val, y_val)| {
             let sx = state.interval_to_x(x_val);
-            let sy = to_y(y_val, state, bounds, placement, panel_range);
+            let sy = to_y(y_val, state, bounds, placement, panel_range) - offset;
             Point::new(sx, sy)
         })
         .collect();
 
-    // Collect lower points (reversed for closing the polygon)
+    // Collect lower points (reversed for closing the polygon,
+    // offset downward = add to screen Y)
     let lower_pts: Vec<Point> = lower
         .points
         .iter()
         .rev()
         .map(|&(x_val, y_val)| {
             let sx = state.interval_to_x(x_val);
-            let sy = to_y(y_val, state, bounds, placement, panel_range);
+            let sy = to_y(y_val, state, bounds, placement, panel_range) + offset;
             Point::new(sx, sy)
         })
         .collect();
@@ -164,11 +180,11 @@ fn to_y(
         StudyPlacement::Overlay
         | StudyPlacement::Background
         | StudyPlacement::CandleReplace => {
-            state.price_to_y(Price::from_f32_lossy(value))
+            state.price_to_y(Price::from_f32(value))
         }
         StudyPlacement::Panel => {
             if let Some((min, max)) = panel_range {
-                value_to_panel_y(value, min, max, bounds.height)
+                coord::value_to_panel_y(value, min, max, bounds.height)
             } else {
                 bounds.height
             }
@@ -176,16 +192,3 @@ fn to_y(
     }
 }
 
-fn line_dash_for_style(style: &study::config::LineStyleValue) -> LineDash<'static> {
-    match style {
-        study::config::LineStyleValue::Solid => LineDash::default(),
-        study::config::LineStyleValue::Dashed => LineDash {
-            segments: &[6.0, 4.0],
-            offset: 0,
-        },
-        study::config::LineStyleValue::Dotted => LineDash {
-            segments: &[2.0, 3.0],
-            offset: 0,
-        },
-    }
-}

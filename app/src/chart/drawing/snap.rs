@@ -75,6 +75,11 @@ pub fn constrain_creation(tool: DrawingTool, anchor: Point, cursor: Point) -> Po
 
         DrawingTool::Ellipse => constrain_circle(anchor, cursor),
 
+        // Entry handle: lock to H or V axis
+        DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
+            constrain_axis(anchor, cursor)
+        }
+
         _ => cursor,
     }
 }
@@ -89,6 +94,35 @@ pub fn constrain_handle(
     bounds: Size,
     cursor: Point,
 ) -> Point {
+    // Calculator tools: handle 0 = axis lock, handle 1 = free,
+    // handle 2 = lock X to point 1
+    if matches!(
+        tool,
+        DrawingTool::BuyCalculator | DrawingTool::SellCalculator
+    ) {
+        return match handle_index {
+            0 => {
+                // Entry: lock to H or V axis from point 1
+                if points.len() > 1 {
+                    let anchor = points[1].as_screen_point(state, bounds);
+                    constrain_axis(anchor, cursor)
+                } else {
+                    cursor
+                }
+            }
+            2 => {
+                // Stop: lock X to point 1's X (Y is free)
+                if points.len() > 1 {
+                    let p1_screen = points[1].as_screen_point(state, bounds);
+                    Point::new(p1_screen.x, cursor.y)
+                } else {
+                    cursor
+                }
+            }
+            _ => cursor, // Target (handle 1): free
+        };
+    }
+
     let anchor_index = match tool {
         DrawingTool::Line
         | DrawingTool::Ray
@@ -118,7 +152,7 @@ pub fn constrain_handle(
         return cursor;
     }
 
-    let anchor = points[anchor_index].to_screen(state, bounds);
+    let anchor = points[anchor_index].as_screen_point(state, bounds);
 
     match tool {
         DrawingTool::Line

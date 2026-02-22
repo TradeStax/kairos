@@ -164,6 +164,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                 data::ContentKind::TimeAndSales => pane::Content::TimeAndSales(None),
                 data::ContentKind::Ladder => pane::Content::Ladder(None),
                 data::ContentKind::ComparisonChart => pane::Content::Comparison(None),
+                data::ContentKind::ProfileChart => pane::Content::Starter,
                 data::ContentKind::ScriptEditor => {
                     let loader = script::ScriptLoader::new();
                     let script_list = pane::build_script_list(&loader);
@@ -306,7 +307,6 @@ fn rebuild_layout_manager(
         let dashboard = Dashboard::from_config(
             configuration(saved.dashboard.pane.clone()),
             popout_windows,
-            uid,
             market_data_service.clone(),
             data_index.clone(),
         );

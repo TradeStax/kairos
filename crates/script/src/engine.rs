@@ -8,14 +8,7 @@ use rquickjs::Runtime;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// Memory limit per runtime (16MB).
-const MEMORY_LIMIT: usize = 16 * 1024 * 1024;
-/// Max stack size (512KB).
-const MAX_STACK_SIZE: usize = 512 * 1024;
-/// GC threshold (2MB).
-const GC_THRESHOLD: usize = 2 * 1024 * 1024;
-/// Default execution timeout (100ms).
-const DEFAULT_TIMEOUT_MS: u64 = 100;
+use crate::limits;
 
 /// The core script engine that manages the QuickJS runtime and script lifecycle.
 pub struct ScriptEngine {
@@ -28,16 +21,16 @@ impl ScriptEngine {
     /// Create a new ScriptEngine with default resource limits.
     pub fn new() -> Result<Self, ScriptError> {
         let runtime = Runtime::new()?;
-        runtime.set_memory_limit(MEMORY_LIMIT);
-        runtime.set_max_stack_size(MAX_STACK_SIZE);
-        runtime.set_gc_threshold(GC_THRESHOLD);
+        runtime.set_memory_limit(limits::MEMORY_LIMIT);
+        runtime.set_max_stack_size(limits::MAX_STACK_SIZE);
+        runtime.set_gc_threshold(limits::GC_THRESHOLD);
 
         let compiler = ScriptCompiler::new()?;
 
         Ok(Self {
             runtime,
             compiler,
-            timeout_ms: DEFAULT_TIMEOUT_MS,
+            timeout_ms: limits::TIMEOUT_MS,
         })
     }
 

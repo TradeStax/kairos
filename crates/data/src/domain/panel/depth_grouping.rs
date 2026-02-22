@@ -5,7 +5,25 @@
 //!
 //! All prices are in exchange::util::Price units (i64) for precision.
 
+use crate::domain::types::Price;
 use std::collections::BTreeMap;
+
+/// Grouped depth level for ladder display
+#[derive(Debug, Clone)]
+pub struct GroupedDepth {
+    pub price: Price,
+    pub buy_qty: f32,
+    pub sell_qty: f32,
+}
+
+/// A single trade entry in the ladder
+#[derive(Debug, Clone)]
+pub struct LadderTrade {
+    pub time: u64,
+    pub price: Price,
+    pub qty: f32,
+    pub is_sell: bool,
+}
 
 /// Order book side for depth grouping (Bid/Ask).
 ///

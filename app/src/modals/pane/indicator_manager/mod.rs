@@ -77,6 +77,10 @@ pub enum SettingsTab {
     Parameters,
     Style,
     Display,
+    Tab4,
+    Tab5,
+    Tab6,
+    Tab7,
 }
 
 impl SettingsTab {
@@ -84,30 +88,11 @@ impl SettingsTab {
         SettingsTab::Parameters,
         SettingsTab::Style,
         SettingsTab::Display,
+        SettingsTab::Tab4,
+        SettingsTab::Tab5,
+        SettingsTab::Tab6,
+        SettingsTab::Tab7,
     ];
-
-    /// Returns the tabs to show for a specific study.
-    pub fn tabs_for_study(study_id: &str) -> &'static [SettingsTab] {
-        match study_id {
-            "big_trades" => &[
-                SettingsTab::Parameters,
-                SettingsTab::Style,
-            ],
-            _ => Self::ALL,
-        }
-    }
-
-    /// Returns the display label for a tab, customized per study.
-    pub fn label_for_study(&self, study_id: &str) -> &'static str {
-        match (study_id, self) {
-            ("big_trades", SettingsTab::Parameters) => "Data Settings",
-            ("footprint", SettingsTab::Parameters) => "General",
-            ("footprint", SettingsTab::Display) => "Colors",
-            (_, SettingsTab::Parameters) => "Parameters",
-            (_, SettingsTab::Style) => "Style",
-            (_, SettingsTab::Display) => "Display",
-        }
-    }
 }
 
 impl std::fmt::Display for SettingsTab {
@@ -116,6 +101,10 @@ impl std::fmt::Display for SettingsTab {
             SettingsTab::Parameters => write!(f, "Parameters"),
             SettingsTab::Style => write!(f, "Style"),
             SettingsTab::Display => write!(f, "Display"),
+            SettingsTab::Tab4 => write!(f, "Tab 4"),
+            SettingsTab::Tab5 => write!(f, "Tab 5"),
+            SettingsTab::Tab6 => write!(f, "Tab 6"),
+            SettingsTab::Tab7 => write!(f, "Tab 7"),
         }
     }
 }

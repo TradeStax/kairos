@@ -11,7 +11,7 @@ use iced_core::renderer::Quad;
 
 use chrono::TimeZone;
 
-use super::scene::{HitZone, Regions};
+use super::scene::{HitZone, Regions, Scene};
 use crate::style::tokens;
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
@@ -46,6 +46,25 @@ pub enum LineComparisonEvent {
     XAxisDoubleClick,
 }
 
+/// Cache key for `compute_scene` — invalidated when layout bounds, cursor position, or
+/// data version changes. Allows `draw()` and `mouse_interaction()` to share a single
+/// scene computation per frame.
+#[derive(Clone, PartialEq)]
+struct SceneCacheKey {
+    bounds: Rectangle,
+    cursor_pos: Option<[u32; 2]>,
+    version: u64,
+}
+
+impl SceneCacheKey {
+    fn new(bounds: Rectangle, cursor: mouse::Cursor, version: u64) -> Self {
+        let cursor_pos = cursor.position().map(|p| {
+            [p.x.to_bits(), p.y.to_bits()]
+        });
+        Self { bounds, cursor_pos, version }
+    }
+}
+
 struct State {
     plot_cache: canvas::Cache,
     y_axis_cache: canvas::Cache,
@@ -56,6 +75,8 @@ struct State {
     last_cache_rev: u64,
     // Track previous click for double-click detection
     previous_click: Option<iced_core::mouse::Click>,
+    /// Cached scene to avoid recomputing in draw() and mouse_interaction()
+    cached_scene: std::cell::RefCell<Option<(SceneCacheKey, Scene)>>,
 }
 
 impl Default for State {
@@ -69,6 +90,7 @@ impl Default for State {
             last_cursor: None,
             last_cache_rev: 0,
             previous_click: None,
+            cached_scene: std::cell::RefCell::new(None),
         }
     }
 }
@@ -79,6 +101,7 @@ impl State {
         self.y_axis_cache.clear();
         self.x_axis_cache.clear();
         self.overlay_cache.clear();
+        *self.cached_scene.borrow_mut() = None;
     }
 }
 
@@ -245,6 +268,30 @@ where
                 }
             }
         }
+    }
+
+    /// Returns a cached `Scene`, recomputing only when layout bounds, cursor position,
+    /// or data version have changed. This prevents the double computation that occurs
+    /// when both `draw()` and `mouse_interaction()` call `compute_scene()` in the same
+    /// frame.
+    pub(super) fn get_or_compute_scene(
+        &self,
+        state: &State,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+    ) -> Option<Scene> {
+        let key = SceneCacheKey::new(layout.bounds(), cursor, self.version);
+        {
+            let cache = state.cached_scene.borrow();
+            if let Some((cached_key, cached_scene)) = cache.as_ref() {
+                if cached_key == &key {
+                    return Some(cached_scene.clone());
+                }
+            }
+        }
+        let scene = self.compute_scene(layout, cursor)?;
+        *state.cached_scene.borrow_mut() = Some((key, scene.clone()));
+        Some(scene)
     }
 }
 
@@ -464,7 +511,7 @@ where
         use advanced::Renderer as _;
 
         let state = tree.state.downcast_ref::<State>();
-        let Some(scene) = self.compute_scene(layout, cursor) else {
+        let Some(scene) = self.get_or_compute_scene(state, layout, cursor) else {
             return;
         };
 
@@ -587,7 +634,8 @@ where
         _renderer: &Renderer,
     ) -> advanced::mouse::Interaction {
         if let Some(cursor_in_layout) = cursor.position_in(layout.bounds()) {
-            if let Some(scene) = self.compute_scene(layout, cursor) {
+            let state = _state.state.downcast_ref::<State>();
+            if let Some(scene) = self.get_or_compute_scene(state, layout, cursor) {
                 if let Some(legend) = scene.legend.as_ref() {
                     for row in &legend.rows {
                         if row.cog.contains(cursor_in_layout)
@@ -602,7 +650,6 @@ where
                     return advanced::mouse::Interaction::default();
                 }
 
-                let state = _state.state.downcast_ref::<State>();
                 if state.is_panning {
                     return advanced::mouse::Interaction::Grabbing;
                 }

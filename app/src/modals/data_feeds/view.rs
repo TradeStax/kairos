@@ -186,9 +186,9 @@ impl DataFeedsModal {
                 .height(18)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
-                .style(|_theme: &iced::Theme| container::Style {
+                .style(|theme: &iced::Theme| container::Style {
                     background: Some(iced::Background::Color(
-                        palette::info_color().scale_alpha(tokens::alpha::SUBTLE),
+                        palette::info_color(theme).scale_alpha(tokens::alpha::SUBTLE),
                     )),
                     border: iced::Border {
                         radius: 3.0.into(),
@@ -199,8 +199,10 @@ impl DataFeedsModal {
                 .into()
         } else {
             // Status dot for connections
-            let status_color = palette::status_color(&feed.status);
-            components::display::status_dot(status_color)
+            let feed_status = feed.status.clone();
+            components::display::status_dot_themed(
+                move |theme| palette::status_color(theme, &feed_status),
+            )
         };
 
         let info = column![

@@ -29,24 +29,15 @@ pub fn draw_ruler(
 
     let highest_p = state.y_to_price(region.y);
     let lowest_p = state.y_to_price(region.y + region.height);
-    let highest = highest_p.to_f32_lossy();
-    let lowest = lowest_p.to_f32_lossy();
-
-    let tick_size = state.tick_size.to_f32_lossy();
+    let highest = highest_p.to_f32();
+    let lowest = lowest_p.to_f32();
 
     let snap_y = |y: f32| -> f32 {
         let ratio = y / bounds.height;
         let price = highest + ratio * (lowest - highest);
 
-        let rounded_price_p = if state.tick_size.units == 0 {
-            Price::from_f32_lossy((price / tick_size).round() * tick_size)
-        } else {
-            let p = Price::from_f32_lossy(price);
-            let tick_units = state.tick_size.units;
-            let tick_index = p.units().div_euclid(tick_units);
-            Price::from_units(tick_index * tick_units)
-        };
-        let rounded_price = rounded_price_p.to_f32_lossy();
+        let rounded_price_p = Price::from_f32(price).round_to_tick(state.tick_size.to_price());
+        let rounded_price = rounded_price_p.to_f32();
         let price_range = lowest - highest;
         let snap_ratio = if price_range.abs() < f32::EPSILON {
             0.5
@@ -69,11 +60,11 @@ pub fn draw_ruler(
     let price1 = state.y_to_price(snapped_p1_y);
     let price2 = state.y_to_price(snapped_p2_y);
 
-    let p1 = price1.to_f32_lossy();
+    let p1 = price1.to_f32();
     let pct = if p1.abs() < f32::EPSILON {
         0.0
     } else {
-        ((price2.to_f32_lossy() - p1) / p1) * 100.0
+        ((price2.to_f32() - p1) / p1) * 100.0
     };
     let pct_text = format!("{:.2}%", pct);
 
@@ -103,7 +94,7 @@ pub fn draw_ruler(
     frame.fill_rectangle(
         Point::new(rect_x, rect_y),
         Size::new(rect_w, rect_h),
-        palette.primary.base.color.scale_alpha(0.08),
+        palette.primary.base.color.scale_alpha(tokens::chart::ruler::FILL_ALPHA),
     );
 
     // Find corner closest to cursor for text positioning
@@ -125,7 +116,7 @@ pub fn draw_ruler(
         .map(|(i, &c)| (c, i))
         .unwrap();
 
-    let text_padding = 8.0;
+    let text_padding = tokens::chart::ruler::TEXT_PADDING;
     let text_pos = match idx {
         0 => Point::new(text_corner.x + text_padding, text_corner.y + text_padding),
         1 => Point::new(text_corner.x - text_padding, text_corner.y + text_padding),
@@ -158,7 +149,7 @@ pub fn draw_ruler(
 
     let text_width = (label_text.len() as f32) * TEXT_SIZE * 0.6;
     let text_height = TEXT_SIZE * 1.2;
-    let rect_padding = 4.0;
+    let rect_padding = tokens::chart::ruler::RECT_PADDING;
 
     let (bg_x, bg_y) = match idx {
         0 => (text_pos.x - rect_padding, text_pos.y - rect_padding),

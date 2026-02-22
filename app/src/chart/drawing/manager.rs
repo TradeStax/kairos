@@ -5,7 +5,10 @@
 use super::drawing::Drawing;
 use super::point::DrawingPoint;
 use crate::chart::ViewState;
-use data::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
+use data::{
+    DrawingId, DrawingStyle, DrawingTool, LineStyle, PositionCalcConfig, SerializableDrawing,
+};
+use exchange::util::Price as ExchangePrice;
 use iced::{Point, Size};
 use std::collections::{HashSet, VecDeque};
 
@@ -145,6 +148,48 @@ impl DrawingManager {
         self.default_style = style;
     }
 
+    /// Get the default style for a tool, using tool-specific overrides
+    /// for calculator tools. Colors match the theme palette
+    /// (success = green/target, danger = red/stop).
+    fn style_for_tool(&self, tool: DrawingTool) -> DrawingStyle {
+        match tool {
+            DrawingTool::BuyCalculator => DrawingStyle {
+                stroke_color: PositionCalcConfig::DEFAULT_TARGET_COLOR,
+                stroke_width: 1.5,
+                line_style: LineStyle::Dashed,
+                position_calc: Some(PositionCalcConfig::default()),
+                ..self.default_style.clone()
+            },
+            DrawingTool::SellCalculator => DrawingStyle {
+                stroke_color: PositionCalcConfig::DEFAULT_STOP_COLOR,
+                stroke_width: 1.5,
+                line_style: LineStyle::Dashed,
+                position_calc: Some(PositionCalcConfig::default()),
+                ..self.default_style.clone()
+            },
+            _ => self.default_style.clone(),
+        }
+    }
+
+    /// Auto-generate the 3rd point (stop) for calculator tools at 1:1 R:R.
+    fn on_drawing_completed(drawing: &mut Drawing) {
+        match drawing.tool {
+            DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
+                if drawing.points.len() >= 2 {
+                    let entry_price = drawing.points[0].price.units();
+                    let target_price = drawing.points[1].price.units();
+                    let delta = target_price - entry_price;
+                    let stop_price = ExchangePrice::from_units(entry_price - delta);
+                    drawing.points.push(DrawingPoint::new(
+                        stop_price,
+                        drawing.points[1].time,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Start a new drawing at the given point.
     /// Returns `Some(id)` if the drawing completed immediately (single-point tools).
     pub fn start_drawing(&mut self, point: DrawingPoint) -> Option<DrawingId> {
@@ -152,7 +197,8 @@ impl DrawingManager {
             return None;
         }
 
-        let mut drawing = Drawing::with_style(self.active_tool, self.default_style.clone());
+        let style = self.style_for_tool(self.active_tool);
+        let mut drawing = Drawing::with_style(self.active_tool, style);
         drawing.add_point(point);
 
         // For single-point drawings, complete immediately
@@ -181,6 +227,7 @@ impl DrawingManager {
             drawing.add_point(point);
 
             if drawing.is_complete() {
+                Self::on_drawing_completed(&mut drawing);
                 let id = drawing.id;
                 self.push_undo(DrawingOp::Add(drawing.to_serializable()));
                 self.drawings.push(drawing);
@@ -321,6 +368,29 @@ impl DrawingManager {
             && !drawing.locked
         {
             drawing.points[point_index] = new_point;
+            Self::enforce_calculator_constraints(drawing, point_index);
+        }
+    }
+
+    /// Keep calculator stop time synced with target time.
+    fn enforce_calculator_constraints(drawing: &mut Drawing, changed_index: usize) {
+        match drawing.tool {
+            DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
+                if drawing.points.len() >= 3 {
+                    match changed_index {
+                        1 => {
+                            // Target moved — sync stop time
+                            drawing.points[2].time = drawing.points[1].time;
+                        }
+                        2 => {
+                            // Stop moved — lock X to target's X
+                            drawing.points[2].time = drawing.points[1].time;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

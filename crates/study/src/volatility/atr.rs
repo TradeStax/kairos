@@ -1,8 +1,11 @@
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use crate::trend::sma::candle_key;
+use crate::util::candle_key;
 use data::SerializableColor;
 
 const DEFAULT_COLOR: SerializableColor = SerializableColor {
@@ -12,49 +15,69 @@ const DEFAULT_COLOR: SerializableColor = SerializableColor {
     a: 1.0,
 };
 
-const PARAMS: &[ParameterDef] = &[
-    ParameterDef {
-        key: "period",
-        label: "Period",
-        description: "Number of candles for ATR calculation",
-        kind: ParameterKind::Integer { min: 1, max: 100 },
-        default: ParameterValue::Integer(14),
-    },
-    ParameterDef {
-        key: "color",
-        label: "Color",
-        description: "ATR line color",
-        kind: ParameterKind::Color,
-        default: ParameterValue::Color(DEFAULT_COLOR),
-    },
-    ParameterDef {
-        key: "width",
-        label: "Width",
-        description: "Line width",
-        kind: ParameterKind::Float {
-            min: 0.5,
-            max: 5.0,
-            step: 0.5,
+fn make_params() -> Vec<ParameterDef> {
+    vec![
+        ParameterDef {
+            key: "period".into(),
+            label: "Period".into(),
+            description: "Number of candles for ATR calculation".into(),
+            kind: ParameterKind::Integer { min: 1, max: 100 },
+            default: ParameterValue::Integer(14),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
         },
-        default: ParameterValue::Float(1.5),
-    },
-];
+        ParameterDef {
+            key: "color".into(),
+            label: "Color".into(),
+            description: "ATR line color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(DEFAULT_COLOR),
+            tab: ParameterTab::Style,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "width".into(),
+            label: "Width".into(),
+            description: "Line width".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 5.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Style,
+            section: None,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+    ]
+}
 
 pub struct AtrStudy {
     config: StudyConfig,
     output: StudyOutput,
+    params: Vec<ParameterDef>,
 }
 
 impl AtrStudy {
     pub fn new() -> Self {
+        let params = make_params();
         let mut config = StudyConfig::new("atr");
-        for p in PARAMS {
-            config.set(p.key, p.default.clone());
+        for p in &params {
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
             config,
             output: StudyOutput::Empty,
+            params,
         }
     }
 }
@@ -83,62 +106,15 @@ impl Study for AtrStudy {
     }
 
     fn parameters(&self) -> &[ParameterDef] {
-        PARAMS
+        &self.params
     }
 
     fn config(&self) -> &StudyConfig {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        match key {
-            "period" => {
-                if let ParameterValue::Integer(v) = &value {
-                    if *v < 1 || *v > 100 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "period must be between 1 and 100".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected integer".to_string(),
-                    });
-                }
-            }
-            "color" => {
-                if !matches!(&value, ParameterValue::Color(_)) {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected color".to_string(),
-                    });
-                }
-            }
-            "width" => {
-                if let ParameterValue::Float(v) = &value {
-                    if *v < 0.5 || *v > 5.0 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "width must be between 0.5 and 5.0".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected float".to_string(),
-                    });
-                }
-            }
-            _ => {
-                return Err(StudyError::InvalidParameter {
-                    key: key.to_string(),
-                    reason: "unknown parameter".to_string(),
-                });
-            }
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -214,6 +190,7 @@ impl Study for AtrStudy {
         Box::new(Self {
             config: self.config.clone(),
             output: self.output.clone(),
+            params: self.params.clone(),
         })
     }
 }
@@ -233,6 +210,7 @@ mod tests {
             Volume(100.0),
             Volume(100.0),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {

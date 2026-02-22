@@ -222,7 +222,7 @@ impl Kairos {
                 let mut guard = engine.lock().await;
 
                 // Take the event_rx and bridge to global buffer
-                if let Some(rx) = guard.event_rx.take() {
+                if let Some(rx) = guard.take_event_rx() {
                     let buf = events_buf.clone();
                     tokio::spawn(async move {
                         let mut rx = rx;

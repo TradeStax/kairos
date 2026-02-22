@@ -1,63 +1,91 @@
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
+    Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use data::{ChartBasis, SerializableColor};
+use crate::util::{candle_key, source_value};
+use data::SerializableColor;
 
 const SOURCE_OPTIONS: &[&str] = &["Close", "Open", "High", "Low", "HL2", "HLC3", "OHLC4"];
 
-const PARAMS: &[ParameterDef] = &[
-    ParameterDef {
-        key: "period",
-        label: "Period",
-        description: "Number of candles for the moving average",
-        kind: ParameterKind::Integer { min: 2, max: 500 },
-        default: ParameterValue::Integer(20),
-    },
-    ParameterDef {
-        key: "color",
-        label: "Color",
-        description: "Line color",
-        kind: ParameterKind::Color,
-        default: ParameterValue::Color(SerializableColor {
-            r: 0.2,
-            g: 0.6,
-            b: 1.0,
-            a: 1.0,
-        }),
-    },
-    ParameterDef {
-        key: "width",
-        label: "Width",
-        description: "Line width",
-        kind: ParameterKind::Float {
-            min: 0.5,
-            max: 5.0,
-            step: 0.5,
+fn make_params() -> Vec<ParameterDef> {
+    vec![
+        ParameterDef {
+            key: "period".into(),
+            label: "Period".into(),
+            description: "Number of candles for the moving average".into(),
+            kind: ParameterKind::Integer { min: 2, max: 500 },
+            default: ParameterValue::Integer(20),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
         },
-        default: ParameterValue::Float(1.5),
-    },
-    ParameterDef {
-        key: "source",
-        label: "Source",
-        description: "Price source for calculation",
-        kind: ParameterKind::Choice {
-            options: SOURCE_OPTIONS,
+        ParameterDef {
+            key: "color".into(),
+            label: "Color".into(),
+            description: "Line color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(SerializableColor {
+                r: 0.2,
+                g: 0.6,
+                b: 1.0,
+                a: 1.0,
+            }),
+            tab: ParameterTab::Style,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
         },
-        default: ParameterValue::Choice(String::new()), // overridden in new()
-    },
-];
+        ParameterDef {
+            key: "width".into(),
+            label: "Width".into(),
+            description: "Line width".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 5.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Style,
+            section: None,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "source".into(),
+            label: "Source".into(),
+            description: "Price source for calculation".into(),
+            kind: ParameterKind::Choice {
+                options: SOURCE_OPTIONS,
+            },
+            default: ParameterValue::Choice(String::new()),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+    ]
+}
 
 pub struct SmaStudy {
     config: StudyConfig,
     output: StudyOutput,
+    params: Vec<ParameterDef>,
 }
 
 impl SmaStudy {
     pub fn new() -> Self {
+        let params = make_params();
         let mut config = StudyConfig::new("sma");
-        for p in PARAMS {
-            config.set(p.key, p.default.clone());
+        for p in &params {
+            config.set(p.key.clone(), p.default.clone());
         }
         // Set the actual default for source (can't use String::new in const)
         config.set("source", ParameterValue::Choice("Close".to_string()));
@@ -65,6 +93,7 @@ impl SmaStudy {
         Self {
             config,
             output: StudyOutput::Empty,
+            params,
         }
     }
 }
@@ -75,40 +104,22 @@ impl Default for SmaStudy {
     }
 }
 
-/// Extract price value from a candle based on the source parameter.
-pub(crate) fn source_value(candle: &data::Candle, source: &str) -> f32 {
-    match source {
-        "Open" => candle.open.to_f32(),
-        "High" => candle.high.to_f32(),
-        "Low" => candle.low.to_f32(),
-        "HL2" => (candle.high.to_f32() + candle.low.to_f32()) / 2.0,
-        "HLC3" => (candle.high.to_f32() + candle.low.to_f32() + candle.close.to_f32()) / 3.0,
-        "OHLC4" => {
-            (candle.open.to_f32()
-                + candle.high.to_f32()
-                + candle.low.to_f32()
-                + candle.close.to_f32())
-                / 4.0
-        }
-        _ => candle.close.to_f32(),
-    }
-}
-
-/// Get the x-key for a candle based on chart basis.
+/// Compute a simple moving average over a slice.
 ///
-/// For Time basis, returns the candle timestamp.
-/// For Tick basis, returns the reverse index (0 = newest candle)
-/// to match the chart rendering coordinate system.
-pub(crate) fn candle_key(
-    candle: &data::Candle,
-    index: usize,
-    total_candles: usize,
-    basis: &ChartBasis,
-) -> u64 {
-    match basis {
-        ChartBasis::Time(_) => candle.time.0,
-        ChartBasis::Tick(_) => (total_candles.saturating_sub(1).saturating_sub(index)) as u64,
+/// Returns a vec of length `values.len() - period + 1` (starting at index
+/// `period - 1` in the original series). Returns empty if insufficient data.
+pub fn compute_sma(values: &[f64], period: usize) -> Vec<f64> {
+    if values.len() < period || period == 0 {
+        return vec![];
     }
+    let mut result = Vec::with_capacity(values.len() - period + 1);
+    let mut sum: f64 = values[..period].iter().sum();
+    result.push(sum / period as f64);
+    for i in period..values.len() {
+        sum += values[i] - values[i - period];
+        result.push(sum / period as f64);
+    }
+    result
 }
 
 impl Study for SmaStudy {
@@ -129,77 +140,15 @@ impl Study for SmaStudy {
     }
 
     fn parameters(&self) -> &[ParameterDef] {
-        PARAMS
+        &self.params
     }
 
     fn config(&self) -> &StudyConfig {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        match key {
-            "period" => {
-                if let ParameterValue::Integer(v) = &value {
-                    if *v < 2 || *v > 500 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "period must be between 2 and 500".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected integer".to_string(),
-                    });
-                }
-            }
-            "color" => {
-                if !matches!(&value, ParameterValue::Color(_)) {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected color".to_string(),
-                    });
-                }
-            }
-            "width" => {
-                if let ParameterValue::Float(v) = &value {
-                    if *v < 0.5 || *v > 5.0 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "width must be between 0.5 and 5.0".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected float".to_string(),
-                    });
-                }
-            }
-            "source" => {
-                if let ParameterValue::Choice(s) = &value {
-                    if !SOURCE_OPTIONS.contains(&s.as_str()) {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: format!("invalid source: {s}"),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected choice".to_string(),
-                    });
-                }
-            }
-            _ => {
-                return Err(StudyError::InvalidParameter {
-                    key: key.to_string(),
-                    reason: "unknown parameter".to_string(),
-                });
-            }
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -267,6 +216,7 @@ impl Study for SmaStudy {
         Box::new(SmaStudy {
             config: self.config.clone(),
             output: self.output.clone(),
+            params: self.params.clone(),
         })
     }
 }
@@ -286,6 +236,7 @@ mod tests {
             Volume(0.0),
             Volume(0.0),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {

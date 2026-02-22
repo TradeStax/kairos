@@ -7,6 +7,7 @@ use super::services;
 // Activity flags for polling guards — avoid spinning when no feed is active
 static RITHMIC_ACTIVE: AtomicBool = AtomicBool::new(false);
 static REPLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
+static DOWNLOAD_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn is_rithmic_active() -> bool {
     RITHMIC_ACTIVE.load(Ordering::Relaxed)
@@ -22,6 +23,14 @@ pub fn is_replay_active() -> bool {
 
 pub fn set_replay_active(active: bool) {
     REPLAY_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+pub fn is_download_active() -> bool {
+    DOWNLOAD_ACTIVE.load(Ordering::Relaxed)
+}
+
+pub fn set_download_active(active: bool) {
+    DOWNLOAD_ACTIVE.store(active, Ordering::Relaxed);
 }
 
 // Global download progress state (shared between async tasks and subscriptions)

@@ -1,10 +1,11 @@
 use super::{Content, Effect, State};
-use crate::chart::Chart;
 use crate::chart::ViewState;
-use crate::chart::drawing::{Drawing, DrawingManager, DrawingPoint, snap};
+use crate::chart::drawing::{
+    ChartDrawingAccess, Drawing, DrawingManager, DrawingPoint, snap,
+};
 use data::{
-    ChartBasis, ChartConfig, ContentKind, DataSchema, DateRange, DrawingId, DrawingTool,
-    LoadingStatus, Timeframe,
+    ChartBasis, ChartConfig, ContentKind, DataSchema, DateRange, DrawingId,
+    DrawingTool, LoadingStatus, Timeframe,
 };
 use iced::Size;
 
@@ -19,261 +20,159 @@ fn creation_anchor(
     if pending.points.is_empty() {
         return None;
     }
-    Some((pending.tool, pending.points[0].to_screen(state, bounds)))
+    Some((pending.tool, pending.points[0].as_screen_point(state, bounds)))
+}
+
+/// Apply shift constraint for drawing creation, using the pending
+/// drawing's first point as anchor.
+fn constrain_for_creation(
+    chart: &dyn ChartDrawingAccess,
+    screen_point: iced::Point,
+    shift_held: bool,
+) -> iced::Point {
+    if !shift_held {
+        return screen_point;
+    }
+    let state = chart.view_state();
+    let bounds = state.bounds.size();
+    creation_anchor(chart.drawings(), state, bounds)
+        .map(|(tool, anchor)| snap::constrain_creation(tool, anchor, screen_point))
+        .unwrap_or(screen_point)
+}
+
+/// Convert a screen point to a DrawingPoint using the chart's current
+/// view state and snap setting.
+fn screen_to_drawing_point(
+    chart: &dyn ChartDrawingAccess,
+    screen_point: iced::Point,
+) -> DrawingPoint {
+    let state = chart.view_state();
+    let bounds = state.bounds.size();
+    let snap = chart.drawings().snap_enabled();
+    DrawingPoint::from_screen(screen_point, state, bounds, snap)
 }
 
 impl State {
     /// Handle drawing click at a screen position.
-    /// Returns `true` if a drawing was completed and the tool was auto-switched
-    /// to selection mode.
+    /// Returns `true` if a drawing was completed and the tool was
+    /// auto-switched to selection mode.
     pub(super) fn handle_drawing_click(
         &mut self,
         screen_point: iced::Point,
         shift_held: bool,
     ) -> bool {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
+        let Some(chart) = self.content.drawing_chart_mut() else {
+            return false;
+        };
 
-                // Apply shift constraint when completing (has anchor)
-                let constrained = if shift_held {
-                    creation_anchor(&c.drawings, state, bounds)
-                        .map(|(tool, anchor)| snap::constrain_creation(tool, anchor, screen_point))
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
+        let constrained = constrain_for_creation(chart, screen_point, shift_held);
+        let point = screen_to_drawing_point(chart, constrained);
 
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
+        let completed_id = if chart.drawings().has_pending() {
+            chart.drawings_mut().complete_drawing(point)
+        } else {
+            chart.drawings_mut().start_drawing(point)
+        };
 
-                let completed_id = if c.drawings.has_pending() {
-                    c.drawings.complete_drawing(point)
-                } else {
-                    c.drawings.start_drawing(point)
-                };
-
-                if let Some(id) = completed_id {
-                    c.drawings.set_tool(DrawingTool::None);
-                    c.drawings.select(id);
-                    c.mut_state().cache.clear_drawings();
-                    c.mut_state().cache.clear_crosshair();
-                    return true;
-                }
-                c.mut_state().cache.clear_crosshair();
-                false
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
-
-                let constrained = if shift_held {
-                    creation_anchor(&c.drawings, state, bounds)
-                        .map(|(tool, anchor)| snap::constrain_creation(tool, anchor, screen_point))
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
-
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-
-                let completed_id = if c.drawings.has_pending() {
-                    c.drawings.complete_drawing(point)
-                } else {
-                    c.drawings.start_drawing(point)
-                };
-
-                if let Some(id) = completed_id {
-                    c.drawings.set_tool(DrawingTool::None);
-                    c.drawings.select(id);
-                    c.mut_state().cache.clear_drawings();
-                    c.mut_state().cache.clear_crosshair();
-                    return true;
-                }
-                c.mut_state().cache.clear_crosshair();
-                false
-            }
-            _ => false,
+        if let Some(id) = completed_id {
+            chart.drawings_mut().set_tool(DrawingTool::None);
+            chart.drawings_mut().select(id);
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
+            return true;
         }
+        chart.invalidate_crosshair_cache();
+        false
     }
 
     /// Handle drawing move (update preview)
-    pub(super) fn handle_drawing_move(&mut self, screen_point: iced::Point, shift_held: bool) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                if c.drawings.has_pending() {
-                    let state = c.state();
-                    let bounds = state.bounds.size();
-                    let snap = c.drawings.snap_enabled();
-
-                    let constrained = if shift_held {
-                        creation_anchor(&c.drawings, state, bounds)
-                            .map(|(tool, anchor)| {
-                                snap::constrain_creation(tool, anchor, screen_point)
-                            })
-                            .unwrap_or(screen_point)
-                    } else {
-                        screen_point
-                    };
-
-                    let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-                    c.drawings.update_preview(point);
-                    c.mut_state().cache.clear_crosshair();
-                }
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                if c.drawings.has_pending() {
-                    let state = c.state();
-                    let bounds = state.bounds.size();
-                    let snap = c.drawings.snap_enabled();
-
-                    let constrained = if shift_held {
-                        creation_anchor(&c.drawings, state, bounds)
-                            .map(|(tool, anchor)| {
-                                snap::constrain_creation(tool, anchor, screen_point)
-                            })
-                            .unwrap_or(screen_point)
-                    } else {
-                        screen_point
-                    };
-
-                    let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-                    c.drawings.update_preview(point);
-                    c.mut_state().cache.clear_crosshair();
-                }
-            }
-            _ => {}
+    pub(super) fn handle_drawing_move(
+        &mut self,
+        screen_point: iced::Point,
+        shift_held: bool,
+    ) {
+        let Some(chart) = self.content.drawing_chart_mut() else {
+            return;
+        };
+        if !chart.drawings().has_pending() {
+            return;
         }
+
+        let constrained = constrain_for_creation(chart, screen_point, shift_held);
+        let point = screen_to_drawing_point(chart, constrained);
+        chart.drawings_mut().update_preview(point);
+        chart.invalidate_crosshair_cache();
     }
 
     /// Handle drawing cancel (Escape key)
     pub(super) fn handle_drawing_cancel(&mut self) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.cancel_pending();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.cancel_pending();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().cancel_pending();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Handle drawing delete (Delete/Backspace key)
     pub(super) fn handle_drawing_delete(&mut self) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.delete_selected();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.delete_selected();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().delete_selected();
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Handle drawing selection
     pub(super) fn handle_drawing_select(&mut self, id: DrawingId) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.select(id);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.select(id);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().select(id);
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Handle drawing deselection
     pub(super) fn handle_drawing_deselect(&mut self) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.clear_selection();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.clear_selection();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().clear_selection();
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Handle whole-drawing drag (moving entire drawing)
-    pub(super) fn handle_drawing_drag(&mut self, screen_point: iced::Point, shift_held: bool) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
+    pub(super) fn handle_drawing_drag(
+        &mut self,
+        screen_point: iced::Point,
+        shift_held: bool,
+    ) {
+        let Some(chart) = self.content.drawing_chart_mut() else {
+            return;
+        };
 
-                // Axis-lock when shift held
-                let constrained = if shift_held {
-                    c.drawings
-                        .drag_start_screen()
-                        .map(|start| snap::constrain_axis(start, screen_point))
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
+        // Axis-lock when shift held
+        let constrained = if shift_held {
+            chart
+                .drawings()
+                .drag_start_screen()
+                .map(|start| snap::constrain_axis(start, screen_point))
+                .unwrap_or(screen_point)
+        } else {
+            screen_point
+        };
 
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-                let selected: Vec<DrawingId> = c.drawings.selected_ids().iter().copied().collect();
+        let point = screen_to_drawing_point(chart, constrained);
+        let selected: Vec<DrawingId> =
+            chart.drawings().selected_ids().iter().copied().collect();
 
-                if let Some(&id) = selected.first() {
-                    if c.drawings.is_dragging() {
-                        c.drawings.update_drag(id, point);
-                    } else {
-                        c.drawings.start_drag(point, id, screen_point);
-                    }
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
+        if let Some(&id) = selected.first() {
+            if chart.drawings().is_dragging() {
+                chart.drawings_mut().update_drag(id, point);
+            } else {
+                chart.drawings_mut().start_drag(point, id, screen_point);
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
-
-                let constrained = if shift_held {
-                    c.drawings
-                        .drag_start_screen()
-                        .map(|start| snap::constrain_axis(start, screen_point))
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
-
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-                let selected: Vec<DrawingId> = c.drawings.selected_ids().iter().copied().collect();
-
-                if let Some(&id) = selected.first() {
-                    if c.drawings.is_dragging() {
-                        c.drawings.update_drag(id, point);
-                    } else {
-                        c.drawings.start_drag(point, id, screen_point);
-                    }
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
         }
+        chart.invalidate_drawings_cache();
+        chart.invalidate_crosshair_cache();
     }
 
     /// Handle single-handle drag
@@ -283,119 +182,68 @@ impl State {
         handle_index: usize,
         shift_held: bool,
     ) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
-                let selected: Vec<DrawingId> = c.drawings.selected_ids().iter().copied().collect();
-                let Some(&id) = selected.first() else { return };
+        let Some(chart) = self.content.drawing_chart_mut() else {
+            return;
+        };
 
-                // Apply shift constraint based on tool/handle
-                let constrained = if shift_held {
-                    c.drawings
-                        .get(id)
-                        .map(|d| {
-                            snap::constrain_handle(
-                                d.tool,
-                                &d.points,
-                                handle_index,
-                                state,
-                                bounds,
-                                screen_point,
-                            )
-                        })
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
+        let selected: Vec<DrawingId> =
+            chart.drawings().selected_ids().iter().copied().collect();
+        let Some(&id) = selected.first() else { return };
 
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
+        // Apply shift constraint based on tool/handle
+        let constrained = if shift_held {
+            let state = chart.view_state();
+            let bounds = state.bounds.size();
+            chart
+                .drawings()
+                .get(id)
+                .map(|d| {
+                    snap::constrain_handle(
+                        d.tool,
+                        &d.points,
+                        handle_index,
+                        state,
+                        bounds,
+                        screen_point,
+                    )
+                })
+                .unwrap_or(screen_point)
+        } else {
+            screen_point
+        };
 
-                if !c.drawings.is_dragging() {
-                    c.drawings.start_drag(point, id, screen_point);
-                }
-                c.drawings.update_handle_drag(id, handle_index, point);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let snap = c.drawings.snap_enabled();
-                let selected: Vec<DrawingId> = c.drawings.selected_ids().iter().copied().collect();
-                let Some(&id) = selected.first() else { return };
+        let point = screen_to_drawing_point(chart, constrained);
 
-                let constrained = if shift_held {
-                    c.drawings
-                        .get(id)
-                        .map(|d| {
-                            snap::constrain_handle(
-                                d.tool,
-                                &d.points,
-                                handle_index,
-                                state,
-                                bounds,
-                                screen_point,
-                            )
-                        })
-                        .unwrap_or(screen_point)
-                } else {
-                    screen_point
-                };
-
-                let point = DrawingPoint::from_screen(constrained, state, bounds, snap);
-
-                if !c.drawings.is_dragging() {
-                    c.drawings.start_drag(point, id, screen_point);
-                }
-                c.drawings.update_handle_drag(id, handle_index, point);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if !chart.drawings().is_dragging() {
+            chart.drawings_mut().start_drag(point, id, screen_point);
         }
+        chart.drawings_mut().update_handle_drag(id, handle_index, point);
+        chart.invalidate_drawings_cache();
+        chart.invalidate_crosshair_cache();
     }
 
     /// Handle drawing drag end
     pub(super) fn handle_drawing_drag_end(&mut self) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.end_drag();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.end_drag();
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().end_drag();
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Get the first selected drawing ID, if any
     pub(super) fn get_selected_drawing_id(&self) -> Option<DrawingId> {
-        match &self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.selected_ids().iter().next().copied()
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.selected_ids().iter().next().copied()
-            }
-            _ => None,
-        }
+        self.content
+            .drawing_chart()
+            .and_then(|c| c.drawings().selected_ids().iter().next().copied())
     }
 
     /// Get the locked state for a drawing by ID
     pub(super) fn get_drawing_locked(&self, id: DrawingId) -> bool {
-        match &self.content {
-            Content::Kline { chart: Some(c), .. } => c.drawings.get(id).map_or(false, |d| d.locked),
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.get(id).map_or(false, |d| d.locked)
-            }
-            _ => false,
-        }
+        self.content
+            .drawing_chart()
+            .and_then(|c| c.drawings().get(id))
+            .map_or(false, |d| d.locked)
     }
 
     /// Open the drawing properties modal for the given drawing
@@ -403,8 +251,9 @@ impl State {
         use crate::modals::drawing_properties::DrawingPropertiesModal;
         use crate::modals::pane::Modal;
 
-        let modal = match &self.content {
-            Content::Kline { chart: Some(c), .. } => c.drawings.get(id).map(|d| {
+        let ticker_info = self.ticker_info;
+        let modal = self.content.drawing_chart().and_then(|c| {
+            c.drawings().get(id).map(|d| {
                 let snapshot = d.to_serializable();
                 DrawingPropertiesModal::new(
                     d.id,
@@ -414,22 +263,10 @@ impl State {
                     d.visible,
                     d.label.clone(),
                     snapshot,
+                    ticker_info,
                 )
-            }),
-            Content::Heatmap { chart: Some(c), .. } => c.drawings.get(id).map(|d| {
-                let snapshot = d.to_serializable();
-                DrawingPropertiesModal::new(
-                    d.id,
-                    d.tool,
-                    &d.style,
-                    d.locked,
-                    d.visible,
-                    d.label.clone(),
-                    snapshot,
-                )
-            }),
-            _ => None,
-        };
+            })
+        });
 
         if let Some(m) = modal {
             self.modal = Some(Modal::DrawingProperties(m));
@@ -443,30 +280,15 @@ impl State {
         id: DrawingId,
         update: &crate::modals::drawing_properties::DrawingUpdate,
     ) {
-        use crate::chart::Chart;
-
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                if let Some(d) = c.drawings.get_mut(id) {
-                    d.style = update.style.clone();
-                    d.locked = update.locked;
-                    d.visible = update.visible;
-                    d.label = update.label.clone();
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            if let Some(d) = chart.drawings_mut().get_mut(id) {
+                d.style = update.style.clone();
+                d.locked = update.locked;
+                d.visible = update.visible;
+                d.label = update.label.clone();
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                if let Some(d) = c.drawings.get_mut(id) {
-                    d.style = update.style.clone();
-                    d.locked = update.locked;
-                    d.visible = update.visible;
-                    d.label = update.label.clone();
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
@@ -476,164 +298,84 @@ impl State {
         id: DrawingId,
         before_snapshot: data::SerializableDrawing,
     ) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.record_property_change(id, before_snapshot);
-                if let Some(d) = c.drawings.get(id) {
-                    c.drawings.set_default_style(d.style.clone());
-                }
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart
+                .drawings_mut()
+                .record_property_change(id, before_snapshot);
+            if let Some(style) =
+                chart.drawings().get(id).map(|d| d.style.clone())
+            {
+                chart.drawings_mut().set_default_style(style);
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.record_property_change(id, before_snapshot);
-                if let Some(d) = c.drawings.get(id) {
-                    c.drawings.set_default_style(d.style.clone());
-                }
-            }
-            _ => {}
         }
     }
 
     /// Delete a specific drawing by ID (from context menu)
     pub(super) fn handle_drawing_context_delete(&mut self, id: DrawingId) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.delete(id);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.delete(id);
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().delete(id);
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Toggle lock state of a drawing
     pub(super) fn handle_drawing_toggle_lock(&mut self, id: DrawingId) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                if let Some(d) = c.drawings.get_mut(id) {
-                    d.locked = !d.locked;
-                }
-                c.mut_state().cache.clear_drawings();
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            if let Some(d) = chart.drawings_mut().get_mut(id) {
+                d.locked = !d.locked;
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                if let Some(d) = c.drawings.get_mut(id) {
-                    d.locked = !d.locked;
-                }
-                c.mut_state().cache.clear_drawings();
-            }
-            _ => {}
+            chart.invalidate_drawings_cache();
         }
     }
 
     /// Start clone placement mode for a drawing
     pub(super) fn handle_drawing_clone(&mut self, id: DrawingId) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                if let Some(original) = c.drawings.get(id) {
-                    let mut cloned = Drawing::from_serializable(&original.to_serializable());
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            if let Some(cloned_drawing) =
+                chart.drawings().get(id).map(|original| {
+                    let mut cloned =
+                        Drawing::from_serializable(&original.to_serializable());
                     cloned.id = DrawingId::new();
-                    c.drawings.start_clone_placement(cloned);
-                }
-                c.mut_state().cache.clear_crosshair();
+                    cloned
+                })
+            {
+                chart.drawings_mut().start_clone_placement(cloned_drawing);
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                if let Some(original) = c.drawings.get(id) {
-                    let mut cloned = Drawing::from_serializable(&original.to_serializable());
-                    cloned.id = DrawingId::new();
-                    c.drawings.start_clone_placement(cloned);
-                }
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Update clone placement position as cursor moves
     pub(super) fn handle_clone_move(&mut self, screen_point: iced::Point) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let point = DrawingPoint::from_screen(
-                    screen_point,
-                    state,
-                    bounds,
-                    c.drawings.snap_enabled(),
-                );
-                c.drawings.update_clone_position(point);
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let point = DrawingPoint::from_screen(
-                    screen_point,
-                    state,
-                    bounds,
-                    c.drawings.snap_enabled(),
-                );
-                c.drawings.update_clone_position(point);
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            let point = screen_to_drawing_point(chart, screen_point);
+            chart.drawings_mut().update_clone_position(point);
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Confirm clone placement at cursor position
-    pub(super) fn handle_clone_confirm(&mut self, screen_point: iced::Point) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let point = DrawingPoint::from_screen(
-                    screen_point,
-                    state,
-                    bounds,
-                    c.drawings.snap_enabled(),
-                );
-                c.drawings.update_clone_position(point);
-                if let Some(id) = c.drawings.confirm_clone_placement() {
-                    c.drawings.select(id);
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
+    pub(super) fn handle_clone_confirm(
+        &mut self,
+        screen_point: iced::Point,
+    ) {
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            let point = screen_to_drawing_point(chart, screen_point);
+            chart.drawings_mut().update_clone_position(point);
+            if let Some(id) = chart.drawings_mut().confirm_clone_placement() {
+                chart.drawings_mut().select(id);
             }
-            Content::Heatmap { chart: Some(c), .. } => {
-                let state = c.state();
-                let bounds = state.bounds.size();
-                let point = DrawingPoint::from_screen(
-                    screen_point,
-                    state,
-                    bounds,
-                    c.drawings.snap_enabled(),
-                );
-                c.drawings.update_clone_position(point);
-                if let Some(id) = c.drawings.confirm_clone_placement() {
-                    c.drawings.select(id);
-                }
-                c.mut_state().cache.clear_drawings();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+            chart.invalidate_drawings_cache();
+            chart.invalidate_crosshair_cache();
         }
     }
 
     /// Cancel clone placement
     pub(super) fn handle_clone_cancel(&mut self) {
-        match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
-                c.drawings.cancel_clone_placement();
-                c.mut_state().cache.clear_crosshair();
-            }
-            Content::Heatmap { chart: Some(c), .. } => {
-                c.drawings.cancel_clone_placement();
-                c.mut_state().cache.clear_crosshair();
-            }
-            _ => {}
+        if let Some(chart) = self.content.drawing_chart_mut() {
+            chart.drawings_mut().cancel_clone_placement();
+            chart.invalidate_crosshair_cache();
         }
     }
 
@@ -695,7 +437,8 @@ impl State {
             .unwrap_or_else(|| DateRange::last_n_days(1));
 
         // Reset content to show loading screen
-        self.content = Content::new_for_kind(kind, ticker_info, &self.settings);
+        self.content =
+            Content::new_for_kind(kind, ticker_info, &self.settings);
         self.chart_data = None;
 
         let days_total = date_range.num_days() as usize;
@@ -738,7 +481,8 @@ impl State {
         match &mut self.content {
             Content::Kline { chart: Some(c), .. } => {
                 let chart = c.mut_state();
-                let x_translation = 0.5 * (chart.bounds.width / chart.scaling)
+                let x_translation = 0.5
+                    * (chart.bounds.width / chart.scaling)
                     - (8.0 * chart.cell_width / chart.scaling);
                 chart.translation.x = x_translation;
 
@@ -751,7 +495,8 @@ impl State {
             }
             Content::Heatmap { chart: Some(c), .. } => {
                 let chart = c.mut_state();
-                let x_translation = 0.5 * (chart.bounds.width / chart.scaling)
+                let x_translation = 0.5
+                    * (chart.bounds.width / chart.scaling)
                     - (8.0 * chart.cell_width / chart.scaling);
                 chart.translation.x = x_translation;
 

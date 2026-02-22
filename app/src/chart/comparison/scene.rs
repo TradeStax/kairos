@@ -82,6 +82,7 @@ impl Regions {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct PlotContext {
     pub regions: Regions,
     pub min_x: u64,
@@ -119,6 +120,7 @@ pub(super) struct CursorInfo {
     pub y_pct: f32,
 }
 
+#[derive(Clone)]
 pub(super) struct Scene {
     pub ctx: PlotContext,
     pub y_ticks: Vec<f32>,

@@ -105,7 +105,7 @@ impl<'a, Message: 'a> TextFieldBuilder<'a, Message> {
             col = col.push(
                 text(err)
                     .size(tokens::text::TINY)
-                    .color(palette::error_color()),
+                    .style(palette::error_text),
             );
         }
 

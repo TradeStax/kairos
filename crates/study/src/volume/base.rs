@@ -3,10 +3,14 @@
 //! Displays total volume per candle as colored bars.
 //! Green for bullish candles (close >= open), red for bearish.
 
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::util::candle_key;
 use data::SerializableColor;
 
 const DEFAULT_UP_COLOR: SerializableColor = SerializableColor {
@@ -35,35 +39,50 @@ impl VolumeStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "up_color",
-                label: "Up Color",
-                description: "Color for bullish volume bars",
+                key: "up_color".into(),
+                label: "Up Color".into(),
+                description: "Color for bullish volume bars".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_UP_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "down_color",
-                label: "Down Color",
-                description: "Color for bearish volume bars",
+                key: "down_color".into(),
+                label: "Down Color".into(),
+                description: "Color for bearish volume bars".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_DOWN_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "opacity",
-                label: "Opacity",
-                description: "Bar opacity",
+                key: "opacity".into(),
+                label: "Opacity".into(),
+                description: "Bar opacity".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(DEFAULT_OPACITY),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("volume");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -105,15 +124,8 @@ impl Study for VolumeStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -121,14 +133,16 @@ impl Study for VolumeStudy {
         let down_color = self.config.get_color("down_color", DEFAULT_DOWN_COLOR);
         let opacity = self.config.get_float("opacity", DEFAULT_OPACITY) as f32;
 
+        let total = input.candles.len();
         let points: Vec<BarPoint> = input
             .candles
             .iter()
-            .map(|c| {
+            .enumerate()
+            .map(|(i, c)| {
                 let is_bullish = c.close >= c.open;
                 let base_color = if is_bullish { up_color } else { down_color };
                 BarPoint {
-                    x: c.time.to_millis(),
+                    x: candle_key(c, i, total, &input.basis),
                     value: c.volume(),
                     color: SerializableColor::new(
                         base_color.r,
@@ -182,6 +196,7 @@ mod tests {
             Volume(vol * 0.6),
             Volume(vol * 0.4),
         )
+        .expect("test: valid candle")
     }
 
     #[test]

@@ -52,6 +52,19 @@ impl ScriptError {
 
 impl From<rquickjs::Error> for ScriptError {
     fn from(err: rquickjs::Error) -> Self {
-        ScriptError::QuickJs(err.to_string())
+        let msg = err.to_string();
+        if msg.contains("interrupted") || msg.contains("timeout") {
+            ScriptError::Timeout {
+                file: String::new(),
+                timeout_ms: crate::limits::TIMEOUT_MS,
+            }
+        } else if msg.contains("out of memory") || msg.contains("memory limit") {
+            ScriptError::Memory {
+                file: String::new(),
+                limit_mb: crate::limits::MEMORY_LIMIT / (1024 * 1024),
+            }
+        } else {
+            ScriptError::QuickJs(msg)
+        }
     }
 }

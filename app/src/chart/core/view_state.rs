@@ -12,6 +12,30 @@ use iced::{Length, Rectangle, Size, Vector};
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
 
+/// Convert an X canvas coordinate to an interval value (timestamp or tick index).
+///
+/// `offset` is the latest known interval value (timestamp ms or tick index) used
+/// as the anchor for the conversion. `cell_width` is the pixel width per interval.
+pub fn x_to_interval(x: f32, offset: f64, cell_width: f32, basis: &ChartBasis) -> u64 {
+    match basis {
+        ChartBasis::Time(timeframe) => {
+            let interval = timeframe.to_milliseconds() as f64;
+            let offset = offset as u64;
+            if x <= 0.0 {
+                let diff = (f64::from(-x / cell_width) * interval) as u64;
+                offset.saturating_sub(diff)
+            } else {
+                let diff = (f64::from(x / cell_width) * interval) as u64;
+                offset.saturating_add(diff)
+            }
+        }
+        ChartBasis::Tick(_) => {
+            let tick = -(x / cell_width);
+            if tick < 0.0 { 0 } else { tick.round() as u64 }
+        }
+    }
+}
+
 /// Complete view state for a chart
 ///
 /// Contains all information needed to render the chart at its current
@@ -67,7 +91,7 @@ impl ViewState {
             cell_height,
             basis,
             last_price: None,
-            base_price_y: Price::from_f32_lossy(0.0),
+            base_price_y: Price::from_f32(0.0),
             latest_x: 0,
             tick_size,
             decimals,
@@ -142,23 +166,7 @@ impl ViewState {
 
     /// Convert X coordinate to interval value
     pub fn x_to_interval(&self, x: f32) -> u64 {
-        match self.basis {
-            ChartBasis::Time(timeframe) => {
-                let interval = timeframe.to_milliseconds();
-
-                if x <= 0.0 {
-                    let diff = (-x / self.cell_width * interval as f32) as u64;
-                    self.latest_x.saturating_sub(diff)
-                } else {
-                    let diff = (x / self.cell_width * interval as f32) as u64;
-                    self.latest_x.saturating_add(diff)
-                }
-            }
-            ChartBasis::Tick(_) => {
-                let tick = -(x / self.cell_width);
-                if tick < 0.0 { 0 } else { tick.round() as u64 }
-            }
-        }
+        x_to_interval(x, self.latest_x as f64, self.cell_width, &self.basis)
     }
 
     /// Convert price to Y coordinate
@@ -203,13 +211,15 @@ impl ViewState {
         let tick_f32 = tick_size.to_f32();
         let decimal_places = if tick_f32 >= 1.0 {
             0
-        } else {
+        } else if tick_f32 > 0.0 {
             (-tick_f32.log10()).ceil() as usize
+        } else {
+            0 // Safe default before ticker is loaded
         };
 
         let value = format!(
             "{:.prec$}",
-            self.base_price_y.to_f32_lossy(),
+            self.base_price_y.to_f32(),
             prec = decimal_places
         );
         let width = (value.len() as f32 * TEXT_SIZE * 0.8).max(72.0);

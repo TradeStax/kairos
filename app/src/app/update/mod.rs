@@ -34,7 +34,10 @@ impl Kairos {
                     return self.handle_chart_data_loaded(layout_id, pane_id, result);
                 }
                 ChartMessage::UpdateLoadingStatus => {
-                    return self.handle_update_loading_status();
+                    return self.fetch_loading_statuses();
+                }
+                ChartMessage::LoadingStatusesReady(statuses) => {
+                    return self.dispatch_loading_statuses(statuses);
                 }
             },
 
@@ -201,6 +204,9 @@ impl Kairos {
             }
             Message::SaveFocusedScript => {
                 return self.handle_save_focused_script();
+            }
+            Message::ServicesReady(result) => {
+                return self.handle_services_ready(result);
             }
         }
         Task::none()

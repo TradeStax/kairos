@@ -83,6 +83,48 @@ pub mod chart {
     pub const ZOOM_BASE: f32 = 2.0;
     pub const ZOOM_STEP_PCT: f32 = 0.05;
     pub const GAP_BREAK_MULTIPLIER: f32 = 3.0;
+    pub const EMPTY_STATE_ICON_SIZE: f32 = 32.0;
+
+    pub mod ruler {
+        /// Fill alpha for the ruler rectangle
+        pub const FILL_ALPHA: f32 = 0.08;
+        /// Padding around ruler text
+        pub const TEXT_PADDING: f32 = 8.0;
+        /// Background padding for ruler label
+        pub const RECT_PADDING: f32 = 4.0;
+    }
+}
+
+// ── Form Layout ─────────────────────────────────────────────────────
+pub mod form {
+    pub const LABEL_WIDTH: f32 = 120.0;
+    pub const LABEL_WIDTH_NARROW: f32 = 80.0;
+}
+
+// ── Replay Modal Layout ──────────────────────────────────────────────
+pub mod replay_layout {
+    /// Y offset for stream picker popup below its trigger button.
+    pub const STREAM_POPUP_Y: f32 = 90.0;
+    /// Y offset for date/time picker popup below its trigger button.
+    pub const DATETIME_POPUP_Y: f32 = 148.0;
+    /// Square calendar day cell size.
+    pub const CALENDAR_CELL: f32 = 26.0;
+}
+
+// ── Debug Table Columns ──────────────────────────────────────────────
+pub mod debug_table {
+    pub const COL_TIME: f32 = 100.0;
+    pub const COL_SIDE: f32 = 40.0;
+    pub const COL_QTY: f32 = 50.0;
+    pub const COL_VWAP: f32 = 80.0;
+    pub const COL_FILLS: f32 = 40.0;
+    pub const COL_WINDOW: f32 = 65.0;
+    pub const COL_RANGE: f32 = 130.0;
+}
+
+// ── Ticker Panel ─────────────────────────────────────────────────────
+pub mod ticker_panel {
+    pub const COMPACT_ROW_HEIGHT: f32 = 28.0;
 }
 
 // ── Alpha Scale ───────────────────────────────────────────────────────
@@ -93,5 +135,6 @@ pub mod alpha {
     pub const MEDIUM: f32 = 0.5; // Pane grids
     pub const STRONG: f32 = 0.6; // Mid-tone backgrounds
     pub const HEAVY: f32 = 0.8; // Heavy shadows, dashed lines
+    pub const BACKDROP: f32 = 0.8; // Modal backdrop overlay
     pub const OPAQUE: f32 = 0.99; // Modal backgrounds (near-opaque)
 }

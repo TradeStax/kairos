@@ -66,20 +66,17 @@ pub struct Kairos {
 }
 
 impl Kairos {
+    /// Sentinel UUID used to attribute DataIndex entries from the persisted registry
+    /// (no real feed ID, represents locally cached data).
+    pub(crate) const REGISTRY_SENTINEL_FEED: uuid::Uuid = uuid::Uuid::nil();
+
     pub fn new() -> (Self, Task<Message>) {
-        // Initialize script engine and load indicator scripts
+        // Initialize script engine and load indicator scripts (sync, fast)
         services::initialize_script_registry();
 
-        // Initialize services
-        let market_data_result = services::initialize_market_data_service();
-        let market_data_service = market_data_result.as_ref().map(|r| r.service.clone());
-        let replay_engine = services::create_replay_engine(market_data_result.as_ref());
-        #[cfg(feature = "options")]
-        let (options_service, _gex_service) = services::initialize_options_services();
-
-        // Load saved state first to get persisted registry
+        // Load saved state (no I/O beyond disk reads for config, no repo init)
         let saved_state_temp =
-            crate::layout::load_saved_state_without_registry(market_data_service.clone());
+            crate::layout::load_saved_state_without_registry(None);
 
         // Create THE SINGLE shared Arc<Mutex<>> with loaded registry data
         let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(
@@ -89,45 +86,19 @@ impl Kairos {
         // Create the shared DataIndex and seed from persisted registry
         let data_index =
             std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
-        {
-            let registry = downloaded_tickers
+        Self::seed_data_index_from_registry(
+            &downloaded_tickers
                 .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let mut idx = data_index.lock().unwrap_or_else(|e| e.into_inner());
-            let sentinel_feed = uuid::Uuid::nil();
-            for ticker_str in registry.list_tickers() {
-                if let Some(range) = registry.get_range_by_ticker_str(&ticker_str) {
-                    let mut dates = std::collections::BTreeSet::new();
-                    for d in range.dates() {
-                        dates.insert(d);
-                    }
-                    idx.add_contribution(
-                        data::DataKey {
-                            ticker: ticker_str,
-                            schema: "trades".to_string(),
-                        },
-                        sentinel_feed,
-                        dates,
-                        false,
-                    );
-                }
-            }
-        }
+                .unwrap_or_else(|e| e.into_inner()),
+            &data_index,
+        );
 
-        // Re-create layout manager with the shared Arc,
-        // preserving persisted layouts if available
+        // Re-create layout manager with the shared Arc (no service yet — services load async)
         let layout_manager = if saved_state_temp.layout_manager.layouts.is_empty() {
-            crate::modals::LayoutManager::new(
-                market_data_service.clone(),
-                data_index.clone(),
-            )
+            crate::modals::LayoutManager::new(None, data_index.clone())
         } else {
-            // Transfer existing layouts but update the shared data_index Arc
             let mut lm = saved_state_temp.layout_manager;
-            lm.update_shared_state(
-                market_data_service.clone(),
-                data_index.clone(),
-            );
+            lm.update_shared_state(None, data_index.clone());
             lm
         };
 
@@ -160,17 +131,11 @@ impl Kairos {
             window::open(config)
         };
 
-        // Ticker info starts empty - tickers only appear after the user
-        // connects to a data feed via the connections menu.
         let tickers_info = FxHashMap::default();
-        log::info!("Ticker list empty until a data feed is connected");
-
         let sidebar = dashboard::Sidebar::new(&saved_state);
-
-        // Compute formatted ticker date ranges for the UI
         let ticker_ranges = Self::build_ticker_ranges(&data_index);
 
-        let mut state = Self {
+        let state = Self {
             main_window: window::Window {
                 is_maximized: true,
                 ..window::Window::new(main_window_id)
@@ -191,10 +156,10 @@ impl Kairos {
             rithmic_trade_repo: None,
             rithmic_depth_repo: None,
             rithmic_feed_id: None,
-            market_data_service,
+            market_data_service: None,
             #[cfg(feature = "options")]
-            options_service,
-            replay_engine,
+            options_service: None,
+            replay_engine: None,
             replay_manager: crate::modals::replay::ReplayManager::new(),
             menu_bar: crate::components::chrome::menu_bar::MenuBar::new(),
             timezone: saved_state.timezone,
@@ -206,117 +171,187 @@ impl Kairos {
             ticker_ranges,
         };
 
-        let load_layout = if let Some(active_layout_id) = state
+        // Kick off async service init; the UI is responsive in the meantime.
+        let init_services = Task::perform(
+            services::initialize_all_services(),
+            Message::ServicesReady,
+        );
+
+        let open_window = open_main_window.discard();
+        (state, Task::batch([open_window, init_services]))
+    }
+
+    /// Seed the DataIndex from the persisted DownloadedTickersRegistry.
+    pub(crate) fn seed_data_index_from_registry(
+        registry: &data::DownloadedTickersRegistry,
+        data_index: &std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    ) {
+        let mut idx = data_index.lock().unwrap_or_else(|e| e.into_inner());
+        for ticker_str in registry.list_tickers() {
+            if let Some(range) = registry.get_range_by_ticker_str(&ticker_str) {
+                let mut dates = std::collections::BTreeSet::new();
+                for d in range.dates() {
+                    dates.insert(d);
+                }
+                idx.add_contribution(
+                    data::DataKey {
+                        ticker: ticker_str,
+                        schema: "trades".to_string(),
+                    },
+                    Self::REGISTRY_SENTINEL_FEED,
+                    dates,
+                    false,
+                );
+            }
+        }
+    }
+
+    /// Auto-connect feeds with `auto_connect` enabled and an API key present.
+    /// Returns tasks for async cache scans.
+    pub(crate) fn auto_connect_feeds(
+        state: &mut Self,
+        secrets: &crate::infra::secrets::SecretsManager,
+    ) -> Vec<Task<Message>> {
+        let mut scan_tasks: Vec<Task<Message>> = Vec::new();
+        let mut feed_manager = state
+            .data_feed_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let auto_connect_ids: Vec<data::FeedId> = feed_manager
+            .feeds()
+            .iter()
+            .filter(|f| f.auto_connect && f.enabled)
+            .map(|f| f.id)
+            .collect();
+
+        for fid in &auto_connect_ids {
+            let feed_snapshot = feed_manager.get(*fid).map(|f| {
+                (f.provider, f.dataset_info().cloned())
+            });
+
+            let Some((provider, dataset_info)) = feed_snapshot else {
+                continue;
+            };
+
+            let has_key = match provider {
+                data::FeedProvider::Databento => {
+                    secrets.has_api_key(data::config::secrets::ApiProvider::Databento)
+                }
+                data::FeedProvider::Rithmic => {
+                    secrets.has_api_key(data::config::secrets::ApiProvider::Rithmic)
+                }
+            };
+
+            if has_key {
+                feed_manager.set_status(*fid, data::FeedStatus::Connected);
+                log::info!("Auto-connected feed {} on startup", fid);
+
+                if provider == data::FeedProvider::Databento {
+                    if let Some(info) = &dataset_info {
+                        let mut dates = std::collections::BTreeSet::new();
+                        for d in info.date_range.dates() {
+                            dates.insert(d);
+                        }
+                        let mut idx = state
+                            .data_index
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
+                        idx.add_contribution(
+                            data::DataKey {
+                                ticker: info.ticker.clone(),
+                                schema: "trades".to_string(),
+                            },
+                            *fid,
+                            dates,
+                            false,
+                        );
+                    }
+
+                    let cache_root =
+                        crate::infra::platform::data_path(Some("cache/databento"));
+                    let feed_id = *fid;
+                    scan_tasks.push(Task::perform(
+                        async move {
+                            exchange::scan_databento_cache(&cache_root, feed_id).await
+                        },
+                        Message::DataIndexRebuilt,
+                    ));
+                }
+            }
+        }
+
+        scan_tasks
+    }
+
+    /// Wire up services after async init completes, load the layout, and auto-connect feeds.
+    pub(crate) fn handle_services_ready(
+        &mut self,
+        result: services::AllServicesResult,
+    ) -> Task<Message> {
+        let market_data_service = result.market_data.as_ref().map(|r| r.service.clone());
+        let replay_engine = services::create_replay_engine(result.market_data.as_ref());
+
+        self.market_data_service = market_data_service.clone();
+        self.replay_engine = replay_engine;
+
+        #[cfg(feature = "options")]
+        {
+            self.options_service = result.options;
+        }
+
+        // Update layout manager with the live service
+        self.layout_manager.update_shared_state(
+            market_data_service,
+            self.data_index.clone(),
+        );
+
+        // Load the active layout now that services are ready
+        let main_window_id = self.main_window.id;
+        let load_layout = if let Some(active_layout_id) = self
             .layout_manager
             .active_layout_id()
-            .or_else(|| state.layout_manager.layouts.first().map(|l| &l.id))
+            .or_else(|| self.layout_manager.layouts.first().map(|l| &l.id))
         {
-            state.load_layout(active_layout_id.unique, main_window_id)
+            self.load_layout(active_layout_id.unique, main_window_id)
         } else {
             log::error!("No layouts available at startup");
             Task::none()
         };
 
-        // Auto-connect feeds that have auto_connect enabled
-        let mut scan_tasks: Vec<Task<Message>> = Vec::new();
+        // Auto-connect feeds
+        let secrets = crate::infra::secrets::SecretsManager::new();
+        let mut scan_tasks = Self::auto_connect_feeds(self, &secrets);
+
+        // Populate tickers from DataIndex
+        let tickers: std::collections::HashSet<String> = self
+            .data_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .available_tickers()
+            .into_iter()
+            .collect();
+        if !tickers.is_empty() {
+            self.tickers_info = build_tickers_info(tickers);
+            self.ticker_ranges = Self::build_ticker_ranges(&self.data_index);
+            log::info!(
+                "Populated {} tickers from DataIndex at startup",
+                self.tickers_info.len()
+            );
+        }
+
         {
-            let mut feed_manager = state
+            let feed_manager = self
                 .data_feed_manager
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            let secrets = crate::infra::secrets::SecretsManager::new();
-
-            let auto_connect_ids: Vec<data::FeedId> = feed_manager
-                .feeds()
-                .iter()
-                .filter(|f| f.auto_connect && f.enabled)
-                .map(|f| f.id)
-                .collect();
-
-            for fid in &auto_connect_ids {
-                // Copy feed data we need before mutating feed_manager
-                let feed_snapshot = feed_manager.get(*fid).map(|f| {
-                    (f.provider, f.dataset_info().cloned())
-                });
-
-                let Some((provider, dataset_info)) = feed_snapshot else {
-                    continue;
-                };
-
-                let has_key = match provider {
-                    data::FeedProvider::Databento => {
-                        secrets.has_api_key(data::config::secrets::ApiProvider::Databento)
-                    }
-                    data::FeedProvider::Rithmic => {
-                        secrets.has_api_key(data::config::secrets::ApiProvider::Rithmic)
-                    }
-                };
-
-                if has_key {
-                    feed_manager.set_status(*fid, data::FeedStatus::Connected);
-                    log::info!("Auto-connected feed {} on startup", fid);
-
-                    // Immediately seed DataIndex from feed config
-                    if provider == data::FeedProvider::Databento {
-                        if let Some(info) = &dataset_info {
-                            let mut dates = std::collections::BTreeSet::new();
-                            for d in info.date_range.dates() {
-                                dates.insert(d);
-                            }
-                            let mut idx = state
-                                .data_index
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner());
-                            idx.add_contribution(
-                                data::DataKey {
-                                    ticker: info.ticker.clone(),
-                                    schema: "trades".to_string(),
-                                },
-                                *fid,
-                                dates,
-                                false,
-                            );
-                        }
-
-                        // Spawn async cache scan for full data discovery
-                        let cache_root =
-                            crate::infra::platform::data_path(Some("cache/databento"));
-                        let feed_id = *fid;
-                        scan_tasks.push(Task::perform(
-                            async move {
-                                exchange::scan_databento_cache(&cache_root, feed_id).await
-                            },
-                            Message::DataIndexRebuilt,
-                        ));
-                    }
-                }
-            }
-
-            // Populate tickers from DataIndex (seeded from registry + feed configs)
-            let tickers: std::collections::HashSet<String> = state
-                .data_index
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .available_tickers()
-                .into_iter()
-                .collect();
-            if !tickers.is_empty() {
-                state.tickers_info = build_tickers_info(tickers);
-                state.ticker_ranges =
-                    Self::build_ticker_ranges(&state.data_index);
-                log::info!(
-                    "Populated {} tickers from DataIndex at startup",
-                    state.tickers_info.len()
-                );
-            }
-
-            state.data_feeds_modal.sync_snapshot(&feed_manager);
-            state.connections_menu.sync_snapshot(&feed_manager);
+            self.data_feeds_modal.sync_snapshot(&feed_manager);
+            self.connections_menu.sync_snapshot(&feed_manager);
         }
 
-        let mut all_tasks = vec![open_main_window.discard().chain(load_layout)];
-        all_tasks.extend(scan_tasks);
-        (state, Task::batch(all_tasks))
+        let mut all_tasks = vec![load_layout];
+        all_tasks.append(&mut scan_tasks);
+        Task::batch(all_tasks)
     }
 
     pub fn title(&self, _window: window::Id) -> String {

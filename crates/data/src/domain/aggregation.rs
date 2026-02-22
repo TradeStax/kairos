@@ -133,7 +133,8 @@ fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Pri
             Price::from_f32(0.0),
             Volume(0.0),
             Volume(0.0),
-        );
+        )
+        .expect("invariant: zero price for all fields satisfies OHLC constraints");
     }
     debug_assert!(!trades.is_empty(), "Cannot build candle from empty trades");
 
@@ -180,6 +181,7 @@ fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Pri
         Volume(buy_volume),
         Volume(sell_volume),
     )
+    .expect("invariant: high = max price, low = min price guarantees OHLC constraints")
 }
 
 /// Aggregate tick-by-tick trades into tick-count-based candles
@@ -295,7 +297,8 @@ fn aggregate_candle_bucket(time: Timestamp, candles: Vec<&Candle>) -> Candle {
             Price::from_f32(0.0),
             Volume(0.0),
             Volume(0.0),
-        );
+        )
+        .expect("invariant: zero price for all fields satisfies OHLC constraints");
     }
     debug_assert!(!candles.is_empty(), "Cannot aggregate empty candle bucket");
 
@@ -324,6 +327,7 @@ fn aggregate_candle_bucket(time: Timestamp, candles: Vec<&Candle>) -> Candle {
         Volume(total_buy_volume),
         Volume(total_sell_volume),
     )
+    .expect("invariant: high = max of candle highs, low = min of candle lows")
 }
 
 #[cfg(test)]
@@ -425,7 +429,8 @@ mod tests {
                 Price::from_f32(100.5),
                 Volume(10.0),
                 Volume(5.0),
-            ),
+            )
+            .expect("invariant: valid test OHLC"),
             Candle::new(
                 Timestamp(60_000),
                 Price::from_f32(100.5),
@@ -434,7 +439,8 @@ mod tests {
                 Price::from_f32(101.5),
                 Volume(8.0),
                 Volume(6.0),
-            ),
+            )
+            .expect("invariant: valid test OHLC"),
             Candle::new(
                 Timestamp(120_000),
                 Price::from_f32(101.5),
@@ -443,7 +449,8 @@ mod tests {
                 Price::from_f32(102.0),
                 Volume(12.0),
                 Volume(7.0),
-            ),
+            )
+            .expect("invariant: valid test OHLC"),
         ];
 
         // Aggregate to 3-minute candles

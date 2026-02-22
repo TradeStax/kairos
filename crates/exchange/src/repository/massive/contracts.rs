@@ -1,5 +1,6 @@
 use super::convert_massive_error;
 use crate::adapter::massive::{HistoricalOptionsManager, MassiveConfig};
+use crate::adapter::massive::util::extract_underlying_repo;
 use chrono::NaiveDate;
 use kairos_data::domain::OptionContract;
 use kairos_data::repository::{
@@ -58,7 +59,7 @@ impl OptionContractRepository for MassiveContractRepository {
 
     async fn get_contract(&self, contract_ticker: &str) -> RepositoryResult<OptionContract> {
         // Extract underlying ticker
-        let underlying = extract_underlying(contract_ticker)?;
+        let underlying = extract_underlying_repo(contract_ticker)?;
 
         // Get all contracts for underlying
         let contracts = self.get_contracts(&underlying).await?;
@@ -153,49 +154,9 @@ impl OptionContractRepository for MassiveContractRepository {
     }
 }
 
-/// Extract underlying ticker from option contract ticker
-fn extract_underlying(contract_ticker: &str) -> RepositoryResult<String> {
-    if !contract_ticker.starts_with("O:") {
-        return Err(RepositoryError::InvalidData(format!(
-            "Invalid contract ticker format: {}",
-            contract_ticker
-        )));
-    }
-
-    let without_prefix = &contract_ticker[2..];
-
-    // Find where the date starts (first digit)
-    let mut ticker_end = 0;
-    for (i, c) in without_prefix.chars().enumerate() {
-        if c.is_ascii_digit() {
-            ticker_end = i;
-            break;
-        }
-    }
-
-    if ticker_end == 0 {
-        return Err(RepositoryError::InvalidData(format!(
-            "Cannot extract underlying from: {}",
-            contract_ticker
-        )));
-    }
-
-    Ok(without_prefix[..ticker_end].to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_extract_underlying() {
-        assert_eq!(extract_underlying("O:AAPL240119C00150000").unwrap(), "AAPL");
-        assert_eq!(extract_underlying("O:SPY240119P00450000").unwrap(), "SPY");
-        assert_eq!(extract_underlying("O:TSLA240315C00200000").unwrap(), "TSLA");
-
-        assert!(extract_underlying("AAPL240119C00150000").is_err());
-        assert!(extract_underlying("O:").is_err());
-    }
 
     #[tokio::test]
     #[ignore] // Requires API key

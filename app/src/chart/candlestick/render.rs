@@ -1,3 +1,4 @@
+use crate::chart::core::tokens;
 use crate::chart::drawing;
 use crate::chart::perf::{LodCalculator, LodIteratorExt};
 use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE};
@@ -9,7 +10,8 @@ use exchange::FuturesTickerInfo;
 use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Geometry};
-use iced::{Point, Rectangle, Renderer, Theme, Vector, mouse};
+use iced::{Color, Point, Rectangle, Renderer, Theme, Vector, mouse};
+use std::time::Instant;
 
 use super::KlineChart;
 use super::candle::draw_candle;
@@ -24,15 +26,7 @@ impl canvas::Program<Message> for KlineChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        crate::chart::canvas_interaction(
-            self,
-            &mut state.interaction,
-            event,
-            bounds,
-            cursor,
-            &mut state.last_selection_click,
-            &mut state.shift_held,
-        )
+        crate::chart::canvas_interaction(self, state, event, bounds, cursor)
     }
 
     fn draw(
@@ -61,6 +55,11 @@ impl canvas::Program<Message> for KlineChart {
             frame.translate(chart.translation);
 
             let region = chart.visible_region(frame.size());
+
+            // Draw grid lines behind all content
+            crate::chart::overlay::draw_price_grid(chart, frame, palette, &region);
+            crate::chart::overlay::draw_time_grid(chart, frame, palette, &region);
+
             let (earliest, latest) = chart.interval_range(&region);
 
             let price_to_y = |price: Price| chart.price_to_y(price);
@@ -113,7 +112,7 @@ impl canvas::Program<Message> for KlineChart {
                 || candle_replace_fallback
             {
                 // Standard candle rendering
-                let candle_width = chart.cell_width * 0.8;
+                let candle_width = chart.cell_width * tokens::candle::WIDTH_RATIO;
                 let interval_ms = match &self.basis {
                     ChartBasis::Time(tf) => tf.to_milliseconds(),
                     ChartBasis::Tick(_) => 1000,
@@ -121,6 +120,19 @@ impl canvas::Program<Message> for KlineChart {
                 let style = &self.candle_style;
 
                 let decimation = lod_level.decimation_factor();
+
+                // Pre-compute max volume for volume-based opacity
+                let max_volume = if style.volume_opacity {
+                    self.chart_data
+                        .candles
+                        .iter()
+                        .map(|c| c.volume())
+                        .fold(0.0_f32, f32::max)
+                        .max(1.0)
+                } else {
+                    1.0
+                };
+                let use_volume_opacity = style.volume_opacity;
 
                 render_candles(
                     &self.chart_data.candles,
@@ -134,6 +146,11 @@ impl canvas::Program<Message> for KlineChart {
                     decimation,
                     interval_to_x,
                     |frame, x_position, candle, _| {
+                        let vol_ratio = if use_volume_opacity {
+                            Some(candle.volume() / max_volume)
+                        } else {
+                            None
+                        };
                         draw_candle(
                             frame,
                             price_to_y,
@@ -142,6 +159,7 @@ impl canvas::Program<Message> for KlineChart {
                             style,
                             x_position,
                             candle,
+                            vol_ratio,
                         );
                     },
                 );
@@ -164,14 +182,12 @@ impl canvas::Program<Message> for KlineChart {
                             | study::StudyPlacement::CandleReplace
                     )
                 {
-                    let marker_config = study.marker_render_config();
                     crate::chart::study_renderer::render_study_output(
                         frame,
                         output,
                         chart,
                         bounds_size,
                         placement,
-                        marker_config.as_ref(),
                         Some(palette),
                     );
                 }
@@ -200,6 +216,24 @@ impl canvas::Program<Message> for KlineChart {
                 palette,
             );
         });
+
+        // Track frame timing for debug overlay
+        if self.show_debug_info {
+            let now = Instant::now();
+            let elapsed = now
+                .duration_since(self.last_draw_instant.get())
+                .as_secs_f32()
+                * 1000.0;
+            // Smooth frame time with exponential moving average
+            let prev = self.last_frame_time_ms.get();
+            let smoothed = if prev == 0.0 {
+                elapsed
+            } else {
+                prev * 0.8 + elapsed * 0.2
+            };
+            self.last_frame_time_ms.set(smoothed);
+            self.last_draw_instant.set(now);
+        }
 
         let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
             // Draw overlay elements (selection handles + pending preview)
@@ -244,6 +278,19 @@ impl canvas::Program<Message> for KlineChart {
                     &self.candle_style,
                 );
             }
+
+            // Debug performance overlay
+            if self.show_debug_info {
+                draw_debug_overlay(
+                    frame,
+                    chart,
+                    bounds,
+                    palette,
+                    self.last_frame_time_ms.get(),
+                    &self.chart_data.candles,
+                    &self.basis,
+                );
+            }
         });
 
         vec![klines, drawings_layer, crosshair]
@@ -272,15 +319,35 @@ impl canvas::Program<Message> for KlineChart {
                     mouse::Interaction::default()
                 }
             }
-            Interaction::None | Interaction::Ruler { .. } => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Crosshair
+            Interaction::None | Interaction::Ruler { .. } | Interaction::Decelerating { .. } => {
+                if let Some(cursor_position) = cursor.position_in(bounds) {
+                    // Check if hovering over a drawing handle
+                    if self
+                        .hit_test_drawing_handle(cursor_position, bounds.size())
+                        .is_some()
+                    {
+                        mouse::Interaction::Grab
+                    } else if self
+                        .hit_test_drawing(cursor_position, bounds.size())
+                        .is_some()
+                    {
+                        mouse::Interaction::Pointer
+                    } else {
+                        mouse::Interaction::Crosshair
+                    }
                 } else {
                     mouse::Interaction::default()
                 }
             }
         }
     }
+}
+
+/// Return the slice of trades whose timestamp falls in `[start_ts, end_ts]`.
+fn trades_for_candle<'t>(trades: &'t [Trade], start_ts: u64, end_ts: u64) -> &'t [Trade] {
+    let lo = trades.partition_point(|t| t.time.0 < start_ts);
+    let hi = trades.partition_point(|t| t.time.0 <= end_ts);
+    &trades[lo..hi]
 }
 
 fn render_candles<F>(
@@ -312,22 +379,8 @@ fn render_candles<F>(
                 .for_each(|(index, candle)| {
                     let x_position = interval_to_x(index as u64);
 
-                    // Get trades for this candle by time range using binary search
-                    let candle_start = candle.time.0;
-                    let candle_end = candle.time.0 + interval_ms;
-
-                    // Find start index using binary search
-                    let start_idx = trades
-                        .binary_search_by_key(&candle_start, |t| t.time.0)
-                        .unwrap_or_else(|i| i);
-
-                    // Find end index using binary search on the remaining slice
-                    let end_idx = trades[start_idx..]
-                        .binary_search_by_key(&candle_end, |t| t.time.0)
-                        .map(|i| start_idx + i)
-                        .unwrap_or_else(|i| start_idx + i);
-
-                    let candle_trades = &trades[start_idx..end_idx];
+                    let candle_trades =
+                        trades_for_candle(trades, candle.time.0, candle.time.0 + interval_ms);
 
                     draw_fn(frame, x_position, candle, candle_trades);
                 });
@@ -344,22 +397,8 @@ fn render_candles<F>(
                 .for_each(|candle| {
                     let x_position = interval_to_x(candle.time.0);
 
-                    // Get trades for this candle by time range using binary search
-                    let candle_start = candle.time.0;
-                    let candle_end = candle.time.0 + interval_ms;
-
-                    // Find start index using binary search
-                    let start_idx = trades
-                        .binary_search_by_key(&candle_start, |t| t.time.0)
-                        .unwrap_or_else(|i| i);
-
-                    // Find end index using binary search on the remaining slice
-                    let end_idx = trades[start_idx..]
-                        .binary_search_by_key(&candle_end, |t| t.time.0)
-                        .map(|i| start_idx + i)
-                        .unwrap_or_else(|i| start_idx + i);
-
-                    let candle_trades = &trades[start_idx..end_idx];
+                    let candle_trades =
+                        trades_for_candle(trades, candle.time.0, candle.time.0 + interval_ms);
 
                     draw_fn(frame, x_position, candle, candle_trades);
                 });
@@ -444,13 +483,17 @@ fn draw_crosshair_tooltip(
             .map(|(s, _, _)| s.len() as f32 * (TEXT_SIZE * 0.8))
             .sum();
 
-        let position = Point::new(8.0, 8.0);
+        let char_width = TEXT_SIZE * 0.8;
+        let position = Point::new(
+            crate::style::tokens::spacing::MD,
+            crate::style::tokens::spacing::MD,
+        );
 
         let tooltip_rect = Rectangle {
             x: position.x,
             y: position.y,
             width: total_width,
-            height: 16.0,
+            height: crate::style::tokens::text::HEADING,
         };
 
         frame.fill_rectangle(
@@ -464,13 +507,95 @@ fn draw_crosshair_tooltip(
             frame.fill_text(canvas::Text {
                 content: text.to_string(),
                 position: Point::new(x, position.y),
-                size: iced::Pixels(12.0),
+                size: iced::Pixels(TEXT_SIZE),
                 color: seg_color,
                 font: AZERET_MONO,
                 ..canvas::Text::default()
             });
-            x += text.len() as f32 * 8.0;
-            x += if is_value { 6.0 } else { 2.0 };
+            x += text.len() as f32 * char_width;
+            x += if is_value {
+                crate::style::tokens::spacing::SM
+            } else {
+                crate::style::tokens::spacing::XXS
+            };
         }
+    }
+}
+
+fn draw_debug_overlay(
+    frame: &mut canvas::Frame,
+    chart: &crate::chart::ViewState,
+    bounds: Rectangle,
+    _palette: &Extended,
+    frame_time_ms: f32,
+    candles: &[Candle],
+    basis: &ChartBasis,
+) {
+    let region = chart.visible_region(bounds.size());
+    let (earliest, latest) = chart.interval_range(&region);
+
+    let visible_count = match basis {
+        ChartBasis::Time(_) => {
+            let first = candles.partition_point(|c| c.time.0 < earliest);
+            let last = candles.partition_point(|c| c.time.0 <= latest);
+            last.saturating_sub(first)
+        }
+        ChartBasis::Tick(_) => {
+            let ea = earliest as usize;
+            let la = latest as usize;
+            la.saturating_sub(ea) + 1
+        }
+    };
+
+    let lod = LodCalculator::new(
+        chart.scaling,
+        chart.cell_width,
+        visible_count,
+        bounds.width,
+    );
+    let lod_level = lod.calculate_lod();
+
+    let fps = if frame_time_ms > 0.0 {
+        1000.0 / frame_time_ms
+    } else {
+        0.0
+    };
+
+    let lines = [
+        format!("FPS: {:.0}", fps),
+        format!("Frame: {:.1}ms", frame_time_ms),
+        format!("Candles: {} vis / {} total", visible_count, candles.len()),
+        format!("LOD: {:?} (dec {}x)", lod_level, lod_level.decimation_factor()),
+        format!("Zoom: {:.2}x  Cell: {:.1}px", chart.scaling, chart.cell_width),
+    ];
+
+    let line_height = 14.0_f32;
+    let padding = 6.0_f32;
+    let box_width = 220.0_f32;
+    let box_height = (lines.len() as f32 * line_height) + padding * 2.0;
+    let box_x = bounds.width - box_width - 8.0;
+    let box_y = bounds.height - box_height - 8.0;
+
+    // Background
+    frame.fill_rectangle(
+        Point::new(box_x, box_y),
+        iced::Size::new(box_width, box_height),
+        Color::from_rgba(0.0, 0.0, 0.0, 0.75),
+    );
+
+    // Text lines
+    let label_color = Color::from_rgba(0.6, 0.9, 0.6, 0.9);
+    for (i, line) in lines.iter().enumerate() {
+        frame.fill_text(canvas::Text {
+            content: line.clone(),
+            position: Point::new(
+                box_x + padding,
+                box_y + padding + (i as f32 * line_height),
+            ),
+            size: iced::Pixels(11.0),
+            color: label_color,
+            font: AZERET_MONO,
+            ..canvas::Text::default()
+        });
     }
 }

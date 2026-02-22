@@ -39,6 +39,7 @@ pub(super) struct LegendLayout {
     pub rows: Vec<LegendRowHit>,
 }
 
+#[derive(Clone)]
 pub(super) struct EndLabel {
     pub pos: Point,
     pub bg_color: Color,

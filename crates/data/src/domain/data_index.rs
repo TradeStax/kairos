@@ -114,7 +114,7 @@ impl DataIndex {
             // is present, in which case range is just today.
             if any_realtime {
                 let today = chrono::Utc::now().date_naive();
-                return Some(DateRange::new(today, today));
+                return DateRange::new(today, today).ok();
             }
             return None;
         }
@@ -132,10 +132,10 @@ impl DataIndex {
 
         // For heatmaps, truncate to most recent 1 day
         if chart_type == ChartType::Heatmap {
-            return Some(DateRange::new(end, end));
+            return DateRange::new(end, end).ok();
         }
 
-        Some(DateRange::new(start, end))
+        DateRange::new(start, end).ok()
     }
 
     /// All tickers that have trade data available.
@@ -161,7 +161,9 @@ impl DataIndex {
             if let (Some(&start), Some(&end)) =
                 (all_dates.iter().next(), all_dates.iter().next_back())
             {
-                result.insert(key.ticker.clone(), DateRange::new(start, end));
+                if let Ok(range) = DateRange::new(start, end) {
+                    result.insert(key.ticker.clone(), range);
+                }
             }
         }
         result

@@ -1,5 +1,6 @@
 use super::cache::CacheManager;
 use super::client::MassiveClient;
+use super::util::extract_underlying_massive;
 use super::decoder::{
     MassiveContractMetadata, MassiveOptionSnapshot, parse_array_results, parse_single_result,
 };
@@ -197,7 +198,7 @@ impl HistoricalOptionsManager {
 
         let url = format!(
             "https://api.polygon.io/v3/snapshot/options/{}/{}",
-            extract_underlying(contract_ticker)?,
+            extract_underlying_massive(contract_ticker)?,
             contract_ticker,
         );
 
@@ -312,7 +313,9 @@ impl HistoricalOptionsManager {
             } else {
                 // End gap if one was in progress
                 if let Some(start) = gap_start {
-                    gaps.push(DateRange::new(start, date - chrono::Duration::days(1)));
+                    if let Ok(range) = DateRange::new(start, date - chrono::Duration::days(1)) {
+                        gaps.push(range);
+                    }
                     gap_start = None;
                 }
             }
@@ -320,7 +323,9 @@ impl HistoricalOptionsManager {
 
         // Close final gap if range ends with missing data
         if let Some(start) = gap_start {
-            gaps.push(DateRange::new(start, date_range.end));
+            if let Ok(range) = DateRange::new(start, date_range.end) {
+                gaps.push(range);
+            }
         }
 
         Ok(gaps)
@@ -337,75 +342,9 @@ impl HistoricalOptionsManager {
     }
 }
 
-/// Extract underlying ticker from option contract ticker
-///
-/// Example: "O:AAPL240119C00150000" -> "AAPL"
-fn extract_underlying(contract_ticker: &str) -> MassiveResult<String> {
-    // Polygon format: O:TICKER + YYMMDD + C/P + PRICE
-    if !contract_ticker.starts_with("O:") {
-        return Err(MassiveError::InvalidContractTicker(format!(
-            "Invalid format: {}",
-            contract_ticker
-        )));
-    }
-
-    let without_prefix = &contract_ticker[2..];
-
-    // Find where the date starts (after the ticker symbol)
-    // Date is always 6 digits (YYMMDD)
-    if without_prefix.len() < 7 {
-        return Err(MassiveError::InvalidContractTicker(format!(
-            "Too short: {}",
-            contract_ticker
-        )));
-    }
-
-    // Work backwards from a known position
-    // Format: TICKER + YYMMDD(6) + C/P(1) + STRIKE(8 digits)
-    // Minimum length after O: is TICKER(1+) + 6 + 1 + 8 = 16
-    let min_len = 15; // Shortest ticker is 1 char
-
-    if without_prefix.len() < min_len {
-        return Err(MassiveError::InvalidContractTicker(format!(
-            "Too short: {}",
-            contract_ticker
-        )));
-    }
-
-    // Find the ticker by looking for where digits start
-    let mut ticker_end = 0;
-    for (i, c) in without_prefix.chars().enumerate() {
-        if c.is_ascii_digit() {
-            ticker_end = i;
-            break;
-        }
-    }
-
-    if ticker_end == 0 {
-        return Err(MassiveError::InvalidContractTicker(format!(
-            "No ticker found: {}",
-            contract_ticker
-        )));
-    }
-
-    Ok(without_prefix[..ticker_end].to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_extract_underlying() {
-        assert_eq!(extract_underlying("O:AAPL240119C00150000").unwrap(), "AAPL");
-        assert_eq!(extract_underlying("O:SPY240119P00450000").unwrap(), "SPY");
-        assert_eq!(extract_underlying("O:TSLA240315C00200000").unwrap(), "TSLA");
-        assert_eq!(extract_underlying("O:AMD240119C00100000").unwrap(), "AMD");
-
-        // Invalid formats
-        assert!(extract_underlying("AAPL240119C00150000").is_err());
-        assert!(extract_underlying("O:A").is_err());
-    }
 
     #[tokio::test]
     async fn test_find_chain_gaps() {
@@ -459,7 +398,8 @@ mod tests {
         let date_range = DateRange::new(
             NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             NaiveDate::from_ymd_opt(2024, 1, 5).unwrap(),
-        );
+        )
+        .expect("test: valid date range");
 
         let gaps = manager.find_chain_gaps("TEST", &date_range).await.unwrap();
 

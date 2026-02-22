@@ -1,8 +1,11 @@
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
+    Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use crate::trend::sma::candle_key;
+use crate::util::candle_key;
 use data::SerializableColor;
 
 const DEFAULT_COLOR: SerializableColor = SerializableColor {
@@ -29,46 +32,66 @@ impl VwapStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "color",
-                label: "Color",
-                description: "VWAP line color",
+                key: "color".into(),
+                label: "Color".into(),
+                description: "VWAP line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "width",
-                label: "Width",
-                description: "Line width",
+                key: "width".into(),
+                label: "Width".into(),
+                description: "Line width".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 5.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(1.5),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "show_bands",
-                label: "Show Bands",
-                description: "Show standard deviation bands",
+                key: "show_bands".into(),
+                label: "Show Bands".into(),
+                description: "Show standard deviation bands".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(false),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "band_multiplier",
-                label: "Band Multiplier",
-                description: "Standard deviation multiplier for bands",
+                key: "band_multiplier".into(),
+                label: "Band Multiplier".into(),
+                description: "Standard deviation multiplier for bands".into(),
                 kind: ParameterKind::Float {
                     min: 1.0,
                     max: 3.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(1.0),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::WhenTrue("show_bands"),
             },
         ];
 
         let mut config = StudyConfig::new("vwap");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -110,15 +133,8 @@ impl Study for VwapStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -242,6 +258,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {

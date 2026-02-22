@@ -9,11 +9,6 @@ use std::path::PathBuf;
 pub fn data_path(path_name: Option<&str>) -> PathBuf {
     let base = if let Ok(path) = std::env::var("KAIROS_DATA_PATH") {
         PathBuf::from(path)
-    } else if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
-        log::warn!(
-            "FLOWSURFACE_DATA_PATH is deprecated, use KAIROS_DATA_PATH instead"
-        );
-        PathBuf::from(path)
     } else {
         let data_dir = dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("."));
         data_dir.join("kairos")

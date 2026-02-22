@@ -262,7 +262,7 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
                     container::Style {
                         background: Some(
                             Color {
-                                a: 0.85,
+                                a: crate::style::tokens::alpha::BACKDROP,
                                 ..Color::BLACK
                             }
                             .into(),

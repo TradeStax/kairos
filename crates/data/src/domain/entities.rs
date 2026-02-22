@@ -4,6 +4,7 @@
 //! These are immutable data structures with business logic methods.
 
 use super::types::{Price, Quantity, Side, Timestamp, Volume};
+use crate::DataError;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -88,14 +89,24 @@ impl Candle {
         close: Price,
         buy_volume: Volume,
         sell_volume: Volume,
-    ) -> Self {
-        assert!(
-            high >= open && high >= close,
-            "High must be >= open and close"
-        );
-        assert!(low <= open && low <= close, "Low must be <= open and close");
-
-        Self {
+    ) -> Result<Self, DataError> {
+        if high < open || high < close {
+            return Err(DataError::InvalidRange {
+                context: format!(
+                    "Candle high ({}) must be >= open ({}) and close ({})",
+                    high, open, close
+                ),
+            });
+        }
+        if low > open || low > close {
+            return Err(DataError::InvalidRange {
+                context: format!(
+                    "Candle low ({}) must be <= open ({}) and close ({})",
+                    low, open, close
+                ),
+            });
+        }
+        Ok(Self {
             time,
             open,
             high,
@@ -103,7 +114,7 @@ impl Candle {
             close,
             buy_volume,
             sell_volume,
-        }
+        })
     }
 
     /// Total volume (buy + sell)
@@ -285,7 +296,8 @@ mod tests {
             Price::from_f32(102.0),
             Volume(100.0),
             Volume(80.0),
-        );
+        )
+        .expect("invariant: valid OHLC values");
 
         assert_eq!(candle.total_volume().value(), 180.0);
         assert_eq!(candle.volume_delta(), 20.0);

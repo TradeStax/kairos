@@ -5,8 +5,8 @@
 use crate::DateRange;
 use serde::{Deserialize, Serialize};
 
-/// Unique identifier for a data feed
-pub type FeedId = uuid::Uuid;
+/// Unique identifier for a data feed (re-exported from domain layer)
+pub use crate::domain::types::FeedId;
 
 /// Whether a feed is realtime (live connection) or historical (downloaded dataset)
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]

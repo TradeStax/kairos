@@ -16,6 +16,7 @@ pub enum ContentKind {
     Ladder,
     ComparisonChart,
     ScriptEditor,
+    ProfileChart,
 }
 
 // Custom Serialize that writes CandlestickChart as "CandlestickChart"
@@ -29,6 +30,7 @@ impl Serialize for ContentKind {
             ContentKind::Ladder => serializer.serialize_str("Ladder"),
             ContentKind::ComparisonChart => serializer.serialize_str("ComparisonChart"),
             ContentKind::ScriptEditor => serializer.serialize_str("ScriptEditor"),
+            ContentKind::ProfileChart => serializer.serialize_str("ProfileChart"),
         }
     }
 }
@@ -45,6 +47,7 @@ impl<'de> Deserialize<'de> for ContentKind {
             "Ladder" => Ok(ContentKind::Ladder),
             "ComparisonChart" => Ok(ContentKind::ComparisonChart),
             "ScriptEditor" => Ok(ContentKind::ScriptEditor),
+            "ProfileChart" => Ok(ContentKind::ProfileChart),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -55,6 +58,7 @@ impl<'de> Deserialize<'de> for ContentKind {
                     "Ladder",
                     "ComparisonChart",
                     "ScriptEditor",
+                    "ProfileChart",
                 ],
             )),
         }
@@ -65,6 +69,7 @@ impl ContentKind {
     pub const ALL: &'static [ContentKind] = &[
         ContentKind::HeatmapChart,
         ContentKind::CandlestickChart,
+        ContentKind::ProfileChart,
         ContentKind::TimeAndSales,
         ContentKind::Ladder,
         ContentKind::ComparisonChart,
@@ -80,6 +85,7 @@ impl ContentKind {
             ContentKind::ComparisonChart => ChartType::Candlestick,
             ContentKind::Starter => ChartType::Candlestick,
             ContentKind::ScriptEditor => ChartType::Candlestick,
+            ContentKind::ProfileChart => ChartType::Candlestick,
         }
     }
 }
@@ -94,6 +100,7 @@ impl std::fmt::Display for ContentKind {
             ContentKind::Ladder => write!(f, "Ladder"),
             ContentKind::ComparisonChart => write!(f, "Comparison"),
             ContentKind::ScriptEditor => write!(f, "Script Editor"),
+            ContentKind::ProfileChart => write!(f, "Profile"),
         }
     }
 }
@@ -130,15 +137,21 @@ pub struct StudyInstanceConfig {
     pub parameters: std::collections::HashMap<String, serde_json::Value>,
 }
 
-/// Pane settings (basis, visual config)
+/// Pane settings — PERSISTED to disk as part of the layout.
+///
+/// All fields in this struct are serialized and saved with the layout.
+/// Runtime-only state (e.g. chart data, interaction state) lives in
+/// `ChartState` and the GUI-layer `Content` enum instead.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
+    /// PERSISTED — chart basis (timeframe or tick count) selected by the user.
     pub selected_basis: Option<ChartBasis>,
+    /// PERSISTED — content-type-specific visual configuration.
     pub visual_config: Option<VisualConfig>,
-    /// Saved drawings for this pane
+    /// PERSISTED — saved drawings (lines, boxes, fibs) for this pane.
     #[serde(default)]
     pub drawings: Vec<crate::drawing::SerializableDrawing>,
-    /// Saved study configurations for this pane
+    /// PERSISTED — saved study (indicator) configurations for this pane.
     #[serde(default)]
     pub studies: Vec<StudyInstanceConfig>,
 }
@@ -152,6 +165,7 @@ pub enum VisualConfig {
     Ladder(LadderConfig),
     Comparison(ComparisonConfig),
     ScriptEditor(ScriptEditorConfig),
+    Profile(ProfileConfig),
 }
 
 impl VisualConfig {
@@ -193,6 +207,13 @@ impl VisualConfig {
     pub fn script_editor(self) -> Option<ScriptEditorConfig> {
         match self {
             VisualConfig::ScriptEditor(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn profile(self) -> Option<ProfileConfig> {
+        match self {
+            VisualConfig::Profile(cfg) => Some(cfg),
             _ => None,
         }
     }
@@ -287,6 +308,9 @@ pub struct CandleStyle {
     pub bear_wick_color: Option<crate::config::color::Rgba>,
     pub bull_border_color: Option<crate::config::color::Rgba>,
     pub bear_border_color: Option<crate::config::color::Rgba>,
+    /// When true, candle body opacity scales with volume (high volume = more opaque).
+    #[serde(default)]
+    pub volume_opacity: bool,
 }
 
 impl CandleStyle {
@@ -317,14 +341,20 @@ impl CandleStyle {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KlineConfig {
+    /// PERSISTED — whether the volume sub-chart is visible.
     pub show_volume: bool,
+    /// PERSISTED — color scheme identifier (e.g. "default").
     pub color_scheme: String,
-    /// Candlestick visual style
+    /// PERSISTED — candlestick visual style (body/wick/border colors).
     #[serde(default)]
     pub candle_style: CandleStyle,
-    /// Which color field is currently being edited (UI-only, not persisted)
+    /// RUNTIME ONLY — which color field is currently being edited in the UI.
+    /// Skipped during serialization; always `None` on load.
     #[serde(skip)]
     pub editing_color: Option<CandleColorField>,
+    /// RUNTIME ONLY — whether to show debug performance overlay (FPS, frame time, etc.).
+    #[serde(skip)]
+    pub show_debug_info: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,4 +417,185 @@ pub struct ScriptEditorConfig {
 
 fn default_editor_font_size() -> f32 {
     14.0
+}
+
+/// Profile chart display type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProfileDisplayType {
+    #[default]
+    Volume,
+    BidAskVolume,
+    Delta,
+    DeltaAndTotal,
+    DeltaPercentage,
+}
+
+impl std::fmt::Display for ProfileDisplayType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfileDisplayType::Volume => write!(f, "Volume"),
+            ProfileDisplayType::BidAskVolume => write!(f, "Bid/Ask Volume"),
+            ProfileDisplayType::Delta => write!(f, "Delta"),
+            ProfileDisplayType::DeltaAndTotal => write!(f, "Delta & Total"),
+            ProfileDisplayType::DeltaPercentage => write!(f, "Delta %"),
+        }
+    }
+}
+
+/// Profile chart period selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProfilePeriod {
+    #[default]
+    AllData,
+    Length,
+    Custom,
+}
+
+impl std::fmt::Display for ProfilePeriod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfilePeriod::AllData => write!(f, "All Data"),
+            ProfilePeriod::Length => write!(f, "Length"),
+            ProfilePeriod::Custom => write!(f, "Custom"),
+        }
+    }
+}
+
+/// Profile chart length unit
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProfileLengthUnit {
+    #[default]
+    Days,
+    Minutes,
+    Contracts,
+}
+
+impl std::fmt::Display for ProfileLengthUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfileLengthUnit::Days => write!(f, "Days"),
+            ProfileLengthUnit::Minutes => write!(f, "Minutes"),
+            ProfileLengthUnit::Contracts => write!(f, "Contracts"),
+        }
+    }
+}
+
+/// Profile chart visual configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileConfig {
+    // Display
+    #[serde(default)]
+    pub display_type: ProfileDisplayType,
+
+    // Period
+    #[serde(default)]
+    pub period: ProfilePeriod,
+    #[serde(default)]
+    pub length_unit: ProfileLengthUnit,
+    #[serde(default = "default_length_value")]
+    pub length_value: i64,
+    #[serde(default)]
+    pub custom_start: i64,
+    #[serde(default)]
+    pub custom_end: i64,
+
+    // Tick grouping
+    #[serde(default = "default_true")]
+    pub auto_grouping: bool,
+    #[serde(default = "default_one")]
+    pub auto_group_factor: i64,
+    #[serde(default = "default_one")]
+    pub manual_ticks: i64,
+
+    // Value Area
+    #[serde(default = "default_va_pct")]
+    pub value_area_pct: f32,
+    #[serde(default = "default_true")]
+    pub show_va_highlight: bool,
+    pub vah_color: Option<crate::config::color::Rgba>,
+    pub val_color: Option<crate::config::color::Rgba>,
+
+    // POC
+    #[serde(default = "default_true")]
+    pub show_poc: bool,
+    pub poc_color: Option<crate::config::color::Rgba>,
+    #[serde(default = "default_poc_width")]
+    pub poc_line_width: f32,
+
+    // Volume Nodes
+    #[serde(default)]
+    pub show_hvn: bool,
+    #[serde(default)]
+    pub show_lvn: bool,
+    #[serde(default = "default_hvn_threshold")]
+    pub hvn_threshold: f32,
+    #[serde(default = "default_lvn_threshold")]
+    pub lvn_threshold: f32,
+    pub hvn_color: Option<crate::config::color::Rgba>,
+    pub lvn_color: Option<crate::config::color::Rgba>,
+
+    // Colors
+    pub volume_color: Option<crate::config::color::Rgba>,
+    pub bid_color: Option<crate::config::color::Rgba>,
+    pub ask_color: Option<crate::config::color::Rgba>,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_one() -> i64 {
+    1
+}
+fn default_length_value() -> i64 {
+    5
+}
+fn default_va_pct() -> f32 {
+    0.7
+}
+fn default_poc_width() -> f32 {
+    1.5
+}
+fn default_hvn_threshold() -> f32 {
+    0.85
+}
+fn default_lvn_threshold() -> f32 {
+    0.15
+}
+fn default_opacity() -> f32 {
+    0.7
+}
+
+impl Default for ProfileConfig {
+    fn default() -> Self {
+        Self {
+            display_type: ProfileDisplayType::default(),
+            period: ProfilePeriod::default(),
+            length_unit: ProfileLengthUnit::default(),
+            length_value: default_length_value(),
+            custom_start: 0,
+            custom_end: 0,
+            auto_grouping: true,
+            auto_group_factor: 1,
+            manual_ticks: 1,
+            value_area_pct: default_va_pct(),
+            show_va_highlight: true,
+            vah_color: None,
+            val_color: None,
+            show_poc: true,
+            poc_color: None,
+            poc_line_width: default_poc_width(),
+            show_hvn: false,
+            show_lvn: false,
+            hvn_threshold: default_hvn_threshold(),
+            lvn_threshold: default_lvn_threshold(),
+            hvn_color: None,
+            lvn_color: None,
+            volume_color: None,
+            bid_color: None,
+            ask_color: None,
+            opacity: default_opacity(),
+        }
+    }
 }

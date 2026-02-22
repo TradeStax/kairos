@@ -1,7 +1,19 @@
-//! Chart State
+//! Chart State — runtime only, never persisted.
 //!
-//! Chart-specific state that is kept in memory only (NOT persisted).
-//! Chart data is derived from cache, not stored in saved state.
+//! # Persistence strategy
+//!
+//! Chart **configuration** (ticker, basis, date range) is persisted indirectly
+//! through `state::pane::Settings` which is saved as part of the layout.
+//!
+//! Chart **data** (trades, candles, depth snapshots) is NEVER persisted. On
+//! startup the data is re-fetched from cache or the network using the saved
+//! configuration. This keeps saved layouts small and avoids stale-data bugs.
+//!
+//! `ChartState` therefore holds:
+//! - A `ChartConfig` describing *what* to display (rebuilt from `Settings`).
+//! - A `ChartData` holding the loaded market data (always starts empty).
+//! - A `LoadingStatus` tracking the async fetch lifecycle.
+//! - `FuturesTickerInfo` for tick-size and contract specs at runtime.
 
 use crate::domain::chart::{ChartBasis, ChartConfig, ChartData, LoadingStatus};
 use crate::domain::{Candle, FuturesTickerInfo, Side, Timestamp, Trade, Volume};
@@ -172,7 +184,8 @@ mod tests {
             date_range: DateRange::new(
                 NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
                 NaiveDate::from_ymd_opt(2025, 1, 7).unwrap(),
-            ),
+            )
+            .expect("invariant: start <= end for test date range"),
             chart_type: ChartType::Candlestick,
         };
 

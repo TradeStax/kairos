@@ -10,7 +10,7 @@ use data::state::pane::{CandleColorField, CandleStyle, KlineConfig, VisualConfig
 use iced::widget::pane_grid;
 use iced::{
     Alignment, Color, Element,
-    widget::{button, column, container, mouse_area, opaque, row, space, stack, text},
+    widget::{button, checkbox, column, container, mouse_area, opaque, row, space, stack, text},
 };
 
 use super::common::{cfg_view_container, sync_all_button};
@@ -97,6 +97,50 @@ pub fn kline_cfg_view<'a>(
         }))
     };
 
+    let rendering_section = {
+        let cfg_for_vol = cfg.clone();
+        let volume_opacity_toggle = checkbox(cfg.candle_style.volume_opacity)
+            .label("Volume opacity")
+            .on_toggle(move |checked| {
+                let mut new_cfg = cfg_for_vol.clone();
+                new_cfg.candle_style.volume_opacity = checked;
+                Message::VisualConfigChanged(pane, VisualConfig::Kline(new_cfg), false)
+            })
+            .size(14)
+            .text_size(13);
+        column![
+            title("Rendering"),
+            volume_opacity_toggle,
+            text("Candle opacity scales with volume")
+                .size(11),
+        ]
+        .spacing(tokens::spacing::SM)
+    };
+
+    let debug_section = {
+        let cfg_for_debug = cfg.clone();
+        let debug_toggle = checkbox(cfg.show_debug_info)
+            .label("Show debug info")
+            .on_toggle(move |checked| {
+                let mut new_cfg = cfg_for_debug.clone();
+                new_cfg.show_debug_info = checked;
+                Message::VisualConfigChanged(
+                    pane,
+                    VisualConfig::Kline(new_cfg),
+                    false,
+                )
+            })
+            .size(14)
+            .text_size(13);
+        column![
+            title("Debug"),
+            debug_toggle,
+            text("FPS, frame time, visible candles, LOD level")
+                .size(11),
+        ]
+        .spacing(tokens::spacing::SM)
+    };
+
     let buttons_row = row![
         space::horizontal(),
         reset_all_btn,
@@ -108,6 +152,8 @@ pub fn kline_cfg_view<'a>(
     let compact_col = split_column![
         bull_section,
         bear_section,
+        rendering_section,
+        debug_section,
         buttons_row
         ; spacing = tokens::spacing::LG, align_x = Alignment::Start
     ];

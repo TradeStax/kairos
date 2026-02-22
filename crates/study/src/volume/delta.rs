@@ -3,7 +3,10 @@
 //! Displays volume delta (buy_volume - sell_volume) per candle as colored bars.
 //! Green for positive delta, red for negative.
 
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
@@ -35,35 +38,50 @@ impl DeltaStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "positive_color",
-                label: "Positive Color",
-                description: "Color for positive delta bars",
+                key: "positive_color".into(),
+                label: "Positive Color".into(),
+                description: "Color for positive delta bars".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_POS_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "negative_color",
-                label: "Negative Color",
-                description: "Color for negative delta bars",
+                key: "negative_color".into(),
+                label: "Negative Color".into(),
+                description: "Color for negative delta bars".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_NEG_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "opacity",
-                label: "Opacity",
-                description: "Bar opacity",
+                key: "opacity".into(),
+                label: "Opacity".into(),
+                description: "Bar opacity".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(DEFAULT_OPACITY),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("delta");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -105,15 +123,8 @@ impl Study for DeltaStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -180,6 +191,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     #[test]

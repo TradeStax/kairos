@@ -16,6 +16,7 @@
 //   ProgressBarBuilder    Horizontal progress bar with optional label
 //   status_dot            Small colored circle indicator
 //   status_badge          Dot + label row
+//   status_badge_themed   Theme-aware dot + label row
 //   status_row            Dot + label + optional detail text
 //   Toast / toast::Manager  Notification toasts with auto-dismiss
 //   Notification          Toast notification kind (Error/Info/Warn)
@@ -119,51 +120,19 @@ pub mod primitives;
 
 // ── Display re-exports ────────────────────────────────────────────────
 
-pub use display::empty_state::EmptyStateBuilder;
-pub use display::progress_bar::ProgressBarBuilder;
-pub use display::status_dot::{status_badge, status_dot};
-pub use display::toast::{self, Notification, Toast};
-pub use display::tooltip::{TooltipPosition, button_with_tooltip, tooltip};
+pub use display::status_dot::status_badge_themed;
 
 // ── Form re-exports ───────────────────────────────────────────────────
 
-pub use form::form_section::FormSectionBuilder;
 
 // ── Input re-exports ──────────────────────────────────────────────────
 
-pub use input::checkbox_field::CheckboxFieldBuilder;
-pub use input::color_picker::color_picker;
-pub use input::link_group_button::link_group_button;
-pub use input::search_field::SearchFieldBuilder;
-pub use input::secure_field::SecureFieldBuilder;
-pub use input::slider_field::{SliderFieldBuilder, classic_slider_row, labeled_slider};
-pub use input::toggle_switch::toggle_switch;
-pub use input::volume_trackbar::volume_trackbar;
 
 // ── Layout re-exports ─────────────────────────────────────────────────
 
-pub use layout::button_group::ButtonGroupBuilder;
-pub use layout::decorate::decorate;
-pub use layout::dragger_row::dragger_row;
-pub use layout::multi_split::DRAG_SIZE;
-pub use layout::reorderable_list::{self as reorderable_list, DragEvent};
-pub use layout::scrollable_content::scrollable_content;
-pub use layout::section_header::SectionHeaderBuilder;
 
 // ── Overlay re-exports ────────────────────────────────────────────────
 
-pub use overlay::confirm_dialog::{ConfirmDialog, ConfirmDialogBuilder};
-pub use overlay::context_menu::context_menu;
-pub use overlay::form_modal::FormModalBuilder;
-pub use overlay::modal_shell::{chart_modal, dashboard_modal};
 
 // ── Primitive re-exports ──────────────────────────────────────────────
 
-pub use primitives::badge::{BadgeKind, badge};
-pub use primitives::icon_button::{IconButtonBuilder, icon_button, toolbar_icon};
-pub use primitives::icons::{
-    AZERET_MONO, AZERET_MONO_BYTES, ICONS_BYTES, ICONS_FONT, Icon, exchange_icon, icon_text,
-};
-pub use primitives::label::{body, colored, heading, label_text, mono, small, tiny, title};
-pub use primitives::separator::{divider, flex_space, thick_divider, vertical_divider};
-pub use primitives::truncated_text::truncated;

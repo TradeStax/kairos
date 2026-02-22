@@ -111,13 +111,20 @@ impl Default for RithmicConfig {
 }
 
 impl RithmicConfig {
-    /// Create from environment variables for a given Rithmic environment
+    /// Create from environment variables for a given Rithmic environment.
+    ///
+    /// Returns both the local config and the upstream `rithmic_rs::RithmicConfig`
+    /// needed to connect.
     pub fn from_env(
         env: rithmic_rs::RithmicEnv,
-    ) -> Result<(Self, rithmic_rs::RithmicConfig), RithmicError> {
-        let rithmic_config = rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
-            RithmicError::Config(format!("Failed to load Rithmic config from env: {}", e))
-        })?;
+    ) -> Result<(Self, rithmic_rs::RithmicConfig), AdapterError> {
+        let rithmic_config =
+            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
+                AdapterError::InvalidRequest(format!(
+                    "Failed to load Rithmic config from env: {}",
+                    e
+                ))
+            })?;
 
         Ok((
             Self {
@@ -128,7 +135,7 @@ impl RithmicConfig {
         ))
     }
 
-    /// Create from a UI feed config and password
+    /// Create from a UI feed config and password.
     ///
     /// Loads base connection details (URLs, account IDs) from environment
     /// variables, then overrides user/password/system_name from the feed
@@ -136,16 +143,22 @@ impl RithmicConfig {
     pub fn from_feed_config(
         feed_config: &kairos_data::feed::RithmicFeedConfig,
         password: &str,
-    ) -> Result<(Self, rithmic_rs::RithmicConfig), RithmicError> {
+    ) -> Result<(Self, rithmic_rs::RithmicConfig), AdapterError> {
         // Validate required fields
         if feed_config.user_id.trim().is_empty() {
-            return Err(RithmicError::Config("User ID is required".to_string()));
+            return Err(AdapterError::InvalidRequest(
+                "User ID is required".to_string(),
+            ));
         }
         if password.trim().is_empty() {
-            return Err(RithmicError::Config("Password is required".to_string()));
+            return Err(AdapterError::InvalidRequest(
+                "Password is required".to_string(),
+            ));
         }
         if feed_config.system_name.trim().is_empty() {
-            return Err(RithmicError::Config("System name is required".to_string()));
+            return Err(AdapterError::InvalidRequest(
+                "System name is required".to_string(),
+            ));
         }
 
         let env = match feed_config.environment {
@@ -155,14 +168,15 @@ impl RithmicConfig {
         };
 
         // Load base config from environment variables (URLs, account IDs)
-        let mut rithmic_config = rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
-            RithmicError::Config(format!(
-                "Failed to load Rithmic env config: {}. \
+        let mut rithmic_config =
+            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
+                AdapterError::InvalidRequest(format!(
+                    "Failed to load Rithmic env config: {}. \
                      Set RITHMIC_{}_* environment variables.",
-                e,
-                env.to_string().to_uppercase()
-            ))
-        })?;
+                    e,
+                    env.to_string().to_uppercase()
+                ))
+            })?;
 
         // Override with feed config values
         rithmic_config.user = feed_config.user_id.clone();

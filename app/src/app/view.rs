@@ -11,7 +11,7 @@ use iced::{
 
 use crate::components::chrome::{menu_bar, title_bar};
 
-use super::{Kairos, Message, APP_NAME};
+use super::{Kairos, Message};
 
 impl Kairos {
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {

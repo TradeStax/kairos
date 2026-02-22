@@ -32,12 +32,25 @@ pub enum StudyOutput {
     /// Footprint: per-candle trade-level data replacing standard candle rendering
     Footprint(FootprintData),
 
-    /// Trade markers (Big Trades bubbles)
-    Markers(Vec<TradeMarker>),
+    /// Trade markers (Big Trades bubbles) with render configuration
+    Markers(MarkerData),
+
+    /// Volume-by-Price profile (VBP study)
+    Vbp(VbpData),
+
+    /// Multiple outputs combined (e.g. MACD: Lines + Histogram)
+    Composite(Vec<StudyOutput>),
 
     /// No output yet (not computed)
     #[default]
     Empty,
+}
+
+/// Trade markers with their render configuration bundled together.
+#[derive(Debug, Clone)]
+pub struct MarkerData {
+    pub markers: Vec<TradeMarker>,
+    pub render_config: MarkerRenderConfig,
 }
 
 /// A single trade marker (aggregated big trade bubble).
@@ -187,6 +200,9 @@ pub enum ProfileSide {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileLevel {
     pub price: f64,
+    /// Pre-computed price in i64 units (10^-8) to avoid repeated
+    /// f64→Price conversions during rendering.
+    pub price_units: i64,
     pub buy_volume: f32,
     pub sell_volume: f32,
 }
@@ -200,6 +216,16 @@ pub struct ProfileData {
     pub poc: Option<usize>,
     /// Value area high and low indices (VAH, VAL)
     pub value_area: Option<(usize, usize)>,
+    /// Color for buy volume bars
+    pub buy_color: SerializableColor,
+    /// Color for sell volume bars
+    pub sell_color: SerializableColor,
+    /// Color for the POC line
+    pub poc_color: SerializableColor,
+    /// Color for value area highlighting
+    pub value_area_color: SerializableColor,
+    /// Width as percentage of chart width (0.0 - 1.0)
+    pub width_pct: f32,
 }
 
 // ── CandleReplace configuration ──────────────────────────────────────
@@ -468,6 +494,324 @@ impl std::fmt::Display for FootprintScaling {
             FootprintScaling::VisibleRange => write!(f, "Visible Range"),
             FootprintScaling::Datapoint => write!(f, "Datapoint"),
             FootprintScaling::Hybrid { weight } => write!(f, "Hybrid ({weight:.1})"),
+        }
+    }
+}
+
+// ── Volume-by-Price (VBP) shared types ──────────────────────────────
+
+/// Direction for extending horizontal lines beyond the profile bounds.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum ExtendDirection {
+    #[default]
+    None,
+    Left,
+    Right,
+    Both,
+}
+
+impl std::fmt::Display for ExtendDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExtendDirection::None => write!(f, "None"),
+            ExtendDirection::Left => write!(f, "Left"),
+            ExtendDirection::Right => write!(f, "Right"),
+            ExtendDirection::Both => write!(f, "Both"),
+        }
+    }
+}
+
+/// Method for detecting high/low volume nodes.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum NodeDetectionMethod {
+    #[default]
+    Percentile,
+    Relative,
+    StdDev,
+}
+
+impl std::fmt::Display for NodeDetectionMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeDetectionMethod::Percentile => write!(f, "Percentile"),
+            NodeDetectionMethod::Relative => write!(f, "Relative"),
+            NodeDetectionMethod::StdDev => write!(f, "Std Dev"),
+        }
+    }
+}
+
+/// A detected high or low volume node in a profile.
+#[derive(Debug, Clone)]
+pub struct VolumeNode {
+    /// Price level in fixed-point units (10^-8)
+    pub price_units: i64,
+    /// Price level as f64
+    pub price: f64,
+    /// Total volume at this level
+    pub volume: f32,
+}
+
+/// POC configuration within VBP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VbpPocConfig {
+    pub show_poc: bool,
+    pub poc_color: SerializableColor,
+    pub poc_line_width: f32,
+    pub poc_line_style: LineStyleValue,
+    pub poc_extend: ExtendDirection,
+    pub show_poc_label: bool,
+    pub show_developing_poc: bool,
+    pub developing_poc_color: SerializableColor,
+    pub developing_poc_line_width: f32,
+    pub developing_poc_line_style: LineStyleValue,
+}
+
+/// Value Area configuration within VBP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VbpValueAreaConfig {
+    pub show_value_area: bool,
+    pub value_area_pct: f32,
+    pub show_va_highlight: bool,
+    pub vah_color: SerializableColor,
+    pub vah_line_width: f32,
+    pub vah_line_style: LineStyleValue,
+    pub val_color: SerializableColor,
+    pub val_line_width: f32,
+    pub val_line_style: LineStyleValue,
+    pub show_va_fill: bool,
+    pub va_fill_color: SerializableColor,
+    pub va_fill_opacity: f32,
+    pub va_extend: ExtendDirection,
+    pub show_va_labels: bool,
+}
+
+/// HVN/LVN (Peak & Valley) configuration within VBP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VbpNodeConfig {
+    pub show_hvn: bool,
+    pub show_lvn: bool,
+    pub hvn_method: NodeDetectionMethod,
+    pub hvn_threshold: f32,
+    pub lvn_method: NodeDetectionMethod,
+    pub lvn_threshold: f32,
+    pub min_prominence: f32,
+    pub hvn_color: SerializableColor,
+    pub hvn_line_style: LineStyleValue,
+    pub hvn_line_width: f32,
+    pub hvn_extend: ExtendDirection,
+    pub lvn_color: SerializableColor,
+    pub lvn_line_style: LineStyleValue,
+    pub lvn_line_width: f32,
+    pub lvn_extend: ExtendDirection,
+    pub show_hvn_labels: bool,
+    pub show_lvn_labels: bool,
+}
+
+/// Anchored VWAP configuration within VBP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VbpVwapConfig {
+    pub show_vwap: bool,
+    pub vwap_color: SerializableColor,
+    pub vwap_line_width: f32,
+    pub vwap_line_style: LineStyleValue,
+    pub show_vwap_label: bool,
+    pub show_bands: bool,
+    pub band_multiplier: f32,
+    pub band_color: SerializableColor,
+    pub band_line_style: LineStyleValue,
+    pub band_line_width: f32,
+}
+
+// ── Volume-by-Price (VBP) output types ──────────────────────────────
+
+/// Visualization type for VBP study.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum VbpType {
+    #[default]
+    Volume,
+    BidAskVolume,
+    Delta,
+    DeltaAndTotalVolume,
+    DeltaPercentage,
+}
+
+impl std::fmt::Display for VbpType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VbpType::Volume => write!(f, "Volume"),
+            VbpType::BidAskVolume => write!(f, "Bid/Ask Volume"),
+            VbpType::Delta => write!(f, "Delta"),
+            VbpType::DeltaAndTotalVolume => {
+                write!(f, "Delta & Total Volume")
+            }
+            VbpType::DeltaPercentage => write!(f, "Delta Percentage"),
+        }
+    }
+}
+
+/// Time period mode for VBP computation range.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum VbpPeriod {
+    #[default]
+    Auto,
+    Length,
+    Custom,
+}
+
+impl std::fmt::Display for VbpPeriod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VbpPeriod::Auto => write!(f, "Auto"),
+            VbpPeriod::Length => write!(f, "Length"),
+            VbpPeriod::Custom => write!(f, "Custom"),
+        }
+    }
+}
+
+/// Unit for VBP length-based period.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
+)]
+pub enum VbpLengthUnit {
+    #[default]
+    Days,
+    Minutes,
+    Contracts,
+}
+
+impl std::fmt::Display for VbpLengthUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VbpLengthUnit::Days => write!(f, "Days"),
+            VbpLengthUnit::Minutes => write!(f, "Minutes"),
+            VbpLengthUnit::Contracts => write!(f, "Contracts"),
+        }
+    }
+}
+
+/// How the renderer should handle VBP level grouping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VbpGroupingMode {
+    /// Renderer merges levels dynamically based on y-axis scale * factor.
+    Automatic { factor: i64 },
+    /// Levels are pre-grouped by the study; renderer uses as-is.
+    Manual,
+}
+
+impl Default for VbpGroupingMode {
+    fn default() -> Self {
+        Self::Manual
+    }
+}
+
+/// Cached resolved VBP levels after dynamic merging.
+///
+/// Stored alongside `VbpData` to avoid recomputing the merge
+/// on every render frame. Only rebuilt when the dynamic quantum
+/// changes (i.e., zoom level changes).
+#[derive(Debug, Clone, Default)]
+pub struct VbpResolvedCache {
+    /// Dynamic quantum used to produce this cache.
+    pub quantum: i64,
+    /// Merged levels at the cached quantum.
+    pub levels: Vec<ProfileLevel>,
+    /// POC index in `levels`.
+    pub poc: Option<usize>,
+    /// Value area (VAH idx, VAL idx) in `levels`.
+    pub value_area: Option<(usize, usize)>,
+}
+
+/// Volume-by-Price output data for rendering.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VbpData {
+    pub vbp_type: VbpType,
+    pub side: ProfileSide,
+    pub levels: Vec<ProfileLevel>,
+    /// Grouping quantum used for the levels (price units per row)
+    pub quantum: i64,
+    /// Index of the Point of Control level
+    pub poc: Option<usize>,
+    /// Value area (VAH index, VAL index)
+    pub value_area: Option<(usize, usize)>,
+    /// Time range of captured data (start_ms, end_ms) for bounding rect
+    pub time_range: Option<(u64, u64)>,
+    // Style config (volume bars)
+    pub volume_color: SerializableColor,
+    pub bid_color: SerializableColor,
+    pub ask_color: SerializableColor,
+    pub width_pct: f32,
+    pub opacity: f32,
+    // Nested feature configs
+    pub poc_config: VbpPocConfig,
+    pub va_config: VbpValueAreaConfig,
+    pub node_config: VbpNodeConfig,
+    pub vwap_config: VbpVwapConfig,
+    // Computed data for new features
+    /// Developing POC: (timestamp_ms, poc_price_units) per candle
+    #[serde(skip)]
+    pub developing_poc_points: Vec<(u64, i64)>,
+    /// Detected high volume nodes
+    #[serde(skip)]
+    pub hvn_nodes: Vec<VolumeNode>,
+    /// Detected low volume nodes
+    #[serde(skip)]
+    pub lvn_nodes: Vec<VolumeNode>,
+    /// Anchored VWAP: (timestamp_ms, vwap_price)
+    #[serde(skip)]
+    pub vwap_points: Vec<(u64, f32)>,
+    /// VWAP upper band: (timestamp_ms, price)
+    #[serde(skip)]
+    pub vwap_upper_points: Vec<(u64, f32)>,
+    /// VWAP lower band: (timestamp_ms, price)
+    #[serde(skip)]
+    pub vwap_lower_points: Vec<(u64, f32)>,
+    /// Tick grouping mode for renderer
+    #[serde(skip)]
+    pub grouping_mode: VbpGroupingMode,
+    /// Renderer-side cache for resolved (merged) levels.
+    /// Populated lazily by the renderer; avoids per-frame merging.
+    #[serde(skip)]
+    pub resolved_cache: std::sync::Mutex<Option<VbpResolvedCache>>,
+}
+
+impl Clone for VbpData {
+    fn clone(&self) -> Self {
+        Self {
+            vbp_type: self.vbp_type,
+            side: self.side,
+            levels: self.levels.clone(),
+            quantum: self.quantum,
+            poc: self.poc,
+            value_area: self.value_area,
+            time_range: self.time_range,
+            volume_color: self.volume_color,
+            bid_color: self.bid_color,
+            ask_color: self.ask_color,
+            width_pct: self.width_pct,
+            opacity: self.opacity,
+            poc_config: self.poc_config.clone(),
+            va_config: self.va_config.clone(),
+            node_config: self.node_config.clone(),
+            vwap_config: self.vwap_config.clone(),
+            developing_poc_points: self
+                .developing_poc_points
+                .clone(),
+            hvn_nodes: self.hvn_nodes.clone(),
+            lvn_nodes: self.lvn_nodes.clone(),
+            vwap_points: self.vwap_points.clone(),
+            vwap_upper_points: self.vwap_upper_points.clone(),
+            vwap_lower_points: self.vwap_lower_points.clone(),
+            grouping_mode: self.grouping_mode,
+            // Cache is lazily rebuilt — no need to clone
+            resolved_cache: std::sync::Mutex::new(None),
         }
     }
 }

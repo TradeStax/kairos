@@ -8,7 +8,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::app::FUTURES_PRODUCTS;
 
-const COMPACT_ROW_HEIGHT: f32 = 28.0;
+use tokens::ticker_panel::COMPACT_ROW_HEIGHT;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RowSelection {

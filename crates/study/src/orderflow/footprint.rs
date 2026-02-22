@@ -4,7 +4,10 @@
 //! (buy/sell volume) for each candle. Supports multiple render modes
 //! (Box, Profile) and data types (Volume, BidAskSplit, Delta, etc.).
 
-use crate::config::{ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
+};
 use crate::error::StudyError;
 use crate::output::{
     BackgroundColorMode, CandleRenderConfig, FootprintCandle,
@@ -31,9 +34,9 @@ impl FootprintStudy {
         let params = vec![
             // ── General > Typology ──
             ParameterDef {
-                key: "data_type",
-                label: "Data Type",
-                description: "What data to display at each price level",
+                key: "data_type".into(),
+                label: "Data Type".into(),
+                description: "What data to display at each price level".into(),
                 kind: ParameterKind::Choice {
                     options: &[
                         "Volume",
@@ -43,102 +46,193 @@ impl FootprintStudy {
                     ],
                 },
                 default: ParameterValue::Choice("Volume".to_string()),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Render Mode",
+                    order: 0,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "mode",
-                label: "Mode",
+                key: "mode".into(),
+                label: "Mode".into(),
                 description:
-                    "Rendering mode: Box (colored grid) or Profile (bars)",
+                    "Rendering mode: Box (colored grid) or Profile (bars)".into(),
                 kind: ParameterKind::Choice {
                     options: &["Profile", "Box"],
                 },
                 default: ParameterValue::Choice("Profile".to_string()),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Render Mode",
+                    order: 0,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── General > Tick Grouping ──
             ParameterDef {
-                key: "auto_grouping",
-                label: "Grouping",
-                description: "Automatic or Manual tick grouping",
+                key: "auto_grouping".into(),
+                label: "Grouping".into(),
+                description: "Automatic or Manual tick grouping".into(),
                 kind: ParameterKind::Choice {
                     options: &["Automatic", "Manual"],
                 },
                 default: ParameterValue::Choice("Automatic".to_string()),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Tick Grouping",
+                    order: 1,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "auto_group_factor",
-                label: "Auto Group Factor",
-                description: "Tick size multiplier for automatic grouping",
+                key: "auto_group_factor".into(),
+                label: "Auto Group Factor".into(),
+                description: "Tick size multiplier for automatic grouping".into(),
                 kind: ParameterKind::Integer { min: 1, max: 100 },
                 default: ParameterValue::Integer(1),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Tick Grouping",
+                    order: 1,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::WhenChoice {
+                    key: "auto_grouping",
+                    equals: "Automatic",
+                },
             },
             ParameterDef {
-                key: "manual_ticks",
-                label: "Manual Ticks",
-                description: "Number of ticks to group together",
+                key: "manual_ticks".into(),
+                label: "Manual Ticks".into(),
+                description: "Number of ticks to group together".into(),
                 kind: ParameterKind::Integer { min: 1, max: 100 },
                 default: ParameterValue::Integer(1),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Tick Grouping",
+                    order: 1,
+                }),
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::WhenChoice {
+                    key: "auto_grouping",
+                    equals: "Manual",
+                },
             },
             ParameterDef {
-                key: "group_mode",
-                label: "Group Mode",
+                key: "group_mode".into(),
+                label: "Group Mode".into(),
                 description:
-                    "Bar-based (per candle) or Fixed (uniform) grouping",
+                    "Bar-based (per candle) or Fixed (uniform) grouping".into(),
                 kind: ParameterKind::Choice {
                     options: &["Bar-based", "Fixed"],
                 },
                 default: ParameterValue::Choice("Bar-based".to_string()),
+                tab: ParameterTab::Parameters,
+                section: Some(ParameterSection {
+                    label: "Tick Grouping",
+                    order: 1,
+                }),
+                order: 3,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::WhenChoice {
+                    key: "auto_grouping",
+                    equals: "Manual",
+                },
             },
             // ── Style > Bar Marker ──
             ParameterDef {
-                key: "bar_marker_width",
-                label: "Bar Marker Width",
-                description: "Width ratio for the candle body marker",
+                key: "bar_marker_width".into(),
+                label: "Bar Marker Width".into(),
+                description: "Width ratio for the candle body marker".into(),
                 kind: ParameterKind::Float {
                     min: 0.05,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(0.25),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Bar Marker",
+                    order: 0,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "outside_bar_style",
-                label: "Outside Bar Style",
-                description: "Style for the candle marker outside bars",
+                key: "outside_bar_style".into(),
+                label: "Outside Bar Style".into(),
+                description: "Style for the candle marker outside bars".into(),
                 kind: ParameterKind::Choice {
                     options: &["Body", "Candle", "None"],
                 },
                 default: ParameterValue::Choice("Body".to_string()),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Bar Marker",
+                    order: 0,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "marker_alignment",
-                label: "Marker Alignment",
+                key: "marker_alignment".into(),
+                label: "Marker Alignment".into(),
                 description:
-                    "Where the candle body appears relative to bars",
+                    "Where the candle body appears relative to bars".into(),
                 kind: ParameterKind::Choice {
                     options: &["Left", "None", "Center", "Right"],
                 },
                 default: ParameterValue::Choice("Left".to_string()),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Bar Marker",
+                    order: 0,
+                }),
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "show_outside_border",
-                label: "Show Outside Border",
-                description: "Draw a border around the candle body marker",
+                key: "show_outside_border".into(),
+                label: "Show Outside Border".into(),
+                description: "Draw a border around the candle body marker".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(false),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "max_bars_to_show",
-                label: "Max Bars",
+                key: "max_bars_to_show".into(),
+                label: "Max Bars".into(),
                 description:
-                    "Maximum candles to render with footprint levels",
+                    "Maximum candles to render with footprint levels".into(),
                 kind: ParameterKind::Integer { min: 10, max: 1000 },
                 default: ParameterValue::Integer(200),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "scaling",
-                label: "Scaling",
+                key: "scaling".into(),
+                label: "Scaling".into(),
                 description:
-                    "How bar widths are scaled relative to each other",
+                    "How bar widths are scaled relative to each other".into(),
                 kind: ParameterKind::Choice {
                     options: &[
                         "Square Root",
@@ -150,12 +244,20 @@ impl FootprintStudy {
                     ],
                 },
                 default: ParameterValue::Choice("Square Root".to_string()),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Bar Marker",
+                    order: 0,
+                }),
+                order: 3,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Style > Background ──
             ParameterDef {
-                key: "bg_color_mode",
-                label: "Background Color",
-                description: "Background coloring mode for cells",
+                key: "bg_color_mode".into(),
+                label: "Background Color".into(),
+                description: "Background coloring mode for cells".into(),
                 kind: ParameterKind::Choice {
                     options: &[
                         "Volume Intensity",
@@ -166,96 +268,167 @@ impl FootprintStudy {
                 default: ParameterValue::Choice(
                     "Volume Intensity".to_string(),
                 ),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Background",
+                    order: 1,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "bg_max_alpha",
-                label: "Background Max Alpha",
-                description: "Maximum opacity for background fills",
+                key: "bg_max_alpha".into(),
+                label: "Background Max Alpha".into(),
+                description: "Maximum opacity for background fills".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(0.6),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Background",
+                    order: 1,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "bg_buy_color",
-                label: "Buy Color",
+                key: "bg_buy_color".into(),
+                label: "Buy Color".into(),
                 description:
-                    "Buy/bullish color (defaults to theme)",
+                    "Buy/bullish color (defaults to theme)".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(
                     SerializableColor::new(0.0, 0.0, 0.0, 0.0),
                 ),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Colors",
+                    order: 2,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "bg_sell_color",
-                label: "Sell Color",
+                key: "bg_sell_color".into(),
+                label: "Sell Color".into(),
                 description:
-                    "Sell/bearish color (defaults to theme)",
+                    "Sell/bearish color (defaults to theme)".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(
                     SerializableColor::new(0.0, 0.0, 0.0, 0.0),
                 ),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Colors",
+                    order: 2,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "show_grid_lines",
-                label: "Grid Lines",
-                description: "Draw cell borders in Box mode",
+                key: "show_grid_lines".into(),
+                label: "Grid Lines".into(),
+                description: "Draw cell borders in Box mode".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(true),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             // ── Style > Text ──
             ParameterDef {
-                key: "font_size",
-                label: "Font Size",
-                description: "Text size for level values",
+                key: "font_size".into(),
+                label: "Font Size".into(),
+                description: "Text size for level values".into(),
                 kind: ParameterKind::Float {
                     min: 6.0,
                     max: 20.0,
                     step: 0.5,
                 },
                 default: ParameterValue::Float(11.0),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Text",
+                    order: 3,
+                }),
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "text_format",
-                label: "Text Format",
-                description: "How numeric values are displayed",
+                key: "text_format".into(),
+                label: "Text Format".into(),
+                description: "How numeric values are displayed".into(),
                 kind: ParameterKind::Choice {
                     options: &["Automatic", "Normal", "K"],
                 },
                 default: ParameterValue::Choice("Automatic".to_string()),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Text",
+                    order: 3,
+                }),
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "dynamic_text_size",
-                label: "Dynamic Text Size",
+                key: "dynamic_text_size".into(),
+                label: "Dynamic Text Size".into(),
                 description:
-                    "Automatically adjust text size based on cell size",
+                    "Automatically adjust text size based on cell size".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(true),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "show_zero_values",
-                label: "Show Zero Values",
-                description: "Display text for levels with zero volume",
+                key: "show_zero_values".into(),
+                label: "Show Zero Values".into(),
+                description: "Display text for levels with zero volume".into(),
                 kind: ParameterKind::Boolean,
                 default: ParameterValue::Boolean(false),
+                tab: ParameterTab::Display,
+                section: None,
+                order: 3,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "text_color",
-                label: "Text Color",
+                key: "text_color".into(),
+                label: "Text Color".into(),
                 description:
-                    "Color for level value text (defaults to theme)",
+                    "Color for level value text (defaults to theme)".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(
                     SerializableColor::new(0.0, 0.0, 0.0, 0.0),
                 ),
+                tab: ParameterTab::Style,
+                section: Some(ParameterSection {
+                    label: "Text",
+                    order: 3,
+                }),
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("footprint");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -604,19 +777,17 @@ impl Study for FootprintStudy {
         &self.config
     }
 
-    fn set_parameter(
-        &mut self,
-        key: &str,
-        value: ParameterValue,
-    ) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
+    }
+
+    fn tab_labels(&self) -> Option<&[(&'static str, ParameterTab)]> {
+        static LABELS: &[(&str, ParameterTab)] = &[
+            ("General", ParameterTab::Parameters),
+            ("Style", ParameterTab::Style),
+            ("Colors", ParameterTab::Display),
+        ];
+        Some(LABELS)
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -808,6 +979,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     #[test]
@@ -1189,7 +1361,7 @@ mod tests {
         study
             .set_parameter(
                 "max_bars_to_show",
-                ParameterValue::Integer(1),
+                ParameterValue::Integer(10),
             )
             .unwrap();
 
@@ -1223,7 +1395,7 @@ mod tests {
             StudyOutput::Footprint(data) => {
                 // max_bars is render-side, compute still outputs all
                 assert_eq!(data.candles.len(), 3);
-                assert_eq!(data.max_bars_to_show, 1);
+                assert_eq!(data.max_bars_to_show, 10);
             }
             _ => panic!("Expected Footprint output"),
         }

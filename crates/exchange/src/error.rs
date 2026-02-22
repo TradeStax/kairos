@@ -1,4 +1,4 @@
-//! Comprehensive error handling for FlowSurface Exchange layer
+//! Comprehensive error handling for Kairos Exchange layer
 //!
 //! Provides unified error types with proper context and user-friendly messages.
 

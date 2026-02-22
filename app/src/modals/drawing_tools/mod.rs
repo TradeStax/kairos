@@ -18,9 +18,9 @@ pub enum ToolCategory {
     Shapes,
     Annotations,
     Measurement,
+    Trading,
 }
 
-#[allow(dead_code)]
 impl ToolCategory {
     pub const ALL: &'static [ToolCategory] = &[
         ToolCategory::Cursor,
@@ -31,6 +31,7 @@ impl ToolCategory {
         ToolCategory::Shapes,
         ToolCategory::Annotations,
         ToolCategory::Measurement,
+        ToolCategory::Trading,
     ];
 
     pub fn tools(&self) -> &'static [DrawingTool] {
@@ -51,20 +52,10 @@ impl ToolCategory {
                 DrawingTool::Arrow,
             ],
             ToolCategory::Measurement => &[DrawingTool::PriceRange, DrawingTool::DateRange],
-        }
-    }
-
-    pub fn contains(&self, tool: DrawingTool) -> bool {
-        self.tools().contains(&tool)
-    }
-
-    pub fn for_tool(tool: DrawingTool) -> ToolCategory {
-        for cat in Self::ALL {
-            if cat.contains(tool) {
-                return *cat;
+            ToolCategory::Trading => {
+                &[DrawingTool::BuyCalculator, DrawingTool::SellCalculator]
             }
         }
-        ToolCategory::Cursor
     }
 }
 
@@ -84,6 +75,8 @@ pub enum SidebarGroup {
     Shapes,
     /// Annotations + Measurement
     Annotate,
+    /// Trading calculators
+    Trading,
 }
 
 impl SidebarGroup {
@@ -93,6 +86,7 @@ impl SidebarGroup {
         SidebarGroup::Fibonacci,
         SidebarGroup::Shapes,
         SidebarGroup::Annotate,
+        SidebarGroup::Trading,
     ];
 
     /// All tools in this group (flat list).
@@ -125,6 +119,9 @@ impl SidebarGroup {
                     ToolCategory::Measurement.tools(),
                 ]
             }
+            SidebarGroup::Trading => {
+                vec![ToolCategory::Trading.tools()]
+            }
         }
     }
 
@@ -149,7 +146,6 @@ impl SidebarGroup {
     }
 
     /// Default tool for this group.
-    #[allow(dead_code)]
     pub fn default_tool(&self) -> DrawingTool {
         match self {
             SidebarGroup::Select => DrawingTool::None,
@@ -157,6 +153,7 @@ impl SidebarGroup {
             SidebarGroup::Fibonacci => DrawingTool::FibRetracement,
             SidebarGroup::Shapes => DrawingTool::Rectangle,
             SidebarGroup::Annotate => DrawingTool::TextLabel,
+            SidebarGroup::Trading => DrawingTool::BuyCalculator,
         }
     }
 
@@ -168,6 +165,7 @@ impl SidebarGroup {
             SidebarGroup::Fibonacci => "Fibonacci",
             SidebarGroup::Shapes => "Shapes",
             SidebarGroup::Annotate => "Annotate",
+            SidebarGroup::Trading => "Trading",
         }
     }
 
@@ -204,6 +202,8 @@ pub fn tool_label(tool: DrawingTool) -> &'static str {
         DrawingTool::Arrow => "Arrow",
         DrawingTool::PriceRange => "Price Range",
         DrawingTool::DateRange => "Date Range",
+        DrawingTool::BuyCalculator => "Buy Calculator",
+        DrawingTool::SellCalculator => "Sell Calculator",
     }
 }
 
@@ -231,6 +231,9 @@ pub enum Action {
 
 // ── State ─────────────────────────────────────────────────────────────
 
+/// Number of sidebar groups (must match `SidebarGroup::ALL.len()`).
+const GROUP_COUNT: usize = SidebarGroup::ALL.len();
+
 /// State for the drawing tools panel
 #[derive(Debug, Clone)]
 pub struct DrawingToolsPanel {
@@ -238,8 +241,8 @@ pub struct DrawingToolsPanel {
     pub active_tool: DrawingTool,
     /// Whether snap is enabled
     pub snap_enabled: bool,
-    /// Last selected tool per sidebar group
-    selected_per_group: [DrawingTool; 5],
+    /// Last selected tool per sidebar group (indexed by `SidebarGroup::index()`)
+    selected_per_group: [DrawingTool; GROUP_COUNT],
     /// Currently expanded flyout group (if any)
     pub expanded_group: Option<SidebarGroup>,
 }
@@ -252,16 +255,14 @@ impl Default for DrawingToolsPanel {
 
 impl DrawingToolsPanel {
     pub fn new() -> Self {
+        let mut selected = [DrawingTool::None; GROUP_COUNT];
+        for group in SidebarGroup::ALL {
+            selected[group.index()] = group.default_tool();
+        }
         Self {
             active_tool: DrawingTool::None,
             snap_enabled: true,
-            selected_per_group: [
-                DrawingTool::None,           // Select
-                DrawingTool::Line,           // Lines
-                DrawingTool::FibRetracement, // Fibonacci
-                DrawingTool::Rectangle,      // Shapes
-                DrawingTool::TextLabel,      // Annotate
-            ],
+            selected_per_group: selected,
             expanded_group: None,
         }
     }
@@ -315,5 +316,7 @@ pub fn tool_icon(tool: DrawingTool) -> Icon {
         DrawingTool::Arrow => Icon::DrawArrow,               // E82F
         DrawingTool::PriceRange => Icon::DrawPriceRange,     // E830
         DrawingTool::DateRange => Icon::DrawDateRange,       // E831
+        DrawingTool::BuyCalculator => Icon::DrawBuyCalc,     // E826 trending-up
+        DrawingTool::SellCalculator => Icon::DrawSellCalc,   // E835 trending-down
     }
 }

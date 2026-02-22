@@ -3,17 +3,18 @@
 //! Renders horizontal price level lines (Fibonacci, Support/Resistance).
 //! Each level is drawn as a full-width horizontal line at the given price.
 
+use super::coord::line_dash_for_style;
 use crate::chart::ViewState;
 use crate::components::primitives::AZERET_MONO;
 use exchange::util::Price;
-use iced::widget::canvas::{Frame, LineDash, Path, Stroke, Text};
+use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Size};
 use study::output::PriceLevel;
 
 /// Render horizontal price levels.
 pub fn render_levels(frame: &mut Frame, levels: &[PriceLevel], state: &ViewState, bounds: Size) {
     for level in levels {
-        let y = state.price_to_y(Price::from_f32_lossy(level.price as f32));
+        let y = state.price_to_y(Price::from_f32(level.price as f32));
         let color: Color = crate::style::theme_bridge::rgba_to_iced_color(level.color);
         let color = color.scale_alpha(level.opacity);
 
@@ -79,16 +80,3 @@ pub fn render_levels(frame: &mut Frame, levels: &[PriceLevel], state: &ViewState
     }
 }
 
-fn line_dash_for_style(style: &study::config::LineStyleValue) -> LineDash<'static> {
-    match style {
-        study::config::LineStyleValue::Solid => LineDash::default(),
-        study::config::LineStyleValue::Dashed => LineDash {
-            segments: &[6.0, 4.0],
-            offset: 0,
-        },
-        study::config::LineStyleValue::Dotted => LineDash {
-            segments: &[2.0, 3.0],
-            offset: 0,
-        },
-    }
-}

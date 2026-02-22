@@ -1,69 +1,97 @@
-use crate::config::{LineStyleValue, ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
+};
 use crate::error::StudyError;
-use crate::output::{LineSeries, StudyOutput};
+use crate::output::{LineSeries, PriceLevel, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
-use crate::trend::sma::candle_key;
+use crate::util::candle_key;
 use data::SerializableColor;
 
-const PARAMS: &[ParameterDef] = &[
-    ParameterDef {
-        key: "period",
-        label: "Period",
-        description: "RSI lookback period",
-        kind: ParameterKind::Integer { min: 2, max: 100 },
-        default: ParameterValue::Integer(14),
-    },
-    ParameterDef {
-        key: "overbought",
-        label: "Overbought",
-        description: "Overbought level",
-        kind: ParameterKind::Float {
-            min: 50.0,
-            max: 100.0,
-            step: 5.0,
+fn make_params() -> Vec<ParameterDef> {
+    vec![
+        ParameterDef {
+            key: "period".into(),
+            label: "Period".into(),
+            description: "RSI lookback period".into(),
+            kind: ParameterKind::Integer { min: 2, max: 100 },
+            default: ParameterValue::Integer(14),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
         },
-        default: ParameterValue::Float(70.0),
-    },
-    ParameterDef {
-        key: "oversold",
-        label: "Oversold",
-        description: "Oversold level",
-        kind: ParameterKind::Float {
-            min: 0.0,
-            max: 50.0,
-            step: 5.0,
+        ParameterDef {
+            key: "overbought".into(),
+            label: "Overbought".into(),
+            description: "Overbought level".into(),
+            kind: ParameterKind::Float {
+                min: 50.0,
+                max: 100.0,
+                step: 5.0,
+            },
+            default: ParameterValue::Float(70.0),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
         },
-        default: ParameterValue::Float(30.0),
-    },
-    ParameterDef {
-        key: "color",
-        label: "Color",
-        description: "RSI line color",
-        kind: ParameterKind::Color,
-        default: ParameterValue::Color(SerializableColor {
-            r: 1.0,
-            g: 0.85,
-            b: 0.2,
-            a: 1.0,
-        }),
-    },
-];
+        ParameterDef {
+            key: "oversold".into(),
+            label: "Oversold".into(),
+            description: "Oversold level".into(),
+            kind: ParameterKind::Float {
+                min: 0.0,
+                max: 50.0,
+                step: 5.0,
+            },
+            default: ParameterValue::Float(30.0),
+            tab: ParameterTab::Parameters,
+            section: None,
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "color".into(),
+            label: "Color".into(),
+            description: "RSI line color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(SerializableColor {
+                r: 1.0,
+                g: 0.85,
+                b: 0.2,
+                a: 1.0,
+            }),
+            tab: ParameterTab::Style,
+            section: None,
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+    ]
+}
 
 pub struct RsiStudy {
     config: StudyConfig,
     output: StudyOutput,
+    params: Vec<ParameterDef>,
 }
 
 impl RsiStudy {
     pub fn new() -> Self {
+        let params = make_params();
         let mut config = StudyConfig::new("rsi");
-        for p in PARAMS {
-            config.set(p.key, p.default.clone());
+        for p in &params {
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
             config,
             output: StudyOutput::Empty,
+            params,
         }
     }
 }
@@ -92,81 +120,21 @@ impl Study for RsiStudy {
     }
 
     fn parameters(&self) -> &[ParameterDef] {
-        PARAMS
+        &self.params
     }
 
     fn config(&self) -> &StudyConfig {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        match key {
-            "period" => {
-                if let ParameterValue::Integer(v) = &value {
-                    if *v < 2 || *v > 100 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "period must be between 2 and 100".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected integer".to_string(),
-                    });
-                }
-            }
-            "overbought" => {
-                if let ParameterValue::Float(v) = &value {
-                    if *v < 50.0 || *v > 100.0 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "overbought must be between 50 and 100".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected float".to_string(),
-                    });
-                }
-            }
-            "oversold" => {
-                if let ParameterValue::Float(v) = &value {
-                    if *v < 0.0 || *v > 50.0 {
-                        return Err(StudyError::InvalidParameter {
-                            key: key.to_string(),
-                            reason: "oversold must be between 0 and 50".to_string(),
-                        });
-                    }
-                } else {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected float".to_string(),
-                    });
-                }
-            }
-            "color" => {
-                if !matches!(&value, ParameterValue::Color(_)) {
-                    return Err(StudyError::InvalidParameter {
-                        key: key.to_string(),
-                        reason: "expected color".to_string(),
-                    });
-                }
-            }
-            _ => {
-                return Err(StudyError::InvalidParameter {
-                    key: key.to_string(),
-                    reason: "unknown parameter".to_string(),
-                });
-            }
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let period = self.config.get_int("period", 14) as usize;
+        let ob = self.config.get_float("overbought", 70.0);
+        let os = self.config.get_float("oversold", 30.0);
         let color = self.config.get_color(
             "color",
             SerializableColor {
@@ -233,13 +201,40 @@ impl Study for RsiStudy {
             points.push((candle_key(&candles[i], i, candles.len(), &input.basis), rsi as f32));
         }
 
-        self.output = StudyOutput::Lines(vec![LineSeries {
-            label: format!("RSI({})", period),
-            color,
-            width: 1.5,
-            style: LineStyleValue::Solid,
-            points,
-        }]);
+        let level_color = SerializableColor { r: 0.7, g: 0.7, b: 0.7, a: 0.6 };
+        let levels = vec![
+            PriceLevel {
+                price: ob,
+                label: format!("OB {ob}"),
+                color: level_color,
+                style: LineStyleValue::Dashed,
+                opacity: 0.6,
+                show_label: true,
+                fill_above: None,
+                fill_below: None,
+            },
+            PriceLevel {
+                price: os,
+                label: format!("OS {os}"),
+                color: level_color,
+                style: LineStyleValue::Dashed,
+                opacity: 0.6,
+                show_label: true,
+                fill_above: None,
+                fill_below: None,
+            },
+        ];
+
+        self.output = StudyOutput::Composite(vec![
+            StudyOutput::Lines(vec![LineSeries {
+                label: format!("RSI({})", period),
+                color,
+                width: 1.5,
+                style: LineStyleValue::Solid,
+                points,
+            }]),
+            StudyOutput::Levels(levels),
+        ]);
         Ok(())
     }
 
@@ -255,6 +250,7 @@ impl Study for RsiStudy {
         Box::new(RsiStudy {
             config: self.config.clone(),
             output: self.output.clone(),
+            params: self.params.clone(),
         })
     }
 }
@@ -274,6 +270,7 @@ mod tests {
             Volume(0.0),
             Volume(0.0),
         )
+        .expect("test: valid candle")
     }
 
     fn make_input(candles: &[Candle]) -> StudyInput<'_> {
@@ -284,6 +281,17 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         }
+    }
+
+    /// Extract the RSI line series from the Composite output.
+    fn extract_lines(output: &StudyOutput) -> &[LineSeries] {
+        let StudyOutput::Composite(parts) = output else {
+            panic!("expected Composite output, got {:?}", output);
+        };
+        let StudyOutput::Lines(lines) = &parts[0] else {
+            panic!("expected Lines as first Composite element");
+        };
+        lines
     }
 
     #[test]
@@ -320,9 +328,7 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        let output = study.output();
-        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
-        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let lines = extract_lines(study.output());
         assert_eq!(lines[0].points.len(), 1);
         assert!((lines[0].points[0].1 - 100.0).abs() < 0.01);
     }
@@ -344,9 +350,7 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        let output = study.output();
-        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
-        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let lines = extract_lines(study.output());
         assert_eq!(lines[0].points.len(), 1);
         assert!(lines[0].points[0].1.abs() < 0.01);
     }
@@ -369,12 +373,39 @@ mod tests {
         let input = make_input(&candles);
         study.compute(&input).unwrap();
 
-        let output = study.output();
-        assert!(matches!(output, StudyOutput::Lines(_)), "expected Lines output");
-        let StudyOutput::Lines(lines) = output else { unreachable!() };
+        let lines = extract_lines(study.output());
         for point in &lines[0].points {
             assert!(point.1 >= 0.0 && point.1 <= 100.0);
         }
+    }
+
+    #[test]
+    fn test_rsi_levels_in_output() {
+        let mut study = RsiStudy::new();
+        study
+            .set_parameter("period", ParameterValue::Integer(3))
+            .unwrap();
+
+        let candles = vec![
+            make_candle(1000, 10.0),
+            make_candle(2000, 20.0),
+            make_candle(3000, 30.0),
+            make_candle(4000, 40.0),
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Composite(parts) = study.output() else {
+            panic!("expected Composite output");
+        };
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], StudyOutput::Lines(_)));
+        let StudyOutput::Levels(levels) = &parts[1] else {
+            panic!("expected Levels as second element");
+        };
+        assert_eq!(levels.len(), 2);
+        assert!((levels[0].price - 70.0).abs() < 0.001);
+        assert!((levels[1].price - 30.0).abs() < 0.001);
     }
 
     #[test]

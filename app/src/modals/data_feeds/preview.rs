@@ -235,10 +235,15 @@ impl DataFeedsModal {
 
                 let mut rows = column![header].spacing(tokens::spacing::XXXS);
                 for trade in preview.trades.iter().take(50) {
-                    let side_style = if trade.side == "Buy" {
-                        palette::success_color()
-                    } else {
-                        palette::error_color()
+                    let is_buy = trade.side == "Buy";
+                    let side_text_style = move |theme: &iced::Theme| {
+                        iced::widget::text::Style {
+                            color: Some(if is_buy {
+                                palette::success_color(theme)
+                            } else {
+                                palette::error_color(theme)
+                            }),
+                        }
                     };
 
                     let trade_row = row![
@@ -247,11 +252,7 @@ impl DataFeedsModal {
                         components::primitives::tiny(&trade.size).width(Length::FillPortion(1)),
                         components::primitives::tiny(&trade.side)
                             .width(Length::FillPortion(1))
-                            .style(move |_: &iced::Theme| {
-                                iced::widget::text::Style {
-                                    color: Some(side_style),
-                                }
-                            }),
+                            .style(side_text_style),
                     ]
                     .spacing(tokens::spacing::XS)
                     .padding([tokens::spacing::XXXS, tokens::spacing::XS]);

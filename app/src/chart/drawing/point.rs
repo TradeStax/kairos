@@ -58,8 +58,7 @@ impl DrawingPoint {
     }
 
     /// Convert this point to screen coordinates
-    #[allow(clippy::wrong_self_convention)]
-    pub fn to_screen(&self, state: &ViewState, bounds: Size) -> Point {
+    pub fn as_screen_point(&self, state: &ViewState, bounds: Size) -> Point {
         let region = state.visible_region(bounds);
 
         // Convert time to chart X coordinate

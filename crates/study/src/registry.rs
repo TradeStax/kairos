@@ -123,6 +123,19 @@ impl StudyRegistry {
             || Box::new(crate::orderflow::FootprintStudy::new()),
         );
 
+        registry.register(
+            "vbp",
+            StudyInfo {
+                id: "vbp".to_string(),
+                name: "Volume by Price".to_string(),
+                category: StudyCategory::OrderFlow,
+                placement: StudyPlacement::Background,
+                description: "Horizontal volume distribution bars at each price level"
+                    .to_string(),
+            },
+            || Box::new(crate::orderflow::VbpStudy::new()),
+        );
+
         // Trend studies
         registry.register(
             "sma",

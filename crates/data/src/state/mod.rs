@@ -42,7 +42,8 @@ pub use chart::ChartState;
 pub use layout::{Axis, Dashboard, Layout, LayoutManager, Layouts, Pane};
 pub use pane::{
     ComparisonConfig, ContentKind, HeatmapConfig, KlineConfig, LadderConfig, LinkGroup,
-    ScriptEditorConfig, Settings, StudyInstanceConfig, TimeAndSalesConfig, VisualConfig,
+    ProfileConfig, ProfileDisplayType, ProfileLengthUnit, ProfilePeriod, ScriptEditorConfig,
+    Settings, StudyInstanceConfig, TimeAndSalesConfig, VisualConfig,
 };
 pub use persistence::{StateVersion, load_state, save_state};
 pub use registry::DownloadedTickersRegistry;

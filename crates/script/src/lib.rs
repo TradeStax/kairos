@@ -7,6 +7,7 @@
 pub mod bridge;
 pub mod compiler;
 pub mod engine;
+pub mod limits;
 mod path;
 pub mod error;
 pub mod loader;

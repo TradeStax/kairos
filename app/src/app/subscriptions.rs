@@ -61,10 +61,16 @@ fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
 }
 
 /// Download progress monitoring subscription
-/// Uses global download progress state to avoid Subscription capture issues
+/// Uses global download progress state to avoid Subscription capture issues.
+/// Polls at 200ms when a download is active, 2000ms when idle.
 pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Message> {
     futures::stream::unfold((), |_| async {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let interval = if super::globals::is_download_active() {
+            std::time::Duration::from_millis(200)
+        } else {
+            std::time::Duration::from_millis(2000)
+        };
+        tokio::time::sleep(interval).await;
 
         let messages: Vec<Message> = {
             if let Ok(progress) = super::globals::get_download_progress().lock() {
@@ -133,6 +139,56 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
             keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::GoBack),
             keyboard::Key::Character(ref c) if c.as_str() == "s" && modifiers.command() => {
                 Some(Message::SaveFocusedScript)
+            }
+            // Ctrl+Shift+Z → Redo drawing (must be before Ctrl+Z)
+            keyboard::Key::Character(ref c)
+                if c.as_str() == "z" && modifiers.command() && modifiers.shift() =>
+            {
+                Some(Message::Dashboard {
+                    layout_id: None,
+                    event: crate::screen::dashboard::Message::DrawingRedo,
+                })
+            }
+            // Ctrl+Z → Undo drawing
+            keyboard::Key::Character(ref c)
+                if c.as_str() == "z" && modifiers.command() && !modifiers.shift() =>
+            {
+                Some(Message::Dashboard {
+                    layout_id: None,
+                    event: crate::screen::dashboard::Message::DrawingUndo,
+                })
+            }
+            // Ctrl+D → Duplicate selected drawing
+            keyboard::Key::Character(ref c)
+                if c.as_str() == "d" && modifiers.command() =>
+            {
+                Some(Message::Dashboard {
+                    layout_id: None,
+                    event: crate::screen::dashboard::Message::DrawingDuplicate,
+                })
+            }
+            // Home → Scroll to latest
+            keyboard::Key::Named(keyboard::key::Named::Home) => Some(Message::Dashboard {
+                layout_id: None,
+                event: crate::screen::dashboard::Message::ScrollToLatest,
+            }),
+            // + → Zoom in
+            keyboard::Key::Character(ref c)
+                if (c.as_str() == "+" || c.as_str() == "=") && !modifiers.command() =>
+            {
+                Some(Message::Dashboard {
+                    layout_id: None,
+                    event: crate::screen::dashboard::Message::ZoomStep(0.5),
+                })
+            }
+            // - → Zoom out
+            keyboard::Key::Character(ref c)
+                if c.as_str() == "-" && !modifiers.command() =>
+            {
+                Some(Message::Dashboard {
+                    layout_id: None,
+                    event: crate::screen::dashboard::Message::ZoomStep(-0.5),
+                })
             }
             _ => None,
         }

@@ -252,7 +252,7 @@ impl IndicatorManagerModal {
             .width(Length::Fill)
             .padding([tokens::spacing::SM, tokens::spacing::MD])
             .style(move |theme, status| {
-                style::button::modifier(theme, status, !is_selected)
+                style::button::modifier(theme, status, is_selected)
             })
             .into()
     }

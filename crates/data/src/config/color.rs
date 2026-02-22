@@ -43,6 +43,16 @@ impl Rgba {
         }
     }
 
+    /// Const-friendly RGB8 constructor for use in `const` / `static` contexts.
+    pub const fn from_rgb8_const(r: u8, g: u8, b: u8) -> Self {
+        Self {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a: 1.0,
+        }
+    }
+
     pub fn into_rgba8(self) -> [u8; 4] {
         [
             (self.r * 255.0).round() as u8,

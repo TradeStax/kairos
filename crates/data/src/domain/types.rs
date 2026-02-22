@@ -7,6 +7,11 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Div, Mul, Sub};
 
+use crate::DataError;
+
+/// Unique identifier for a data feed
+pub type FeedId = uuid::Uuid;
+
 /// Price with fixed precision (10^-8 for compatibility with exchange layer)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Price {
@@ -33,11 +38,6 @@ impl Price {
         }
     }
 
-    /// Lossy: create Price from f32 (rounds to nearest atomic unit)
-    pub fn from_f32_lossy(v: f32) -> Self {
-        Self::from_f32(v)
-    }
-
     /// Create from f64
     pub fn from_f64(value: f64) -> Self {
         Self {
@@ -48,11 +48,6 @@ impl Price {
     /// Convert to f32
     pub fn to_f32(self) -> f32 {
         (self.units as f64 / Self::PRECISION_F64) as f32
-    }
-
-    /// Lossy: convert price to f32
-    pub fn to_f32_lossy(self) -> f32 {
-        self.to_f32()
     }
 
     /// Convert to f64
@@ -256,9 +251,13 @@ pub struct TimeRange {
 }
 
 impl TimeRange {
-    pub fn new(start: Timestamp, end: Timestamp) -> Self {
-        assert!(start <= end, "Invalid time range: start > end");
-        Self { start, end }
+    pub fn new(start: Timestamp, end: Timestamp) -> Result<Self, DataError> {
+        if start > end {
+            return Err(DataError::InvalidRange {
+                context: format!("TimeRange start ({}) must be <= end ({})", start.0, end.0),
+            });
+        }
+        Ok(Self { start, end })
     }
 
     pub fn contains(&self, timestamp: Timestamp) -> bool {
@@ -278,9 +277,13 @@ pub struct DateRange {
 }
 
 impl DateRange {
-    pub fn new(start: NaiveDate, end: NaiveDate) -> Self {
-        assert!(start <= end, "Invalid date range: start > end");
-        Self { start, end }
+    pub fn new(start: NaiveDate, end: NaiveDate) -> Result<Self, DataError> {
+        if start > end {
+            return Err(DataError::InvalidRange {
+                context: format!("DateRange start ({start}) must be <= end ({end})"),
+            });
+        }
+        Ok(Self { start, end })
     }
 
     /// Create a date range for the last N days (ending yesterday, since realtime data is not supported)
@@ -433,7 +436,7 @@ mod tests {
     fn test_date_range_iteration() {
         let start = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
         let end = NaiveDate::from_ymd_opt(2025, 1, 3).unwrap();
-        let range = DateRange::new(start, end);
+        let range = DateRange::new(start, end).expect("invariant: start <= end");
 
         let dates: Vec<_> = range.dates().collect();
         assert_eq!(dates.len(), 3);
@@ -443,7 +446,8 @@ mod tests {
 
     #[test]
     fn test_time_range_contains() {
-        let range = TimeRange::new(Timestamp(1000), Timestamp(2000));
+        let range = TimeRange::new(Timestamp(1000), Timestamp(2000))
+            .expect("invariant: start <= end");
         assert!(range.contains(Timestamp(1500)));
         assert!(!range.contains(Timestamp(500)));
         assert!(!range.contains(Timestamp(2500)));

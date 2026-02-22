@@ -2,6 +2,7 @@
 
 use super::{DrawingEditMode, DrawingState, Interaction};
 use crate::chart::Message;
+use crate::chart::core::tokens;
 use crate::chart::core::traits::Chart;
 use data::{DrawingId, DrawingTool};
 use iced::{Point, widget::canvas};
@@ -105,15 +106,18 @@ pub fn handle_selection_click<T: Chart>(
 ) -> Option<canvas::Action<Message>> {
     let bounds = chart.state().bounds.size();
 
-    // 1. Check handle hit on already-selected drawings
+    // 1. Check handle hit on already-selected drawings (skip locked)
     if let Some((id, handle_index)) = chart.hit_test_drawing_handle(cursor_in_bounds, bounds) {
-        *last_selection_click = None;
-        *interaction = Interaction::EditingDrawing {
-            id,
-            edit_mode: DrawingEditMode::DraggingHandle { handle_index },
-            last_screen_pos: cursor_in_bounds,
-        };
-        return Some(canvas::Action::request_redraw().and_capture());
+        if !chart.is_drawing_locked(id) {
+            *last_selection_click = None;
+            *interaction = Interaction::EditingDrawing {
+                id,
+                edit_mode: DrawingEditMode::DraggingHandle { handle_index },
+                last_screen_pos: cursor_in_bounds,
+                drag_committed: true, // handle drags are immediate
+            };
+            return Some(canvas::Action::request_redraw().and_capture());
+        }
     }
 
     // 2. Check drawing body hit
@@ -121,7 +125,9 @@ pub fn handle_selection_click<T: Chart>(
         // Check for double-click on an already-selected drawing
         if chart.is_drawing_selected(id) {
             if let Some((prev_time, prev_id)) = last_selection_click {
-                if *prev_id == id && prev_time.elapsed().as_millis() < 400 {
+                if *prev_id == id
+                    && prev_time.elapsed().as_millis() < tokens::drawing::DOUBLE_CLICK_MS
+                {
                     *last_selection_click = None;
                     return Some(
                         canvas::Action::publish(Message::DrawingDoubleClick(id)).and_capture(),
@@ -131,11 +137,17 @@ pub fn handle_selection_click<T: Chart>(
         }
 
         *last_selection_click = Some((std::time::Instant::now(), id));
-        *interaction = Interaction::EditingDrawing {
-            id,
-            edit_mode: DrawingEditMode::Moving,
-            last_screen_pos: cursor_in_bounds,
-        };
+
+        // Locked drawings can be selected but not moved
+        if !chart.is_drawing_locked(id) {
+            *interaction = Interaction::EditingDrawing {
+                id,
+                edit_mode: DrawingEditMode::Moving,
+                last_screen_pos: cursor_in_bounds,
+                drag_committed: false, // wait for drag threshold
+            };
+        }
+
         return Some(canvas::Action::publish(Message::DrawingSelect(id)).and_capture());
     }
 
@@ -155,8 +167,21 @@ pub fn handle_editing_move(
     edit_mode: DrawingEditMode,
     cursor_position: Option<Point>,
     shift_held: bool,
+    start_pos: Point,
+    drag_committed: &mut bool,
 ) -> Option<canvas::Action<Message>> {
     if let Some(cursor_pos) = cursor_position {
+        // Check drag threshold for uncommitted moves
+        if !*drag_committed {
+            let dx = cursor_pos.x - start_pos.x;
+            let dy = cursor_pos.y - start_pos.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance < tokens::drawing::DRAG_THRESHOLD {
+                return Some(canvas::Action::request_redraw().and_capture());
+            }
+            *drag_committed = true;
+        }
+
         match edit_mode {
             DrawingEditMode::Moving => Some(
                 canvas::Action::publish(Message::DrawingDrag(cursor_pos, shift_held)).and_capture(),

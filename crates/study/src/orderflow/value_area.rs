@@ -3,12 +3,15 @@
 //! Identifies the Value Area High (VAH) and Value Area Low (VAL) which
 //! represent the price range containing a specified percentage of volume.
 
-use crate::config::{LineStyleValue, ParameterDef, ParameterKind, ParameterValue, StudyConfig};
+use crate::config::{
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
+};
 use crate::error::StudyError;
+use crate::orderflow::profile_core;
 use crate::output::{LineSeries, StudyOutput};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
-use std::collections::BTreeMap;
 
 const DEFAULT_PERCENTAGE: f64 = 0.7;
 
@@ -38,46 +41,66 @@ impl ValueAreaStudy {
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
-                key: "percentage",
-                label: "Percentage",
-                description: "Volume percentage for value area (0.5-0.95)",
+                key: "percentage".into(),
+                label: "Percentage".into(),
+                description: "Volume percentage for value area (0.5-0.95)".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 0.95,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(DEFAULT_PERCENTAGE),
+                tab: ParameterTab::Parameters,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Percent,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "vah_color",
-                label: "VAH Color",
-                description: "Value Area High line color",
+                key: "vah_color".into(),
+                label: "VAH Color".into(),
+                description: "Value Area High line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_VAH_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 0,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "val_color",
-                label: "VAL Color",
-                description: "Value Area Low line color",
+                key: "val_color".into(),
+                label: "VAL Color".into(),
+                description: "Value Area Low line color".into(),
                 kind: ParameterKind::Color,
                 default: ParameterValue::Color(DEFAULT_VAL_COLOR),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 1,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "fill_opacity",
-                label: "Fill Opacity",
-                description: "Fill opacity between VAH and VAL",
+                key: "fill_opacity".into(),
+                label: "Fill Opacity".into(),
+                description: "Fill opacity between VAH and VAL".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 0.5,
                     step: 0.05,
                 },
                 default: ParameterValue::Float(DEFAULT_FILL_OPACITY),
+                tab: ParameterTab::Style,
+                section: None,
+                order: 2,
+                format: DisplayFormat::Auto,
+                visible_when: Visibility::Always,
             },
         ];
 
         let mut config = StudyConfig::new("value_area");
         for p in &params {
-            config.set(p.key, p.default.clone());
+            config.set(p.key.clone(), p.default.clone());
         }
 
         Self {
@@ -101,83 +124,21 @@ fn compute_value_area(
     tick_size: data::Price,
     percentage: f64,
 ) -> Option<(f64, f64)> {
-    let step = tick_size.units();
-    if step <= 0 || candles.is_empty() {
+    if candles.is_empty() {
         return None;
     }
 
-    // Build volume profile
-    let mut volume_map: BTreeMap<i64, f64> = BTreeMap::new();
-
-    for c in candles {
-        let low_units = c.low.round_to_tick(tick_size).units();
-        let high_units = c.high.round_to_tick(tick_size).units();
-
-        if high_units < low_units {
-            continue;
-        }
-
-        let num_levels = ((high_units - low_units) / step + 1) as f64;
-        if num_levels <= 0.0 {
-            continue;
-        }
-
-        let vol_per_level = c.volume() as f64 / num_levels;
-
-        let mut price_units = low_units;
-        while price_units <= high_units {
-            *volume_map.entry(price_units).or_insert(0.0) += vol_per_level;
-            price_units += step;
-        }
-    }
-
-    if volume_map.is_empty() {
+    let levels =
+        profile_core::build_profile_from_candles(candles, tick_size, tick_size.units());
+    if levels.is_empty() {
         return None;
     }
 
-    let prices: Vec<i64> = volume_map.keys().copied().collect();
-    let volumes: Vec<f64> = prices.iter().map(|p| volume_map[p]).collect();
+    let poc_idx = profile_core::find_poc_index(&levels)?;
+    let (vah_idx, val_idx) =
+        profile_core::calculate_value_area(&levels, poc_idx, percentage)?;
 
-    // Find POC
-    let poc_idx = volumes
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?
-        .0;
-
-    let total_volume: f64 = volumes.iter().sum();
-    let target = total_volume * percentage;
-
-    let mut accumulated = volumes[poc_idx];
-    let mut upper = poc_idx;
-    let mut lower = poc_idx;
-
-    while accumulated < target && (lower > 0 || upper < prices.len() - 1) {
-        let up_vol = if upper + 1 < prices.len() {
-            volumes[upper + 1]
-        } else {
-            0.0
-        };
-        let down_vol = if lower > 0 { volumes[lower - 1] } else { 0.0 };
-
-        if up_vol >= down_vol && upper + 1 < prices.len() {
-            upper += 1;
-            accumulated += up_vol;
-        } else if lower > 0 {
-            lower -= 1;
-            accumulated += down_vol;
-        } else if upper + 1 < prices.len() {
-            upper += 1;
-            accumulated += up_vol;
-        } else {
-            break;
-        }
-    }
-
-    let vah = data::Price::from_units(prices[upper]).to_f64();
-    let val = data::Price::from_units(prices[lower]).to_f64();
-
-    Some((vah, val))
+    Some((levels[vah_idx].price, levels[val_idx].price))
 }
 
 impl Study for ValueAreaStudy {
@@ -205,15 +166,8 @@ impl Study for ValueAreaStudy {
         &self.config
     }
 
-    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
-        if !self.params.iter().any(|p| p.key == key) {
-            return Err(StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            });
-        }
-        self.config.set(key, value);
-        Ok(())
+    fn config_mut(&mut self) -> &mut StudyConfig {
+        &mut self.config
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
@@ -303,6 +257,7 @@ mod tests {
             Volume(buy_vol),
             Volume(sell_vol),
         )
+        .expect("test: valid candle")
     }
 
     #[test]

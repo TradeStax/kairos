@@ -3,6 +3,13 @@ use serde::{Deserialize, Serialize};
 // Re-export the canonical Price type from the data crate.
 pub use kairos_data::Price;
 
+/// Validate API key format shared across adapters.
+///
+/// Returns `true` when the key is non-empty and at least 10 characters long.
+pub(crate) fn validate_api_key(key: &str) -> bool {
+    !key.is_empty() && key.len() >= 10
+}
+
 pub type ContractSize = Power10<-4, 6>;
 pub type MinTicksize = Power10<-8, 2>;
 pub type MinQtySize = Power10<-6, 8>;
@@ -252,8 +259,8 @@ mod manual_printouts {
     #[test]
     fn show_min_tick_rounding() {
         let orig: f32 = 0.000051;
-        let p = Price::from_f32_lossy(orig);
-        let back = p.to_f32_lossy();
+        let p = Price::from_f32(orig);
+        let back = p.to_f32();
 
         let scale = 10f32.powi(Price::PRICE_SCALE);
         let expected_units = (orig * scale).round() as i64;

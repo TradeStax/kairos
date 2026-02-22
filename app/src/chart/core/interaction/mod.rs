@@ -21,6 +21,10 @@ pub struct ChartState {
     pub last_selection_click: Option<(std::time::Instant, DrawingId)>,
     /// Whether Shift key is currently held (for drawing snap constraints)
     pub shift_held: bool,
+    /// Previous cursor position during panning (for velocity calculation)
+    pub prev_pan_cursor: Option<Point>,
+    /// Smoothed pan velocity (exponential moving average)
+    pub pan_velocity: Vector,
 }
 
 /// Current interaction mode for the chart
@@ -61,9 +65,16 @@ pub enum Interaction {
         edit_mode: DrawingEditMode,
         /// Last screen position (for computing deltas)
         last_screen_pos: Point,
+        /// Whether drag threshold has been exceeded
+        drag_committed: bool,
     },
     /// Placing a cloned drawing (follows cursor, click to confirm)
     PlacingClone,
+    /// Decelerating after a pan gesture ended with velocity
+    Decelerating {
+        /// Current velocity (screen-space pixels per tick)
+        velocity: Vector,
+    },
 }
 
 /// State of an in-progress drawing operation
@@ -128,13 +139,13 @@ impl Interaction {
 /// Returns appropriate canvas action with message if interaction occurred.
 pub fn canvas_interaction<T: Chart>(
     chart: &T,
-    interaction: &mut Interaction,
+    chart_state: &mut ChartState,
     event: &canvas::Event,
     bounds: Rectangle,
     cursor: mouse::Cursor,
-    last_selection_click: &mut Option<(std::time::Instant, DrawingId)>,
-    shift_held: &mut bool,
 ) -> Option<canvas::Action<Message>> {
+    let interaction = &mut chart_state.interaction;
+
     // Sync interaction with tool state: if user deactivated the tool via UI,
     // reset the canvas interaction so we can reach selection/panning code paths.
     if let Interaction::Drawing { .. } = interaction {
@@ -165,7 +176,19 @@ pub fn canvas_interaction<T: Chart>(
     // Handle button release - end active interactions
     if let canvas::Event::Mouse(mouse::Event::ButtonReleased(_)) = event {
         match *interaction {
-            Interaction::Panning { .. } | Interaction::Zoomin { .. } => {
+            Interaction::Panning { .. } => {
+                let velocity = chart_state.pan_velocity;
+                chart_state.prev_pan_cursor = None;
+                chart_state.pan_velocity = Vector::ZERO;
+
+                // Transition to deceleration if velocity is significant
+                if velocity.x.abs() > 0.5 || velocity.y.abs() > 0.5 {
+                    *interaction = Interaction::Decelerating { velocity };
+                } else {
+                    *interaction = Interaction::None;
+                }
+            }
+            Interaction::Zoomin { .. } => {
                 *interaction = Interaction::None;
             }
             Interaction::EditingDrawing { id, .. } => {
@@ -174,6 +197,18 @@ pub fn canvas_interaction<T: Chart>(
             _ => {}
         }
     }
+
+    // Stop deceleration on any mouse click or scroll
+    if matches!(
+        event,
+        canvas::Event::Mouse(mouse::Event::ButtonPressed(_))
+            | canvas::Event::Mouse(mouse::Event::WheelScrolled { .. })
+    ) && matches!(chart_state.interaction, Interaction::Decelerating { .. })
+    {
+        chart_state.interaction = Interaction::None;
+    }
+
+    let interaction = &mut chart_state.interaction;
 
     // Cancel ruler if cursor leaves bounds
     if let Interaction::Ruler { .. } = interaction
@@ -234,18 +269,19 @@ pub fn canvas_interaction<T: Chart>(
                                     tool,
                                     draw_state,
                                     canvas_pos,
-                                    *shift_held,
+                                    chart_state.shift_held,
                                 );
                             }
                             Interaction::None
                             | Interaction::Panning { .. }
-                            | Interaction::Zoomin { .. } => {
+                            | Interaction::Zoomin { .. }
+                            | Interaction::Decelerating { .. } => {
                                 // Try entering drawing mode first
                                 if let Some(action) = drawing::handle_enter_drawing(
                                     chart,
                                     interaction,
                                     canvas_pos,
-                                    *shift_held,
+                                    chart_state.shift_held,
                                 ) {
                                     return Some(action);
                                 }
@@ -255,13 +291,15 @@ pub fn canvas_interaction<T: Chart>(
                                     chart,
                                     interaction,
                                     canvas_pos,
-                                    last_selection_click,
+                                    &mut chart_state.last_selection_click,
                                 ) {
                                     return Some(action);
                                 }
 
                                 // Otherwise, pan as before (use shrunken-bounds
                                 // cursor for panning - deltas cancel out)
+                                chart_state.prev_pan_cursor = Some(cursor_in_bounds);
+                                chart_state.pan_velocity = Vector::ZERO;
                                 *interaction = Interaction::Panning {
                                     translation: state.translation,
                                     start: cursor_in_bounds,
@@ -290,14 +328,38 @@ pub fn canvas_interaction<T: Chart>(
                     }
                     Interaction::Panning { translation, start } => {
                         let cursor_in_bounds = cursor_position?;
+
+                        // Track velocity using exponential smoothing
+                        if let Some(prev) = chart_state.prev_pan_cursor {
+                            let delta = Vector::new(
+                                cursor_in_bounds.x - prev.x,
+                                cursor_in_bounds.y - prev.y,
+                            );
+                            // Exponential moving average (alpha = 0.3)
+                            chart_state.pan_velocity = Vector::new(
+                                chart_state.pan_velocity.x * 0.7 + delta.x * 0.3,
+                                chart_state.pan_velocity.y * 0.7 + delta.y * 0.3,
+                            );
+                        }
+                        chart_state.prev_pan_cursor = Some(cursor_in_bounds);
+
                         pan_zoom::handle_panning(chart, translation, start, cursor_in_bounds)
                     }
                     Interaction::Drawing { .. } => {
-                        drawing::handle_drawing_move(chart, canvas_cursor, *shift_held)
+                        drawing::handle_drawing_move(chart, canvas_cursor, chart_state.shift_held)
                     }
-                    Interaction::EditingDrawing { edit_mode, .. } => {
-                        drawing::handle_editing_move(edit_mode, canvas_cursor, *shift_held)
-                    }
+                    Interaction::EditingDrawing {
+                        edit_mode,
+                        last_screen_pos,
+                        ref mut drag_committed,
+                        ..
+                    } => drawing::handle_editing_move(
+                        edit_mode,
+                        canvas_cursor,
+                        chart_state.shift_held,
+                        last_screen_pos,
+                        drag_committed,
+                    ),
                     Interaction::None | Interaction::Ruler { .. } => {
                         Some(canvas::Action::publish(Message::CrosshairMoved))
                     }
@@ -308,7 +370,13 @@ pub fn canvas_interaction<T: Chart>(
 
                     let cursor_to_center = cursor.position_from(bounds.center())?;
 
-                    pan_zoom::handle_scroll_zoom(chart, interaction, delta, cursor_to_center)
+                    pan_zoom::handle_scroll_zoom(
+                        chart,
+                        interaction,
+                        delta,
+                        cursor_to_center,
+                        chart_state.shift_held,
+                    )
                 }
                 _ => None,
             }
@@ -318,7 +386,8 @@ pub fn canvas_interaction<T: Chart>(
             match keyboard_event {
                 iced::keyboard::Event::KeyPressed { key, .. } => match key.as_ref() {
                     keyboard::Key::Named(keyboard::key::Named::Shift) => {
-                        *shift_held = true;
+                        chart_state.shift_held = true;
+                        let interaction = &mut chart_state.interaction;
                         // Enter ruler mode only when not drawing, editing,
                         // or placing a clone. Don't reset if already in ruler
                         // mode (key repeat would clear the start point).
@@ -334,6 +403,7 @@ pub fn canvas_interaction<T: Chart>(
                         Some(canvas::Action::request_redraw().and_capture())
                     }
                     keyboard::Key::Named(keyboard::key::Named::Escape) => {
+                        let interaction = &mut chart_state.interaction;
                         if matches!(interaction, Interaction::PlacingClone) {
                             *interaction = Interaction::None;
                             return Some(
@@ -358,9 +428,9 @@ pub fn canvas_interaction<T: Chart>(
                 },
                 iced::keyboard::Event::KeyReleased { key, .. } => match key.as_ref() {
                     keyboard::Key::Named(keyboard::key::Named::Shift) => {
-                        *shift_held = false;
-                        if matches!(interaction, Interaction::Ruler { .. }) {
-                            *interaction = Interaction::None;
+                        chart_state.shift_held = false;
+                        if matches!(chart_state.interaction, Interaction::Ruler { .. }) {
+                            chart_state.interaction = Interaction::None;
                         }
                         // Always redraw to update constraint preview
                         Some(canvas::Action::request_redraw())

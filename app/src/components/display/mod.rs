@@ -6,4 +6,4 @@ pub mod status_dot;
 pub mod toast;
 pub mod tooltip;
 
-pub use status_dot::status_dot;
+pub use status_dot::status_dot_themed;

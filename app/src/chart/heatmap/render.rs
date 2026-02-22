@@ -40,15 +40,7 @@ impl canvas::Program<Message> for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        crate::chart::canvas_interaction(
-            self,
-            &mut state.interaction,
-            event,
-            bounds,
-            cursor,
-            &mut state.last_selection_click,
-            &mut state.shift_held,
-        )
+        crate::chart::canvas_interaction(self, state, event, bounds, cursor)
     }
 
     fn draw(
@@ -78,6 +70,10 @@ impl canvas::Program<Message> for HeatmapChart {
             frame.translate(chart.translation);
 
             let region = chart.visible_region(frame.size());
+
+            // Draw grid lines behind all content
+            crate::chart::overlay::draw_price_grid(chart, frame, palette, &region);
+            crate::chart::overlay::draw_time_grid(chart, frame, palette, &region);
 
             let (earliest, latest) = chart.interval_range(&region);
             let (highest_exch, lowest_exch) = chart.price_range(&region);
@@ -300,8 +296,19 @@ impl canvas::Program<Message> for HeatmapChart {
                     mouse::Interaction::default()
                 }
             }
-            Interaction::None | Interaction::Ruler { .. } => {
-                if cursor.is_over(bounds) {
+            Interaction::None | Interaction::Ruler { .. } | Interaction::Decelerating { .. } => {
+                if let Some(cursor_position) = cursor.position_in(bounds) {
+                    if self
+                        .hit_test_drawing_handle(cursor_position, bounds.size())
+                        .is_some()
+                    {
+                        return mouse::Interaction::Grab;
+                    } else if self
+                        .hit_test_drawing(cursor_position, bounds.size())
+                        .is_some()
+                    {
+                        return mouse::Interaction::Pointer;
+                    }
                     return mouse::Interaction::Crosshair;
                 }
                 mouse::Interaction::default()
@@ -539,7 +546,7 @@ fn draw_volume_indicator(
 
         let (buy_volume, sell_volume) = (dp.buy_volume, dp.sell_volume);
 
-        let spec = crate::chart::VolumeBarSpec {
+        let spec = crate::chart::study_renderer::VolumeBarSpec {
             buy_qty: buy_volume,
             sell_qty: sell_volume,
             max_qty: max_aggr_volume,
@@ -547,7 +554,7 @@ fn draw_volume_indicator(
             sell_color: palette.danger.base.color,
             alpha: 1.0,
         };
-        crate::chart::draw_volume_bar(
+        crate::chart::study_renderer::draw_volume_bar(
             frame,
             x_position,
             (region.y + region.height) - area_height,
@@ -696,7 +703,7 @@ pub fn render_volume_profile(
                 );
                 let bar_height = (next_y_position - y_position).abs();
 
-                let spec = crate::chart::VolumeBarSpec {
+                let spec = crate::chart::study_renderer::VolumeBarSpec {
                     buy_qty: *buy_v,
                     sell_qty: *sell_v,
                     max_qty: max_aggr_volume,
@@ -704,7 +711,7 @@ pub fn render_volume_profile(
                     sell_color: palette.danger.weak.color,
                     alpha: 1.0,
                 };
-                crate::chart::draw_volume_bar(
+                crate::chart::study_renderer::draw_volume_bar(
                     frame,
                     region.x,
                     y_position,

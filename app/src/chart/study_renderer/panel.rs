@@ -6,12 +6,13 @@
 //! the current pan/zoom applied; Y is mapped from the study's value
 //! range to the panel's pixel height.
 
+use super::coord;
 use crate::chart::core::PanelStudyInfo;
 use crate::chart::scale::{AxisLabel, linear};
 use crate::chart::{Message, ViewState};
 use crate::components::primitives::AZERET_MONO;
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Cache, Event, Geometry, LineDash, Path, Stroke};
+use iced::widget::canvas::{self, Cache, Event, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, mouse};
 use study::output::{BarSeries, HistogramBar, LineSeries, StudyOutput};
 
@@ -109,21 +110,21 @@ fn interval_to_screen_x(
 pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
     match output {
         StudyOutput::Lines(lines) => {
-            value_range(
+            coord::value_range(
                 lines
                     .iter()
                     .flat_map(|s| s.points.iter().map(|(_, v)| *v)),
             )
         }
         StudyOutput::Bars(bars) => {
-            value_range(
+            coord::value_range(
                 bars.iter()
                     .flat_map(|s| s.points.iter().map(|p| p.value)),
             )
             .map(|(lo, hi)| (lo.min(0.0), hi))
         }
         StudyOutput::Histogram(bars) => {
-            value_range(bars.iter().map(|b| b.value))
+            coord::value_range(bars.iter().map(|b| b.value))
                 .map(|(lo, hi)| (lo.min(0.0), hi.max(0.0)))
         }
         StudyOutput::Band {
@@ -131,7 +132,7 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
             middle,
             lower,
             ..
-        } => value_range(
+        } => coord::value_range(
             upper
                 .points
                 .iter()
@@ -140,29 +141,6 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
                 .map(|(_, v)| *v),
         ),
         _ => None,
-    }
-}
-
-/// Compute min/max for a set of f32 values (with 5% padding).
-fn value_range(values: impl Iterator<Item = f32>) -> Option<(f32, f32)> {
-    let mut min = f32::MAX;
-    let mut max = f32::MIN;
-    let mut count = 0u32;
-    for v in values {
-        if v < min {
-            min = v;
-        }
-        if v > max {
-            max = v;
-        }
-        count += 1;
-    }
-    if count == 0 {
-        None
-    } else {
-        let range = max - min;
-        let pad = if range > 0.0 { range * 0.05 } else { 1.0 };
-        Some((min - pad, max + pad))
     }
 }
 
@@ -175,12 +153,8 @@ fn value_to_y(
     panel_height: f32,
     y_offset: f32,
 ) -> f32 {
-    if max <= min {
-        y_offset + panel_height
-    } else {
-        y_offset + panel_height
-            - ((value - min) / (max - min)) * panel_height
-    }
+    y_offset
+        + coord::value_to_panel_y(value, min, max, panel_height)
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────
@@ -227,7 +201,7 @@ fn render_panel_content(
                         .flat_map(|m| m.points.iter()),
                 )
                 .map(|(_, v)| *v);
-            if let Some(range) = value_range(all_values) {
+            if let Some(range) = coord::value_range(all_values) {
                 for series in all {
                     render_line_with_range(
                         frame, series, state, w, y_off, h, range,
@@ -255,7 +229,7 @@ fn render_panel_lines(
 
     let all_values =
         lines.iter().flat_map(|s| s.points.iter().map(|(_, v)| *v));
-    let range = match value_range(all_values) {
+    let range = match coord::value_range(all_values) {
         Some(r) => r,
         None => return,
     };
@@ -291,7 +265,7 @@ fn render_line_with_range(
     let stroke = Stroke::with_color(
         Stroke {
             width: series.width,
-            line_dash: line_dash_for_style(&series.style),
+            line_dash: coord::line_dash_for_style(&series.style),
             ..Stroke::default()
         },
         color,
@@ -326,7 +300,7 @@ fn render_panel_bars(
 
     let all_values =
         bars.iter().flat_map(|s| s.points.iter().map(|p| p.value));
-    let range = match value_range(all_values) {
+    let range = match coord::value_range(all_values) {
         Some(r) => (r.0.min(0.0), r.1),
         None => return,
     };
@@ -406,7 +380,7 @@ fn render_panel_histogram(
         return;
     }
 
-    let range = match value_range(bars.iter().map(|b| b.value)) {
+    let range = match coord::value_range(bars.iter().map(|b| b.value)) {
         Some(r) => (r.0.min(0.0), r.1.max(0.0)),
         None => return,
     };
@@ -443,24 +417,6 @@ fn render_panel_histogram(
                 color,
             );
         }
-    }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-fn line_dash_for_style(
-    style: &study::config::LineStyleValue,
-) -> LineDash<'static> {
-    match style {
-        study::config::LineStyleValue::Solid => LineDash::default(),
-        study::config::LineStyleValue::Dashed => LineDash {
-            segments: &[6.0, 4.0],
-            offset: 0,
-        },
-        study::config::LineStyleValue::Dotted => LineDash {
-            segments: &[2.0, 3.0],
-            offset: 0,
-        },
     }
 }
 

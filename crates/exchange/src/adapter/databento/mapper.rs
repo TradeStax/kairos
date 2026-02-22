@@ -174,8 +174,8 @@ pub async fn fetch_historical_prices(
         })?;
 
         // Convert prices (databento uses 10^-9, we use 10^-8)
-        let close_price = bar.close as f64 / 1_000_000_000.0;
-        let open_price = bar.open as f64 / 1_000_000_000.0;
+        let close_price = convert_databento_price(bar.close).to_f64();
+        let open_price = convert_databento_price(bar.open).to_f64();
         let daily_change_pct = if open_price > 0.0 {
             ((close_price - open_price) / open_price * 100.0) as f32
         } else {

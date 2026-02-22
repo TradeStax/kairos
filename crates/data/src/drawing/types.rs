@@ -63,6 +63,11 @@ pub enum DrawingTool {
     PriceRange,
     /// Date range measurement (2 points, shows time delta)
     DateRange,
+    // ── Trading ──────────────────────────────────────────────────────
+    /// Buy position calculator (entry + target + auto-generated stop)
+    BuyCalculator,
+    /// Sell position calculator (entry + target + auto-generated stop)
+    SellCalculator,
 }
 
 impl DrawingTool {
@@ -82,7 +87,9 @@ impl DrawingTool {
             | DrawingTool::Ellipse
             | DrawingTool::Arrow
             | DrawingTool::PriceRange
-            | DrawingTool::DateRange => 2,
+            | DrawingTool::DateRange
+            | DrawingTool::BuyCalculator
+            | DrawingTool::SellCalculator => 2,
             DrawingTool::FibExtension | DrawingTool::ParallelChannel => 3,
         }
     }
@@ -110,6 +117,9 @@ impl DrawingTool {
         // Measurement
         DrawingTool::PriceRange,
         DrawingTool::DateRange,
+        // Trading
+        DrawingTool::BuyCalculator,
+        DrawingTool::SellCalculator,
     ];
 }
 
@@ -132,6 +142,82 @@ impl std::fmt::Display for DrawingTool {
             DrawingTool::Arrow => write!(f, "Arrow"),
             DrawingTool::PriceRange => write!(f, "Price Range"),
             DrawingTool::DateRange => write!(f, "Date Range"),
+            DrawingTool::BuyCalculator => write!(f, "Buy Calculator"),
+            DrawingTool::SellCalculator => write!(f, "Sell Calculator"),
+        }
+    }
+}
+
+/// Calculator mode for stop/target distance
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum CalcMode {
+    #[default]
+    Free,
+    Ticks,
+    Money,
+}
+
+impl CalcMode {
+    pub const ALL: [CalcMode; 3] = [CalcMode::Free, CalcMode::Ticks, CalcMode::Money];
+}
+
+impl std::fmt::Display for CalcMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CalcMode::Free => write!(f, "Free"),
+            CalcMode::Ticks => write!(f, "Ticks"),
+            CalcMode::Money => write!(f, "Money"),
+        }
+    }
+}
+
+/// Position calculator configuration for Buy/Sell calculator tools
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionCalcConfig {
+    pub quantity: u32,
+    pub stop_mode: CalcMode,
+    pub stop_value: f64,
+    pub target_mode: CalcMode,
+    pub target_value: f64,
+    pub target_color: SerializableColor,
+    pub target_opacity: f32,
+    pub stop_color: SerializableColor,
+    pub stop_opacity: f32,
+    pub label_font_size: f32,
+    pub show_target_label: bool,
+    pub show_entry_label: bool,
+    pub show_stop_label: bool,
+    pub show_pnl: bool,
+    pub show_ticks: bool,
+}
+
+impl PositionCalcConfig {
+    /// Default target color — matches theme success (green).
+    pub const DEFAULT_TARGET_COLOR: SerializableColor =
+        SerializableColor::from_rgb8_const(81, 205, 160);
+    /// Default stop color — matches theme danger (red).
+    pub const DEFAULT_STOP_COLOR: SerializableColor =
+        SerializableColor::from_rgb8_const(192, 80, 77);
+}
+
+impl Default for PositionCalcConfig {
+    fn default() -> Self {
+        Self {
+            quantity: 1,
+            stop_mode: CalcMode::Free,
+            stop_value: 0.0,
+            target_mode: CalcMode::Free,
+            target_value: 0.0,
+            target_color: Self::DEFAULT_TARGET_COLOR,
+            target_opacity: 0.15,
+            stop_color: Self::DEFAULT_STOP_COLOR,
+            stop_opacity: 0.15,
+            label_font_size: 11.0,
+            show_target_label: true,
+            show_entry_label: true,
+            show_stop_label: true,
+            show_pnl: true,
+            show_ticks: true,
         }
     }
 }
@@ -298,6 +384,9 @@ pub struct DrawingStyle {
     /// Label alignment (left, center, right) for line-type drawings
     #[serde(default)]
     pub label_alignment: LabelAlignment,
+    /// Position calculator config (for BuyCalculator/SellCalculator tools)
+    #[serde(default)]
+    pub position_calc: Option<PositionCalcConfig>,
 }
 
 impl Default for DrawingStyle {
@@ -312,6 +401,7 @@ impl Default for DrawingStyle {
             fibonacci: None,
             text: None,
             label_alignment: LabelAlignment::default(),
+            position_calc: None,
         }
     }
 }

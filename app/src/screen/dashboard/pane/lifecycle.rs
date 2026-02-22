@@ -1,5 +1,8 @@
 use super::{Action, Content, Effect, State};
-use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart};
+use crate::chart::{
+    candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart,
+    profile::ProfileChart,
+};
 use crate::components::display::toast::Toast;
 use data::{
     ChartBasis, ChartConfig, ChartData, ContentKind, DataSchema, DateRange, LoadingStatus,
@@ -38,7 +41,7 @@ impl State {
                 );
                 if !self.settings.drawings.is_empty() {
                     new_chart
-                        .drawings
+                        .drawings_mut()
                         .load_drawings(self.settings.drawings.clone());
                 }
                 // Apply saved candle style from visual config
@@ -105,7 +108,7 @@ impl State {
                 );
                 if !self.settings.drawings.is_empty() {
                     new_chart
-                        .drawings
+                        .drawings_mut()
                         .load_drawings(self.settings.drawings.clone());
                 }
                 *chart = Some(new_chart);
@@ -140,6 +143,67 @@ impl State {
                     self.loading_status = LoadingStatus::Ready;
                 }
             },
+            Content::Profile {
+                chart,
+                layout,
+                study_ids,
+            } => {
+                let profile_config = self
+                    .settings
+                    .visual_config
+                    .as_ref()
+                    .and_then(|vc| vc.clone().profile())
+                    .unwrap_or_default();
+
+                let mut new_chart = ProfileChart::from_chart_data(
+                    chart_data,
+                    ticker_info,
+                    layout.clone(),
+                    profile_config.into(),
+                );
+                if !self.settings.drawings.is_empty() {
+                    new_chart
+                        .drawings_mut()
+                        .load_drawings(self.settings.drawings.clone());
+                }
+                // Restore active studies with saved parameters
+                let registry = crate::app::services::create_unified_registry();
+                if !self.settings.studies.is_empty() {
+                    for cfg in &self.settings.studies {
+                        if let Some(mut s) = registry.create(&cfg.study_id) {
+                            for (key, json_val) in &cfg.parameters {
+                                if let Ok(pv) =
+                                    serde_json::from_value::<study::ParameterValue>(
+                                        json_val.clone(),
+                                    )
+                                {
+                                    if let Err(e) = s.set_parameter(key, pv) {
+                                        log::warn!(
+                                            "Failed to set study parameter: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            new_chart.add_study(s);
+                        }
+                    }
+                    *study_ids = self
+                        .settings
+                        .studies
+                        .iter()
+                        .filter(|c| c.enabled)
+                        .map(|c| c.study_id.clone())
+                        .collect();
+                } else {
+                    for sid in study_ids.iter() {
+                        if let Some(s) = registry.create(sid) {
+                            new_chart.add_study(s);
+                        }
+                    }
+                }
+                *chart = Some(new_chart);
+            }
             Content::TimeAndSales(_panel) => {}
             Content::Ladder(_panel) => {}
             Content::Starter | Content::ScriptEditor { .. } => {}
@@ -185,9 +249,12 @@ impl State {
 
     pub fn invalidate(&mut self, now: Instant) -> Option<Action> {
         match &mut self.content {
-            Content::Heatmap { chart, .. } => chart
-                .as_mut()
-                .and_then(|c| c.invalidate(Some(now)).map(Action::Chart)),
+            Content::Heatmap { chart, .. } => {
+                if let Some(c) = chart.as_mut() {
+                    c.invalidate(Some(now));
+                }
+                None
+            }
             Content::Kline { chart, .. } => {
                 if let Some(c) = chart.as_mut() {
                     c.invalidate()
@@ -200,6 +267,12 @@ impl State {
             Content::Ladder(panel) => panel
                 .as_mut()
                 .and_then(|p| p.invalidate(Some(now)).map(Action::Panel)),
+            Content::Profile { chart, .. } => {
+                if let Some(c) = chart.as_mut() {
+                    c.invalidate();
+                }
+                None
+            }
             Content::Starter | Content::ScriptEditor { .. } => None,
             Content::Comparison(_) => None,
         }
@@ -233,7 +306,9 @@ impl State {
             return Some(200);
         }
         match &self.content {
-            Content::Kline { .. } | Content::Comparison(_) => Some(1000),
+            Content::Kline { .. }
+            | Content::Comparison(_)
+            | Content::Profile { .. } => Some(1000),
             Content::Heatmap { chart, .. } => {
                 if let Some(chart) = chart {
                     chart.basis_interval()
