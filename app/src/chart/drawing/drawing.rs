@@ -8,7 +8,6 @@ use data::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
 use iced::{Color, Point, Size};
 
 /// A drawing on the chart
-#[derive(Debug, Clone)]
 pub struct Drawing {
     /// Unique identifier
     pub id: DrawingId,
@@ -26,6 +25,52 @@ pub struct Drawing {
     pub locked: bool,
     /// Optional user label
     pub label: Option<String>,
+    /// Embedded VBP study instance (only for VolumeProfile drawings).
+    pub(crate) vbp_study: Option<Box<study::orderflow::VbpStudy>>,
+}
+
+impl std::fmt::Debug for Drawing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Drawing")
+            .field("id", &self.id)
+            .field("tool", &self.tool)
+            .field("points", &self.points)
+            .field("visible", &self.visible)
+            .field("locked", &self.locked)
+            .field("vbp_study", &self.vbp_study.is_some())
+            .finish()
+    }
+}
+
+impl Clone for Drawing {
+    fn clone(&self) -> Self {
+        let vbp_study = self.vbp_study.as_ref().map(|s| {
+            // Reconstruct from config + anchor points
+            let (start, end) = if self.points.len() >= 2 {
+                let t1 = self.points[0].time;
+                let t2 = self.points[1].time;
+                (t1.min(t2), t1.max(t2))
+            } else {
+                (0, 0)
+            };
+            let mut cloned =
+                study::orderflow::VbpStudy::for_range(start, end);
+            let exported = s.export_config();
+            cloned.import_config(&exported);
+            Box::new(cloned)
+        });
+        Self {
+            id: self.id,
+            tool: self.tool,
+            points: self.points.clone(),
+            confirmed_count: self.confirmed_count,
+            style: self.style.clone(),
+            visible: self.visible,
+            locked: self.locked,
+            label: self.label.clone(),
+            vbp_study,
+        }
+    }
 }
 
 impl Drawing {
@@ -40,6 +85,7 @@ impl Drawing {
             visible: true,
             locked: false,
             label: None,
+            vbp_study: None,
         }
     }
 
@@ -54,6 +100,7 @@ impl Drawing {
             visible: true,
             locked: false,
             label: None,
+            vbp_study: None,
         }
     }
 
@@ -167,11 +214,18 @@ impl Drawing {
 
     /// Convert to serializable format
     pub fn to_serializable(&self) -> SerializableDrawing {
+        let mut style = self.style.clone();
+        // Export VBP config from embedded study before serialization
+        if let Some(ref study) = self.vbp_study {
+            style.vbp_config = Some(data::VbpDrawingConfig {
+                params: study.export_config(),
+            });
+        }
         SerializableDrawing {
             id: self.id,
             tool: self.tool,
             points: self.points.iter().map(|p| p.to_serializable()).collect(),
-            style: self.style.clone(),
+            style,
             visible: self.visible,
             locked: self.locked,
             label: self.label.clone(),
@@ -180,8 +234,26 @@ impl Drawing {
 
     /// Create from serializable format
     pub fn from_serializable(drawing: &SerializableDrawing) -> Self {
-        let points: Vec<DrawingPoint> = drawing.points.iter().map(DrawingPoint::from).collect();
+        let points: Vec<DrawingPoint> =
+            drawing.points.iter().map(DrawingPoint::from).collect();
         let confirmed_count = points.len();
+
+        // Reconstruct VBP study for VolumeProfile drawings
+        let vbp_study = if drawing.tool == DrawingTool::VolumeProfile
+            && points.len() >= 2
+        {
+            let t1 = points[0].time;
+            let t2 = points[1].time;
+            let (start, end) = (t1.min(t2), t1.max(t2));
+            let mut study = study::orderflow::VbpStudy::for_range(start, end);
+            if let Some(ref cfg) = drawing.style.vbp_config {
+                study.import_config(&cfg.params);
+            }
+            Some(Box::new(study))
+        } else {
+            None
+        };
+
         Self {
             id: drawing.id,
             tool: drawing.tool,
@@ -191,6 +263,7 @@ impl Drawing {
             visible: drawing.visible,
             locked: drawing.locked,
             label: drawing.label.clone(),
+            vbp_study,
         }
     }
 }

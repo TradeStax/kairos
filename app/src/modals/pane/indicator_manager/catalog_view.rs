@@ -5,7 +5,7 @@ use super::*;
 use crate::components::display::empty_state::EmptyStateBuilder;
 use crate::components::input::search_field::SearchFieldBuilder;
 use crate::components::layout::button_group::ButtonGroupBuilder;
-use crate::components::primitives::icon_button::icon_button;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icons::Icon;
 use crate::style::{self, tokens};
 
@@ -22,36 +22,34 @@ impl IndicatorManagerModal {
     // ── View ─────────────────────────────────────────────────────────
 
     pub fn view(&self) -> Element<'_, Message> {
-        let header = self.view_header();
+        let header = ModalHeaderBuilder::new("Indicators")
+            .on_close(Message::Close);
         let search_and_filter = self.view_search_and_filter();
         let body = self.view_body();
 
-        let inner = column![header, search_and_filter, body]
-            .spacing(tokens::spacing::MD)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let inner = column![
+            header,
+            container(
+                column![search_and_filter, body]
+                    .spacing(tokens::spacing::MD)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .padding(iced::Padding {
+                top: tokens::spacing::MD,
+                right: 0.0,
+                bottom: tokens::spacing::XL,
+                left: tokens::spacing::XL,
+            }),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill);
 
         container(inner)
-            .padding(tokens::spacing::XL)
             .max_width(tokens::layout::MODAL_WIDTH_XL)
             .max_height(600.0)
             .style(style::dashboard_modal)
             .into()
-    }
-
-    pub(super) fn view_header(&self) -> Element<'_, Message> {
-        row![
-            text("Indicators").size(tokens::text::HEADING),
-            space::horizontal(),
-            icon_button(Icon::Close)
-                .size(14)
-                .padding(tokens::spacing::XS)
-                .on_press(Message::Close),
-        ]
-        .spacing(tokens::spacing::XS)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
     }
 
     pub(super) fn view_search_and_filter(
@@ -208,7 +206,7 @@ impl IndicatorManagerModal {
             );
         }
 
-        scrollable(content)
+        scrollable(content.width(Length::Fill))
             .style(style::scroll_bar)
             .height(Length::Fill)
             .into()

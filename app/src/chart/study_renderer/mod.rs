@@ -14,7 +14,7 @@ mod levels;
 mod line;
 mod markers;
 mod profile;
-mod vbp;
+pub(crate) mod vbp;
 pub mod panel;
 
 use crate::chart::ViewState;

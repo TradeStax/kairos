@@ -7,4 +7,5 @@ mod types;
 pub use types::{
     CalcMode, DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment,
     LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing, SerializablePoint,
+    VbpDrawingConfig,
 };

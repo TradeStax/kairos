@@ -492,13 +492,13 @@ pub fn detect_volume_zones(
         ));
     }
 
-    // Find single dominant peak (highest volume HVN with
-    // prominence)
+    // Find single dominant peak: max-volume level above HVN
+    // cutoff. No prominence filter — for single-peak selection
+    // the cutoff already ensures "high volume", and prominence
+    // would reject the POC when neighbors are similarly high.
     let mut peak: Option<VolumeNode> = None;
     for (i, level) in levels.iter().enumerate() {
-        if volumes[i] >= hvn_cutoff
-            && prominence(i, &volumes) >= min_prominence
-        {
+        if volumes[i] >= hvn_cutoff {
             let better = match &peak {
                 Some(p) => volumes[i] > p.volume,
                 None => true,
@@ -513,23 +513,28 @@ pub fn detect_volume_zones(
         }
     }
 
-    // Find single deepest valley (lowest volume LVN with
-    // prominence)
+    // Find single deepest valley: min-volume level below LVN
+    // cutoff that is also a local minimum (both neighbors have
+    // strictly higher volume). Skip edge levels — tail levels
+    // naturally have low volume from candle distribution and
+    // are not meaningful valleys.
     let mut valley: Option<VolumeNode> = None;
-    for (i, level) in levels.iter().enumerate() {
-        if volumes[i] <= lvn_cutoff
-            && volumes[i] > 0.0
-            && prominence_inverse(i, &volumes) >= min_prominence
+    for i in 1..volumes.len() - 1 {
+        let vol = volumes[i];
+        if vol <= lvn_cutoff
+            && vol > 0.0
+            && vol < volumes[i - 1]
+            && vol < volumes[i + 1]
         {
             let better = match &valley {
-                Some(v) => volumes[i] < v.volume,
+                Some(v) => vol < v.volume,
                 None => true,
             };
             if better {
                 valley = Some(VolumeNode {
-                    price_units: level.price_units,
-                    price: level.price,
-                    volume: volumes[i],
+                    price_units: levels[i].price_units,
+                    price: levels[i].price,
+                    volume: vol,
                 });
             }
         }
@@ -915,15 +920,15 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_zones_peak_prominence() {
+    fn test_detect_zones_peak_selects_max_volume() {
         use crate::output::NodeDetectionMethod;
-        // Two HVN-qualifying levels, but only one with prominence
+        // Multiple HVN-qualifying levels — peak is max volume
         let levels = make_profile_levels(&[
-            (98.0, 78.0),
-            (99.0, 80.0),  // above cutoff but low prominence
-            (100.0, 79.0),
+            (98.0, 78.0),  // above cutoff
+            (99.0, 80.0),  // above cutoff
+            (100.0, 79.0), // above cutoff
             (101.0, 20.0),
-            (102.0, 100.0), // dominant peak
+            (102.0, 100.0), // dominant peak (max volume)
             (103.0, 20.0),
         ]);
 
@@ -939,19 +944,21 @@ mod tests {
         assert!(peak.is_some());
         let peak = peak.unwrap();
         assert_eq!(peak.price, 102.0);
+        assert_eq!(peak.volume, 100.0);
     }
 
     #[test]
     fn test_detect_zones_valley_selection() {
         use crate::output::NodeDetectionMethod;
-        // Valley is the minimum-volume LVN-qualifying level
+        // Valley is the min-volume local minimum (both neighbors
+        // higher) among LVN-qualifying interior levels
         let levels = make_profile_levels(&[
             (98.0, 50.0),
-            (99.0, 8.0), // LVN
+            (99.0, 8.0),  // local min, LVN
             (100.0, 80.0),
-            (101.0, 5.0), // deepest valley
+            (101.0, 5.0), // local min, deepest valley
             (102.0, 70.0),
-            (103.0, 12.0), // LVN
+            (103.0, 12.0), // local min, LVN
             (104.0, 60.0),
         ]);
 
@@ -968,6 +975,41 @@ mod tests {
         let valley = valley.unwrap();
         assert_eq!(valley.price, 101.0);
         assert_eq!(valley.volume, 5.0);
+    }
+
+    #[test]
+    fn test_detect_zones_valley_rejects_tails() {
+        use crate::output::NodeDetectionMethod;
+        // Bell-curve profile: tails have lowest volume but are
+        // NOT local minima (monotonically decreasing).
+        // No interior local minimum exists → no valley.
+        let levels = make_profile_levels(&[
+            (97.0, 3.0),   // tail
+            (98.0, 8.0),   // tail
+            (99.0, 30.0),
+            (100.0, 80.0),
+            (101.0, 100.0), // peak
+            (102.0, 70.0),
+            (103.0, 25.0),
+            (104.0, 6.0),  // tail
+            (105.0, 2.0),  // tail
+        ]);
+
+        let (_, _, _, valley) = detect_volume_zones(
+            &levels,
+            NodeDetectionMethod::Relative,
+            0.8,
+            NodeDetectionMethod::Relative,
+            0.15,
+            0.0,
+        );
+
+        // No interior local minimum exists — valley should be
+        // None (tails are excluded by local-min requirement)
+        assert!(
+            valley.is_none(),
+            "Tail levels should not be selected as valleys"
+        );
     }
 
     #[test]

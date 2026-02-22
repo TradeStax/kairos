@@ -77,6 +77,7 @@ pub enum Message {
     JumpForward,
     JumpBackward,
     // Lifecycle
+    Close,
     EndReplay,
     OpenController,
     CloseController,
@@ -280,7 +281,8 @@ impl ReplayManager {
             Message::DragEnd => {
                 self.is_dragging = false;
             }
-            Message::LoadData
+            Message::Close
+            | Message::LoadData
             | Message::Play
             | Message::Pause
             | Message::EndReplay

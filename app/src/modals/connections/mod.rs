@@ -5,6 +5,7 @@
 //! a connect/disconnect button. "Manage Connections" opens the full dialog.
 
 use crate::components;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::label::{body, small};
 use crate::style;
 use crate::style::{palette, tokens};
@@ -21,12 +22,14 @@ pub enum ConnectionsMenuMessage {
     ConnectFeed(FeedId),
     DisconnectFeed(FeedId),
     OpenManageDialog,
+    Close,
 }
 
 pub enum Action {
     ConnectFeed(FeedId),
     DisconnectFeed(FeedId),
     OpenManageDialog,
+    Close,
 }
 
 /// Snapshot-based view of connections for the sidebar popover
@@ -50,20 +53,20 @@ impl ConnectionsMenu {
             ConnectionsMenuMessage::ConnectFeed(id) => Some(Action::ConnectFeed(id)),
             ConnectionsMenuMessage::DisconnectFeed(id) => Some(Action::DisconnectFeed(id)),
             ConnectionsMenuMessage::OpenManageDialog => Some(Action::OpenManageDialog),
+            ConnectionsMenuMessage::Close => Some(Action::Close),
         }
     }
 
     pub fn view(&self) -> Element<'_, ConnectionsMenuMessage> {
         let feeds = &self.feeds_snapshot;
 
-        let header: Element<'_, ConnectionsMenuMessage> =
-            components::layout::section_header::SectionHeaderBuilder::new("Connections")
-                .trailing(small(format!(
-                    "{}/{}",
-                    feeds.active_count(),
-                    feeds.total_count()
-                )))
-                .into();
+        let header = ModalHeaderBuilder::new("Connections")
+            .push_control(small(format!(
+                "{}/{}",
+                feeds.active_count(),
+                feeds.total_count()
+            )))
+            .on_close(ConnectionsMenuMessage::Close);
 
         // Sort: connected feeds first, then by priority
         let mut display_feeds: Vec<&DataFeed> = feeds.feeds().iter().collect();

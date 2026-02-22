@@ -53,6 +53,10 @@ impl Kairos {
                 crate::modals::data_feeds::Action::LoadPreview(feed_id, info) => {
                     return self.load_feed_preview(feed_id, info);
                 }
+                crate::modals::data_feeds::Action::Close => {
+                    self.sidebar.set_menu(None);
+                    return Task::none();
+                }
                 crate::modals::data_feeds::Action::SaveApiKey { provider, key } => {
                     let secrets = crate::infra::secrets::SecretsManager::new();
                     if let Err(e) = secrets.set_api_key(provider, &key) {
@@ -207,6 +211,10 @@ impl Kairos {
                     return Task::done(Message::DataFeeds(
                         crate::modals::data_feeds::DataFeedsMessage::DisconnectFeed(feed_id),
                     ));
+                }
+                crate::modals::connections::Action::Close => {
+                    self.sidebar.set_menu(None);
+                    return Task::none();
                 }
                 crate::modals::connections::Action::OpenManageDialog => {
                     self.sidebar.set_menu(Some(data::sidebar::Menu::DataFeeds));

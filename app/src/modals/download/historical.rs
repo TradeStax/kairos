@@ -5,6 +5,7 @@
 
 use super::views;
 use super::{CacheStatus, DownloadConfig, DownloadProgress};
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
 use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};
@@ -189,19 +190,8 @@ impl HistoricalDownloadModal {
     }
 
     pub fn view(&self) -> Element<'_, HistoricalDownloadMessage> {
-        let title = row![
-            text("Download Historical Data").size(tokens::text::HEADING),
-            space::horizontal().width(Length::Fill),
-            button(
-                text("\u{00D7}")
-                    .size(tokens::text::TITLE)
-                    .align_x(Alignment::Center),
-            )
-            .width(28)
-            .height(28)
-            .on_press(HistoricalDownloadMessage::Close),
-        ]
-        .align_y(Alignment::Center);
+        let header = ModalHeaderBuilder::new("Download Historical Data")
+            .on_close(HistoricalDownloadMessage::Close);
 
         let source_label = text("Source: Databento").size(tokens::text::BODY);
 
@@ -272,7 +262,6 @@ impl HistoricalDownloadModal {
         .spacing(tokens::spacing::MD);
 
         let mut content_items: Vec<Element<'_, HistoricalDownloadMessage>> = vec![
-            title.into(),
             source_label.into(),
             ticker_section,
             schema_section,
@@ -293,10 +282,18 @@ impl HistoricalDownloadModal {
             |col, item| col.push(item),
         );
 
-        let base_modal = container(content)
-            .width(Length::Fixed(tokens::layout::MODAL_WIDTH_LG))
-            .padding(tokens::spacing::XXL)
-            .style(style::dashboard_modal);
+        let body = container(content).padding(iced::Padding {
+            top: tokens::spacing::MD,
+            right: tokens::spacing::XXL,
+            bottom: tokens::spacing::XXL,
+            left: tokens::spacing::XXL,
+        });
+
+        let base_modal = container(
+            column![header, body].width(Length::Fill),
+        )
+        .width(Length::Fixed(tokens::layout::MODAL_WIDTH_LG))
+        .style(style::dashboard_modal);
 
         if self.show_confirm {
             views::download_confirm_overlay(

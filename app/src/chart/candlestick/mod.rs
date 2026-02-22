@@ -15,7 +15,7 @@ use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 use iced::Vector;
 use iced::widget::canvas::Cache;
-use study::CandleRenderConfig;
+use study::{CandleRenderConfig, Study as _};
 
 use std::cell::Cell;
 use std::time::Instant;
@@ -501,6 +501,9 @@ impl KlineChart {
             self.studies_dirty = false;
         }
 
+        // Compute any pending VBP drawing profiles
+        self.compute_vbp_drawings();
+
         self.last_tick = Instant::now();
     }
 
@@ -513,6 +516,46 @@ impl KlineChart {
     pub fn drawings_mut(&mut self) -> &mut DrawingManager {
         self.chart.cache.clear_drawings();
         &mut self.drawings
+    }
+
+    /// Compute any pending VBP drawings that need (re)computation.
+    pub fn compute_vbp_drawings(&mut self) {
+        let pending = self.drawings.drain_vbp_computations();
+        if pending.is_empty() {
+            return;
+        }
+
+        let tick_size = data::Price::from_f32(self.ticker_info.tick_size);
+
+        for id in pending {
+            let time_range = {
+                let Some(d) = self.drawings.get(id) else {
+                    continue;
+                };
+                if d.points.len() < 2 {
+                    continue;
+                }
+                let t1 = d.points[0].time;
+                let t2 = d.points[1].time;
+                (t1.min(t2), t1.max(t2))
+            };
+
+            if let Some(d) = self.drawings.get_mut(id)
+                && let Some(ref mut vbp) = d.vbp_study
+            {
+                vbp.set_range(time_range.0, time_range.1);
+                let input = study::StudyInput {
+                    candles: &self.chart_data.candles,
+                    trades: Some(&self.chart_data.trades),
+                    basis: self.basis,
+                    tick_size,
+                    visible_range: None,
+                };
+                let _ = vbp.compute(&input);
+            }
+        }
+
+        self.chart.cache.clear_drawings();
     }
 }
 
@@ -535,6 +578,10 @@ impl ChartDrawingAccess for KlineChart {
 
     fn invalidate_crosshair_cache(&mut self) {
         self.chart.cache.clear_crosshair();
+    }
+
+    fn compute_pending_vbp(&mut self) {
+        self.compute_vbp_drawings();
     }
 }
 

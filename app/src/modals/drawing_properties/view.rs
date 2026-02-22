@@ -14,6 +14,7 @@ use crate::components::input::checkbox_field::CheckboxFieldBuilder;
 use crate::components::input::slider_field::SliderFieldBuilder;
 use crate::components::input::stepper::StepperBuilder;
 use crate::components::layout::button_group::ButtonGroupBuilder;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::Icon;
 use crate::style::{self, tokens};
@@ -23,19 +24,44 @@ use super::{PickerKind, Tab, *};
 
 impl DrawingPropertiesModal {
     pub fn view(&self) -> Element<'_, Message> {
-        let header = self.header();
+        let lock_icon = if self.locked {
+            Icon::Locked
+        } else {
+            Icon::Unlocked
+        };
+        let header = ModalHeaderBuilder::new(format!(
+            "{} Properties",
+            self.tool
+        ))
+        .push_control(
+            icon_button(lock_icon)
+                .size(14)
+                .padding(tokens::spacing::XS)
+                .on_press(Message::LockedToggled(!self.locked)),
+        )
+        .on_close(Message::Close);
+
         let tabs = self.available_tabs();
         let tab_bar = self.tab_bar(&tabs);
         let tab_content = self.tab_content();
         let footer = self.footer();
 
+        let body = column![tab_bar, tab_content, footer,]
+            .spacing(tokens::spacing::LG)
+            .width(Length::Fill);
+
+        let body_scrollable =
+            iced::widget::scrollable(body).style(style::scroll_bar);
+
         let inner = column![
             header,
-            tab_bar,
-            iced::widget::scrollable(tab_content).style(style::scroll_bar),
-            footer,
+            container(body_scrollable).padding(iced::Padding {
+                top: tokens::spacing::MD,
+                right: tokens::spacing::XL,
+                bottom: tokens::spacing::XL,
+                left: tokens::spacing::XL,
+            }),
         ]
-        .spacing(tokens::spacing::LG)
         .width(Length::Fill);
 
         let content: Element<'_, Message> = if self.active_picker.is_some() {
@@ -50,37 +76,10 @@ impl DrawingPropertiesModal {
         };
 
         container(content)
-            .padding(tokens::spacing::XL)
             .max_width(440.0)
             .max_height(620.0)
             .style(style::dashboard_modal)
             .into()
-    }
-
-    /// Title bar with drawing name, lock toggle, and close button.
-    fn header(&self) -> Element<'_, Message> {
-        let lock_icon = if self.locked {
-            Icon::Locked
-        } else {
-            Icon::Unlocked
-        };
-        row![
-            text(format!("{} Properties", self.tool))
-                .size(tokens::text::HEADING),
-            space::horizontal(),
-            icon_button(lock_icon)
-                .size(14)
-                .padding(tokens::spacing::XS)
-                .on_press(Message::LockedToggled(!self.locked)),
-            icon_button(Icon::Close)
-                .size(14)
-                .padding(tokens::spacing::XS)
-                .on_press(Message::Close),
-        ]
-        .spacing(tokens::spacing::XS)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
     }
 
     /// Tab bar using ButtonGroupBuilder.
@@ -108,6 +107,7 @@ impl DrawingPropertiesModal {
             Tab::Position => self.position_tab(),
             Tab::Labels => self.labels_tab(),
             Tab::Display => self.display_tab(),
+            Tab::VbpSettings => self.vbp_settings_tab(),
         }
     }
 
@@ -158,6 +158,191 @@ impl DrawingPropertiesModal {
 
     fn display_tab(&self) -> Element<'_, Message> {
         self.options_section()
+    }
+
+    // ── VBP Settings tab ──────────────────────────────────────────────
+
+    fn vbp_settings_tab(&self) -> Element<'_, Message> {
+        use study::config::{ParameterKind, Visibility};
+
+        let Some(ref config) = self.vbp_config else {
+            return text("No VBP config").into();
+        };
+        let Some(ref params) = self.vbp_params else {
+            return text("No VBP params").into();
+        };
+
+        // Period-related keys are controlled by the drawing's anchors
+        const HIDDEN_KEYS: &[&str] = &[
+            "period",
+            "length_unit",
+            "length_value",
+            "custom_start",
+            "custom_end",
+        ];
+
+        let mut body = column![].spacing(tokens::spacing::MD);
+
+        for param in params {
+            if HIDDEN_KEYS.contains(&param.key.as_str()) {
+                continue;
+            }
+
+            // Check visibility condition
+            let visible = match &param.visible_when {
+                Visibility::Always => true,
+                Visibility::WhenTrue(key) => config
+                    .get_bool(key, false),
+                Visibility::WhenFalse(key) => !config
+                    .get_bool(key, true),
+                Visibility::WhenChoice { key, equals } => {
+                    config.get_choice(key, "") == *equals
+                }
+                Visibility::WhenNotChoice { key, not_equals } => {
+                    config.get_choice(key, "") != *not_equals
+                }
+            };
+            if !visible {
+                continue;
+            }
+
+            let current = config.values.get(&param.key);
+
+            let field: Element<'_, Message> = match &param.kind {
+                ParameterKind::Boolean => {
+                    let val = current
+                        .and_then(|v| {
+                            if let study::ParameterValue::Boolean(b) = v {
+                                Some(*b)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(false);
+                    let key = param.key.clone();
+                    CheckboxFieldBuilder::new(
+                        &param.label,
+                        val,
+                        move |v| {
+                            Message::VbpParamChanged(
+                                key.clone(),
+                                study::ParameterValue::Boolean(v),
+                            )
+                        },
+                    )
+                    .into()
+                }
+                ParameterKind::Choice { options } => {
+                    let val = current
+                        .and_then(|v| {
+                            if let study::ParameterValue::Choice(s) = v {
+                                Some(s.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+                    let opts: Vec<String> =
+                        options.iter().map(|s| s.to_string()).collect();
+                    let key = param.key.clone();
+                    let selected = opts
+                        .iter()
+                        .find(|o| **o == val)
+                        .cloned();
+                    row![
+                        text(&param.label)
+                            .size(tokens::text::SMALL)
+                            .width(Length::FillPortion(2)),
+                        pick_list(
+                            opts,
+                            selected,
+                            move |v: String| {
+                                Message::VbpParamChanged(
+                                    key.clone(),
+                                    study::ParameterValue::Choice(v),
+                                )
+                            },
+                        )
+                        .text_size(tokens::text::SMALL)
+                        .width(Length::FillPortion(3)),
+                    ]
+                    .spacing(tokens::spacing::SM)
+                    .align_y(Alignment::Center)
+                    .into()
+                }
+                ParameterKind::Float { min, max, step } => {
+                    let val = current
+                        .and_then(|v| {
+                            if let study::ParameterValue::Float(f) = v {
+                                Some(*f as f32)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(*min as f32);
+                    let key = param.key.clone();
+                    SliderFieldBuilder::new(
+                        &param.label,
+                        (*min as f32)..=(*max as f32),
+                        val,
+                        move |v| {
+                            Message::VbpParamChanged(
+                                key.clone(),
+                                study::ParameterValue::Float(v as f64),
+                            )
+                        },
+                    )
+                    .step(*step as f32)
+                    .format(|v| format!("{v:.2}"))
+                    .into()
+                }
+                ParameterKind::Integer { min, max } => {
+                    let val = current
+                        .and_then(|v| {
+                            if let study::ParameterValue::Integer(i) = v {
+                                Some(*i as i32)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(*min as i32);
+                    let key = param.key.clone();
+                    let mn = *min as i32;
+                    let mx = *max as i32;
+                    // For very large max values (like timestamps),
+                    // skip rendering.
+                    if mx > 10000 {
+                        continue;
+                    }
+                    StepperBuilder::new(
+                        val,
+                        mn,
+                        mx,
+                        1i32,
+                        move |v| {
+                            Message::VbpParamChanged(
+                                key.clone(),
+                                study::ParameterValue::Integer(
+                                    v as i64,
+                                ),
+                            )
+                        },
+                    )
+                    .label(&param.label)
+                    .into()
+                }
+                ParameterKind::Color | ParameterKind::LineStyle => {
+                    // Skip color and line style params for now —
+                    // they can be configured via the indicator
+                    // settings modal.
+                    continue;
+                }
+            };
+
+            body = body.push(field);
+        }
+
+        body.into()
     }
 
     // ── Shared sections ───────────────────────────────────────────────
@@ -816,6 +1001,7 @@ fn tab_label(tab: Tab) -> &'static str {
         Tab::Position => "Position",
         Tab::Labels => "Labels",
         Tab::Display => "Display",
+        Tab::VbpSettings => "Settings",
     }
 }
 

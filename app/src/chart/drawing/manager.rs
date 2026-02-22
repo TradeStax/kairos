@@ -7,6 +7,7 @@ use super::point::DrawingPoint;
 use crate::chart::ViewState;
 use data::{
     DrawingId, DrawingStyle, DrawingTool, LineStyle, PositionCalcConfig, SerializableDrawing,
+    VbpDrawingConfig,
 };
 use exchange::util::Price as ExchangePrice;
 use iced::{Point, Size};
@@ -66,6 +67,8 @@ pub struct DrawingManager {
     drag_start_screen: Option<Point>,
     /// Clone placement in progress (user is positioning a cloned drawing)
     clone_placement: Option<ClonePlacement>,
+    /// VBP drawings that need (re)computation
+    vbp_needs_compute: Vec<DrawingId>,
 }
 
 impl Default for DrawingManager {
@@ -90,13 +93,21 @@ impl DrawingManager {
             last_drag_point: None,
             drag_start_screen: None,
             clone_placement: None,
+            vbp_needs_compute: Vec::new(),
         }
     }
 
     /// Create from serialized drawings
     pub fn from_serializable(drawings: Vec<SerializableDrawing>) -> Self {
+        let drawings: Vec<Drawing> = drawings.iter().map(Drawing::from).collect();
+        // Collect VBP drawings that need initial computation
+        let vbp_needs_compute: Vec<DrawingId> = drawings
+            .iter()
+            .filter(|d| d.tool == DrawingTool::VolumeProfile)
+            .map(|d| d.id)
+            .collect();
         Self {
-            drawings: drawings.iter().map(Drawing::from).collect(),
+            drawings,
             selected: HashSet::new(),
             pending: None,
             active_tool: DrawingTool::None,
@@ -108,6 +119,7 @@ impl DrawingManager {
             last_drag_point: None,
             drag_start_screen: None,
             clone_placement: None,
+            vbp_needs_compute,
         }
     }
 
@@ -167,6 +179,17 @@ impl DrawingManager {
                 position_calc: Some(PositionCalcConfig::default()),
                 ..self.default_style.clone()
             },
+            DrawingTool::VolumeProfile => DrawingStyle {
+                stroke_color: data::SerializableColor::new(0.95, 0.55, 0.15, 0.8),
+                stroke_width: 1.0,
+                line_style: LineStyle::Solid,
+                fill_color: Some(data::SerializableColor::new(
+                    0.95, 0.55, 0.15, 0.15,
+                )),
+                fill_opacity: 0.15,
+                vbp_config: Some(VbpDrawingConfig::default()),
+                ..self.default_style.clone()
+            },
             _ => self.default_style.clone(),
         }
     }
@@ -184,6 +207,19 @@ impl DrawingManager {
                         stop_price,
                         drawing.points[1].time,
                     ));
+                }
+            }
+            DrawingTool::VolumeProfile => {
+                if drawing.points.len() >= 2 {
+                    let t1 = drawing.points[0].time;
+                    let t2 = drawing.points[1].time;
+                    let (start, end) = (t1.min(t2), t1.max(t2));
+                    let mut study =
+                        study::orderflow::VbpStudy::for_range(start, end);
+                    if let Some(ref cfg) = drawing.style.vbp_config {
+                        study.import_config(&cfg.params);
+                    }
+                    drawing.vbp_study = Some(Box::new(study));
                 }
             }
             _ => {}
@@ -229,8 +265,12 @@ impl DrawingManager {
             if drawing.is_complete() {
                 Self::on_drawing_completed(&mut drawing);
                 let id = drawing.id;
+                let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
                 self.push_undo(DrawingOp::Add(drawing.to_serializable()));
                 self.drawings.push(drawing);
+                if is_vbp {
+                    self.queue_vbp_compute(id);
+                }
                 return Some(id);
             } else {
                 // Not complete yet, put it back
@@ -478,6 +518,15 @@ impl DrawingManager {
 
     /// End a drag operation
     pub fn end_drag(&mut self) {
+        // Check if we were dragging a VBP drawing that needs recompute
+        if let Some((id, _)) = &self.move_edit_before {
+            let id = *id;
+            if self.get(id).is_some_and(|d| {
+                d.tool == DrawingTool::VolumeProfile
+            }) {
+                self.queue_vbp_compute(id);
+            }
+        }
         self.last_drag_point = None;
         self.drag_start_screen = None;
         self.finish_move_edit();
@@ -497,6 +546,13 @@ impl DrawingManager {
     pub fn load_drawings(&mut self, drawings: Vec<SerializableDrawing>) {
         self.drawings = drawings.iter().map(Drawing::from).collect();
         self.selected.clear();
+        // Queue VBP drawings for initial computation
+        self.vbp_needs_compute = self
+            .drawings
+            .iter()
+            .filter(|d| d.tool == DrawingTool::VolumeProfile)
+            .map(|d| d.id)
+            .collect();
     }
 
     /// Check if there are any drawings
@@ -514,20 +570,28 @@ impl DrawingManager {
         if let Some(op) = self.undo_stack.pop_back() {
             match op.clone() {
                 DrawingOp::Add(drawing) => {
-                    // Undo an add = remove the drawing
                     self.drawings.retain(|d| d.id != drawing.id);
                     self.selected.remove(&drawing.id);
                     self.redo_stack.push_back(op);
                 }
                 DrawingOp::Remove(drawing) => {
-                    // Undo a remove = re-add the drawing
+                    let id = drawing.id;
+                    let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
                     self.drawings.push(Drawing::from(&drawing));
+                    if is_vbp {
+                        self.queue_vbp_compute(id);
+                    }
                     self.redo_stack.push_back(op);
                 }
                 DrawingOp::Modify { id, before, .. } => {
-                    // Undo a modify = restore the before state
-                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
+                    let is_vbp = before.tool == DrawingTool::VolumeProfile;
+                    if let Some(pos) =
+                        self.drawings.iter().position(|d| d.id == id)
+                    {
                         self.drawings[pos] = Drawing::from(&before);
+                    }
+                    if is_vbp {
+                        self.queue_vbp_compute(id);
                     }
                     self.redo_stack.push_back(op);
                 }
@@ -543,20 +607,28 @@ impl DrawingManager {
         if let Some(op) = self.redo_stack.pop_back() {
             match op.clone() {
                 DrawingOp::Add(drawing) => {
-                    // Redo an add = add the drawing back
+                    let id = drawing.id;
+                    let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
                     self.drawings.push(Drawing::from(&drawing));
+                    if is_vbp {
+                        self.queue_vbp_compute(id);
+                    }
                     self.undo_stack.push_back(op);
                 }
                 DrawingOp::Remove(drawing) => {
-                    // Redo a remove = remove the drawing again
                     self.drawings.retain(|d| d.id != drawing.id);
                     self.selected.remove(&drawing.id);
                     self.undo_stack.push_back(op);
                 }
                 DrawingOp::Modify { id, after, .. } => {
-                    // Redo a modify = apply the after state
-                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
+                    let is_vbp = after.tool == DrawingTool::VolumeProfile;
+                    if let Some(pos) =
+                        self.drawings.iter().position(|d| d.id == id)
+                    {
                         self.drawings[pos] = Drawing::from(&after);
+                    }
+                    if is_vbp {
+                        self.queue_vbp_compute(id);
                     }
                     self.undo_stack.push_back(op);
                 }
@@ -589,6 +661,20 @@ impl DrawingManager {
     /// Check if redo is available
     pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
+    }
+
+    // ── VBP computation queue ──────────────────────────────────────────
+
+    /// Drain pending VBP computation requests.
+    pub fn drain_vbp_computations(&mut self) -> Vec<DrawingId> {
+        std::mem::take(&mut self.vbp_needs_compute)
+    }
+
+    /// Queue a VBP drawing for recomputation.
+    pub fn queue_vbp_compute(&mut self, id: DrawingId) {
+        if !self.vbp_needs_compute.contains(&id) {
+            self.vbp_needs_compute.push(id);
+        }
     }
 
     // ── Clone placement ────────────────────────────────────────────────

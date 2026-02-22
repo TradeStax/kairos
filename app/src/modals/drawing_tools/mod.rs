@@ -19,6 +19,7 @@ pub enum ToolCategory {
     Annotations,
     Measurement,
     Trading,
+    Analysis,
 }
 
 impl ToolCategory {
@@ -32,6 +33,7 @@ impl ToolCategory {
         ToolCategory::Annotations,
         ToolCategory::Measurement,
         ToolCategory::Trading,
+        ToolCategory::Analysis,
     ];
 
     pub fn tools(&self) -> &'static [DrawingTool] {
@@ -55,6 +57,7 @@ impl ToolCategory {
             ToolCategory::Trading => {
                 &[DrawingTool::BuyCalculator, DrawingTool::SellCalculator]
             }
+            ToolCategory::Analysis => &[DrawingTool::VolumeProfile],
         }
     }
 }
@@ -77,6 +80,8 @@ pub enum SidebarGroup {
     Annotate,
     /// Trading calculators
     Trading,
+    /// Analysis tools (Volume Profile)
+    Analysis,
 }
 
 impl SidebarGroup {
@@ -87,6 +92,7 @@ impl SidebarGroup {
         SidebarGroup::Shapes,
         SidebarGroup::Annotate,
         SidebarGroup::Trading,
+        SidebarGroup::Analysis,
     ];
 
     /// All tools in this group (flat list).
@@ -122,6 +128,9 @@ impl SidebarGroup {
             SidebarGroup::Trading => {
                 vec![ToolCategory::Trading.tools()]
             }
+            SidebarGroup::Analysis => {
+                vec![ToolCategory::Analysis.tools()]
+            }
         }
     }
 
@@ -154,6 +163,7 @@ impl SidebarGroup {
             SidebarGroup::Shapes => DrawingTool::Rectangle,
             SidebarGroup::Annotate => DrawingTool::TextLabel,
             SidebarGroup::Trading => DrawingTool::BuyCalculator,
+            SidebarGroup::Analysis => DrawingTool::VolumeProfile,
         }
     }
 
@@ -166,6 +176,7 @@ impl SidebarGroup {
             SidebarGroup::Shapes => "Shapes",
             SidebarGroup::Annotate => "Annotate",
             SidebarGroup::Trading => "Trading",
+            SidebarGroup::Analysis => "Analysis",
         }
     }
 
@@ -204,6 +215,7 @@ pub fn tool_label(tool: DrawingTool) -> &'static str {
         DrawingTool::DateRange => "Date Range",
         DrawingTool::BuyCalculator => "Buy Calculator",
         DrawingTool::SellCalculator => "Sell Calculator",
+        DrawingTool::VolumeProfile => "Volume Profile",
     }
 }
 
@@ -318,5 +330,6 @@ pub fn tool_icon(tool: DrawingTool) -> Icon {
         DrawingTool::DateRange => Icon::DrawDateRange,       // E831
         DrawingTool::BuyCalculator => Icon::DrawBuyCalc,     // E826 trending-up
         DrawingTool::SellCalculator => Icon::DrawSellCalc,   // E835 trending-down
+        DrawingTool::VolumeProfile => Icon::DrawPriceRange,  // reuse price range icon
     }
 }

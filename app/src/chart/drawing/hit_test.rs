@@ -47,6 +47,9 @@ pub fn hit_test_tool(
         DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
             hit_test_calculator(screen_points, cursor, tolerance)
         }
+        DrawingTool::VolumeProfile => {
+            hit_test_rect(screen_points, cursor, tolerance, style)
+        }
     }
 }
 

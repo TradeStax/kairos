@@ -164,6 +164,8 @@ pub enum DataFeedsMessage {
     // Connection actions
     ConnectFeed(FeedId),
     DisconnectFeed(FeedId),
+    // Close
+    Close,
     // Status updates
     FeedStatusChanged(FeedId, FeedStatus),
     // Preview
@@ -182,6 +184,7 @@ pub enum Action {
         provider: data::ApiProvider,
         key: String,
     },
+    Close,
 }
 
 impl DataFeedsModal {
@@ -208,6 +211,10 @@ impl DataFeedsModal {
         feed_manager: &mut DataFeedManager,
     ) -> Option<Action> {
         match message {
+            DataFeedsMessage::Close => {
+                return Some(Action::Close);
+            }
+
             // ── Left panel ────────────────────────────────────────────────
             DataFeedsMessage::SelectFeed(id) => {
                 if let Some(feed) = feed_manager.get(id) {

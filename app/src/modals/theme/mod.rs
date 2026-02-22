@@ -1,11 +1,12 @@
 use iced::{
-    Alignment, Element,
-    widget::{button, column, container, pick_list, row, space, text_input::default},
+    Element,
+    widget::{column, container, pick_list, text_input::default},
 };
 
 use crate::{
     components::input::color_picker::color_picker,
-    components::primitives::{Icon, icon_text},
+    components::layout::modal_header::ModalHeaderBuilder,
+    components::primitives::Icon,
     style::{self, tokens},
 };
 use palette::Hsva;
@@ -146,10 +147,10 @@ impl ThemeEditor {
     pub fn view(&self, theme: &iced_core::Theme) -> Element<'_, Message> {
         let color = self.focused_color(theme);
         let hsva_in = self.editing.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(crate::style::theme_bridge::iced_color_to_rgba(color))
+            data::config::theme::rgba_to_hsva(
+                crate::style::theme_bridge::iced_color_to_rgba(color),
+            )
         });
-
-        let close_editor = button(icon_text(Icon::Return, 11)).on_press(Message::CloseRequested);
 
         let is_input_valid = self.hex_input.is_none()
             || self
@@ -161,9 +162,9 @@ impl ThemeEditor {
         let hex_input = iced::widget::text_input(
             "",
             self.hex_input.as_deref().unwrap_or(
-                data::config::theme::rgba_to_hex_string(crate::style::theme_bridge::iced_color_to_rgba(
-                    color,
-                ))
+                data::config::theme::rgba_to_hex_string(
+                    crate::style::theme_bridge::iced_color_to_rgba(color),
+                )
                 .as_str(),
             ),
         )
@@ -192,21 +193,26 @@ impl ThemeEditor {
             Message::ComponentChanged,
         );
 
-        let content = column![
-            row![
-                close_editor,
-                space::horizontal(),
-                row![hex_input, focused_field,].spacing(tokens::spacing::XS),
-            ]
-            .spacing(tokens::spacing::MD)
-            .align_y(Alignment::Center),
+        let header = ModalHeaderBuilder::new("Theme")
+            .close_icon(Icon::Return)
+            .push_control(hex_input)
+            .push_control(focused_field)
+            .on_close(Message::CloseRequested);
+
+        let body = container(
             color_picker(hsva_in, Message::Color, 280.0),
-        ]
-        .spacing(10);
+        )
+        .padding(iced::Padding {
+            top: tokens::spacing::MD,
+            right: tokens::spacing::XXL,
+            bottom: tokens::spacing::XXL,
+            left: tokens::spacing::XXL,
+        });
+
+        let content = column![header, body];
 
         container(content)
             .max_width(380)
-            .padding(tokens::spacing::XXL)
             .style(style::dashboard_modal)
             .into()
     }

@@ -6,6 +6,7 @@ pub mod decorate;
 pub mod dragger_row;
 pub mod interactive_card;
 pub mod list_item;
+pub mod modal_header;
 pub mod multi_split;
 pub mod reorderable_list;
 pub mod scrollable_content;

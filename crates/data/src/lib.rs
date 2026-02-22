@@ -63,6 +63,7 @@ pub use config::secrets::{ApiKeyStatus, ApiProvider, SecretsError};
 pub use drawing::{
     CalcMode, DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment,
     LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing, SerializablePoint,
+    VbpDrawingConfig,
 };
 
 // Re-export feed types

@@ -77,6 +77,7 @@ impl State {
         if let Some(id) = completed_id {
             chart.drawings_mut().set_tool(DrawingTool::None);
             chart.drawings_mut().select(id);
+            chart.compute_pending_vbp();
             chart.invalidate_drawings_cache();
             chart.invalidate_crosshair_cache();
             return true;
@@ -226,6 +227,7 @@ impl State {
     pub(super) fn handle_drawing_drag_end(&mut self) {
         if let Some(chart) = self.content.drawing_chart_mut() {
             chart.drawings_mut().end_drag();
+            chart.compute_pending_vbp();
             chart.invalidate_drawings_cache();
             chart.invalidate_crosshair_cache();
         }
@@ -286,7 +288,17 @@ impl State {
                 d.locked = update.locked;
                 d.visible = update.visible;
                 d.label = update.label.clone();
+                // Sync VBP config to embedded study
+                if d.tool == DrawingTool::VolumeProfile {
+                    if let (Some(cfg), Some(study)) =
+                        (&d.style.vbp_config, &mut d.vbp_study)
+                    {
+                        study.import_config(&cfg.params);
+                    }
+                    chart.drawings_mut().queue_vbp_compute(id);
+                }
             }
+            chart.compute_pending_vbp();
             chart.invalidate_drawings_cache();
             chart.invalidate_crosshair_cache();
         }
@@ -307,6 +319,7 @@ impl State {
             {
                 chart.drawings_mut().set_default_style(style);
             }
+            chart.compute_pending_vbp();
         }
     }
 

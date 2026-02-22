@@ -68,6 +68,9 @@ pub enum DrawingTool {
     BuyCalculator,
     /// Sell position calculator (entry + target + auto-generated stop)
     SellCalculator,
+    // ── Analysis ─────────────────────────────────────────────────────
+    /// Volume-by-Price profile (2 points define time range)
+    VolumeProfile,
 }
 
 impl DrawingTool {
@@ -89,7 +92,8 @@ impl DrawingTool {
             | DrawingTool::PriceRange
             | DrawingTool::DateRange
             | DrawingTool::BuyCalculator
-            | DrawingTool::SellCalculator => 2,
+            | DrawingTool::SellCalculator
+            | DrawingTool::VolumeProfile => 2,
             DrawingTool::FibExtension | DrawingTool::ParallelChannel => 3,
         }
     }
@@ -120,6 +124,8 @@ impl DrawingTool {
         // Trading
         DrawingTool::BuyCalculator,
         DrawingTool::SellCalculator,
+        // Analysis
+        DrawingTool::VolumeProfile,
     ];
 }
 
@@ -144,6 +150,7 @@ impl std::fmt::Display for DrawingTool {
             DrawingTool::DateRange => write!(f, "Date Range"),
             DrawingTool::BuyCalculator => write!(f, "Buy Calculator"),
             DrawingTool::SellCalculator => write!(f, "Sell Calculator"),
+            DrawingTool::VolumeProfile => write!(f, "Volume Profile"),
         }
     }
 }
@@ -362,6 +369,25 @@ impl Default for FibonacciConfig {
 /// Serializable color (RGBA). Alias for config::color::Rgba; convert to/from iced::Color at GUI boundary.
 pub use crate::config::color::Rgba as SerializableColor;
 
+/// VBP drawing configuration.
+///
+/// Stores VBP study parameters as JSON so the data crate doesn't
+/// depend on the study crate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VbpDrawingConfig {
+    /// VBP study parameters serialized as JSON.
+    /// Empty object = use VbpStudy defaults.
+    pub params: serde_json::Value,
+}
+
+impl Default for VbpDrawingConfig {
+    fn default() -> Self {
+        Self {
+            params: serde_json::Value::Object(Default::default()),
+        }
+    }
+}
+
 /// Drawing style configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrawingStyle {
@@ -387,6 +413,9 @@ pub struct DrawingStyle {
     /// Position calculator config (for BuyCalculator/SellCalculator tools)
     #[serde(default)]
     pub position_calc: Option<PositionCalcConfig>,
+    /// VBP drawing config (for VolumeProfile tool)
+    #[serde(default)]
+    pub vbp_config: Option<VbpDrawingConfig>,
 }
 
 impl Default for DrawingStyle {
@@ -402,6 +431,7 @@ impl Default for DrawingStyle {
             text: None,
             label_alignment: LabelAlignment::default(),
             position_calc: None,
+            vbp_config: None,
         }
     }
 }

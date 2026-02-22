@@ -159,6 +159,54 @@ impl VbpStudy {
         }
     }
 
+    /// Create a VbpStudy pre-configured for a fixed time range.
+    pub fn for_range(start_ms: u64, end_ms: u64) -> Self {
+        let mut study = Self::new();
+        let _ = study.set_parameter(
+            "period",
+            ParameterValue::Choice("Custom".into()),
+        );
+        let _ = study.set_parameter(
+            "custom_start",
+            ParameterValue::Integer(start_ms as i64),
+        );
+        let _ = study.set_parameter(
+            "custom_end",
+            ParameterValue::Integer(end_ms as i64),
+        );
+        study
+    }
+
+    /// Update the time range and reset fingerprints for recomputation.
+    pub fn set_range(&mut self, start_ms: u64, end_ms: u64) {
+        let _ = self.set_parameter(
+            "custom_start",
+            ParameterValue::Integer(start_ms as i64),
+        );
+        let _ = self.set_parameter(
+            "custom_end",
+            ParameterValue::Integer(end_ms as i64),
+        );
+        self.last_input_fingerprint = (0, 0, 0, 0);
+        self.last_stable_range = None;
+    }
+
+    /// Export config values as JSON for drawing serialization.
+    pub fn export_config(&self) -> serde_json::Value {
+        serde_json::to_value(&self.config).unwrap_or_default()
+    }
+
+    /// Import config values from JSON (drawing deserialization).
+    pub fn import_config(&mut self, value: &serde_json::Value) {
+        if let Ok(config) =
+            serde_json::from_value::<StudyConfig>(value.clone())
+        {
+            self.config = config;
+            self.last_input_fingerprint = (0, 0, 0, 0);
+            self.last_stable_range = None;
+        }
+    }
+
     fn build_params() -> Vec<ParameterDef> {
         let mut params = Vec::with_capacity(70);
 
@@ -2044,15 +2092,27 @@ impl VbpStudy {
                         }
                     };
 
+                    // Sort entries by price to find local
+                    // minima — avoids selecting tail levels.
+                    let mut sorted: Vec<(i64, f64)> =
+                        volume_map
+                            .iter()
+                            .map(|(&p, &v)| (p, v))
+                            .collect();
+                    sorted.sort_unstable_by_key(|&(p, _)| p);
+
                     let mut best_price = last_valley_price;
                     let mut best_vol = f64::MAX;
-                    for (&price, &v) in &volume_map {
+                    for j in 1..sorted.len().saturating_sub(1) {
+                        let v = sorted[j].1;
                         if v <= lvn_cutoff
                             && v > 0.0
+                            && v < sorted[j - 1].1
+                            && v < sorted[j + 1].1
                             && v < best_vol
                         {
                             best_vol = v;
-                            best_price = price;
+                            best_price = sorted[j].0;
                         }
                     }
                     if best_vol < f64::MAX {

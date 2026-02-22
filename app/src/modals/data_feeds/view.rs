@@ -5,6 +5,7 @@
 //! the section_header helper.
 
 use crate::components;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::style;
 use crate::style::{palette, tokens};
 use data::feed::{DataFeed, FeedKind, FeedProvider, RithmicEnvironment};
@@ -39,9 +40,8 @@ const RITHMIC_TICKERS: &[(&str, &str)] = &[
 
 impl DataFeedsModal {
     pub fn view(&self) -> Element<'_, DataFeedsMessage> {
-        let title_bar = container(components::primitives::heading("Manage Connections"))
-            .padding([tokens::spacing::LG, tokens::spacing::XL])
-            .width(Length::Fill);
+        let header = ModalHeaderBuilder::new("Manage Connections")
+            .on_close(DataFeedsMessage::Close);
 
         let left_panel = self.view_left_panel();
         let right_panel = self.view_right_panel();
@@ -53,11 +53,7 @@ impl DataFeedsModal {
         ]
         .height(420);
 
-        let content = column![
-            title_bar,
-            rule::horizontal(1).style(style::split_ruler),
-            body,
-        ];
+        let content = column![header, body,];
 
         container(content)
             .width(650)

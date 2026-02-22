@@ -44,4 +44,7 @@ pub trait ChartDrawingAccess {
 
     /// Invalidate the crosshair/overlay rendering cache.
     fn invalidate_crosshair_cache(&mut self);
+
+    /// Compute pending VBP drawings. Default no-op.
+    fn compute_pending_vbp(&mut self) {}
 }

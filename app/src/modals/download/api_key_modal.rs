@@ -5,10 +5,11 @@
 //! behind credential setup.
 
 use crate::components::input::secure_field::SecureFieldBuilder;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::style::{self, tokens};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, row, space, text},
+    widget::{button, column, container, row, text},
 };
 
 /// API key setup modal state
@@ -71,19 +72,8 @@ impl ApiKeySetupModal {
     }
 
     pub fn view(&self) -> Element<'_, ApiKeySetupMessage> {
-        let title = row![
-            text("API Key Required").size(tokens::text::HEADING),
-            space::horizontal().width(Length::Fill),
-            button(
-                text("\u{00D7}")
-                    .size(tokens::text::TITLE)
-                    .align_x(Alignment::Center),
-            )
-            .width(28)
-            .height(28)
-            .on_press(ApiKeySetupMessage::Close),
-        ]
-        .align_y(Alignment::Center);
+        let header = ModalHeaderBuilder::new("API Key Required")
+            .on_close(ApiKeySetupMessage::Close);
 
         let description = text(
             "A Databento API key is required to download \
@@ -132,12 +122,12 @@ impl ApiKeySetupModal {
         ]
         .spacing(tokens::spacing::MD);
 
-        let mut content = column![title, description, link, key_field,]
+        let mut body = column![description, link, key_field,]
             .spacing(tokens::spacing::LG)
             .align_x(Alignment::Start);
 
         if let Some(err) = &self.error {
-            content = content.push(
+            body = body.push(
                 text(err)
                     .size(tokens::text::SMALL)
                     .style(|theme: &iced::Theme| {
@@ -154,11 +144,20 @@ impl ApiKeySetupModal {
             );
         }
 
-        content = content.push(buttons);
+        body = body.push(buttons);
+
+        let content = column![
+            header,
+            container(body).padding(iced::Padding {
+                top: tokens::spacing::MD,
+                right: tokens::spacing::XXL,
+                bottom: tokens::spacing::XXL,
+                left: tokens::spacing::XXL,
+            }),
+        ];
 
         container(content)
             .width(Length::Fixed(tokens::layout::MODAL_WIDTH_MD))
-            .padding(tokens::spacing::XXL)
             .style(style::dashboard_modal)
             .into()
     }

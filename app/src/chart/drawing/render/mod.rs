@@ -9,6 +9,7 @@ mod channel;
 mod fibonacci;
 mod lines;
 mod shapes;
+mod volume_profile;
 
 use super::{Drawing, DrawingManager, DrawingTool};
 use crate::chart::ViewState;
@@ -192,6 +193,10 @@ fn dispatch_draw(
 
         DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
             calculator::draw(frame, ctx, drawing, screen_points)
+        }
+
+        DrawingTool::VolumeProfile => {
+            volume_profile::draw(frame, ctx, drawing, screen_points)
         }
     }
 }

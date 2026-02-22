@@ -369,6 +369,7 @@ impl Dashboard {
                     && let Some(chart) = state.content.drawing_chart_mut()
                 {
                     chart.drawings_mut().undo();
+                    chart.compute_pending_vbp();
                     chart.invalidate_drawings_cache();
                     chart.invalidate_crosshair_cache();
                 }
@@ -379,6 +380,7 @@ impl Dashboard {
                     && let Some(chart) = state.content.drawing_chart_mut()
                 {
                     chart.drawings_mut().redo();
+                    chart.compute_pending_vbp();
                     chart.invalidate_drawings_cache();
                     chart.invalidate_crosshair_cache();
                 }

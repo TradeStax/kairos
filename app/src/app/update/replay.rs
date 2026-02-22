@@ -9,6 +9,10 @@ use super::super::{Kairos, Message};
 impl Kairos {
     pub(crate) fn handle_replay_message(&mut self, msg: replay::Message) -> Task<Message> {
         match msg {
+            replay::Message::Close => {
+                self.sidebar.set_menu(None);
+                return Task::none();
+            }
             replay::Message::LoadData => {
                 super::super::globals::set_replay_active(true);
                 return self.replay_load_data();

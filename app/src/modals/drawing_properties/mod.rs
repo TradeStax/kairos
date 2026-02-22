@@ -9,8 +9,10 @@ mod view;
 use data::{
     CalcMode, DrawingId, DrawingStyle, DrawingTool, FibonacciConfig, FuturesTickerInfo,
     LabelAlignment, LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing,
+    VbpDrawingConfig,
 };
 use palette::Hsva;
+use study::Study as _;
 
 // ── State ─────────────────────────────────────────────────────────────
 
@@ -27,15 +29,17 @@ pub enum PickerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Style,
-    Levels,   // Fibonacci only
-    Position, // Calculator only
-    Labels,   // Calculator only
+    Levels,       // Fibonacci only
+    Position,     // Calculator only
+    Labels,       // Calculator only
     Display,
+    VbpSettings,  // VolumeProfile only
 }
 
 /// The drawing properties modal state.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DrawingPropertiesModal {
+    // NOTE: PartialEq implemented manually below (VBP fields excluded)
     pub(super) drawing_id: DrawingId,
     pub(super) tool: DrawingTool,
     pub(super) active_tab: Tab,
@@ -69,6 +73,17 @@ pub struct DrawingPropertiesModal {
     pub(super) editing_fill_color: Option<Hsva>,
     pub(super) hex_input_stroke: Option<String>,
     pub(super) hex_input_fill: Option<String>,
+    // VBP drawing state
+    pub(super) vbp_config: Option<study::StudyConfig>,
+    pub(super) vbp_params: Option<Vec<study::ParameterDef>>,
+}
+
+impl PartialEq for DrawingPropertiesModal {
+    fn eq(&self, other: &Self) -> bool {
+        self.drawing_id == other.drawing_id
+            && self.tool == other.tool
+            && self.active_tab == other.active_tab
+    }
 }
 
 impl DrawingPropertiesModal {
@@ -94,9 +109,25 @@ impl DrawingPropertiesModal {
             DrawingTool::BuyCalculator | DrawingTool::SellCalculator
         ) {
             Tab::Position
+        } else if tool == DrawingTool::VolumeProfile {
+            Tab::VbpSettings
         } else {
             Tab::Style
         };
+
+        // Initialize VBP config from saved params
+        let (vbp_config, vbp_params) = if tool == DrawingTool::VolumeProfile {
+            let mut tmp = study::orderflow::VbpStudy::new();
+            if let Some(ref cfg) = style.vbp_config {
+                tmp.import_config(&cfg.params);
+            }
+            let params = tmp.parameters().to_vec();
+            let config = tmp.config().clone();
+            (Some(config), Some(params))
+        } else {
+            (None, None)
+        };
+
         Self {
             drawing_id,
             tool,
@@ -126,6 +157,8 @@ impl DrawingPropertiesModal {
             editing_fill_color: None,
             hex_input_stroke: None,
             hex_input_fill: None,
+            vbp_config,
+            vbp_params,
         }
     }
 
@@ -141,6 +174,11 @@ impl DrawingPropertiesModal {
 
     /// Build the `DrawingUpdate` from current modal state.
     pub fn build_update(&self) -> DrawingUpdate {
+        let vbp_config = self.vbp_config.as_ref().map(|config| {
+            VbpDrawingConfig {
+                params: serde_json::to_value(config).unwrap_or_default(),
+            }
+        });
         DrawingUpdate {
             style: DrawingStyle {
                 stroke_color: self.stroke_color,
@@ -153,11 +191,19 @@ impl DrawingPropertiesModal {
                 fibonacci: self.fibonacci.clone(),
                 text: self.text.clone(),
                 position_calc: self.position_calc.clone(),
+                vbp_config,
             },
             locked: self.locked,
             visible: self.visible,
             label: self.label.clone(),
         }
+    }
+
+    /// Sync current VBP config into a style-compatible form for live preview.
+    fn sync_vbp_to_style(&mut self) {
+        // No-op: build_update() already reads from self.vbp_config.
+        // Live preview is triggered by the parent calling build_update()
+        // after each message.
     }
 
     fn has_fill(&self) -> bool {
@@ -201,7 +247,9 @@ impl DrawingPropertiesModal {
     }
 
     pub(super) fn available_tabs(&self) -> Vec<Tab> {
-        if self.has_position_calc() {
+        if self.tool == DrawingTool::VolumeProfile {
+            vec![Tab::VbpSettings, Tab::Display]
+        } else if self.has_position_calc() {
             vec![Tab::Position, Tab::Style, Tab::Labels]
         } else if self.has_fibonacci() {
             vec![Tab::Style, Tab::Levels, Tab::Display]
@@ -463,6 +511,13 @@ impl DrawingPropertiesModal {
             Message::DismissColorPicker => {
                 self.active_picker = None;
             }
+            Message::VbpParamChanged(key, value) => {
+                if let Some(ref mut config) = self.vbp_config {
+                    config.set(key, value);
+                    // Sync back to style.vbp_config
+                    self.sync_vbp_to_style();
+                }
+            }
             Message::Apply => {
                 let update = self.build_update();
                 return Some(Action::Applied(self.drawing_id, update));
@@ -529,6 +584,8 @@ pub enum Message {
     ToggleStrokePicker,
     ToggleFillPicker,
     DismissColorPicker,
+    // VBP
+    VbpParamChanged(String, study::ParameterValue),
     // Actions
     Apply,
     Close,

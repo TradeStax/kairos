@@ -2,8 +2,9 @@ use super::*;
 
 use crate::components::display::progress_bar::ProgressBarBuilder;
 use crate::components::display::status_dot::status_badge_themed;
+use crate::components::layout::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icon_button::toolbar_icon;
-use crate::components::primitives::label::{small, title};
+use crate::components::primitives::label::small;
 use crate::components::primitives::{Icon, icon_text};
 use crate::style::{self, palette, tokens};
 use chrono::{Datelike, NaiveDate, Weekday};
@@ -17,16 +18,23 @@ impl ReplayManager {
 
     /// Sidebar popover: setup form or active-replay controls.
     pub fn view_setup_modal(&self, _timezone: UserTimezone) -> Element<'_, Message> {
+        let header = ModalHeaderBuilder::new("Replay")
+            .on_close(Message::Close);
+
         let form = if self.data_loaded {
             self.view_setup_active()
         } else {
             self.view_setup_form()
         };
 
-        let base = container(form)
-            .width(Length::Fixed(280.0))
-            .padding(tokens::spacing::LG)
-            .style(style::dashboard_modal);
+        let base = container(
+            column![
+                header,
+                container(form).padding(tokens::spacing::LG),
+            ],
+        )
+        .width(Length::Fixed(280.0))
+        .style(style::dashboard_modal);
 
         if let Some(popup) = self.active_popup {
             let (popup_content, offset_y) = match popup {
@@ -63,7 +71,7 @@ impl ReplayManager {
 
     /// Setup form: stream trigger, date/time triggers, start button.
     fn view_setup_form(&self) -> iced::widget::Column<'_, Message> {
-        let mut col = column![title("Replay")].spacing(tokens::spacing::MD);
+        let mut col = column![].spacing(tokens::spacing::MD);
 
         // ── Stream trigger ────────────────────────────────────
         col = col.push(self.view_picker_trigger(
@@ -471,7 +479,7 @@ impl ReplayManager {
     // ── Active Replay State ───────────────────────────────────────────
 
     fn view_setup_active(&self) -> iced::widget::Column<'_, Message> {
-        let mut col = column![title("Replay")].spacing(tokens::spacing::MD);
+        let mut col = column![].spacing(tokens::spacing::MD);
 
         let playback = self.playback_status;
         let status_color_fn = move |theme: &iced::Theme| match playback {
