@@ -41,15 +41,16 @@ use exchange::util::Price;
 
 /// Compute the dynamic grouping quantum for automatic mode.
 ///
-/// `factor` is the user's scale factor; larger → coarser grouping.
+/// `factor` is the user's scale factor; larger values produce
+/// coarser grouping.
 fn compute_dynamic_quantum(
     state: &ViewState,
     factor: i64,
     tick_units: i64,
 ) -> i64 {
-    let pixel_per_tick = state.cell_height * state.scaling;
-    let base_ticks = (MIN_ROW_PX / pixel_per_tick).ceil() as i64;
-    (base_ticks * factor).max(1) * tick_units
+    super::coord::compute_dynamic_quantum(
+        state, MIN_ROW_PX, factor, tick_units,
+    )
 }
 
 /// Merge footprint levels to a coarser quantum boundary.

@@ -2,26 +2,32 @@ mod render;
 mod studies;
 
 use crate::chart::{
-    Chart, PanelStudyInfo, PlotConstants, ViewState,
+    Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
 };
 use data::state::pane::{ProfileConfig, ProfilePeriod};
 use data::util::count_decimals;
 use data::{
-    Autoscale, Candle, ChartBasis, ChartData, Price as DomainPrice, Side, Timeframe, Trade,
-    ViewConfig,
+    Autoscale, Candle, ChartBasis, ChartData,
+    Price as DomainPrice, Side, Timeframe, Trade, ViewConfig,
 };
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 use iced::Vector;
 use iced::widget::canvas::Cache;
-use study::orderflow::profile_core;
-use study::output::{NodeDetectionMethod, ProfileLevel, VolumeNode};
+use study::Study;
+use study::config::ParameterValue;
+use study::orderflow::VbpStudy;
+use study::output::{ProfileOutput, StudyOutput};
+use study::traits::StudyInput;
 
 use std::time::Instant;
 
-/// Standalone profile chart — entire pane shows a Volume-by-Price profile.
-/// Y-axis = Price, horizontal bars = Volume.
+/// Standalone profile chart — entire pane shows a Volume-by-Price
+/// profile. Y-axis = Price, horizontal bars = Volume.
+///
+/// Internally delegates computation to a [`VbpStudy`] instance
+/// configured from the pane's [`ProfileConfig`].
 pub struct ProfileChart {
     chart: ViewState,
     chart_data: ChartData,
@@ -30,13 +36,9 @@ pub struct ProfileChart {
     last_tick: Instant,
     drawings: DrawingManager,
 
-    // Computed profile state
-    profile_levels: Vec<ProfileLevel>,
-    quantum: i64,
-    poc_index: Option<usize>,
-    value_area: Option<(usize, usize)>,
-    hvn_nodes: Vec<VolumeNode>,
-    lvn_nodes: Vec<VolumeNode>,
+    /// VBP study that computes the profile levels, POC, VA, zones,
+    /// peak/valley, and developing features.
+    profile_study: VbpStudy,
     /// Fingerprint to skip redundant recomputes
     fingerprint: (usize, u64, u64, usize),
 
@@ -83,71 +85,26 @@ impl Chart for ProfileChart {
     }
 
     fn is_empty(&self) -> bool {
-        self.chart_data.candles.is_empty() && self.chart_data.trades.is_empty()
+        self.chart_data.candles.is_empty()
+            && self.chart_data.trades.is_empty()
     }
 
-    fn active_drawing_tool(&self) -> data::DrawingTool {
-        self.drawings.active_tool()
+    fn plot_limits(&self) -> PlotLimits {
+        PlotLimits {
+            max_cell_width: 1.0,
+            min_cell_width: 1.0,
+            max_cell_height: 200.0,
+            min_cell_height: 0.1,
+            default_cell_width: 1.0,
+        }
     }
 
-    fn has_pending_drawing(&self) -> bool {
-        self.drawings.has_pending()
+    fn drawings(&self) -> Option<&DrawingManager> {
+        Some(&self.drawings)
     }
 
-    fn hit_test_drawing(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<data::DrawingId> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HIT_TOLERANCE,
-        )
-    }
-
-    fn hit_test_drawing_handle(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<(data::DrawingId, usize)> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test_handle(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HANDLE_SIZE,
-        )
-    }
-
-    fn has_drawing_selection(&self) -> bool {
-        !self.drawings.selected_ids().is_empty()
-    }
-
-    fn is_drawing_selected(&self, id: data::DrawingId) -> bool {
-        self.drawings.is_selected(id)
-    }
-
-    fn is_drawing_locked(&self, id: data::DrawingId) -> bool {
-        self.drawings.get(id).is_some_and(|d| d.locked)
-    }
-
-    fn has_clone_pending(&self) -> bool {
-        self.drawings.has_clone_pending()
-    }
-
-    fn panel_studies(&self) -> Vec<PanelStudyInfo<'_>> {
-        self.studies
-            .iter()
-            .filter(|s| s.placement() == study::StudyPlacement::Panel)
-            .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
-            .map(|s| PanelStudyInfo {
-                name: s.name(),
-                output: s.output(),
-            })
-            .collect()
+    fn studies(&self) -> &[Box<dyn study::Study>] {
+        &self.studies
     }
 
     fn panel_cache(&self) -> Option<&Cache> {
@@ -156,29 +113,6 @@ impl Chart for ProfileChart {
 
     fn panel_labels_cache(&self) -> Option<&Cache> {
         Some(&self.panel_labels_cache)
-    }
-}
-
-impl PlotConstants for ProfileChart {
-    fn max_cell_width(&self) -> f32 {
-        // X axis not meaningful for profile, keep fixed
-        1.0
-    }
-
-    fn min_cell_width(&self) -> f32 {
-        1.0
-    }
-
-    fn max_cell_height(&self) -> f32 {
-        200.0
-    }
-
-    fn min_cell_height(&self) -> f32 {
-        0.1
-    }
-
-    fn default_cell_width(&self) -> f32 {
-        1.0
     }
 }
 
@@ -226,6 +160,13 @@ impl ProfileChart {
         chart.latest_x = latest_x;
         chart.translation.y = -chart.bounds.height / 2.0;
 
+        let mut profile_study = VbpStudy::new();
+        apply_profile_config_to_study(
+            &mut profile_study,
+            &config,
+            &ticker_info,
+        );
+
         let mut profile = ProfileChart {
             chart,
             chart_data,
@@ -233,12 +174,7 @@ impl ProfileChart {
             ticker_info,
             last_tick: Instant::now(),
             drawings: DrawingManager::new(),
-            profile_levels: Vec::new(),
-            quantum: step.units.max(1),
-            poc_index: None,
-            value_area: None,
-            hvn_nodes: Vec::new(),
-            lvn_nodes: Vec::new(),
+            profile_study,
             fingerprint: (0, 0, 0, 0),
             display_config: config,
             studies: Vec::new(),
@@ -254,6 +190,7 @@ impl ProfileChart {
     /// Apply a new display configuration.
     pub fn set_display_config(&mut self, config: ProfileConfig) {
         self.display_config = config;
+        self.fingerprint = (0, 0, 0, 0); // force recompute
         self.recompute_profile();
         self.invalidate();
     }
@@ -279,202 +216,137 @@ impl ProfileChart {
         &mut self.drawings
     }
 
-    // ── Profile computation ───────────────────────────────────────────
+    // ── Study output accessors ──────────────────────────────────
 
-    /// Rebuild the volume profile from chart data.
+    /// Extract the `ProfileOutput` from the study, if computed.
+    pub(super) fn profile_output(
+        &self,
+    ) -> Option<&ProfileOutput> {
+        match self.profile_study.output() {
+            StudyOutput::Profile(o, _) => Some(o),
+            _ => None,
+        }
+    }
+
+    /// Convenience: borrow the levels slice from the study output.
+    fn profile_levels(
+        &self,
+    ) -> Option<&[study::output::ProfileLevel]> {
+        self.profile_output().map(|o| o.levels.as_slice())
+    }
+
+    // ── Profile computation ─────────────────────────────────────
+
+    /// Rebuild the volume profile via the internal VbpStudy.
     fn recompute_profile(&mut self) {
-        let tick_size = DomainPrice::from_f32(self.ticker_info.tick_size);
-        let tick_units = tick_size.units().max(1);
-
-        let group_quantum = if self.display_config.auto_grouping {
-            tick_units * self.display_config.auto_group_factor.max(1)
-        } else {
-            tick_units * self.display_config.manual_ticks.max(1)
-        };
-
-        // Compute fingerprint and profile levels from data slices
-        // (scoped borrow to avoid conflict with self.fingerprint)
-        let (new_fp, levels) = {
-            let (candle_slice, trade_slice) = self.resolve_data_slice();
-
-            let fp = (
-                trade_slice.len(),
-                trade_slice.first().map(|t| t.time.0).unwrap_or(0),
-                trade_slice.last().map(|t| t.time.0).unwrap_or(0),
-                candle_slice.len(),
+        // Compute fingerprint (scoped borrow so we can mutate
+        // self.fingerprint afterwards).
+        let fp = {
+            let (cs, ts) = resolve_data_slice(
+                &self.chart_data,
+                &self.display_config,
             );
-
-            if fp == self.fingerprint && !self.profile_levels.is_empty() {
-                return;
-            }
-
-            let lvls = if !trade_slice.is_empty() {
-                profile_core::build_profile_from_trades(
-                    trade_slice,
-                    tick_size,
-                    group_quantum,
-                )
-            } else if !candle_slice.is_empty() {
-                profile_core::build_profile_from_candles(
-                    candle_slice,
-                    tick_size,
-                    group_quantum,
-                )
-            } else {
-                Vec::new()
-            };
-
-            (fp, lvls)
-        };
-
-        self.fingerprint = new_fp;
-        self.profile_levels = levels;
-        self.quantum = group_quantum;
-
-        // POC
-        self.poc_index = profile_core::find_poc_index(&self.profile_levels);
-
-        // Value Area
-        self.value_area = self.poc_index.and_then(|poc| {
-            profile_core::calculate_value_area(
-                &self.profile_levels,
-                poc,
-                self.display_config.value_area_pct as f64,
+            (
+                ts.len(),
+                ts.first().map(|t| t.time.0).unwrap_or(0),
+                ts.last().map(|t| t.time.0).unwrap_or(0),
+                cs.len(),
             )
-        });
+        };
+        if fp == self.fingerprint
+            && !matches!(
+                self.profile_study.output(),
+                StudyOutput::Empty
+            )
+        {
+            return;
+        }
+        self.fingerprint = fp;
 
-        // Volume nodes
-        if self.display_config.show_hvn || self.display_config.show_lvn {
-            let (hvn, lvn) = profile_core::detect_volume_nodes(
-                &self.profile_levels,
-                NodeDetectionMethod::Relative,
-                self.display_config.hvn_threshold,
-                NodeDetectionMethod::Relative,
-                self.display_config.lvn_threshold,
-                0.1,
-            );
-            self.hvn_nodes = hvn;
-            self.lvn_nodes = lvn;
-        } else {
-            self.hvn_nodes.clear();
-            self.lvn_nodes.clear();
+        // Reapply config in case display_config changed
+        apply_profile_config_to_study(
+            &mut self.profile_study,
+            &self.display_config,
+            &self.ticker_info,
+        );
+
+        // Feed sliced data into the study. We borrow chart_data
+        // separately from profile_study for disjoint access.
+        let (candle_slice, trade_slice) = resolve_data_slice(
+            &self.chart_data,
+            &self.display_config,
+        );
+        let trades: Option<&[Trade]> =
+            if !trade_slice.is_empty() {
+                Some(trade_slice)
+            } else {
+                None
+            };
+        let input = StudyInput {
+            candles: candle_slice,
+            trades,
+            basis: self.basis,
+            tick_size: DomainPrice::from_f32(
+                self.ticker_info.tick_size,
+            ),
+            visible_range: None,
+        };
+        if let Err(e) = self.profile_study.compute(&input) {
+            log::warn!("Profile study compute error: {e}");
         }
     }
 
     /// Resolve the data slice based on period settings.
     fn resolve_data_slice(&self) -> (&[Candle], &[Trade]) {
-        match self.display_config.period {
-            ProfilePeriod::AllData => {
-                (&self.chart_data.candles, &self.chart_data.trades)
-            }
-            ProfilePeriod::Length => {
-                let cutoff_ms = self.compute_length_cutoff();
-                let candle_start = self
-                    .chart_data
-                    .candles
-                    .partition_point(|c| c.time.0 < cutoff_ms);
-                let trade_start = self
-                    .chart_data
-                    .trades
-                    .partition_point(|t| t.time.0 < cutoff_ms);
-                (
-                    &self.chart_data.candles[candle_start..],
-                    &self.chart_data.trades[trade_start..],
-                )
-            }
-            ProfilePeriod::Custom => {
-                let start = self.display_config.custom_start as u64;
-                let end = self.display_config.custom_end as u64;
-                if start == 0 && end == 0 {
-                    return (&self.chart_data.candles, &self.chart_data.trades);
-                }
-                let cs = self
-                    .chart_data
-                    .candles
-                    .partition_point(|c| c.time.0 < start);
-                let ce = self
-                    .chart_data
-                    .candles
-                    .partition_point(|c| c.time.0 <= end);
-                let ts = self
-                    .chart_data
-                    .trades
-                    .partition_point(|t| t.time.0 < start);
-                let te = self
-                    .chart_data
-                    .trades
-                    .partition_point(|t| t.time.0 <= end);
-                (
-                    &self.chart_data.candles[cs..ce],
-                    &self.chart_data.trades[ts..te],
-                )
-            }
-        }
-    }
-
-    fn compute_length_cutoff(&self) -> u64 {
-        use data::state::pane::ProfileLengthUnit;
-        let latest_ms = self
-            .chart_data
-            .candles
-            .last()
-            .map(|c| c.time.0)
-            .or_else(|| self.chart_data.trades.last().map(|t| t.time.0))
-            .unwrap_or(0);
-
-        match self.display_config.length_unit {
-            ProfileLengthUnit::Days => {
-                let ms = self.display_config.length_value as u64 * 24 * 60 * 60 * 1000;
-                latest_ms.saturating_sub(ms)
-            }
-            ProfileLengthUnit::Minutes => {
-                let ms = self.display_config.length_value as u64 * 60 * 1000;
-                latest_ms.saturating_sub(ms)
-            }
-            ProfileLengthUnit::Contracts => {
-                // Count backwards by trade volume
-                let target = self.display_config.length_value as f64;
-                let mut accum = 0.0;
-                for trade in self.chart_data.trades.iter().rev() {
-                    accum += trade.quantity.value();
-                    if accum >= target {
-                        return trade.time.0;
-                    }
-                }
-                0
-            }
-        }
+        resolve_data_slice(
+            &self.chart_data,
+            &self.display_config,
+        )
     }
 
     pub fn invalidate(&mut self) {
+        // Snapshot the price extremes from the study output before
+        // we mutably borrow `self.chart` for autoscaling.
+        let price_extremes = self
+            .profile_levels()
+            .filter(|l| !l.is_empty())
+            .map(|levels| {
+                let highest = levels
+                    .last()
+                    .map(|l| l.price as f32)
+                    .unwrap_or(0.0);
+                let lowest = levels
+                    .first()
+                    .map(|l| l.price as f32)
+                    .unwrap_or(0.0);
+                (highest, lowest)
+            });
+
         let chart = &mut self.chart;
 
         // Fit-all autoscaling: fit price range to visible area
         if let Some(Autoscale::FitAll) = chart.layout.autoscale {
-            if !self.profile_levels.is_empty() {
-                let highest = self
-                    .profile_levels
-                    .last()
-                    .map(|l| l.price as f32)
-                    .unwrap_or(0.0);
-                let lowest = self
-                    .profile_levels
-                    .first()
-                    .map(|l| l.price as f32)
-                    .unwrap_or(0.0);
-
+            if let Some((highest, lowest)) = price_extremes {
                 let padding = (highest - lowest) * 0.05;
-                let price_span = (highest - lowest) + (2.0 * padding);
+                let price_span =
+                    (highest - lowest) + (2.0 * padding);
 
-                if price_span > 0.0 && chart.bounds.height > f32::EPSILON {
+                if price_span > 0.0
+                    && chart.bounds.height > f32::EPSILON
+                {
                     let padded_highest = highest + padding;
                     let chart_height = chart.bounds.height;
-                    let tick_size = chart.tick_size.to_f32_lossy();
+                    let tick_size =
+                        chart.tick_size.to_f32_lossy();
 
                     if tick_size > 0.0 {
-                        chart.cell_height = (chart_height * tick_size) / price_span;
-                        chart.base_price_y = Price::from_f32(padded_highest);
-                        chart.translation.y = -chart_height / 2.0;
+                        chart.cell_height =
+                            (chart_height * tick_size)
+                                / price_span;
+                        chart.base_price_y =
+                            Price::from_f32(padded_highest);
+                        chart.translation.y =
+                            -chart_height / 2.0;
                     }
                 }
             }
@@ -509,6 +381,7 @@ impl ProfileChart {
         self.chart_data.trades.clear();
         self.chart_data.candles.clear();
 
+        self.profile_study.reset();
         for s in &mut self.studies {
             s.reset();
         }
@@ -584,6 +457,397 @@ impl ChartDrawingAccess for ProfileChart {
 
     fn invalidate_crosshair_cache(&mut self) {
         self.chart.cache.clear_crosshair();
+    }
+}
+
+/// Resolve the candle/trade data slice based on period settings.
+///
+/// Free function to allow disjoint borrows (chart_data vs study).
+fn resolve_data_slice<'a>(
+    data: &'a ChartData,
+    cfg: &ProfileConfig,
+) -> (&'a [Candle], &'a [Trade]) {
+    match cfg.period {
+        ProfilePeriod::AllData => {
+            (&data.candles, &data.trades)
+        }
+        ProfilePeriod::Length => {
+            let cutoff_ms = compute_length_cutoff(data, cfg);
+            let cs = data
+                .candles
+                .partition_point(|c| c.time.0 < cutoff_ms);
+            let ts = data
+                .trades
+                .partition_point(|t| t.time.0 < cutoff_ms);
+            (&data.candles[cs..], &data.trades[ts..])
+        }
+        ProfilePeriod::Custom => {
+            let start = cfg.custom_start as u64;
+            let end = cfg.custom_end as u64;
+            if start == 0 && end == 0 {
+                return (&data.candles, &data.trades);
+            }
+            let cs =
+                data.candles.partition_point(|c| c.time.0 < start);
+            let ce =
+                data.candles.partition_point(|c| c.time.0 <= end);
+            let ts =
+                data.trades.partition_point(|t| t.time.0 < start);
+            let te =
+                data.trades.partition_point(|t| t.time.0 <= end);
+            (&data.candles[cs..ce], &data.trades[ts..te])
+        }
+    }
+}
+
+fn compute_length_cutoff(
+    data: &ChartData,
+    cfg: &ProfileConfig,
+) -> u64 {
+    use data::state::pane::ProfileLengthUnit;
+    let latest_ms = data
+        .candles
+        .last()
+        .map(|c| c.time.0)
+        .or_else(|| data.trades.last().map(|t| t.time.0))
+        .unwrap_or(0);
+
+    match cfg.length_unit {
+        ProfileLengthUnit::Days => {
+            let ms =
+                cfg.length_value as u64 * 24 * 60 * 60 * 1000;
+            latest_ms.saturating_sub(ms)
+        }
+        ProfileLengthUnit::Minutes => {
+            let ms = cfg.length_value as u64 * 60 * 1000;
+            latest_ms.saturating_sub(ms)
+        }
+        ProfileLengthUnit::Contracts => {
+            let target = cfg.length_value as f64;
+            let mut accum = 0.0;
+            for trade in data.trades.iter().rev() {
+                accum += trade.quantity.value();
+                if accum >= target {
+                    return trade.time.0;
+                }
+            }
+            0
+        }
+    }
+}
+
+/// Map a [`ProfileConfig`] onto a [`VbpStudy`]'s parameters so
+/// the study produces the same output the old manual code did.
+///
+/// Because ProfileChart does its own period slicing via
+/// `resolve_data_slice()`, we always set the study to `Auto`
+/// period (it will receive the pre-sliced candles/trades).
+fn apply_profile_config_to_study(
+    study: &mut VbpStudy,
+    cfg: &ProfileConfig,
+    _info: &FuturesTickerInfo,
+) {
+    use data::state::pane::ProfileDisplayType as DT;
+    use data::state::pane::ProfileNodeDetectionMethod as NM;
+
+    // Helper — ignore set_parameter errors (param names are known)
+    macro_rules! set {
+        ($key:expr, $val:expr) => {
+            let _ = study.set_parameter($key, $val);
+        };
+    }
+
+    // ── VBP type ──────────────────────────────────────────────
+    let vbp_type = match cfg.display_type {
+        DT::Volume => "Volume",
+        DT::BidAskVolume => "Bid/Ask Volume",
+        DT::Delta => "Delta",
+        DT::DeltaAndTotal => "Delta & Total Volume",
+        DT::DeltaPercentage => "Delta Percentage",
+    };
+    set!("vbp_type", ParameterValue::Choice(vbp_type.into()));
+
+    // ── Period: always "Auto" (caller pre-slices data) ────────
+    set!("period", ParameterValue::Choice("Auto".into()));
+
+    // ── Tick grouping ─────────────────────────────────────────
+    // ProfileChart bakes auto_group_factor into the quantum.
+    // VbpStudy's "Automatic" mode uses plain tick_units and
+    // stores the factor only for renderer-side merging. To
+    // reproduce the old behaviour we set "Manual" mode with the
+    // effective tick count already multiplied.
+    if cfg.auto_grouping {
+        set!(
+            "auto_grouping",
+            ParameterValue::Choice("Manual".into())
+        );
+        set!(
+            "manual_ticks",
+            ParameterValue::Integer(
+                cfg.auto_group_factor.max(1),
+            )
+        );
+    } else {
+        set!(
+            "auto_grouping",
+            ParameterValue::Choice("Manual".into())
+        );
+        set!(
+            "manual_ticks",
+            ParameterValue::Integer(cfg.manual_ticks.max(1))
+        );
+    }
+
+    // ── Opacity / width (profile fills whole pane) ────────────
+    set!(
+        "opacity",
+        ParameterValue::Float(cfg.opacity as f64)
+    );
+    // Width doesn't apply to standalone, but keep it harmless.
+    set!("width_pct", ParameterValue::Float(0.25));
+
+    // ── Colors ────────────────────────────────────────────────
+    if let Some(c) = cfg.volume_color {
+        set!(
+            "volume_color",
+            ParameterValue::Color(c.into())
+        );
+    }
+    if let Some(c) = cfg.bid_color {
+        set!("bid_color", ParameterValue::Color(c.into()));
+    }
+    if let Some(c) = cfg.ask_color {
+        set!("ask_color", ParameterValue::Color(c.into()));
+    }
+
+    // ── POC ───────────────────────────────────────────────────
+    set!(
+        "poc_show",
+        ParameterValue::Boolean(cfg.show_poc)
+    );
+    if let Some(c) = cfg.poc_color {
+        set!("poc_color", ParameterValue::Color(c.into()));
+    }
+    set!(
+        "poc_line_width",
+        ParameterValue::Float(cfg.poc_line_width as f64)
+    );
+    set!(
+        "poc_line_style",
+        ParameterValue::LineStyle(
+            to_study_line_style(cfg.poc_line_style),
+        )
+    );
+    set!(
+        "poc_extend",
+        ParameterValue::Choice(
+            extend_to_str(cfg.poc_extend).into(),
+        )
+    );
+    set!(
+        "poc_show_label",
+        ParameterValue::Boolean(cfg.show_poc_label)
+    );
+
+    // ── Value Area ────────────────────────────────────────────
+    set!(
+        "va_show",
+        ParameterValue::Boolean(cfg.show_va_highlight)
+    );
+    set!(
+        "value_area_pct",
+        ParameterValue::Float(cfg.value_area_pct as f64)
+    );
+    set!(
+        "va_show_highlight",
+        ParameterValue::Boolean(cfg.show_va_highlight)
+    );
+    if let Some(c) = cfg.vah_color {
+        set!("va_vah_color", ParameterValue::Color(c.into()));
+    }
+    set!(
+        "va_vah_line_width",
+        ParameterValue::Float(cfg.vah_line_width as f64)
+    );
+    set!(
+        "va_vah_line_style",
+        ParameterValue::LineStyle(
+            to_study_line_style(cfg.vah_line_style),
+        )
+    );
+    if let Some(c) = cfg.val_color {
+        set!("va_val_color", ParameterValue::Color(c.into()));
+    }
+    set!(
+        "va_val_line_width",
+        ParameterValue::Float(cfg.val_line_width as f64)
+    );
+    set!(
+        "va_val_line_style",
+        ParameterValue::LineStyle(
+            to_study_line_style(cfg.val_line_style),
+        )
+    );
+    set!(
+        "va_extend",
+        ParameterValue::Choice(
+            extend_to_str(cfg.va_extend).into(),
+        )
+    );
+    set!(
+        "va_show_labels",
+        ParameterValue::Boolean(cfg.show_va_labels)
+    );
+
+    // VA fill
+    set!(
+        "va_show_fill",
+        ParameterValue::Boolean(cfg.show_va_fill)
+    );
+    if let Some(c) = cfg.va_fill_color {
+        set!(
+            "va_fill_color",
+            ParameterValue::Color(c.into())
+        );
+    }
+    set!(
+        "va_fill_opacity",
+        ParameterValue::Float(cfg.va_fill_opacity as f64)
+    );
+
+    // ── Node detection ────────────────────────────────────────
+    let hvn_method = match cfg.hvn_method {
+        NM::Percentile => "Percentile",
+        NM::Relative => "Relative",
+        NM::StdDev => "Std Dev",
+    };
+    let lvn_method = match cfg.lvn_method {
+        NM::Percentile => "Percentile",
+        NM::Relative => "Relative",
+        NM::StdDev => "Std Dev",
+    };
+    set!(
+        "node_hvn_method",
+        ParameterValue::Choice(hvn_method.into())
+    );
+    set!(
+        "node_hvn_threshold",
+        ParameterValue::Float(cfg.hvn_threshold as f64)
+    );
+    set!(
+        "node_lvn_method",
+        ParameterValue::Choice(lvn_method.into())
+    );
+    set!(
+        "node_lvn_threshold",
+        ParameterValue::Float(cfg.lvn_threshold as f64)
+    );
+
+    // HVN zones
+    set!(
+        "hvn_zone_show",
+        ParameterValue::Boolean(cfg.show_hvn_zones)
+    );
+    if let Some(c) = cfg.hvn_zone_color {
+        set!(
+            "hvn_zone_color",
+            ParameterValue::Color(c.into())
+        );
+    }
+    set!(
+        "hvn_zone_opacity",
+        ParameterValue::Float(cfg.hvn_zone_opacity as f64)
+    );
+
+    // LVN zones
+    set!(
+        "lvn_zone_show",
+        ParameterValue::Boolean(cfg.show_lvn_zones)
+    );
+    if let Some(c) = cfg.lvn_zone_color {
+        set!(
+            "lvn_zone_color",
+            ParameterValue::Color(c.into())
+        );
+    }
+    set!(
+        "lvn_zone_opacity",
+        ParameterValue::Float(cfg.lvn_zone_opacity as f64)
+    );
+
+    // Peak
+    set!(
+        "peak_show",
+        ParameterValue::Boolean(cfg.show_peak_line)
+    );
+    if let Some(c) = cfg.peak_color {
+        set!("peak_color", ParameterValue::Color(c.into()));
+    }
+    set!(
+        "peak_line_style",
+        ParameterValue::LineStyle(
+            to_study_line_style(cfg.peak_line_style),
+        )
+    );
+    set!(
+        "peak_line_width",
+        ParameterValue::Float(cfg.peak_line_width as f64)
+    );
+    set!(
+        "peak_show_label",
+        ParameterValue::Boolean(cfg.show_peak_label)
+    );
+
+    // Valley
+    set!(
+        "valley_show",
+        ParameterValue::Boolean(cfg.show_valley_line)
+    );
+    if let Some(c) = cfg.valley_color {
+        set!(
+            "valley_color",
+            ParameterValue::Color(c.into())
+        );
+    }
+    set!(
+        "valley_line_style",
+        ParameterValue::LineStyle(
+            to_study_line_style(cfg.valley_line_style),
+        )
+    );
+    set!(
+        "valley_line_width",
+        ParameterValue::Float(cfg.valley_line_width as f64)
+    );
+    set!(
+        "valley_show_label",
+        ParameterValue::Boolean(cfg.show_valley_label)
+    );
+}
+
+/// Convert a `ProfileLineStyle` to `study::config::LineStyleValue`.
+fn to_study_line_style(
+    s: data::state::pane::ProfileLineStyle,
+) -> study::config::LineStyleValue {
+    use data::state::pane::ProfileLineStyle as P;
+    match s {
+        P::Solid => study::config::LineStyleValue::Solid,
+        P::Dashed => study::config::LineStyleValue::Dashed,
+        P::Dotted => study::config::LineStyleValue::Dotted,
+    }
+}
+
+/// Convert a `ProfileExtendDirection` to the string the VBP study
+/// understands.
+fn extend_to_str(
+    e: data::state::pane::ProfileExtendDirection,
+) -> &'static str {
+    use data::state::pane::ProfileExtendDirection as E;
+    match e {
+        E::None => "None",
+        E::Left => "Left",
+        E::Right => "Right",
+        E::Both => "Both",
     }
 }
 

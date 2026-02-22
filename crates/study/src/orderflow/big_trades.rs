@@ -52,6 +52,11 @@ pub struct BigTradesStudy {
     processed_trade_count: usize,
     pending_block: Option<TradeBlock>,
     accumulated_markers: Vec<TradeMarker>,
+    // Cached render config — rebuilt only on parameter change
+    cached_render_config: MarkerRenderConfig,
+    // Cached candle boundaries for tick charts
+    cached_candle_boundaries: Option<Vec<(u64, u64)>>,
+    cached_boundaries_candle_count: usize,
 }
 
 impl BigTradesStudy {
@@ -309,14 +314,20 @@ impl BigTradesStudy {
             config.set(p.key.clone(), p.default.clone());
         }
 
-        Self {
+        let mut study = Self {
             config,
             output: StudyOutput::Empty,
             params,
             processed_trade_count: 0,
             pending_block: None,
             accumulated_markers: Vec::new(),
-        }
+            cached_render_config: MarkerRenderConfig::default(),
+            cached_candle_boundaries: None,
+            cached_boundaries_candle_count: 0,
+        };
+        study.cached_render_config =
+            study.build_marker_render_config();
+        study
     }
 
     /// Read current parameters from config.
@@ -416,19 +427,26 @@ impl BigTradesStudy {
         }
     }
 
-    /// Finalize output from accumulated markers.
-    fn finalize_output(
-        markers: &[TradeMarker],
-        render_config: MarkerRenderConfig,
+    /// Build output from accumulated markers + optional pending marker.
+    fn rebuild_output(
+        accumulated: &[TradeMarker],
+        pending_marker: Option<&TradeMarker>,
+        render_config: &MarkerRenderConfig,
     ) -> StudyOutput {
-        if markers.is_empty() {
-            StudyOutput::Empty
-        } else {
-            StudyOutput::Markers(MarkerData {
-                markers: markers.to_vec(),
-                render_config,
-            })
+        let total = accumulated.len()
+            + pending_marker.is_some() as usize;
+        if total == 0 {
+            return StudyOutput::Empty;
         }
+        let mut markers = Vec::with_capacity(total);
+        markers.extend_from_slice(accumulated);
+        if let Some(pm) = pending_marker {
+            markers.push(pm.clone());
+        }
+        StudyOutput::Markers(MarkerData {
+            markers,
+            render_config: render_config.clone(),
+        })
     }
 }
 
@@ -705,6 +723,32 @@ impl Study for BigTradesStudy {
         &mut self.config
     }
 
+    fn set_parameter(
+        &mut self,
+        key: &str,
+        value: ParameterValue,
+    ) -> Result<(), StudyError> {
+        let params = self.parameters();
+        let def = params
+            .iter()
+            .find(|p| p.key == key)
+            .ok_or_else(|| StudyError::InvalidParameter {
+                key: key.to_string(),
+                reason: "unknown parameter".to_string(),
+            })?;
+        def.validate(&value).map_err(|reason| {
+            StudyError::InvalidParameter {
+                key: key.to_string(),
+                reason,
+            }
+        })?;
+        self.config_mut().set(key, value);
+        // Rebuild cached render config when any parameter changes
+        self.cached_render_config =
+            self.build_marker_render_config();
+        Ok(())
+    }
+
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let trades = match input.trades {
             Some(t) if !t.is_empty() => t,
@@ -713,6 +757,8 @@ impl Study for BigTradesStudy {
                 self.processed_trade_count = 0;
                 self.pending_block = None;
                 self.accumulated_markers.clear();
+                self.cached_candle_boundaries = None;
+                self.cached_boundaries_candle_count = 0;
                 return Ok(());
             }
         };
@@ -721,7 +767,9 @@ impl Study for BigTradesStudy {
         let candle_boundaries =
             build_candle_boundaries(input.candles, &input.basis);
 
-        let mut markers: Vec<TradeMarker> = Vec::new();
+        // Pre-allocate with reasonable estimate
+        let mut markers: Vec<TradeMarker> =
+            Vec::with_capacity((trades.len() / 100).max(64));
         let mut pending: Option<TradeBlock> = None;
 
         BigTradesStudy::aggregate_trades(
@@ -734,25 +782,33 @@ impl Study for BigTradesStudy {
             &candle_boundaries,
         );
 
-        // Flush final block
-        if let Some(ref block) = pending {
+        // Flush final pending block into a separate marker
+        // for output (keep pending_block unflushed for incremental)
+        let pending_marker = if let Some(ref block) = pending {
+            let mut tmp = Vec::with_capacity(1);
             flush_block(
                 block,
-                &mut markers,
+                &mut tmp,
                 &params,
                 input.candles,
                 &input.basis,
                 &candle_boundaries,
             );
-        }
+            tmp.into_iter().next()
+        } else {
+            None
+        };
 
-        // Update incremental state
+        // Update incremental state — move, not clone
         self.processed_trade_count = trades.len();
         self.pending_block = pending;
-        self.accumulated_markers = markers.clone();
-        self.output = Self::finalize_output(
-            &markers,
-            self.build_marker_render_config(),
+        self.accumulated_markers = markers;
+        self.cached_candle_boundaries = candle_boundaries;
+        self.cached_boundaries_candle_count = input.candles.len();
+        self.output = Self::rebuild_output(
+            &self.accumulated_markers,
+            pending_marker.as_ref(),
+            &self.cached_render_config,
         );
         Ok(())
     }
@@ -779,27 +835,20 @@ impl Study for BigTradesStudy {
         let new_slice = &trades[self.processed_trade_count..];
 
         let params = self.read_params();
-        let candle_boundaries =
-            build_candle_boundaries(input.candles, &input.basis);
 
-        // Remove the last marker if we have a pending block
-        // (the pending block may produce a different marker now)
-        // Actually, the pending block hasn't been flushed yet by definition
-        // (it was only flushed at end of last full compute). We need to
-        // continue from where we left off.
+        // Reuse cached candle boundaries if candle count unchanged
+        if input.candles.len() != self.cached_boundaries_candle_count
+        {
+            self.cached_candle_boundaries =
+                build_candle_boundaries(
+                    input.candles,
+                    &input.basis,
+                );
+            self.cached_boundaries_candle_count =
+                input.candles.len();
+        }
 
-        // The last flush in compute() flushed the final block. So we need
-        // to check if that final flush produced a marker that should be
-        // reconsidered. Since the pending block was already flushed, we
-        // start fresh with no pending block for incremental.
-        // However, to properly handle the case where the last block didn't
-        // meet the threshold but now might with new trades, we should keep
-        // the pending block unflushed. Let's adjust: in compute(), we save
-        // the pending block BEFORE flushing it.
-
-        // For simplicity, if there's a pending block from a previous
-        // incremental call, we pop the last marker (if it was from this
-        // block) and restart aggregation from the pending block's state.
+        let markers_before = self.accumulated_markers.len();
 
         BigTradesStudy::aggregate_trades(
             new_slice,
@@ -808,29 +857,39 @@ impl Study for BigTradesStudy {
             &params,
             input.candles,
             &input.basis,
-            &candle_boundaries,
+            &self.cached_candle_boundaries.clone(),
         );
 
         self.processed_trade_count = trades.len();
 
-        // Build output: accumulated markers + flush pending (without
-        // consuming it)
-        let mut all_markers = self.accumulated_markers.clone();
-        if let Some(ref block) = self.pending_block {
-            flush_block(
-                block,
-                &mut all_markers,
-                &params,
-                input.candles,
-                &input.basis,
-                &candle_boundaries,
+        let markers_changed =
+            self.accumulated_markers.len() != markers_before;
+
+        // Compute pending marker without cloning accumulated
+        let pending_marker =
+            if let Some(ref block) = self.pending_block {
+                let mut tmp = Vec::with_capacity(1);
+                flush_block(
+                    block,
+                    &mut tmp,
+                    &params,
+                    input.candles,
+                    &input.basis,
+                    &self.cached_candle_boundaries.clone(),
+                );
+                tmp.into_iter().next()
+            } else {
+                None
+            };
+
+        // Only rebuild output if something changed
+        if markers_changed || pending_marker.is_some() {
+            self.output = Self::rebuild_output(
+                &self.accumulated_markers,
+                pending_marker.as_ref(),
+                &self.cached_render_config,
             );
         }
-
-        self.output = Self::finalize_output(
-            &all_markers,
-            self.build_marker_render_config(),
-        );
         Ok(())
     }
 
@@ -843,6 +902,8 @@ impl Study for BigTradesStudy {
         self.processed_trade_count = 0;
         self.pending_block = None;
         self.accumulated_markers.clear();
+        self.cached_candle_boundaries = None;
+        self.cached_boundaries_candle_count = 0;
     }
 
     fn clone_study(&self) -> Box<dyn Study> {
@@ -853,6 +914,9 @@ impl Study for BigTradesStudy {
             processed_trade_count: 0,
             pending_block: None,
             accumulated_markers: Vec::new(),
+            cached_render_config: self.cached_render_config.clone(),
+            cached_candle_boundaries: None,
+            cached_boundaries_candle_count: 0,
         })
     }
 }

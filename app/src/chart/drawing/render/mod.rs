@@ -35,6 +35,10 @@ pub struct DrawContext<'a> {
 ///
 /// Renders all finalized drawings. This is cached separately from the
 /// crosshair layer so completed drawings aren't re-rendered every cursor move.
+///
+/// Uses two-pass rendering: non-VBP drawings render in screen coordinates
+/// (untransformed frame), then chart transforms are applied for VBP drawings
+/// which use `interval_to_x()` / `price_to_y()` chart-coordinate functions.
 pub fn draw_completed_drawings(
     frame: &mut Frame,
     state: &ViewState,
@@ -42,9 +46,37 @@ pub fn draw_completed_drawings(
     bounds: Size,
     palette: &Extended,
 ) {
+    // Pass 1: Non-VBP drawings (screen coordinates)
     for drawing in drawings.drawings() {
+        if drawing.tool == DrawingTool::VolumeProfile {
+            continue;
+        }
         let is_selected = drawings.is_selected(drawing.id);
-        draw_single_drawing(frame, state, drawing, bounds, palette, is_selected, 1.0);
+        draw_single_drawing(
+            frame, state, drawing, bounds, palette, is_selected, 1.0,
+        );
+    }
+
+    // Pass 2: VBP drawings (chart coordinates with transforms)
+    let has_vbp = drawings
+        .drawings()
+        .iter()
+        .any(|d| d.tool == DrawingTool::VolumeProfile && d.visible);
+    if has_vbp {
+        let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
+        frame.translate(center);
+        frame.scale(state.scaling);
+        frame.translate(state.translation);
+
+        for drawing in drawings.drawings() {
+            if drawing.tool != DrawingTool::VolumeProfile || !drawing.visible {
+                continue;
+            }
+            let is_selected = drawings.is_selected(drawing.id);
+            volume_profile::draw_in_chart_coords(
+                frame, state, drawing, bounds, is_selected,
+            );
+        }
     }
 }
 
@@ -52,6 +84,9 @@ pub fn draw_completed_drawings(
 ///
 /// Renders selection handles on selected drawings and the pending
 /// preview drawing with reduced alpha.
+///
+/// Uses the same two-pass pattern as `draw_completed_drawings`:
+/// non-VBP overlays in screen coordinates, VBP overlays in chart coordinates.
 pub fn draw_overlay_drawings(
     frame: &mut Frame,
     state: &ViewState,
@@ -66,30 +101,63 @@ pub fn draw_overlay_drawings(
         }
     }
 
-    // Draw pending preview with reduced alpha
+    // Draw pending preview with reduced alpha (non-VBP)
     if let Some(pending) = drawings.pending() {
-        draw_single_drawing(
-            frame,
-            state,
-            pending,
-            bounds,
-            palette,
-            false,
-            tokens::drawing::PREVIEW_ALPHA,
-        );
+        if pending.tool != DrawingTool::VolumeProfile {
+            draw_single_drawing(
+                frame,
+                state,
+                pending,
+                bounds,
+                palette,
+                false,
+                tokens::drawing::PREVIEW_ALPHA,
+            );
+        }
     }
 
-    // Draw clone placement preview with reduced alpha
+    // Draw clone placement preview with reduced alpha (non-VBP)
     if let Some(clone) = drawings.clone_preview() {
-        draw_single_drawing(
-            frame,
-            state,
-            clone,
-            bounds,
-            palette,
-            false,
-            tokens::drawing::PREVIEW_ALPHA,
-        );
+        if clone.tool != DrawingTool::VolumeProfile {
+            draw_single_drawing(
+                frame,
+                state,
+                clone,
+                bounds,
+                palette,
+                false,
+                tokens::drawing::PREVIEW_ALPHA,
+            );
+        }
+    }
+
+    // VBP overlays in chart coordinates
+    let has_vbp_overlay = drawings
+        .pending()
+        .is_some_and(|p| p.tool == DrawingTool::VolumeProfile)
+        || drawings
+            .clone_preview()
+            .is_some_and(|c| c.tool == DrawingTool::VolumeProfile);
+    if has_vbp_overlay {
+        let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
+        frame.translate(center);
+        frame.scale(state.scaling);
+        frame.translate(state.translation);
+
+        if let Some(pending) = drawings.pending() {
+            if pending.tool == DrawingTool::VolumeProfile {
+                volume_profile::draw_in_chart_coords(
+                    frame, state, pending, bounds, false,
+                );
+            }
+        }
+        if let Some(clone) = drawings.clone_preview() {
+            if clone.tool == DrawingTool::VolumeProfile {
+                volume_profile::draw_in_chart_coords(
+                    frame, state, clone, bounds, false,
+                );
+            }
+        }
     }
 }
 
@@ -196,7 +264,7 @@ fn dispatch_draw(
         }
 
         DrawingTool::VolumeProfile => {
-            volume_profile::draw(frame, ctx, drawing, screen_points)
+            // VBP is handled in the two-pass flow (chart coordinates)
         }
     }
 }

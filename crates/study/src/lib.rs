@@ -24,9 +24,11 @@ pub use config::{
 };
 pub use error::StudyError;
 pub use output::{
-    CandleRenderConfig, FootprintCandle, FootprintCandlePosition, FootprintData,
-    FootprintDataType, FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
-    FootprintScaling, MarkerData, MarkerRenderConfig, MarkerShape, StudyOutput, VbpData,
+    CandleRenderConfig, FootprintCandle, FootprintCandlePosition,
+    FootprintData, FootprintDataType, FootprintGroupingMode,
+    FootprintLevel, FootprintRenderMode, FootprintScaling,
+    MarkerData, MarkerRenderConfig, MarkerShape,
+    ProfileOutput, ProfileRenderConfig, StudyOutput,
     VbpGroupingMode, VbpLengthUnit, VbpPeriod, VbpType,
 };
 pub use registry::{StudyInfo, StudyRegistry};

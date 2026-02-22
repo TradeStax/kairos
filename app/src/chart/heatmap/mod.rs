@@ -29,7 +29,7 @@ mod studies;
 pub mod trades;
 
 use crate::chart::{
-    Chart, PlotConstants, ViewState,
+    Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
     scale::linear::PriceInfoLabel,
 };
@@ -95,7 +95,8 @@ impl Chart for HeatmapChart {
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
         Vector::new(
-            0.5 * (chart.bounds.width / chart.scaling) - (90.0 / chart.scaling),
+            0.5 * (chart.bounds.width / chart.scaling)
+                - (90.0 / chart.scaling),
             chart.translation.y,
         )
     }
@@ -108,78 +109,18 @@ impl Chart for HeatmapChart {
         !self.chart_data.has_depth() && !self.chart_data.has_trades()
     }
 
-    fn active_drawing_tool(&self) -> ::data::DrawingTool {
-        self.drawings.active_tool()
+    fn plot_limits(&self) -> PlotLimits {
+        PlotLimits {
+            max_cell_width: MAX_CELL_WIDTH,
+            min_cell_width: MIN_CELL_WIDTH,
+            max_cell_height: MAX_CELL_HEIGHT,
+            min_cell_height: MIN_CELL_HEIGHT,
+            default_cell_width: DEFAULT_CELL_WIDTH,
+        }
     }
 
-    fn has_pending_drawing(&self) -> bool {
-        self.drawings.has_pending()
-    }
-
-    fn hit_test_drawing(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<::data::DrawingId> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HIT_TOLERANCE,
-        )
-    }
-
-    fn hit_test_drawing_handle(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<(::data::DrawingId, usize)> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test_handle(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HANDLE_SIZE,
-        )
-    }
-
-    fn has_drawing_selection(&self) -> bool {
-        !self.drawings.selected_ids().is_empty()
-    }
-
-    fn is_drawing_selected(&self, id: ::data::DrawingId) -> bool {
-        self.drawings.is_selected(id)
-    }
-
-    fn is_drawing_locked(&self, id: ::data::DrawingId) -> bool {
-        self.drawings.get(id).is_some_and(|d| d.locked)
-    }
-
-    fn has_clone_pending(&self) -> bool {
-        self.drawings.has_clone_pending()
-    }
-}
-
-impl PlotConstants for HeatmapChart {
-    fn max_cell_width(&self) -> f32 {
-        MAX_CELL_WIDTH
-    }
-
-    fn min_cell_width(&self) -> f32 {
-        MIN_CELL_WIDTH
-    }
-
-    fn max_cell_height(&self) -> f32 {
-        MAX_CELL_HEIGHT
-    }
-
-    fn min_cell_height(&self) -> f32 {
-        MIN_CELL_HEIGHT
-    }
-
-    fn default_cell_width(&self) -> f32 {
-        DEFAULT_CELL_WIDTH
+    fn drawings(&self) -> Option<&DrawingManager> {
+        Some(&self.drawings)
     }
 }
 

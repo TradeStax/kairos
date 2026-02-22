@@ -59,6 +59,10 @@ pub(super) struct EditForm {
     // Rithmic
     pub(super) environment: RithmicEnvironment,
     pub(super) system_name: String,
+    pub(super) server_url: String,
+    pub(super) account_id: String,
+    pub(super) fcm_id: String,
+    pub(super) ib_id: String,
     pub(super) user_id: String,
     pub(super) password: String,
     pub(super) auto_reconnect: bool,
@@ -78,6 +82,10 @@ impl Default for EditForm {
             cache_max_days: "90".to_string(),
             environment: RithmicEnvironment::Demo,
             system_name: String::new(),
+            server_url: String::new(),
+            account_id: String::new(),
+            fcm_id: String::new(),
+            ib_id: String::new(),
             user_id: String::new(),
             password: String::new(),
             auto_reconnect: true,
@@ -105,6 +113,10 @@ impl EditForm {
             FeedConfig::Rithmic(cfg) => {
                 form.environment = cfg.environment;
                 form.system_name = cfg.system_name.clone();
+                form.server_url = cfg.server_url.clone();
+                form.account_id = cfg.account_id.clone();
+                form.fcm_id = cfg.fcm_id.clone();
+                form.ib_id = cfg.ib_id.clone();
                 form.user_id = cfg.user_id.clone();
                 form.auto_reconnect = cfg.auto_reconnect;
                 form.subscribed_tickers = cfg.subscribed_tickers.clone();
@@ -156,6 +168,10 @@ pub enum DataFeedsMessage {
     // Rithmic fields
     SetEnvironment(RithmicEnvironment),
     SetSystemName(String),
+    SetServerUrl(String),
+    SetAccountId(String),
+    SetFcmId(String),
+    SetIbId(String),
     SetUserId(String),
     SetPassword(String),
     SetAutoReconnect(bool),
@@ -297,6 +313,10 @@ impl DataFeedsModal {
                         FeedProvider::Rithmic => {
                             self.edit_form.environment = RithmicEnvironment::Demo;
                             self.edit_form.system_name = String::new();
+                            self.edit_form.server_url = String::new();
+                            self.edit_form.account_id = String::new();
+                            self.edit_form.fcm_id = String::new();
+                            self.edit_form.ib_id = String::new();
                             self.edit_form.user_id = String::new();
                             self.edit_form.password = String::new();
                             self.edit_form.auto_reconnect = true;
@@ -437,6 +457,22 @@ impl DataFeedsModal {
                 self.edit_form.system_name = v;
                 self.has_changes = true;
             }
+            DataFeedsMessage::SetServerUrl(v) => {
+                self.edit_form.server_url = v;
+                self.has_changes = true;
+            }
+            DataFeedsMessage::SetAccountId(v) => {
+                self.edit_form.account_id = v;
+                self.has_changes = true;
+            }
+            DataFeedsMessage::SetFcmId(v) => {
+                self.edit_form.fcm_id = v;
+                self.has_changes = true;
+            }
+            DataFeedsMessage::SetIbId(v) => {
+                self.edit_form.ib_id = v;
+                self.has_changes = true;
+            }
             DataFeedsMessage::SetUserId(v) => {
                 self.edit_form.user_id = v;
                 self.has_changes = true;
@@ -501,6 +537,10 @@ impl DataFeedsModal {
             FeedConfig::Rithmic(cfg) => {
                 cfg.environment = self.edit_form.environment;
                 cfg.system_name = self.edit_form.system_name.clone();
+                cfg.server_url = self.edit_form.server_url.clone();
+                cfg.account_id = self.edit_form.account_id.clone();
+                cfg.fcm_id = self.edit_form.fcm_id.clone();
+                cfg.ib_id = self.edit_form.ib_id.clone();
                 cfg.user_id = self.edit_form.user_id.clone();
                 cfg.auto_reconnect = self.edit_form.auto_reconnect;
                 cfg.subscribed_tickers = self.edit_form.subscribed_tickers.clone();

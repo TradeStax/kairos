@@ -234,6 +234,18 @@ pub struct RithmicFeedConfig {
     pub system_name: String,
     /// User ID for authentication
     pub user_id: String,
+    /// WebSocket server URL (e.g., "wss://rituz00100.rithmic.com:443")
+    #[serde(default)]
+    pub server_url: String,
+    /// Account ID (may be empty for test environments)
+    #[serde(default)]
+    pub account_id: String,
+    /// Futures Commission Merchant ID
+    #[serde(default)]
+    pub fcm_id: String,
+    /// Introducing Broker ID
+    #[serde(default)]
+    pub ib_id: String,
     /// Auto-reconnect on disconnect
     pub auto_reconnect: bool,
     /// Tickers to subscribe to for realtime data
@@ -246,6 +258,10 @@ impl Default for RithmicFeedConfig {
             environment: RithmicEnvironment::Demo,
             system_name: String::new(),
             user_id: String::new(),
+            server_url: String::new(),
+            account_id: String::new(),
+            fcm_id: String::new(),
+            ib_id: String::new(),
             auto_reconnect: true,
             subscribed_tickers: vec![],
         }

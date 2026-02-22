@@ -430,6 +430,47 @@ impl DataFeedsModal {
         ]
         .spacing(tokens::spacing::MD);
 
+        // Server URL (full width)
+        let server_url = column![
+            components::primitives::body("Server URL"),
+            text_input(
+                "wss://server.rithmic.com:443",
+                &self.edit_form.server_url,
+            )
+            .on_input(DataFeedsMessage::SetServerUrl)
+            .size(tokens::text::LABEL),
+        ]
+        .spacing(tokens::spacing::XS);
+
+        // Account ID / FCM ID / IB ID in a 3-column row
+        let ids_row = row![
+            column![
+                components::primitives::body("Account ID"),
+                text_input("", &self.edit_form.account_id)
+                    .on_input(DataFeedsMessage::SetAccountId)
+                    .size(tokens::text::LABEL),
+            ]
+            .spacing(tokens::spacing::XS)
+            .width(Length::FillPortion(1)),
+            column![
+                components::primitives::body("FCM ID"),
+                text_input("", &self.edit_form.fcm_id)
+                    .on_input(DataFeedsMessage::SetFcmId)
+                    .size(tokens::text::LABEL),
+            ]
+            .spacing(tokens::spacing::XS)
+            .width(Length::FillPortion(1)),
+            column![
+                components::primitives::body("IB ID"),
+                text_input("", &self.edit_form.ib_id)
+                    .on_input(DataFeedsMessage::SetIbId)
+                    .size(tokens::text::LABEL),
+            ]
+            .spacing(tokens::spacing::XS)
+            .width(Length::FillPortion(1)),
+        ]
+        .spacing(tokens::spacing::MD);
+
         let user_id = column![
             components::primitives::body("User ID"),
             text_input("Your Rithmic user ID", &self.edit_form.user_id,)
@@ -483,6 +524,8 @@ impl DataFeedsModal {
         column![
             components::primitives::title("Rithmic Settings"),
             env_system_row,
+            server_url,
+            ids_row,
             user_id,
             password_field,
             tickers_field,

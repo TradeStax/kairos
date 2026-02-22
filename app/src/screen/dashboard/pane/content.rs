@@ -268,7 +268,7 @@ impl Content {
                 // Config is set during construction
             }
             (Content::Profile { chart: Some(c), .. }, VisualConfig::Profile(cfg)) => {
-                c.set_display_config(cfg.into());
+                c.set_display_config(cfg);
             }
             _ => {}
         }

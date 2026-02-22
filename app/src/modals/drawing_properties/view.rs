@@ -107,7 +107,7 @@ impl DrawingPropertiesModal {
             Tab::Position => self.position_tab(),
             Tab::Labels => self.labels_tab(),
             Tab::Display => self.display_tab(),
-            Tab::VbpSettings => self.vbp_settings_tab(),
+            Tab::Vbp(param_tab) => self.vbp_tab_content(param_tab),
         }
     }
 
@@ -160,11 +160,15 @@ impl DrawingPropertiesModal {
         self.options_section()
     }
 
-    // ── VBP Settings tab ──────────────────────────────────────────────
+    // ── VBP tab content (data-driven) ───────────────────────────────
 
-    fn vbp_settings_tab(&self) -> Element<'_, Message> {
-        use study::config::{ParameterKind, Visibility};
-
+    /// Render a VBP tab's content with full section grouping, all 6
+    /// parameter kinds (Boolean, Choice, Float, Integer, Color,
+    /// LineStyle), and conditional visibility.
+    fn vbp_tab_content(
+        &self,
+        tab: study::ParameterTab,
+    ) -> Element<'_, Message> {
         let Some(ref config) = self.vbp_config else {
             return text("No VBP config").into();
         };
@@ -172,177 +176,367 @@ impl DrawingPropertiesModal {
             return text("No VBP params").into();
         };
 
-        // Period-related keys are controlled by the drawing's anchors
-        const HIDDEN_KEYS: &[&str] = &[
-            "period",
-            "length_unit",
-            "length_value",
-            "custom_start",
-            "custom_end",
-        ];
+        // Collect visible params for this tab
+        let visible: Vec<&study::ParameterDef> = params
+            .iter()
+            .filter(|p| p.tab == tab)
+            .filter(|p| {
+                !super::HIDDEN_KEYS
+                    .contains(&p.key.as_str())
+            })
+            .filter(|p| p.visible_when.is_visible(config))
+            .collect();
 
-        let mut body = column![].spacing(tokens::spacing::MD);
+        if visible.is_empty() {
+            return container(
+                text("No configurable parameters")
+                    .size(tokens::text::BODY)
+                    .style(|theme: &iced::Theme| text::Style {
+                        color: Some(
+                            theme
+                                .extended_palette()
+                                .background
+                                .weak
+                                .text,
+                        ),
+                    }),
+            )
+            .padding(tokens::spacing::LG)
+            .into();
+        }
 
-        for param in params {
-            if HIDDEN_KEYS.contains(&param.key.as_str()) {
-                continue;
+        // Group by section, preserving order
+        let mut section_order: Vec<
+            Option<&study::config::ParameterSection>,
+        > = Vec::new();
+        for p in &visible {
+            let key = p.section.as_ref().map(|s| s.label);
+            if !section_order.iter().any(|existing| {
+                existing.map(|s| s.label) == key
+            }) {
+                section_order.push(p.section.as_ref());
+            }
+        }
+        section_order.sort_by_key(|s| match s {
+            Some(sec) => (0, sec.order, ""),
+            None => (1, 0, ""),
+        });
+
+        let tab_label = vbp_tab_default_label(tab);
+
+        let mut content_col: Vec<Element<'_, Message>> =
+            Vec::new();
+        for section_def in &section_order {
+            let section_label =
+                section_def.map(|s| s.label);
+            let mut section_params: Vec<&study::ParameterDef> =
+                visible
+                    .iter()
+                    .filter(|p| {
+                        p.section.as_ref().map(|s| s.label)
+                            == section_label
+                    })
+                    .copied()
+                    .collect();
+            section_params.sort_by_key(|p| p.order);
+
+            let title =
+                section_label.unwrap_or(tab_label);
+            let mut form =
+                FormSectionBuilder::new(title)
+                    .spacing(tokens::spacing::LG);
+
+            for param in section_params {
+                let widget =
+                    self.vbp_param_widget(param, config);
+                form = form.push(widget);
             }
 
-            // Check visibility condition
-            let visible = match &param.visible_when {
-                Visibility::Always => true,
-                Visibility::WhenTrue(key) => config
-                    .get_bool(key, false),
-                Visibility::WhenFalse(key) => !config
-                    .get_bool(key, true),
-                Visibility::WhenChoice { key, equals } => {
-                    config.get_choice(key, "") == *equals
+            content_col.push(form.into());
+        }
+
+        column(content_col)
+            .spacing(
+                if section_order.len() > 1 {
+                    tokens::spacing::XL
+                } else {
+                    0.0
+                },
+            )
+            .into()
+    }
+
+    /// Render a single VBP parameter as a widget.
+    fn vbp_param_widget<'a>(
+        &'a self,
+        param: &'a study::ParameterDef,
+        config: &study::StudyConfig,
+    ) -> Element<'a, Message> {
+        use study::config::ParameterKind;
+
+        let key = param.key.to_string();
+
+        match &param.kind {
+            ParameterKind::Integer { min, max } => {
+                let current = config.get_int(
+                    &param.key,
+                    match &param.default {
+                        study::ParameterValue::Integer(v) => *v,
+                        _ => *min,
+                    },
+                );
+                let min_f = *min as f32;
+                let max_f = *max as f32;
+                let current_f = current as f32;
+                let fmt = param.format;
+                // Skip large ranges (e.g. timestamps)
+                if max_f > 10000.0 {
+                    return space::horizontal().into();
                 }
-                Visibility::WhenNotChoice { key, not_equals } => {
-                    config.get_choice(key, "") != *not_equals
-                }
-            };
-            if !visible {
-                continue;
+                let key = key.clone();
+                SliderFieldBuilder::new(
+                    &param.label,
+                    min_f..=max_f,
+                    current_f,
+                    move |v| {
+                        Message::VbpParamChanged(
+                            key.clone(),
+                            study::ParameterValue::Integer(
+                                v as i64,
+                            ),
+                        )
+                    },
+                )
+                .step(1.0)
+                .format(move |v| {
+                    format_integer(*v as i64, fmt)
+                })
+                .into()
             }
+            ParameterKind::Float {
+                min, max, step, ..
+            } => {
+                let current = config.get_float(
+                    &param.key,
+                    match &param.default {
+                        study::ParameterValue::Float(v) => *v,
+                        _ => *min,
+                    },
+                );
+                let min_f = *min as f32;
+                let max_f = *max as f32;
+                let step_f = *step as f32;
+                let current_f = current as f32;
+                let fmt = param.format;
+                let key = key.clone();
+                SliderFieldBuilder::new(
+                    &param.label,
+                    min_f..=max_f,
+                    current_f,
+                    move |v| {
+                        Message::VbpParamChanged(
+                            key.clone(),
+                            study::ParameterValue::Float(
+                                v as f64,
+                            ),
+                        )
+                    },
+                )
+                .step(step_f)
+                .format(move |v| format_float(*v, fmt))
+                .into()
+            }
+            ParameterKind::Color => {
+                let current = config.get_color(
+                    &param.key,
+                    match &param.default {
+                        study::ParameterValue::Color(c) => *c,
+                        _ => data::SerializableColor::new(
+                            1.0, 1.0, 1.0, 1.0,
+                        ),
+                    },
+                );
+                let iced_color =
+                    crate::style::theme_bridge::rgba_to_iced_color(
+                        current,
+                    );
+                let is_editing =
+                    self.editing_vbp_color_key.as_deref()
+                        == Some(param.key.as_str());
+                let key_for_press = key.clone();
+                let key_for_picker = key.clone();
 
-            let current = config.values.get(&param.key);
+                let swatch = button(
+                    space::horizontal().width(22).height(22),
+                )
+                .style(
+                    move |_theme, _status| button::Style {
+                        background: Some(iced_color.into()),
+                        border: iced::border::rounded(3)
+                            .width(if is_editing {
+                                2.0
+                            } else {
+                                1.0
+                            })
+                            .color(if is_editing {
+                                iced::Color::WHITE
+                            } else {
+                                iced::Color::from_rgba(
+                                    1.0, 1.0, 1.0, 0.3,
+                                )
+                            }),
+                        ..button::Style::default()
+                    },
+                )
+                .padding(0)
+                .on_press(Message::VbpEditColor(
+                    key_for_press,
+                ));
 
-            let field: Element<'_, Message> = match &param.kind {
-                ParameterKind::Boolean => {
-                    let val = current
-                        .and_then(|v| {
-                            if let study::ParameterValue::Boolean(b) = v {
-                                Some(*b)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(false);
-                    let key = param.key.clone();
-                    CheckboxFieldBuilder::new(
-                        &param.label,
-                        val,
-                        move |v| {
-                            Message::VbpParamChanged(
-                                key.clone(),
-                                study::ParameterValue::Boolean(v),
-                            )
-                        },
-                    )
-                    .into()
-                }
-                ParameterKind::Choice { options } => {
-                    let val = current
-                        .and_then(|v| {
-                            if let study::ParameterValue::Choice(s) = v {
-                                Some(s.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_default();
-                    let opts: Vec<String> =
-                        options.iter().map(|s| s.to_string()).collect();
-                    let key = param.key.clone();
-                    let selected = opts
-                        .iter()
-                        .find(|o| **o == val)
-                        .cloned();
+                let mut col = column![
                     row![
                         text(&param.label)
-                            .size(tokens::text::SMALL)
-                            .width(Length::FillPortion(2)),
-                        pick_list(
-                            opts,
-                            selected,
-                            move |v: String| {
-                                Message::VbpParamChanged(
-                                    key.clone(),
-                                    study::ParameterValue::Choice(v),
-                                )
-                            },
-                        )
-                        .text_size(tokens::text::SMALL)
-                        .width(Length::FillPortion(3)),
+                            .size(tokens::text::BODY),
+                        space::horizontal(),
+                        swatch,
                     ]
-                    .spacing(tokens::spacing::SM)
                     .align_y(Alignment::Center)
-                    .into()
-                }
-                ParameterKind::Float { min, max, step } => {
-                    let val = current
-                        .and_then(|v| {
-                            if let study::ParameterValue::Float(f) = v {
-                                Some(*f as f32)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(*min as f32);
-                    let key = param.key.clone();
-                    SliderFieldBuilder::new(
-                        &param.label,
-                        (*min as f32)..=(*max as f32),
-                        val,
-                        move |v| {
-                            Message::VbpParamChanged(
-                                key.clone(),
-                                study::ParameterValue::Float(v as f64),
+                    .width(Length::Fill),
+                ]
+                .spacing(tokens::spacing::SM);
+
+                if is_editing {
+                    let hsva = self
+                        .editing_vbp_color_hsva
+                        .unwrap_or_else(|| {
+                            data::config::theme::rgba_to_hsva(
+                                crate::style::theme_bridge::iced_color_to_rgba(
+                                    iced_color,
+                                ),
                             )
+                        });
+                    col = col.push(
+                        container(
+                            crate::components::input::color_picker::color_picker(
+                                hsva,
+                                move |h| {
+                                    Message::VbpColorChanged(
+                                        key_for_picker.clone(),
+                                        h,
+                                    )
+                                },
+                                180.0,
+                            ),
+                        )
+                        .padding(tokens::spacing::SM)
+                        .style(style::dropdown_container),
+                    );
+                }
+
+                col.into()
+            }
+            ParameterKind::Boolean => {
+                let current = config.get_bool(
+                    &param.key,
+                    match &param.default {
+                        study::ParameterValue::Boolean(v) => {
+                            *v
+                        }
+                        _ => false,
+                    },
+                );
+                let key = key.clone();
+                crate::components::input::toggle_switch::toggle_switch(
+                    &param.label,
+                    current,
+                    move |v| {
+                        Message::VbpParamChanged(
+                            key.clone(),
+                            study::ParameterValue::Boolean(v),
+                        )
+                    },
+                )
+            }
+            ParameterKind::Choice { options } => {
+                let current = config
+                    .get_choice(
+                        &param.key,
+                        match &param.default {
+                            study::ParameterValue::Choice(
+                                s,
+                            ) => s.as_str(),
+                            _ => {
+                                options.first().unwrap_or(&"")
+                            }
                         },
                     )
-                    .step(*step as f32)
-                    .format(|v| format!("{v:.2}"))
-                    .into()
-                }
-                ParameterKind::Integer { min, max } => {
-                    let val = current
-                        .and_then(|v| {
-                            if let study::ParameterValue::Integer(i) = v {
-                                Some(*i as i32)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(*min as i32);
-                    let key = param.key.clone();
-                    let mn = *min as i32;
-                    let mx = *max as i32;
-                    // For very large max values (like timestamps),
-                    // skip rendering.
-                    if mx > 10000 {
-                        continue;
-                    }
-                    StepperBuilder::new(
-                        val,
-                        mn,
-                        mx,
-                        1i32,
-                        move |v| {
+                    .to_string();
+                let options_vec: Vec<String> = options
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                let selected = options_vec
+                    .iter()
+                    .find(|o| **o == current)
+                    .cloned();
+                let key = key.clone();
+                row![
+                    text(&param.label)
+                        .size(tokens::text::BODY),
+                    space::horizontal(),
+                    pick_list(
+                        options_vec,
+                        selected,
+                        move |v: String| {
                             Message::VbpParamChanged(
                                 key.clone(),
-                                study::ParameterValue::Integer(
-                                    v as i64,
+                                study::ParameterValue::Choice(
+                                    v,
                                 ),
                             )
                         },
                     )
-                    .label(&param.label)
-                    .into()
-                }
-                ParameterKind::Color | ParameterKind::LineStyle => {
-                    // Skip color and line style params for now —
-                    // they can be configured via the indicator
-                    // settings modal.
-                    continue;
-                }
-            };
-
-            body = body.push(field);
+                    .width(140),
+                ]
+                .align_y(Alignment::Center)
+                .width(Length::Fill)
+                .into()
+            }
+            ParameterKind::LineStyle => {
+                let current = config.get_line_style(
+                    &param.key,
+                    match &param.default {
+                        study::ParameterValue::LineStyle(v) => {
+                            *v
+                        }
+                        _ => {
+                            study::config::LineStyleValue::Solid
+                        }
+                    },
+                );
+                let options = vec![
+                    study::config::LineStyleValue::Solid,
+                    study::config::LineStyleValue::Dashed,
+                    study::config::LineStyleValue::Dotted,
+                ];
+                let key = key.clone();
+                row![
+                    text(&param.label)
+                        .size(tokens::text::BODY),
+                    space::horizontal(),
+                    pick_list(options, Some(current), move |v| {
+                        Message::VbpLineStyleChanged(
+                            key.clone(),
+                            v,
+                        )
+                    })
+                    .width(120),
+                ]
+                .align_y(Alignment::Center)
+                .width(Length::Fill)
+                .into()
+            }
         }
-
-        body.into()
     }
 
     // ── Shared sections ───────────────────────────────────────────────
@@ -527,7 +721,7 @@ impl DrawingPropertiesModal {
 
         // Two-column level grid
         let levels = &fib.levels;
-        let mid = (levels.len() + 1) / 2;
+        let mid = levels.len().div_ceil(2);
         let mut left_col = column![].spacing(tokens::spacing::XS);
         let mut right_col = column![].spacing(tokens::spacing::XS);
 
@@ -1001,7 +1195,75 @@ fn tab_label(tab: Tab) -> &'static str {
         Tab::Position => "Position",
         Tab::Labels => "Labels",
         Tab::Display => "Display",
-        Tab::VbpSettings => "Settings",
+        Tab::Vbp(param_tab) => vbp_tab_default_label(param_tab),
+    }
+}
+
+/// Default display label for a VBP `ParameterTab`.
+fn vbp_tab_default_label(
+    tab: study::ParameterTab,
+) -> &'static str {
+    // VBP study provides custom labels via tab_labels(); these are
+    // the fallback defaults matching the study's static LABELS.
+    match tab {
+        study::ParameterTab::Parameters => "Data",
+        study::ParameterTab::Style => "Style",
+        study::ParameterTab::Tab4 => "POC",
+        study::ParameterTab::Tab5 => "Value Area",
+        study::ParameterTab::Tab6 => "Peak & Valley",
+        study::ParameterTab::Tab7 => "VWAP",
+        study::ParameterTab::Display => "Display",
+    }
+}
+
+/// Format an integer value according to `DisplayFormat`.
+fn format_integer(
+    v: i64,
+    fmt: study::DisplayFormat,
+) -> String {
+    match fmt {
+        study::DisplayFormat::Integer { suffix } => {
+            format!("{v}{suffix}")
+        }
+        study::DisplayFormat::IntegerOrNone { none_value } => {
+            if v == none_value {
+                "None".to_string()
+            } else {
+                format!("{v}")
+            }
+        }
+        study::DisplayFormat::Percent => format!("{v}%"),
+        study::DisplayFormat::Float { decimals } => {
+            format!("{v:.prec$}", prec = decimals as usize)
+        }
+        study::DisplayFormat::Auto => format!("{v}"),
+    }
+}
+
+/// Format a float value according to `DisplayFormat`.
+fn format_float(
+    v: f32,
+    fmt: study::DisplayFormat,
+) -> String {
+    match fmt {
+        study::DisplayFormat::Percent => {
+            format!("{:.0}%", v * 100.0)
+        }
+        study::DisplayFormat::Float { decimals } => {
+            format!("{v:.prec$}", prec = decimals as usize)
+        }
+        study::DisplayFormat::Integer { suffix } => {
+            format!("{}{suffix}", v as i64)
+        }
+        study::DisplayFormat::IntegerOrNone { none_value } => {
+            let i = v as i64;
+            if i == none_value {
+                "None".to_string()
+            } else {
+                format!("{i}")
+            }
+        }
+        study::DisplayFormat::Auto => format!("{v:.2}"),
     }
 }
 

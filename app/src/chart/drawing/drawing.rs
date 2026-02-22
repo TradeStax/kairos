@@ -5,6 +5,7 @@
 use super::point::DrawingPoint;
 use crate::chart::ViewState;
 use data::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
+use exchange::util::Price as ExchangePrice;
 use iced::{Color, Point, Size};
 
 /// A drawing on the chart
@@ -27,6 +28,8 @@ pub struct Drawing {
     pub label: Option<String>,
     /// Embedded VBP study instance (only for VolumeProfile drawings).
     pub(crate) vbp_study: Option<Box<study::orderflow::VbpStudy>>,
+    /// Cached open prices at left/right edge candles (transient, not serialized).
+    pub(crate) vbp_edge_opens: Option<(ExchangePrice, ExchangePrice)>,
 }
 
 impl std::fmt::Debug for Drawing {
@@ -69,6 +72,7 @@ impl Clone for Drawing {
             locked: self.locked,
             label: self.label.clone(),
             vbp_study,
+            vbp_edge_opens: None,
         }
     }
 }
@@ -86,6 +90,7 @@ impl Drawing {
             locked: false,
             label: None,
             vbp_study: None,
+            vbp_edge_opens: None,
         }
     }
 
@@ -101,6 +106,7 @@ impl Drawing {
             locked: false,
             label: None,
             vbp_study: None,
+            vbp_edge_opens: None,
         }
     }
 
@@ -171,8 +177,24 @@ impl Drawing {
         )
     }
 
-    /// Get the handle positions for selection (in screen coordinates)
+    /// Get the handle positions for selection (in screen coordinates).
+    ///
+    /// For VBP drawings, handles appear on the left/right edges at the
+    /// candle open price instead of at the corner anchor points.
     pub fn handle_positions(&self, state: &ViewState, bounds: Size) -> Vec<Point> {
+        if self.tool == DrawingTool::VolumeProfile
+            && let Some((left_open, right_open)) = self.vbp_edge_opens
+            && self.points.len() >= 2
+        {
+            let t0 = self.points[0].time;
+            let t1 = self.points[1].time;
+            let left = DrawingPoint::new(left_open, t0.min(t1));
+            let right = DrawingPoint::new(right_open, t0.max(t1));
+            return vec![
+                left.as_screen_point(state, bounds),
+                right.as_screen_point(state, bounds),
+            ];
+        }
         self.points
             .iter()
             .map(|p| p.as_screen_point(state, bounds))
@@ -249,6 +271,8 @@ impl Drawing {
             if let Some(ref cfg) = drawing.style.vbp_config {
                 study.import_config(&cfg.params);
             }
+            // Force Custom period after import to preserve drawing anchors
+            study.set_range(start, end);
             Some(Box::new(study))
         } else {
             None
@@ -264,6 +288,7 @@ impl Drawing {
             locked: drawing.locked,
             label: drawing.label.clone(),
             vbp_study,
+            vbp_edge_opens: None,
         }
     }
 }

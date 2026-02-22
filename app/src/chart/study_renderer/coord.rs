@@ -4,7 +4,9 @@
 //! effective line width, and line-dash conversion so that individual
 //! renderers (line, band, bar, histogram, panel) do not duplicate them.
 
+use crate::chart::ViewState;
 use iced::widget::canvas::LineDash;
+use iced::Color;
 use study::config::LineStyleValue;
 
 /// Compute min/max for a set of f32 values with 5 % padding.
@@ -80,5 +82,38 @@ pub fn line_dash_for_style(
             segments: &[2.0, 3.0],
             offset: 0,
         },
+    }
+}
+
+/// Compute the dynamic grouping quantum for automatic mode.
+///
+/// `min_row_px` is the minimum row height in screen pixels
+/// (e.g. 4.0 for VBP bars, 16.0 for footprint text).
+/// `factor` is the user's scale factor; larger values produce
+/// coarser grouping. `tick_units` is the instrument tick size
+/// in price units.
+pub(crate) fn compute_dynamic_quantum(
+    state: &ViewState,
+    min_row_px: f32,
+    factor: i64,
+    tick_units: i64,
+) -> i64 {
+    let pixel_per_tick = state.cell_height * state.scaling;
+    let base_ticks =
+        (min_row_px / pixel_per_tick).ceil() as i64;
+    (base_ticks * factor).max(1) * tick_units
+}
+
+/// Convert a `SerializableColor` to an iced `Color`, applying
+/// an opacity multiplier to the alpha channel.
+pub(crate) fn to_iced_color(
+    sc: data::SerializableColor,
+    opacity: f32,
+) -> Color {
+    Color {
+        r: sc.r,
+        g: sc.g,
+        b: sc.b,
+        a: sc.a * opacity,
     }
 }

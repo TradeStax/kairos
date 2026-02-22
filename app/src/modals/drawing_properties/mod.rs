@@ -33,13 +33,35 @@ pub enum Tab {
     Position,     // Calculator only
     Labels,       // Calculator only
     Display,
-    VbpSettings,  // VolumeProfile only
+    Vbp(study::ParameterTab), // Dynamic VBP tab
 }
 
 /// The drawing properties modal state.
+///
+/// # VBP State Sync Pattern
+///
+/// For VolumeProfile drawings, this modal holds three VBP-related
+/// fields that must stay in sync:
+///
+/// - `vbp_config` — the source of truth for pending parameter
+///   values. Mutated directly by `VbpParamChanged` /
+///   `VbpColorChanged` / `VbpLineStyleChanged` messages.
+/// - `vbp_params` — a snapshot of `VbpStudy::parameters()`
+///   used by the view layer to iterate and render widgets.
+///   Rebuilt from a temporary `VbpStudy` after config changes
+///   via `refresh_vbp_params()`.
+/// - `vbp_tabs` — the ordered list of visible parameter tabs,
+///   derived from the study's `tab_labels()` and filtered to
+///   exclude tabs that only contain hidden (period) keys.
+///   Also rebuilt by `refresh_vbp_params()`.
+///
+/// After every VBP config mutation, call `refresh_vbp_params()`
+/// to keep `vbp_params` and `vbp_tabs` consistent with
+/// `vbp_config`.
 #[derive(Debug, Clone)]
 pub struct DrawingPropertiesModal {
-    // NOTE: PartialEq implemented manually below (VBP fields excluded)
+    // NOTE: PartialEq implemented manually below (VBP fields
+    // excluded)
     pub(super) drawing_id: DrawingId,
     pub(super) tool: DrawingTool,
     pub(super) active_tab: Tab,
@@ -73,9 +95,12 @@ pub struct DrawingPropertiesModal {
     pub(super) editing_fill_color: Option<Hsva>,
     pub(super) hex_input_stroke: Option<String>,
     pub(super) hex_input_fill: Option<String>,
-    // VBP drawing state
+    // VBP drawing state (see doc comment above for sync pattern)
     pub(super) vbp_config: Option<study::StudyConfig>,
     pub(super) vbp_params: Option<Vec<study::ParameterDef>>,
+    pub(super) vbp_tabs: Vec<study::ParameterTab>,
+    pub(super) editing_vbp_color_key: Option<String>,
+    pub(super) editing_vbp_color_hsva: Option<Hsva>,
 }
 
 impl PartialEq for DrawingPropertiesModal {
@@ -104,28 +129,36 @@ impl DrawingPropertiesModal {
             visible,
             label: label.clone(),
         };
+        // Initialize VBP config from saved params.
+        // Uses the study's tab_labels() for tab ordering
+        // rather than re-discovering from parameter metadata.
+        let (vbp_config, vbp_params, vbp_tabs) =
+            if tool == DrawingTool::VolumeProfile {
+                let mut tmp = study::orderflow::VbpStudy::new();
+                if let Some(ref cfg) = style.vbp_config {
+                    tmp.import_config(&cfg.params);
+                }
+                let params = tmp.parameters().to_vec();
+                let config = tmp.config().clone();
+                let tabs =
+                    vbp_tabs_from_study(&tmp, &params);
+                (Some(config), Some(params), tabs)
+            } else {
+                (None, None, Vec::new())
+            };
+
         let initial_tab = if matches!(
             tool,
             DrawingTool::BuyCalculator | DrawingTool::SellCalculator
         ) {
             Tab::Position
         } else if tool == DrawingTool::VolumeProfile {
-            Tab::VbpSettings
+            vbp_tabs
+                .first()
+                .map(|t| Tab::Vbp(*t))
+                .unwrap_or(Tab::Display)
         } else {
             Tab::Style
-        };
-
-        // Initialize VBP config from saved params
-        let (vbp_config, vbp_params) = if tool == DrawingTool::VolumeProfile {
-            let mut tmp = study::orderflow::VbpStudy::new();
-            if let Some(ref cfg) = style.vbp_config {
-                tmp.import_config(&cfg.params);
-            }
-            let params = tmp.parameters().to_vec();
-            let config = tmp.config().clone();
-            (Some(config), Some(params))
-        } else {
-            (None, None)
         };
 
         Self {
@@ -159,6 +192,9 @@ impl DrawingPropertiesModal {
             hex_input_fill: None,
             vbp_config,
             vbp_params,
+            vbp_tabs,
+            editing_vbp_color_key: None,
+            editing_vbp_color_hsva: None,
         }
     }
 
@@ -199,11 +235,24 @@ impl DrawingPropertiesModal {
         }
     }
 
-    /// Sync current VBP config into a style-compatible form for live preview.
-    fn sync_vbp_to_style(&mut self) {
-        // No-op: build_update() already reads from self.vbp_config.
-        // Live preview is triggered by the parent calling build_update()
-        // after each message.
+    /// Rebuild `vbp_params` and `vbp_tabs` from a temporary
+    /// `VbpStudy` seeded with the current `vbp_config`.
+    ///
+    /// Call this after any mutation to `vbp_config` so that the
+    /// view's parameter widgets and tab bar reflect the latest
+    /// state (e.g. conditional visibility may change).
+    fn refresh_vbp_params(&mut self) {
+        let Some(ref config) = self.vbp_config else {
+            return;
+        };
+        let exported =
+            serde_json::to_value(config).unwrap_or_default();
+        let mut tmp = study::orderflow::VbpStudy::new();
+        tmp.import_config(&exported);
+        let params = tmp.parameters().to_vec();
+        let tabs = vbp_tabs_from_study(&tmp, &params);
+        self.vbp_params = Some(params);
+        self.vbp_tabs = tabs;
     }
 
     fn has_fill(&self) -> bool {
@@ -248,7 +297,10 @@ impl DrawingPropertiesModal {
 
     pub(super) fn available_tabs(&self) -> Vec<Tab> {
         if self.tool == DrawingTool::VolumeProfile {
-            vec![Tab::VbpSettings, Tab::Display]
+            let mut tabs: Vec<Tab> =
+                self.vbp_tabs.iter().map(|t| Tab::Vbp(*t)).collect();
+            tabs.push(Tab::Display);
+            tabs
         } else if self.has_position_calc() {
             vec![Tab::Position, Tab::Style, Tab::Labels]
         } else if self.has_fibonacci() {
@@ -514,8 +566,38 @@ impl DrawingPropertiesModal {
             Message::VbpParamChanged(key, value) => {
                 if let Some(ref mut config) = self.vbp_config {
                     config.set(key, value);
-                    // Sync back to style.vbp_config
-                    self.sync_vbp_to_style();
+                    self.refresh_vbp_params();
+                }
+            }
+            Message::VbpColorChanged(key, hsva) => {
+                self.editing_vbp_color_hsva = Some(hsva);
+                let rgba = data::config::theme::hsva_to_rgba(hsva);
+                if let Some(ref mut config) = self.vbp_config {
+                    config.set(
+                        key,
+                        study::ParameterValue::Color(rgba),
+                    );
+                    self.refresh_vbp_params();
+                }
+            }
+            Message::VbpEditColor(key) => {
+                if self.editing_vbp_color_key.as_deref() == Some(&key)
+                {
+                    // Toggle off
+                    self.editing_vbp_color_key = None;
+                    self.editing_vbp_color_hsva = None;
+                } else {
+                    self.editing_vbp_color_key = Some(key);
+                    self.editing_vbp_color_hsva = None;
+                }
+            }
+            Message::VbpLineStyleChanged(key, value) => {
+                if let Some(ref mut config) = self.vbp_config {
+                    config.set(
+                        key,
+                        study::ParameterValue::LineStyle(value),
+                    );
+                    self.refresh_vbp_params();
                 }
             }
             Message::Apply => {
@@ -586,6 +668,9 @@ pub enum Message {
     DismissColorPicker,
     // VBP
     VbpParamChanged(String, study::ParameterValue),
+    VbpColorChanged(String, Hsva),
+    VbpEditColor(String),
+    VbpLineStyleChanged(String, study::config::LineStyleValue),
     // Actions
     Apply,
     Close,
@@ -606,4 +691,55 @@ pub struct DrawingUpdate {
     pub locked: bool,
     pub visible: bool,
     pub label: Option<String>,
+}
+
+/// Period-related keys are controlled by the drawing's anchors;
+/// hide them from the properties modal.
+const HIDDEN_KEYS: &[&str] = &[
+    "period",
+    "length_unit",
+    "length_value",
+    "custom_start",
+    "custom_end",
+];
+
+/// Build the ordered list of visible VBP tabs.
+///
+/// Uses the study's `tab_labels()` for canonical ordering, then
+/// filters out any tab whose only parameters are hidden (period)
+/// keys.
+fn vbp_tabs_from_study(
+    study: &dyn study::Study,
+    params: &[study::ParameterDef],
+) -> Vec<study::ParameterTab> {
+    // Collect tabs that have at least one non-hidden parameter
+    let has_visible_param =
+        |tab: study::ParameterTab| -> bool {
+            params.iter().any(|p| {
+                p.tab == tab
+                    && !HIDDEN_KEYS
+                        .contains(&p.key.as_str())
+            })
+        };
+
+    // Prefer study-defined tab order when available
+    if let Some(labels) = study.tab_labels() {
+        labels
+            .iter()
+            .map(|(_, tab)| *tab)
+            .filter(|t| has_visible_param(*t))
+            .collect()
+    } else {
+        // Fallback: discover from parameter metadata
+        let mut tabs: Vec<study::ParameterTab> = Vec::new();
+        for p in params {
+            if HIDDEN_KEYS.contains(&p.key.as_str()) {
+                continue;
+            }
+            if !tabs.contains(&p.tab) {
+                tabs.push(p.tab);
+            }
+        }
+        tabs
+    }
 }

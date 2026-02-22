@@ -1,6 +1,6 @@
 use data::Price as DomainPrice;
 
-use super::KlineChart;
+use super::{KlineChart, StudiesDirtyReason};
 
 impl KlineChart {
     // ── Study management ──────────────────────────────────────────────
@@ -21,7 +21,8 @@ impl KlineChart {
             self.chart.layout.splits.push(0.75);
         }
 
-        self.studies_dirty = true;
+        self.studies_dirty =
+            Some(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 
@@ -42,7 +43,8 @@ impl KlineChart {
 
     /// Mark studies as needing recomputation (e.g. after parameter changes).
     pub fn mark_studies_dirty(&mut self) {
-        self.studies_dirty = true;
+        self.studies_dirty =
+            Some(StudiesDirtyReason::FullRecompute);
     }
 
     pub fn studies(&self) -> &[Box<dyn study::Study>] {
@@ -60,11 +62,14 @@ impl KlineChart {
                 log::warn!("Failed to set study parameter: {}", e);
             }
         }
-        self.recompute_studies();
+        self.recompute_studies(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 
-    pub(super) fn recompute_studies(&mut self) {
+    pub(super) fn recompute_studies(
+        &mut self,
+        reason: StudiesDirtyReason,
+    ) {
         if self.studies.is_empty() {
             return;
         }
@@ -75,9 +80,33 @@ impl KlineChart {
             tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
             visible_range: self.last_visible_range,
         };
-        for s in &mut self.studies {
-            if let Err(e) = s.compute(&input) {
-                log::warn!("Study '{}' compute error: {}", s.id(), e);
+        match reason {
+            StudiesDirtyReason::FullRecompute => {
+                for s in &mut self.studies {
+                    if let Err(e) = s.compute(&input) {
+                        log::warn!(
+                            "Study '{}' compute error: {}",
+                            s.id(),
+                            e
+                        );
+                    }
+                }
+            }
+            StudiesDirtyReason::NewTradesAppended => {
+                let trades = input
+                    .trades
+                    .unwrap_or(&[]);
+                for s in &mut self.studies {
+                    if let Err(e) =
+                        s.append_trades(trades, &input)
+                    {
+                        log::warn!(
+                            "Study '{}' append error: {}",
+                            s.id(),
+                            e
+                        );
+                    }
+                }
             }
         }
     }

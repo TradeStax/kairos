@@ -5,7 +5,7 @@
 //! - `Caches` - Canvas rendering caches
 //! - `Interaction` - User interaction state
 //! - `Chart` trait - Common interface for all chart types
-//! - `PlotConstants` trait - Chart-specific constants
+//! - `PlotLimits` - Chart-specific scaling constants
 
 mod caches;
 mod interaction;
@@ -15,5 +15,5 @@ mod view_state;
 
 pub use caches::Caches;
 pub use interaction::{ChartState, Interaction, canvas_interaction};
-pub use traits::{Chart, PanelStudyInfo, PlotConstants};
+pub use traits::{Chart, PanelStudyInfo, PlotLimits};
 pub use view_state::{ViewState, x_to_interval};

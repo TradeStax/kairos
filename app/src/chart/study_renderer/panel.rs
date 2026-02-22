@@ -140,6 +140,19 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
                 .chain(middle.iter().flat_map(|m| m.points.iter()))
                 .map(|(_, v)| *v),
         ),
+        StudyOutput::Composite(outputs) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            let mut found = false;
+            for sub in outputs {
+                if let Some((lo, hi)) = panel_value_range(sub) {
+                    min = min.min(lo);
+                    max = max.max(hi);
+                    found = true;
+                }
+            }
+            if found { Some((min, max)) } else { None }
+        }
         _ => None,
     }
 }
@@ -206,6 +219,31 @@ fn render_panel_content(
                     render_line_with_range(
                         frame, series, state, w, y_off, h, range,
                     );
+                }
+            }
+        }
+        StudyOutput::Composite(outputs) => {
+            let range = match panel_value_range(output) {
+                Some(r) => r,
+                None => return,
+            };
+            for sub in outputs {
+                match sub {
+                    StudyOutput::Lines(lines) => {
+                        for series in lines {
+                            render_line_with_range(
+                                frame, series, state, w, y_off,
+                                h, range,
+                            );
+                        }
+                    }
+                    StudyOutput::Histogram(bars) => {
+                        draw_histogram_bars(
+                            frame, bars, state, w, y_off, h,
+                            range,
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -385,6 +423,21 @@ fn render_panel_histogram(
         None => return,
     };
 
+    draw_histogram_bars(
+        frame, bars, state, canvas_width, y_offset, panel_height,
+        range,
+    );
+}
+
+fn draw_histogram_bars(
+    frame: &mut canvas::Frame,
+    bars: &[HistogramBar],
+    state: &ViewState,
+    canvas_width: f32,
+    y_offset: f32,
+    panel_height: f32,
+    range: (f32, f32),
+) {
     let bar_w = state.cell_width * state.scaling * 0.6;
 
     for bar in bars {

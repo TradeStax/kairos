@@ -47,4 +47,13 @@ pub trait ChartDrawingAccess {
 
     /// Compute pending VBP drawings. Default no-op.
     fn compute_pending_vbp(&mut self) {}
+
+    /// Get the candle open price at or near the given time.
+    /// Used for snapping the first VBP drawing point.
+    fn candle_open_at_time(
+        &self,
+        _time: u64,
+    ) -> Option<exchange::util::Price> {
+        None
+    }
 }

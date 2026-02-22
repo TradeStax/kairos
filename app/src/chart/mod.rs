@@ -18,7 +18,7 @@ pub mod study_renderer;
 
 // Re-export core types for public API
 pub use core::{
-    Chart, ChartState, Interaction, PanelStudyInfo, PlotConstants, ViewState,
+    Chart, ChartState, Interaction, PlotLimits, ViewState,
     canvas_interaction,
 };
 
@@ -95,7 +95,7 @@ pub enum Action {
 pub fn update<T: Chart>(chart: &mut T, message: &Message) {
     match message {
         Message::DoubleClick(scale) => {
-            let default_chart_width = T::default_cell_width(chart);
+            let default_chart_width = chart.plot_limits().default_cell_width;
             let autoscaled_coords = chart.autoscaled_coords();
             let supports_fit_autoscaling = chart.supports_fit_autoscaling();
 
@@ -158,8 +158,9 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
             }
         }
         Message::XScaling(delta, cursor_to_center_x, is_wheel_scroll) => {
-            let min_cell_width = T::min_cell_width(chart);
-            let max_cell_width = T::max_cell_width(chart);
+            let limits = chart.plot_limits();
+            let min_cell_width = limits.min_cell_width;
+            let max_cell_width = limits.max_cell_width;
 
             let state = chart.mut_state();
 
@@ -241,8 +242,9 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
             }
         }
         Message::YScaling(delta, cursor_to_center_y, is_wheel_scroll) => {
-            let min_cell_height = T::min_cell_height(chart);
-            let max_cell_height = T::max_cell_height(chart);
+            let limits = chart.plot_limits();
+            let min_cell_height = limits.min_cell_height;
+            let max_cell_height = limits.max_cell_height;
 
             let state = chart.mut_state();
 

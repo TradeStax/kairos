@@ -3,7 +3,7 @@ mod render;
 mod studies;
 
 use crate::chart::{
-    Chart, PanelStudyInfo, PlotConstants, ViewState,
+    Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
 };
 use data::state::pane::CandleStyle;
@@ -65,68 +65,33 @@ impl Chart for KlineChart {
         self.chart_data.candles.is_empty()
     }
 
-    fn active_drawing_tool(&self) -> data::DrawingTool {
-        self.drawings.active_tool()
+    fn plot_limits(&self) -> PlotLimits {
+        let cr = self.candle_replace_config();
+        PlotLimits {
+            max_cell_width: cr
+                .map(|c| c.max_cell_width)
+                .unwrap_or(100.0),
+            min_cell_width: cr
+                .map(|c| c.min_cell_width)
+                .unwrap_or(1.0),
+            max_cell_height: if self.has_candle_replace() {
+                100.0
+            } else {
+                200.0
+            },
+            min_cell_height: 0.1,
+            default_cell_width: cr
+                .map(|c| c.default_cell_width)
+                .unwrap_or(4.0),
+        }
     }
 
-    fn has_pending_drawing(&self) -> bool {
-        self.drawings.has_pending()
+    fn drawings(&self) -> Option<&DrawingManager> {
+        Some(&self.drawings)
     }
 
-    fn hit_test_drawing(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<data::DrawingId> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HIT_TOLERANCE,
-        )
-    }
-
-    fn hit_test_drawing_handle(
-        &self,
-        screen_point: iced::Point,
-        bounds: iced::Size,
-    ) -> Option<(data::DrawingId, usize)> {
-        use crate::chart::core::tokens;
-        self.drawings.hit_test_handle(
-            screen_point,
-            self.state(),
-            bounds,
-            tokens::drawing::HANDLE_SIZE,
-        )
-    }
-
-    fn has_drawing_selection(&self) -> bool {
-        !self.drawings.selected_ids().is_empty()
-    }
-
-    fn is_drawing_selected(&self, id: data::DrawingId) -> bool {
-        self.drawings.is_selected(id)
-    }
-
-    fn is_drawing_locked(&self, id: data::DrawingId) -> bool {
-        self.drawings.get(id).is_some_and(|d| d.locked)
-    }
-
-    fn has_clone_pending(&self) -> bool {
-        self.drawings.has_clone_pending()
-    }
-
-    fn panel_studies(&self) -> Vec<PanelStudyInfo<'_>> {
-        self.studies
-            .iter()
-            .filter(|s| s.placement() == study::StudyPlacement::Panel)
-            .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
-            .map(|s| PanelStudyInfo {
-                name: s.name(),
-                output: s.output(),
-            })
-            .collect()
+    fn studies(&self) -> &[Box<dyn study::Study>] {
+        &self.studies
     }
 
     fn panel_cache(&self) -> Option<&Cache> {
@@ -138,26 +103,13 @@ impl Chart for KlineChart {
     }
 }
 
-impl PlotConstants for KlineChart {
-    fn max_cell_width(&self) -> f32 {
-        self.candle_replace_config().map(|c| c.max_cell_width).unwrap_or(100.0)
-    }
-
-    fn min_cell_width(&self) -> f32 {
-        self.candle_replace_config().map(|c| c.min_cell_width).unwrap_or(1.0)
-    }
-
-    fn max_cell_height(&self) -> f32 {
-        if self.has_candle_replace() { 100.0 } else { 200.0 }
-    }
-
-    fn min_cell_height(&self) -> f32 {
-        0.1
-    }
-
-    fn default_cell_width(&self) -> f32 {
-        self.candle_replace_config().map(|c| c.default_cell_width).unwrap_or(4.0)
-    }
+/// Reason studies need recomputation.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum StudiesDirtyReason {
+    /// Data replaced, basis changed, or params changed — full recompute.
+    FullRecompute,
+    /// Only new trades appended — use incremental path.
+    NewTradesAppended,
 }
 
 pub struct KlineChart {
@@ -172,8 +124,8 @@ pub struct KlineChart {
     pub(crate) candle_style: CandleStyle,
     /// Overlay studies (Big Trades, etc.)
     studies: Vec<Box<dyn study::Study>>,
-    /// Whether studies need recomputation on next invalidate
-    studies_dirty: bool,
+    /// Why studies need recomputation on next invalidate (None = clean)
+    studies_dirty: Option<StudiesDirtyReason>,
     /// Last visible time range passed to studies (for detecting view changes)
     last_visible_range: Option<(u64, u64)>,
     /// Rendering cache for panel-placement studies
@@ -246,7 +198,7 @@ impl KlineChart {
             drawings: DrawingManager::new(),
             candle_style: CandleStyle::default(),
             studies: Vec::new(),
-            studies_dirty: false,
+            studies_dirty: None,
             last_visible_range: None,
             panel_cache: Cache::default(),
             panel_labels_cache: Cache::default(),
@@ -310,7 +262,7 @@ impl KlineChart {
             .map(|c| c.time.0)
             .unwrap_or(0);
 
-        self.studies_dirty = true;
+        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 
@@ -491,14 +443,14 @@ impl KlineChart {
                             == study::StudyPlacement::Background
                     });
                 if has_range_dependent {
-                    self.studies_dirty = true;
+                    self.studies_dirty =
+                        Some(StudiesDirtyReason::FullRecompute);
                 }
             }
         }
 
-        if self.studies_dirty {
-            self.recompute_studies();
-            self.studies_dirty = false;
+        if let Some(reason) = self.studies_dirty.take() {
+            self.recompute_studies(reason);
         }
 
         // Compute any pending VBP drawing profiles
@@ -528,6 +480,10 @@ impl KlineChart {
         let tick_size = data::Price::from_f32(self.ticker_info.tick_size);
 
         for id in pending {
+            // Auto-fit Y bounds to candle high/low in the time range
+            self.drawings
+                .fit_vbp_to_candle_range(id, &self.chart_data.candles);
+
             let time_range = {
                 let Some(d) = self.drawings.get(id) else {
                     continue;
@@ -583,6 +539,24 @@ impl ChartDrawingAccess for KlineChart {
     fn compute_pending_vbp(&mut self) {
         self.compute_vbp_drawings();
     }
+
+    fn candle_open_at_time(
+        &self,
+        time: u64,
+    ) -> Option<exchange::util::Price> {
+        let idx = self
+            .chart_data
+            .candles
+            .partition_point(|c| c.time.0 < time);
+        self.chart_data
+            .candles
+            .get(idx)
+            .or_else(|| {
+                idx.checked_sub(1)
+                    .and_then(|i| self.chart_data.candles.get(i))
+            })
+            .map(|c| domain_to_exchange_price(c.open))
+    }
 }
 
 impl KlineChart {
@@ -604,7 +578,7 @@ impl KlineChart {
             self.append_trade(trade);
         }
 
-        self.studies_dirty = true;
+        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 

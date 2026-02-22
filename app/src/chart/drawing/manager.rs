@@ -219,6 +219,9 @@ impl DrawingManager {
                     if let Some(ref cfg) = drawing.style.vbp_config {
                         study.import_config(&cfg.params);
                     }
+                    // Force Custom period after import (import may
+                    // have overridden with a different period value)
+                    study.set_range(start, end);
                     drawing.vbp_study = Some(Box::new(study));
                 }
             }
@@ -434,15 +437,22 @@ impl DrawingManager {
         }
     }
 
-    /// Move entire drawing by offset
+    /// Move entire drawing by offset.
+    ///
+    /// VBP drawings only move horizontally — Y bounds are auto-fitted
+    /// on drag end.
     pub fn move_drawing(&mut self, id: DrawingId, delta_time: i64, delta_price: i64) {
         if let Some(drawing) = self.get_mut(id) {
             if drawing.locked {
                 return;
             }
+            let skip_price = drawing.tool == DrawingTool::VolumeProfile;
             for point in &mut drawing.points {
                 point.time = (point.time as i64 + delta_time).max(0) as u64;
-                point.price = exchange::util::Price::from_units(point.price.units() + delta_price);
+                if !skip_price {
+                    point.price =
+                        exchange::util::Price::from_units(point.price.units() + delta_price);
+                }
             }
         }
     }
@@ -505,13 +515,29 @@ impl DrawingManager {
         }
     }
 
-    /// Update a single-handle drag
+    /// Update a single-handle drag.
+    ///
+    /// VBP drawings only update the time coordinate of the dragged
+    /// handle — Y bounds are auto-fitted on drag end.
     pub fn update_handle_drag(
         &mut self,
         id: DrawingId,
         handle_index: usize,
         new_point: DrawingPoint,
     ) {
+        if self
+            .get(id)
+            .is_some_and(|d| d.tool == DrawingTool::VolumeProfile)
+        {
+            if let Some(drawing) = self.get_mut(id)
+                && handle_index < drawing.points.len()
+                && !drawing.locked
+            {
+                drawing.points[handle_index].time = new_point.time;
+            }
+            self.last_drag_point = Some(new_point);
+            return;
+        }
         self.move_point(id, handle_index, new_point);
         self.last_drag_point = Some(new_point);
     }
@@ -661,6 +687,51 @@ impl DrawingManager {
     /// Check if redo is available
     pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
+    }
+
+    // ── VBP auto-fit ──────────────────────────────────────────────────
+
+    /// Adjust a VBP drawing's Y bounds to match the high/low of candles
+    /// within the selected time range.
+    pub fn fit_vbp_to_candle_range(
+        &mut self,
+        id: DrawingId,
+        candles: &[data::Candle],
+    ) {
+        let Some(d) = self.get_mut(id) else { return };
+        if d.tool != DrawingTool::VolumeProfile || d.points.len() < 2 {
+            return;
+        }
+        let t1 = d.points[0].time;
+        let t2 = d.points[1].time;
+        let (start, end) = (t1.min(t2), t1.max(t2));
+
+        let mut range_high = i64::MIN;
+        let mut range_low = i64::MAX;
+        for c in candles {
+            let ct = c.time.0;
+            if ct >= start && ct <= end {
+                range_high = range_high.max(c.high.units());
+                range_low = range_low.min(c.low.units());
+            }
+        }
+        if range_high > range_low {
+            d.points[0].price = ExchangePrice::from_units(range_high);
+            d.points[1].price = ExchangePrice::from_units(range_low);
+        }
+
+        // Cache the open prices at edge candles for handle positioning
+        let find_open_at = |time: u64| -> Option<ExchangePrice> {
+            let idx = candles.partition_point(|c| c.time.0 < time);
+            candles
+                .get(idx)
+                .or_else(|| idx.checked_sub(1).and_then(|i| candles.get(i)))
+                .map(|c| ExchangePrice::from_units(c.open.units()))
+        };
+        if let (Some(lo), Some(ro)) = (find_open_at(start), find_open_at(end))
+        {
+            d.vbp_edge_opens = Some((lo, ro));
+        }
     }
 
     // ── VBP computation queue ──────────────────────────────────────────

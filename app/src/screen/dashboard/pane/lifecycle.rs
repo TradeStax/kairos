@@ -159,7 +159,7 @@ impl State {
                     chart_data,
                     ticker_info,
                     layout.clone(),
-                    profile_config.into(),
+                    profile_config,
                 );
                 if !self.settings.drawings.is_empty() {
                     new_chart

@@ -9,7 +9,10 @@ use crate::config::{
 };
 use crate::error::StudyError;
 use crate::orderflow::profile_core;
-use crate::output::{ProfileData, ProfileSide, StudyOutput};
+use crate::output::{
+    ProfileOutput, ProfileRenderConfig, ProfileSide, StudyOutput,
+    VbpGroupingMode,
+};
 use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
 
@@ -171,19 +174,45 @@ impl Study for VolumeProfileStudy {
             profile_core::calculate_value_area(&levels, poc_idx, 0.7)
         });
 
-        self.output = StudyOutput::Profile(ProfileData {
-            side: ProfileSide::Left,
-            levels,
-            poc,
-            value_area,
-            buy_color: SerializableColor::new(0.18, 0.55, 0.82, 0.6),
-            sell_color: SerializableColor::new(0.82, 0.28, 0.28, 0.6),
-            poc_color: SerializableColor::new(1.0, 0.84, 0.0, 0.8),
-            value_area_color: SerializableColor::new(
-                0.5, 0.5, 0.5, 0.15,
+        self.output = StudyOutput::Profile(
+            ProfileOutput {
+                levels,
+                quantum: input.tick_size.units(),
+                poc,
+                value_area,
+                time_range: None,
+                hvn_zones: Vec::new(),
+                lvn_zones: Vec::new(),
+                peak_node: None,
+                valley_node: None,
+                developing_poc_points: Vec::new(),
+                developing_peak_points: Vec::new(),
+                developing_valley_points: Vec::new(),
+                vwap_points: Vec::new(),
+                vwap_upper_points: Vec::new(),
+                vwap_lower_points: Vec::new(),
+                grouping_mode: VbpGroupingMode::Manual,
+                resolved_cache: std::sync::Mutex::new(
+                    None,
+                ),
+            },
+            ProfileRenderConfig::simple(
+                ProfileSide::Left,
+                0.3,
+                SerializableColor::new(
+                    0.18, 0.55, 0.82, 0.6,
+                ),
+                SerializableColor::new(
+                    0.82, 0.28, 0.28, 0.6,
+                ),
+                SerializableColor::new(
+                    1.0, 0.84, 0.0, 0.8,
+                ),
+                SerializableColor::new(
+                    0.5, 0.5, 0.5, 0.15,
+                ),
             ),
-            width_pct: 0.3,
-        });
+        );
         Ok(())
     }
 
@@ -347,11 +376,11 @@ mod tests {
         study.compute(&input).unwrap();
 
         match &study.output {
-            StudyOutput::Profile(data) => {
+            StudyOutput::Profile(data, _config) => {
                 assert!(!data.levels.is_empty());
                 assert!(data.poc.is_some());
             }
-            other => assert!(matches!(other, StudyOutput::Profile(_)), "Expected Profile output"),
+            _ => panic!("Expected Profile output"),
         }
     }
 

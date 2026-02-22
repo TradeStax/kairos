@@ -26,8 +26,9 @@ use iced::{Color, Point, Size};
 use study::config::LineStyleValue;
 use study::orderflow::profile_core;
 use study::output::{
-    ExtendDirection, ProfileLevel, VbpData, VbpGroupingMode,
-    VbpResolvedCache, VbpType,
+    ExtendDirection, ProfileLevel, ProfileOutput,
+    ProfileRenderConfig, VbpGroupingMode, VbpResolvedCache,
+    VbpType,
 };
 
 /// Minimum row height in screen pixels for readable bars.
@@ -42,10 +43,9 @@ fn compute_dynamic_quantum(
     factor: i64,
     tick_units: i64,
 ) -> i64 {
-    let pixel_per_tick = state.cell_height * state.scaling;
-    let base_ticks =
-        (MIN_ROW_PX / pixel_per_tick).ceil() as i64;
-    (base_ticks * factor).max(1) * tick_units
+    coord::compute_dynamic_quantum(
+        state, MIN_ROW_PX, factor, tick_units,
+    )
 }
 
 /// Merge profile levels to a coarser quantum boundary.
@@ -111,49 +111,72 @@ fn va_factor(
 }
 
 /// Ensure the resolved cache is populated and up-to-date.
-fn ensure_resolved_cache(vbp: &VbpData, state: &ViewState) {
+fn ensure_resolved_cache(
+    output: &ProfileOutput,
+    config: &ProfileRenderConfig,
+    state: &ViewState,
+) {
     let tick_units = state.tick_size.units.max(1);
 
-    let target_quantum = match vbp.grouping_mode {
+    let target_quantum = match output.grouping_mode {
         VbpGroupingMode::Automatic { factor } => {
-            let dq =
-                compute_dynamic_quantum(state, factor, tick_units);
-            if dq > vbp.quantum { dq } else { vbp.quantum }
+            let dq = compute_dynamic_quantum(
+                state, factor, tick_units,
+            );
+            if dq > output.quantum {
+                dq
+            } else {
+                output.quantum
+            }
         }
-        VbpGroupingMode::Manual => vbp.quantum,
+        VbpGroupingMode::Manual => output.quantum,
     };
 
     {
-        let cache = vbp.resolved_cache.lock().unwrap();
-        if let Some(ref c) = *cache {
-            if c.quantum == target_quantum {
-                return;
-            }
+        let cache = output
+            .resolved_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(ref c) = *cache
+            && c.quantum == target_quantum
+        {
+            return;
         }
     }
 
-    let (levels, poc, value_area) = if target_quantum > vbp.quantum
-    {
-        let merged =
-            merge_levels_to_quantum(&vbp.levels, target_quantum);
-        let poc = profile_core::find_poc_index(&merged);
-        let value_area = if vbp.va_config.show_value_area {
-            poc.and_then(|idx| {
-                profile_core::calculate_value_area(
-                    &merged,
-                    idx,
-                    vbp.va_config.value_area_pct as f64,
-                )
-            })
+    let (levels, poc, value_area) =
+        if target_quantum > output.quantum {
+            let merged = merge_levels_to_quantum(
+                &output.levels,
+                target_quantum,
+            );
+            let poc = profile_core::find_poc_index(&merged);
+            let value_area =
+                if config.va_config.show_value_area {
+                    poc.and_then(|idx| {
+                        profile_core::calculate_value_area(
+                            &merged,
+                            idx,
+                            config.va_config.value_area_pct
+                                as f64,
+                        )
+                    })
+                } else {
+                    None
+                };
+            (merged, poc, value_area)
         } else {
-            None
+            (
+                output.levels.clone(),
+                output.poc,
+                output.value_area,
+            )
         };
-        (merged, poc, value_area)
-    } else {
-        (vbp.levels.clone(), vbp.poc, vbp.value_area)
-    };
 
-    *vbp.resolved_cache.lock().unwrap() =
+    *output
+        .resolved_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) =
         Some(VbpResolvedCache {
             quantum: target_quantum,
             levels,
@@ -165,24 +188,30 @@ fn ensure_resolved_cache(vbp: &VbpData, state: &ViewState) {
 /// Render a VBP study output onto the chart canvas.
 pub fn render_vbp(
     frame: &mut Frame,
-    vbp: &VbpData,
+    output: &ProfileOutput,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     bounds: Size,
 ) {
-    if vbp.levels.is_empty() {
+    if output.levels.is_empty() {
         return;
     }
 
-    ensure_resolved_cache(vbp, state);
-    let cache_ref = vbp.resolved_cache.lock().unwrap();
-    let resolved = cache_ref.as_ref().unwrap();
+    ensure_resolved_cache(output, config, state);
+    let cache_ref = output
+        .resolved_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let Some(resolved) = cache_ref.as_ref() else {
+        return;
+    };
 
     if resolved.levels.is_empty() {
         return;
     }
 
     // Compute the anchor X from the candle time range.
-    let (anchor_x, box_right) = match vbp.time_range {
+    let (anchor_x, box_right) = match output.time_range {
         Some((start_ms, end_ms)) => {
             let x0 = state.interval_to_x(start_ms);
             let x1 = state.interval_to_x(end_ms);
@@ -191,7 +220,7 @@ pub fn render_vbp(
         None => (-bounds.width, 0.0),
     };
 
-    let max_bar_length = bounds.width * vbp.width_pct;
+    let max_bar_length = bounds.width * config.width_pct;
 
     // Estimate bar height from adjacent price levels
     let bar_height = if resolved.levels.len() >= 2 {
@@ -233,12 +262,14 @@ pub fn render_vbp(
     });
 
     // ── Pass 1: VA fill rectangle ────────────────────────────────
-    if vbp.va_config.show_value_area && vbp.va_config.show_va_fill {
+    if config.va_config.show_value_area
+        && config.va_config.show_va_fill
+    {
         draw_va_fill(
             frame,
             &resolved.levels,
             resolved.value_area,
-            vbp,
+            config,
             state,
             anchor_x,
             box_right,
@@ -247,13 +278,14 @@ pub fn render_vbp(
     }
 
     // ── Pass 1b: HVN zone fills ─────────────────────────────────
-    if vbp.node_config.show_hvn_zones && !vbp.hvn_zones.is_empty()
+    if config.node_config.show_hvn_zones
+        && !output.hvn_zones.is_empty()
     {
         draw_zone_fills(
             frame,
-            &vbp.hvn_zones,
-            vbp.node_config.hvn_zone_color,
-            vbp.node_config.hvn_zone_opacity,
+            &output.hvn_zones,
+            config.node_config.hvn_zone_color,
+            config.node_config.hvn_zone_opacity,
             state,
             anchor_x,
             box_right,
@@ -261,13 +293,14 @@ pub fn render_vbp(
     }
 
     // ── Pass 1c: LVN zone fills ─────────────────────────────────
-    if vbp.node_config.show_lvn_zones && !vbp.lvn_zones.is_empty()
+    if config.node_config.show_lvn_zones
+        && !output.lvn_zones.is_empty()
     {
         draw_zone_fills(
             frame,
-            &vbp.lvn_zones,
-            vbp.node_config.lvn_zone_color,
-            vbp.node_config.lvn_zone_opacity,
+            &output.lvn_zones,
+            config.node_config.lvn_zone_color,
+            config.node_config.lvn_zone_opacity,
             state,
             anchor_x,
             box_right,
@@ -275,13 +308,13 @@ pub fn render_vbp(
     }
 
     // ── Pass 2: Volume bars ──────────────────────────────────────
-    match vbp.vbp_type {
+    match config.vbp_type {
         VbpType::Volume => {
             draw_volume(
                 frame,
                 visible_levels,
                 vis_value_area,
-                vbp,
+                config,
                 state,
                 max_bar_length,
                 bar_height,
@@ -294,7 +327,7 @@ pub fn render_vbp(
                 frame,
                 visible_levels,
                 vis_value_area,
-                vbp,
+                config,
                 state,
                 max_bar_length,
                 bar_height,
@@ -307,7 +340,7 @@ pub fn render_vbp(
                 frame,
                 visible_levels,
                 vis_value_area,
-                vbp,
+                config,
                 state,
                 max_bar_length,
                 bar_height,
@@ -320,7 +353,7 @@ pub fn render_vbp(
                 frame,
                 visible_levels,
                 vis_value_area,
-                vbp,
+                config,
                 state,
                 max_bar_length,
                 bar_height,
@@ -333,7 +366,7 @@ pub fn render_vbp(
                 frame,
                 visible_levels,
                 vis_value_area,
-                vbp,
+                config,
                 state,
                 max_bar_length,
                 bar_height,
@@ -343,12 +376,12 @@ pub fn render_vbp(
     }
 
     // ── Pass 3: VAH/VAL lines ────────────────────────────────────
-    if vbp.va_config.show_value_area {
+    if config.va_config.show_value_area {
         draw_va_lines(
             frame,
             &resolved.levels,
             resolved.value_area,
-            vbp,
+            config,
             state,
             anchor_x,
             box_right,
@@ -357,17 +390,21 @@ pub fn render_vbp(
     }
 
     // ── Pass 4: Peak line (single) ─────────────────────────────
-    if vbp.node_config.show_peak_line {
-        if let Some(ref node) = vbp.peak_node {
-            let y = state
-                .price_to_y(Price::from_units(node.price_units));
+    if config.node_config.show_peak_line {
+        if let Some(ref node) = output.peak_node {
+            let y = state.price_to_y(
+                Price::from_units(node.price_units),
+            );
             draw_horizontal_line(
                 frame,
                 y,
-                to_iced_color(vbp.node_config.peak_color, 1.0),
-                &vbp.node_config.peak_line_style,
-                vbp.node_config.peak_line_width,
-                &vbp.node_config.peak_extend,
+                to_iced_color(
+                    config.node_config.peak_color,
+                    1.0,
+                ),
+                &config.node_config.peak_line_style,
+                config.node_config.peak_line_width,
+                &config.node_config.peak_extend,
                 anchor_x,
                 box_right,
                 bounds,
@@ -377,17 +414,21 @@ pub fn render_vbp(
     }
 
     // ── Pass 4b: Valley line (single) ────────────────────────────
-    if vbp.node_config.show_valley_line {
-        if let Some(ref node) = vbp.valley_node {
-            let y = state
-                .price_to_y(Price::from_units(node.price_units));
+    if config.node_config.show_valley_line {
+        if let Some(ref node) = output.valley_node {
+            let y = state.price_to_y(
+                Price::from_units(node.price_units),
+            );
             draw_horizontal_line(
                 frame,
                 y,
-                to_iced_color(vbp.node_config.valley_color, 1.0),
-                &vbp.node_config.valley_line_style,
-                vbp.node_config.valley_line_width,
-                &vbp.node_config.valley_extend,
+                to_iced_color(
+                    config.node_config.valley_color,
+                    1.0,
+                ),
+                &config.node_config.valley_line_style,
+                config.node_config.valley_line_width,
+                &config.node_config.valley_extend,
                 anchor_x,
                 box_right,
                 bounds,
@@ -397,12 +438,12 @@ pub fn render_vbp(
     }
 
     // ── Pass 5: POC line ─────────────────────────────────────────
-    if vbp.poc_config.show_poc {
+    if config.poc_config.show_poc {
         draw_poc_enhanced(
             frame,
             &resolved.levels,
             resolved.poc,
-            vbp,
+            config,
             state,
             anchor_x,
             box_right,
@@ -411,43 +452,55 @@ pub fn render_vbp(
     }
 
     // ── Pass 6: Developing POC ───────────────────────────────────
-    if vbp.poc_config.show_developing_poc
-        && !vbp.developing_poc_points.is_empty()
+    if config.poc_config.show_developing_poc
+        && !output.developing_poc_points.is_empty()
     {
-        draw_developing_poc(frame, vbp, state);
+        draw_developing_poc(
+            frame, output, config, state,
+        );
     }
 
     // ── Pass 6b: Developing Peak ─────────────────────────────────
-    if vbp.node_config.show_developing_peak
-        && !vbp.developing_peak_points.is_empty()
+    if config.node_config.show_developing_peak
+        && !output.developing_peak_points.is_empty()
     {
         draw_developing_line(
             frame,
-            &vbp.developing_peak_points,
-            vbp.node_config.developing_peak_color,
-            vbp.node_config.developing_peak_line_width,
-            &vbp.node_config.developing_peak_line_style,
+            &output.developing_peak_points,
+            config.node_config.developing_peak_color,
+            config.node_config.developing_peak_line_width,
+            &config
+                .node_config
+                .developing_peak_line_style,
             state,
         );
     }
 
     // ── Pass 6c: Developing Valley ───────────────────────────────
-    if vbp.node_config.show_developing_valley
-        && !vbp.developing_valley_points.is_empty()
+    if config.node_config.show_developing_valley
+        && !output.developing_valley_points.is_empty()
     {
         draw_developing_line(
             frame,
-            &vbp.developing_valley_points,
-            vbp.node_config.developing_valley_color,
-            vbp.node_config.developing_valley_line_width,
-            &vbp.node_config.developing_valley_line_style,
+            &output.developing_valley_points,
+            config
+                .node_config
+                .developing_valley_color,
+            config
+                .node_config
+                .developing_valley_line_width,
+            &config
+                .node_config
+                .developing_valley_line_style,
             state,
         );
     }
 
     // ── Pass 7: VWAP + bands ─────────────────────────────────────
-    if vbp.vwap_config.show_vwap && !vbp.vwap_points.is_empty() {
-        draw_vwap(frame, vbp, state);
+    if config.vwap_config.show_vwap
+        && !output.vwap_points.is_empty()
+    {
+        draw_vwap(frame, output, config, state);
     }
 
     // ── Pass 8: Bounding rect ────────────────────────────────────
@@ -461,7 +514,8 @@ pub fn render_vbp(
         &resolved.levels,
         resolved.poc,
         resolved.value_area,
-        vbp,
+        output,
+        config,
         state,
         anchor_x,
         box_right,
@@ -475,7 +529,7 @@ fn draw_volume(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     max_bar_length: f32,
     bar_height: f32,
@@ -501,11 +555,11 @@ fn draw_volume(
         let factor = va_factor(
             idx,
             value_area,
-            vbp.va_config.show_va_highlight,
+            config.va_config.show_va_highlight,
         );
         let color = to_iced_color(
-            vbp.volume_color,
-            vbp.opacity * factor,
+            config.volume_color,
+            config.opacity * factor,
         );
         draw_bar_right(
             frame, anchor_x, y, bar_height, bar_len, color,
@@ -519,7 +573,7 @@ fn draw_bid_ask(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     max_bar_length: f32,
     bar_height: f32,
@@ -547,12 +601,16 @@ fn draw_bid_ask(
         let factor = va_factor(
             idx,
             value_area,
-            vbp.va_config.show_va_highlight,
+            config.va_config.show_va_highlight,
         );
-        let sell_color =
-            to_iced_color(vbp.ask_color, vbp.opacity * factor);
-        let buy_color =
-            to_iced_color(vbp.bid_color, vbp.opacity * factor);
+        let sell_color = to_iced_color(
+            config.ask_color,
+            config.opacity * factor,
+        );
+        let buy_color = to_iced_color(
+            config.bid_color,
+            config.opacity * factor,
+        );
         let top = y - bar_height / 2.0;
         if sell_len > 0.0 {
             frame.fill_rectangle(
@@ -577,7 +635,7 @@ fn draw_delta(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     max_bar_length: f32,
     bar_height: f32,
@@ -604,12 +662,18 @@ fn draw_delta(
         let factor = va_factor(
             idx,
             value_area,
-            vbp.va_config.show_va_highlight,
+            config.va_config.show_va_highlight,
         );
         let color = if delta > 0.0 {
-            to_iced_color(vbp.bid_color, vbp.opacity * factor)
+            to_iced_color(
+                config.bid_color,
+                config.opacity * factor,
+            )
         } else {
-            to_iced_color(vbp.ask_color, vbp.opacity * factor)
+            to_iced_color(
+                config.ask_color,
+                config.opacity * factor,
+            )
         };
         draw_bar_left(
             frame, anchor_x, y, bar_height, bar_len, color,
@@ -623,7 +687,7 @@ fn draw_delta_and_total(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     max_bar_length: f32,
     bar_height: f32,
@@ -650,17 +714,21 @@ fn draw_delta_and_total(
         let factor = va_factor(
             idx,
             value_area,
-            vbp.va_config.show_va_highlight,
+            config.va_config.show_va_highlight,
         );
 
         let vol_color = to_iced_color(
-            vbp.volume_color,
-            vbp.opacity * factor,
+            config.volume_color,
+            config.opacity * factor,
         );
-        let sell_color =
-            to_iced_color(vbp.ask_color, vbp.opacity * factor);
-        let buy_color =
-            to_iced_color(vbp.bid_color, vbp.opacity * factor);
+        let sell_color = to_iced_color(
+            config.ask_color,
+            config.opacity * factor,
+        );
+        let buy_color = to_iced_color(
+            config.bid_color,
+            config.opacity * factor,
+        );
 
         frame.fill_rectangle(
             Point::new(anchor_x, top),
@@ -696,7 +764,7 @@ fn draw_delta_pct(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     max_bar_length: f32,
     bar_height: f32,
@@ -718,12 +786,18 @@ fn draw_delta_pct(
         let factor = va_factor(
             idx,
             value_area,
-            vbp.va_config.show_va_highlight,
+            config.va_config.show_va_highlight,
         );
         let color = if pct > 0.0 {
-            to_iced_color(vbp.bid_color, vbp.opacity * factor)
+            to_iced_color(
+                config.bid_color,
+                config.opacity * factor,
+            )
         } else {
-            to_iced_color(vbp.ask_color, vbp.opacity * factor)
+            to_iced_color(
+                config.ask_color,
+                config.opacity * factor,
+            )
         };
         draw_bar_left(
             frame, anchor_x, y, bar_height, bar_len, color,
@@ -737,7 +811,7 @@ fn draw_va_fill(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     anchor_x: f32,
     box_right: f32,
@@ -753,23 +827,23 @@ fn draw_va_fill(
         return;
     };
 
-    let y_vah =
-        state.price_to_y(Price::from_units(vah_level.price_units));
-    let y_val =
-        state.price_to_y(Price::from_units(val_level.price_units));
+    let y_vah = state
+        .price_to_y(Price::from_units(vah_level.price_units));
+    let y_val = state
+        .price_to_y(Price::from_units(val_level.price_units));
     let y_top = y_vah.min(y_val);
     let y_height = (y_vah - y_val).abs().max(1.0);
 
     let (x_left, x_right) = extend_x_range(
         anchor_x,
         box_right,
-        &vbp.va_config.va_extend,
+        &config.va_config.va_extend,
         bounds,
     );
 
     let fill_color = to_iced_color(
-        vbp.va_config.va_fill_color,
-        vbp.va_config.va_fill_opacity,
+        config.va_config.va_fill_color,
+        config.va_config.va_fill_opacity,
     );
     frame.fill_rectangle(
         Point::new(x_left, y_top),
@@ -784,7 +858,7 @@ fn draw_va_lines(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     anchor_x: f32,
     box_right: f32,
@@ -801,10 +875,13 @@ fn draw_va_lines(
         draw_horizontal_line(
             frame,
             y,
-            to_iced_color(vbp.va_config.vah_color, 1.0),
-            &vbp.va_config.vah_line_style,
-            vbp.va_config.vah_line_width,
-            &vbp.va_config.va_extend,
+            to_iced_color(
+                config.va_config.vah_color,
+                1.0,
+            ),
+            &config.va_config.vah_line_style,
+            config.va_config.vah_line_width,
+            &config.va_config.va_extend,
             anchor_x,
             box_right,
             bounds,
@@ -819,10 +896,13 @@ fn draw_va_lines(
         draw_horizontal_line(
             frame,
             y,
-            to_iced_color(vbp.va_config.val_color, 1.0),
-            &vbp.va_config.val_line_style,
-            vbp.va_config.val_line_width,
-            &vbp.va_config.va_extend,
+            to_iced_color(
+                config.va_config.val_color,
+                1.0,
+            ),
+            &config.va_config.val_line_style,
+            config.va_config.val_line_width,
+            &config.va_config.va_extend,
             anchor_x,
             box_right,
             bounds,
@@ -908,7 +988,7 @@ fn draw_poc_enhanced(
     frame: &mut Frame,
     levels: &[ProfileLevel],
     poc: Option<usize>,
-    vbp: &VbpData,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     anchor_x: f32,
     box_right: f32,
@@ -919,15 +999,17 @@ fn draw_poc_enhanced(
     {
         let y = state
             .price_to_y(Price::from_units(level.price_units));
-        let color =
-            to_iced_color(vbp.poc_config.poc_color, 1.0);
+        let color = to_iced_color(
+            config.poc_config.poc_color,
+            1.0,
+        );
         draw_horizontal_line(
             frame,
             y,
             color,
-            &vbp.poc_config.poc_line_style,
-            vbp.poc_config.poc_line_width,
-            &vbp.poc_config.poc_extend,
+            &config.poc_config.poc_line_style,
+            config.poc_config.poc_line_width,
+            &config.poc_config.poc_extend,
             anchor_x,
             box_right,
             bounds,
@@ -940,22 +1022,25 @@ fn draw_poc_enhanced(
 
 fn draw_developing_poc(
     frame: &mut Frame,
-    vbp: &VbpData,
+    output: &ProfileOutput,
+    config: &ProfileRenderConfig,
     state: &ViewState,
 ) {
-    let points = &vbp.developing_poc_points;
+    let points = &output.developing_poc_points;
     if points.len() < 2 {
         return;
     }
 
-    let color =
-        to_iced_color(vbp.poc_config.developing_poc_color, 1.0);
+    let color = to_iced_color(
+        config.poc_config.developing_poc_color,
+        1.0,
+    );
     let width = coord::effective_line_width(
-        vbp.poc_config.developing_poc_line_width,
+        config.poc_config.developing_poc_line_width,
         state.scaling,
     );
     let dash = coord::line_dash_for_style(
-        &vbp.poc_config.developing_poc_line_style,
+        &config.poc_config.developing_poc_line_style,
     );
 
     let path = Path::new(|builder| {
@@ -989,17 +1074,19 @@ fn draw_developing_poc(
 
 fn draw_vwap(
     frame: &mut Frame,
-    vbp: &VbpData,
+    output: &ProfileOutput,
+    config: &ProfileRenderConfig,
     state: &ViewState,
 ) {
-    let cfg = &vbp.vwap_config;
+    let cfg = &config.vwap_config;
 
     // Draw bands first (behind VWAP line)
     if cfg.show_bands
-        && !vbp.vwap_upper_points.is_empty()
-        && !vbp.vwap_lower_points.is_empty()
+        && !output.vwap_upper_points.is_empty()
+        && !output.vwap_lower_points.is_empty()
     {
-        let band_color = to_iced_color(cfg.band_color, 1.0);
+        let band_color =
+            to_iced_color(cfg.band_color, 1.0);
         let band_width = coord::effective_line_width(
             cfg.band_line_width,
             state.scaling,
@@ -1009,7 +1096,7 @@ fn draw_vwap(
 
         draw_polyline(
             frame,
-            &vbp.vwap_upper_points,
+            &output.vwap_upper_points,
             band_color,
             band_width,
             band_dash,
@@ -1017,7 +1104,7 @@ fn draw_vwap(
         );
         draw_polyline(
             frame,
-            &vbp.vwap_lower_points,
+            &output.vwap_lower_points,
             band_color,
             band_width,
             band_dash,
@@ -1026,7 +1113,8 @@ fn draw_vwap(
     }
 
     // VWAP line
-    let vwap_color = to_iced_color(cfg.vwap_color, 1.0);
+    let vwap_color =
+        to_iced_color(cfg.vwap_color, 1.0);
     let vwap_width = coord::effective_line_width(
         cfg.vwap_line_width,
         state.scaling,
@@ -1036,7 +1124,7 @@ fn draw_vwap(
 
     draw_polyline(
         frame,
-        &vbp.vwap_points,
+        &output.vwap_points,
         vwap_color,
         vwap_width,
         vwap_dash,
@@ -1089,7 +1177,8 @@ fn draw_price_labels(
     levels: &[ProfileLevel],
     poc: Option<usize>,
     value_area: Option<(usize, usize)>,
-    vbp: &VbpData,
+    output: &ProfileOutput,
+    config: &ProfileRenderConfig,
     state: &ViewState,
     _anchor_x: f32,
     box_right: f32,
@@ -1098,8 +1187,8 @@ fn draw_price_labels(
     let label_x = box_right + 4.0;
 
     // POC label
-    if vbp.poc_config.show_poc
-        && vbp.poc_config.show_poc_label
+    if config.poc_config.show_poc
+        && config.poc_config.show_poc_label
     {
         if let Some(idx) = poc
             && let Some(level) = levels.get(idx)
@@ -1107,8 +1196,10 @@ fn draw_price_labels(
             let y = state.price_to_y(Price::from_units(
                 level.price_units,
             ));
-            let color =
-                to_iced_color(vbp.poc_config.poc_color, 1.0);
+            let color = to_iced_color(
+                config.poc_config.poc_color,
+                1.0,
+            );
             draw_label(
                 frame,
                 &format!("POC {:.2}", level.price),
@@ -1120,16 +1211,16 @@ fn draw_price_labels(
     }
 
     // VA labels
-    if vbp.va_config.show_value_area
-        && vbp.va_config.show_va_labels
+    if config.va_config.show_value_area
+        && config.va_config.show_va_labels
     {
         if let Some((vah_idx, val_idx)) = value_area {
             if let Some(level) = levels.get(vah_idx) {
-                let y = state.price_to_y(Price::from_units(
-                    level.price_units,
-                ));
+                let y = state.price_to_y(
+                    Price::from_units(level.price_units),
+                );
                 let color = to_iced_color(
-                    vbp.va_config.vah_color,
+                    config.va_config.vah_color,
                     1.0,
                 );
                 draw_label(
@@ -1141,11 +1232,11 @@ fn draw_price_labels(
                 );
             }
             if let Some(level) = levels.get(val_idx) {
-                let y = state.price_to_y(Price::from_units(
-                    level.price_units,
-                ));
+                let y = state.price_to_y(
+                    Price::from_units(level.price_units),
+                );
                 let color = to_iced_color(
-                    vbp.va_config.val_color,
+                    config.va_config.val_color,
                     1.0,
                 );
                 draw_label(
@@ -1160,15 +1251,17 @@ fn draw_price_labels(
     }
 
     // Peak label
-    if vbp.node_config.show_peak_line
-        && vbp.node_config.show_peak_label
+    if config.node_config.show_peak_line
+        && config.node_config.show_peak_label
     {
-        if let Some(ref node) = vbp.peak_node {
+        if let Some(ref node) = output.peak_node {
             let y = state.price_to_y(Price::from_units(
                 node.price_units,
             ));
-            let color =
-                to_iced_color(vbp.node_config.peak_color, 1.0);
+            let color = to_iced_color(
+                config.node_config.peak_color,
+                1.0,
+            );
             draw_label(
                 frame,
                 &format!("Peak {:.2}", node.price),
@@ -1180,15 +1273,15 @@ fn draw_price_labels(
     }
 
     // Valley label
-    if vbp.node_config.show_valley_line
-        && vbp.node_config.show_valley_label
+    if config.node_config.show_valley_line
+        && config.node_config.show_valley_label
     {
-        if let Some(ref node) = vbp.valley_node {
+        if let Some(ref node) = output.valley_node {
             let y = state.price_to_y(Price::from_units(
                 node.price_units,
             ));
             let color = to_iced_color(
-                vbp.node_config.valley_color,
+                config.node_config.valley_color,
                 1.0,
             );
             draw_label(
@@ -1202,14 +1295,16 @@ fn draw_price_labels(
     }
 
     // VWAP label
-    if vbp.vwap_config.show_vwap
-        && vbp.vwap_config.show_vwap_label
-        && !vbp.vwap_points.is_empty()
+    if config.vwap_config.show_vwap
+        && config.vwap_config.show_vwap_label
+        && let Some(last) = output.vwap_points.last()
     {
-        let last = vbp.vwap_points.last().unwrap();
-        let y = state.price_to_y(Price::from_f32(last.1));
-        let color =
-            to_iced_color(vbp.vwap_config.vwap_color, 1.0);
+        let y =
+            state.price_to_y(Price::from_f32(last.1));
+        let color = to_iced_color(
+            config.vwap_config.vwap_color,
+            1.0,
+        );
         draw_label(
             frame,
             &format!("VWAP {:.2}", last.1),
@@ -1363,7 +1458,9 @@ fn price_to_y_top(
     state: &ViewState,
     bar_height: f32,
 ) -> f32 {
-    let last = levels.last().unwrap();
+    let Some(last) = levels.last() else {
+        return 0.0;
+    };
     state.price_to_y(Price::from_units(last.price_units))
         - bar_height / 2.0
 }
@@ -1374,7 +1471,9 @@ fn price_to_y_bottom(
     state: &ViewState,
     bar_height: f32,
 ) -> f32 {
-    let first = levels.first().unwrap();
+    let Some(first) = levels.first() else {
+        return 0.0;
+    };
     state.price_to_y(Price::from_units(first.price_units))
         + bar_height / 2.0
 }
@@ -1383,10 +1482,5 @@ fn to_iced_color(
     sc: data::SerializableColor,
     opacity: f32,
 ) -> Color {
-    Color {
-        r: sc.r,
-        g: sc.g,
-        b: sc.b,
-        a: sc.a * opacity,
-    }
+    coord::to_iced_color(sc, opacity)
 }

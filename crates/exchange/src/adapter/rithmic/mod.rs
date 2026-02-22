@@ -137,9 +137,8 @@ impl RithmicConfig {
 
     /// Create from a UI feed config and password.
     ///
-    /// Loads base connection details (URLs, account IDs) from environment
-    /// variables, then overrides user/password/system_name from the feed
-    /// config and stored password.
+    /// Builds the `rithmic_rs::RithmicConfig` entirely from UI-provided
+    /// fields — no environment variables required.
     pub fn from_feed_config(
         feed_config: &kairos_data::feed::RithmicFeedConfig,
         password: &str,
@@ -160,6 +159,11 @@ impl RithmicConfig {
                 "System name is required".to_string(),
             ));
         }
+        if feed_config.server_url.trim().is_empty() {
+            return Err(AdapterError::InvalidRequest(
+                "Server URL is required".to_string(),
+            ));
+        }
 
         let env = match feed_config.environment {
             kairos_data::feed::RithmicEnvironment::Demo => rithmic_rs::RithmicEnv::Demo,
@@ -167,23 +171,17 @@ impl RithmicConfig {
             kairos_data::feed::RithmicEnvironment::Test => rithmic_rs::RithmicEnv::Test,
         };
 
-        // Load base config from environment variables (URLs, account IDs)
-        let mut rithmic_config =
-            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
-                AdapterError::InvalidRequest(format!(
-                    "Failed to load Rithmic env config: {}. \
-                     Set RITHMIC_{}_* environment variables.",
-                    e,
-                    env.to_string().to_uppercase()
-                ))
-            })?;
-
-        // Override with feed config values
-        rithmic_config.user = feed_config.user_id.clone();
-        rithmic_config.password = password.to_string();
-        if !feed_config.system_name.is_empty() {
-            rithmic_config.system_name = feed_config.system_name.clone();
-        }
+        let rithmic_config = rithmic_rs::RithmicConfig {
+            env,
+            user: feed_config.user_id.clone(),
+            password: password.to_string(),
+            system_name: feed_config.system_name.clone(),
+            url: feed_config.server_url.clone(),
+            beta_url: feed_config.server_url.clone(),
+            account_id: feed_config.account_id.clone(),
+            fcm_id: feed_config.fcm_id.clone(),
+            ib_id: feed_config.ib_id.clone(),
+        };
 
         let local = Self {
             env,

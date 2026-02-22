@@ -13,7 +13,6 @@ mod histogram;
 mod levels;
 mod line;
 mod markers;
-mod profile;
 pub(crate) mod vbp;
 pub mod panel;
 
@@ -66,8 +65,10 @@ pub fn render_study_output(
         StudyOutput::Levels(levels) => {
             levels::render_levels(frame, levels, state, bounds);
         }
-        StudyOutput::Profile(profile_data) => {
-            profile::render_profile(frame, profile_data, state, bounds);
+        StudyOutput::Profile(output, config) => {
+            vbp::render_vbp(
+                frame, output, config, state, bounds,
+            );
         }
         StudyOutput::Markers(data) => {
             markers::render_markers(
@@ -77,9 +78,6 @@ pub fn render_study_output(
                 bounds,
                 &data.render_config,
             );
-        }
-        StudyOutput::Vbp(data) => {
-            vbp::render_vbp(frame, data, state, bounds);
         }
         StudyOutput::Composite(outputs) => {
             for sub_output in outputs {

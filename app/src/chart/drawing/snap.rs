@@ -94,6 +94,11 @@ pub fn constrain_handle(
     bounds: Size,
     cursor: Point,
 ) -> Point {
+    // VBP handles only change time; no square/angle constraint applies
+    if tool == DrawingTool::VolumeProfile {
+        return cursor;
+    }
+
     // Calculator tools: handle 0 = axis lock, handle 1 = free,
     // handle 2 = lock X to point 1
     if matches!(

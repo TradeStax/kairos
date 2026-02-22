@@ -66,7 +66,16 @@ impl State {
         };
 
         let constrained = constrain_for_creation(chart, screen_point, shift_held);
-        let point = screen_to_drawing_point(chart, constrained);
+        let mut point = screen_to_drawing_point(chart, constrained);
+
+        // Snap first VBP point's Y to candle open price
+        if chart.drawings().active_tool() == DrawingTool::VolumeProfile
+            && !chart.drawings().has_pending()
+        {
+            if let Some(open) = chart.candle_open_at_time(point.time) {
+                point.price = open;
+            }
+        }
 
         let completed_id = if chart.drawings().has_pending() {
             chart.drawings_mut().complete_drawing(point)
@@ -191,8 +200,13 @@ impl State {
             chart.drawings().selected_ids().iter().copied().collect();
         let Some(&id) = selected.first() else { return };
 
-        // Apply shift constraint based on tool/handle
-        let constrained = if shift_held {
+        let is_vbp = chart
+            .drawings()
+            .get(id)
+            .is_some_and(|d| d.tool == DrawingTool::VolumeProfile);
+
+        // Apply shift constraint based on tool/handle (skip for VBP)
+        let constrained = if shift_held && !is_vbp {
             let state = chart.view_state();
             let bounds = state.bounds.size();
             chart
@@ -213,7 +227,14 @@ impl State {
             screen_point
         };
 
-        let point = screen_to_drawing_point(chart, constrained);
+        // VBP handles always snap to candle boundaries
+        let point = if is_vbp {
+            let state = chart.view_state();
+            let bounds = state.bounds.size();
+            DrawingPoint::from_screen(constrained, state, bounds, true)
+        } else {
+            screen_to_drawing_point(chart, constrained)
+        };
 
         if !chart.drawings().is_dragging() {
             chart.drawings_mut().start_drag(point, id, screen_point);
@@ -294,6 +315,12 @@ impl State {
                         (&d.style.vbp_config, &mut d.vbp_study)
                     {
                         study.import_config(&cfg.params);
+                        // Force Custom period to preserve drawing anchors
+                        if d.points.len() >= 2 {
+                            let t1 = d.points[0].time;
+                            let t2 = d.points[1].time;
+                            study.set_range(t1.min(t2), t1.max(t2));
+                        }
                     }
                     chart.drawings_mut().queue_vbp_compute(id);
                 }

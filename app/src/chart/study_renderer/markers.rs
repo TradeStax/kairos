@@ -28,30 +28,27 @@ pub fn render_markers(
     let visible_region = state.visible_region(bounds);
     let (earliest, latest) = state.interval_range(&visible_region);
 
-    // Collect contracts for visible markers to compute statistics
-    let visible_contracts: Vec<f64> = markers
-        .iter()
-        .filter(|m| m.time >= earliest && m.time <= latest)
-        .map(|m| m.contracts)
-        .collect();
-
-    if visible_contracts.is_empty() {
+    // Streaming stats: zero-allocation two-value accumulator
+    let (mut n, mut sum, mut sum_sq) = (0usize, 0.0f64, 0.0f64);
+    for m in markers {
+        if m.time >= earliest && m.time <= latest {
+            n += 1;
+            sum += m.contracts;
+            sum_sq += m.contracts * m.contracts;
+        }
+    }
+    if n == 0 {
         return;
     }
-
-    // Compute mean and standard deviation for statistical sizing
-    let count = visible_contracts.len();
-    let mean: f64 =
-        visible_contracts.iter().sum::<f64>() / count as f64;
+    let count = n;
+    let mean = sum / count as f64;
     let sd: f64 = if count > 1 {
-        let variance = visible_contracts
-            .iter()
-            .map(|c| (c - mean).powi(2))
-            .sum::<f64>()
-            / count as f64;
-        variance.sqrt().max(f64::EPSILON)
+        ((sum_sq / count as f64) - mean * mean)
+            .max(0.0)
+            .sqrt()
+            .max(f64::EPSILON)
     } else {
-        1.0 // avoid division by zero for single marker
+        1.0
     };
 
     for marker in markers {
