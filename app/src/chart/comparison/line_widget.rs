@@ -12,9 +12,9 @@ use iced_core::renderer::Quad;
 use chrono::TimeZone;
 
 use super::scene::{HitZone, Regions, Scene};
+use crate::chart::core::tokens as chart_tokens;
 use crate::style::tokens;
 
-const TEXT_SIZE: f32 = tokens::text::BODY;
 const Y_AXIS_GUTTER: f32 = tokens::chart::Y_AXIS_GUTTER;
 const X_AXIS_HEIGHT: f32 = tokens::chart::X_AXIS_HEIGHT;
 pub(super) const MIN_X_TICK_PX: f32 = tokens::chart::MIN_X_TICK_PX;
@@ -25,17 +25,14 @@ pub const DEFAULT_ZOOM_POINTS: usize = 150;
 pub const MIN_ZOOM_POINTS: usize = 2;
 pub const MAX_ZOOM_POINTS: usize = 5000;
 
-pub(super) const LEGEND_PADDING: f32 = 4.0;
-pub(super) const LEGEND_LINE_H: f32 = TEXT_SIZE + 6.0;
-
-pub(super) const CHAR_W: f32 = TEXT_SIZE * 0.64;
-
-pub(super) const ICON_BOX: f32 = TEXT_SIZE + 8.0;
-pub(super) const ICON_SPACING: f32 = 4.0;
-pub(super) const ICON_GAP_AFTER_TEXT: f32 = 8.0;
-
-// Re-export TEXT_SIZE for sibling modules
-pub(super) const TEXT_SIZE_PUB: f32 = TEXT_SIZE;
+// Legend constants live in `crate::chart::core::tokens::legend`.
+// Re-exported here for backward compatibility with sibling modules (legend.rs, render.rs, scene.rs).
+pub(super) use chart_tokens::legend::PADDING as LEGEND_PADDING;
+pub(super) use chart_tokens::legend::LINE_H as LEGEND_LINE_H;
+pub(super) use chart_tokens::legend::CHAR_W;
+pub(super) use chart_tokens::legend::ICON_BOX;
+pub(super) use chart_tokens::legend::ICON_SPACING;
+pub(super) use chart_tokens::legend::ICON_GAP_AFTER_TEXT;
 
 #[derive(Debug, Clone)]
 pub enum LineComparisonEvent {

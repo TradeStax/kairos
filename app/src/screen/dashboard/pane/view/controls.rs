@@ -3,6 +3,7 @@ use crate::{
     components::display::tooltip::button_with_tooltip,
     components::primitives::{Icon, icon_text},
     modals::pane::Modal,
+    screen::dashboard::pane::types::AiAssistantEvent,
     style::{self, tokens},
 };
 use iced::{
@@ -43,18 +44,45 @@ impl State {
         let show_modal = |modal: Modal| Message::PaneEvent(pane, Event::ShowModal(modal));
 
         if !treat_as_starter {
-            buttons = buttons.push(button_with_tooltip(
-                icon_text(Icon::Cog, 12),
-                show_modal(Modal::Settings),
-                None,
-                tooltip_pos,
-                modal_btn_style(Modal::Settings),
-            ));
+            // AI pane: gear toggles the in-panel settings overlay; trash clears history
+            if let Content::AiAssistant(ai_state) = &self.content {
+                let is_settings_open = ai_state.show_settings;
+                buttons = buttons.push(button_with_tooltip(
+                    icon_text(Icon::Cog, 12),
+                    Message::PaneEvent(
+                        pane,
+                        Event::AiAssistant(AiAssistantEvent::ToggleSettings),
+                    ),
+                    Some("Settings"),
+                    tooltip_pos,
+                    move |theme: &Theme, status: button::Status| {
+                        style::button::transparent(theme, status, is_settings_open)
+                    },
+                ));
+                buttons = buttons.push(button_with_tooltip(
+                    icon_text(Icon::TrashBin, 12),
+                    Message::PaneEvent(
+                        pane,
+                        Event::AiAssistant(AiAssistantEvent::ClearHistory),
+                    ),
+                    Some("Clear History"),
+                    tooltip_pos,
+                    control_btn_style(false),
+                ));
+            } else {
+                buttons = buttons.push(button_with_tooltip(
+                    icon_text(Icon::Cog, 12),
+                    show_modal(Modal::Settings),
+                    None,
+                    tooltip_pos,
+                    modal_btn_style(Modal::Settings),
+                ));
+            }
         }
         if !treat_as_starter
             && matches!(
                 &self.content,
-                Content::Heatmap { .. } | Content::Kline { .. }
+                Content::Heatmap { .. } | Content::Candlestick { .. }
             )
         {
             buttons = buttons.push(button_with_tooltip(

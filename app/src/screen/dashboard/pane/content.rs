@@ -6,6 +6,7 @@ use crate::chart::Chart;
 use crate::chart::drawing::ChartDrawingAccess;
 use crate::components::layout::reorderable_list as column_drag;
 use crate::screen::dashboard::panel::{ladder::Ladder, timeandsales::TimeAndSales};
+use crate::screen::dashboard::pane::types::AiAssistantState;
 
 use data::{ContentKind, DrawingTool, HeatmapIndicator, Settings, ViewConfig, VisualConfig};
 use exchange::FuturesTickerInfo;
@@ -21,7 +22,7 @@ pub enum Content {
         layout: ViewConfig,
         studies: Vec<data::domain::chart::heatmap::HeatmapStudy>,
     },
-    Kline {
+    Candlestick {
         chart: Option<KlineChart>,
         layout: ViewConfig,
         study_ids: Vec<String>,
@@ -34,11 +35,12 @@ pub enum Content {
         layout: ViewConfig,
         study_ids: Vec<String>,
     },
+    AiAssistant(AiAssistantState),
 }
 
 impl Content {
     /// Create empty content for a given kind (will be populated when chart data loads)
-    pub fn new_for_kind(
+    pub(crate) fn new_for_kind(
         kind: ContentKind,
         ticker_info: FuturesTickerInfo,
         settings: &Settings,
@@ -50,14 +52,16 @@ impl Content {
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::CenterLatest),
+                    side_splits: vec![],
                 },
                 studies: vec![],
             },
-            ContentKind::CandlestickChart => Content::Kline {
+            ContentKind::CandlestickChart => Content::Candlestick {
                 chart: None,
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
+                    side_splits: vec![],
                 },
                 study_ids: vec![],
             },
@@ -93,21 +97,27 @@ impl Content {
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
+                    side_splits: vec![],
                 },
                 study_ids: vec![],
             },
             ContentKind::Starter => Content::Starter,
+            ContentKind::BacktestResult => Content::Starter,
+            ContentKind::AiAssistant => {
+                Content::AiAssistant(AiAssistantState::new())
+            }
         }
     }
 
     pub(crate) fn placeholder(kind: ContentKind) -> Self {
         match kind {
             ContentKind::Starter => Content::Starter,
-            ContentKind::CandlestickChart => Content::Kline {
+            ContentKind::CandlestickChart => Content::Candlestick {
                 chart: None,
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
+                    side_splits: vec![],
                 },
                 study_ids: vec![],
             },
@@ -118,6 +128,7 @@ impl Content {
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::CenterLatest),
+                    side_splits: vec![],
                 },
             },
             ContentKind::ComparisonChart => Content::Comparison(None),
@@ -128,21 +139,27 @@ impl Content {
                 layout: ViewConfig {
                     splits: vec![],
                     autoscale: Some(data::Autoscale::FitAll),
+                    side_splits: vec![],
                 },
                 study_ids: vec![],
             },
+            ContentKind::BacktestResult => Content::Starter,
+            ContentKind::AiAssistant => {
+                Content::AiAssistant(AiAssistantState::new())
+            }
         }
     }
 
     pub fn last_tick(&self) -> Option<Instant> {
         match self {
             Content::Heatmap { chart, .. } => Some(chart.as_ref()?.last_update()),
-            Content::Kline { chart, .. } => Some(chart.as_ref()?.last_update()),
+            Content::Candlestick { chart, .. } => Some(chart.as_ref()?.last_update()),
             Content::TimeAndSales(panel) => Some(panel.as_ref()?.last_update()),
             Content::Ladder(panel) => Some(panel.as_ref()?.last_update()),
             Content::Comparison(chart) => Some(chart.as_ref()?.last_update()),
             Content::Profile { chart, .. } => Some(chart.as_ref()?.last_update()),
-            Content::Starter => None,
+            Content::Starter
+            | Content::AiAssistant(_) => None,
         }
     }
 
@@ -173,7 +190,7 @@ impl Content {
                         c.remove_study(study_id);
                     }
                 } else {
-                    let registry = crate::app::services::create_unified_registry();
+                    let registry = crate::app::init::services::create_unified_registry();
                     if let Some(study) = registry.create(study_id) {
                         $study_ids.push(study_id.to_string());
                         if let Some(c) = $chart {
@@ -184,7 +201,7 @@ impl Content {
             };
         }
         match self {
-            Content::Kline {
+            Content::Candlestick {
                 chart, study_ids, ..
             } => toggle!(chart, study_ids),
             Content::Profile {
@@ -201,7 +218,7 @@ impl Content {
         value: study::ParameterValue,
     ) {
         match self {
-            Content::Kline { chart: Some(c), .. } => {
+            Content::Candlestick { chart: Some(c), .. } => {
                 c.update_study_parameter(study_id, key, value);
             }
             Content::Profile { chart: Some(c), .. } => {
@@ -230,7 +247,7 @@ impl Content {
                 };
                 c.set_visual_config(visual);
             }
-            (Content::Kline { chart: Some(c), .. }, VisualConfig::Kline(cfg)) => {
+            (Content::Candlestick { chart: Some(c), .. }, VisualConfig::Kline(cfg)) => {
                 c.set_candle_style(cfg.candle_style);
                 c.set_show_debug_info(cfg.show_debug_info);
             }
@@ -309,48 +326,70 @@ impl Content {
     pub fn has_indicators(&self) -> bool {
         matches!(
             self,
-            Content::Kline { .. } | Content::Heatmap { .. } | Content::Profile { .. }
+            Content::Candlestick { .. } | Content::Heatmap { .. } | Content::Profile { .. }
         )
     }
 
-    pub fn kind(&self) -> ContentKind {
+    pub(crate) fn kind(&self) -> ContentKind {
         match self {
             Content::Heatmap { .. } => ContentKind::HeatmapChart,
-            Content::Kline { .. } => ContentKind::CandlestickChart,
+            Content::Candlestick { .. } => ContentKind::CandlestickChart,
             Content::TimeAndSales(_) => ContentKind::TimeAndSales,
             Content::Ladder(_) => ContentKind::Ladder,
             Content::Comparison(_) => ContentKind::ComparisonChart,
             Content::Profile { .. } => ContentKind::ProfileChart,
             Content::Starter => ContentKind::Starter,
+            Content::AiAssistant(_) => ContentKind::AiAssistant,
         }
     }
 
     pub(crate) fn initialized(&self) -> bool {
         match self {
             Content::Heatmap { chart, .. } => chart.is_some(),
-            Content::Kline { chart, .. } => chart.is_some(),
+            Content::Candlestick { chart, .. } => chart.is_some(),
             Content::TimeAndSales(panel) => panel.is_some(),
             Content::Ladder(panel) => panel.is_some(),
             Content::Comparison(chart) => chart.is_some(),
             Content::Profile { chart, .. } => chart.is_some(),
             Content::Starter => true,
+            Content::AiAssistant(_) => true,
         }
     }
 
-    /// Append a single trade to the active chart (used by replay).
-    pub fn append_trade(&mut self, trade: &data::Trade) {
+    /// Append a single trade to the active chart/panel.
+    pub(crate) fn append_trade(&mut self, trade: &data::Trade) {
         match self {
-            Content::Kline { chart: Some(c), .. } => c.append_trade(trade),
+            Content::Candlestick { chart: Some(c), .. } => c.append_trade(trade),
             Content::Heatmap { chart: Some(c), .. } => c.append_trade(trade),
             Content::Profile { chart: Some(c), .. } => c.append_trade(trade),
+            Content::TimeAndSales(Some(panel)) => {
+                panel.update_from_replay(std::slice::from_ref(trade));
+            }
+            _ => {}
+        }
+    }
+
+    /// Route a live depth snapshot (with bundled trades) to the content.
+    pub(crate) fn update_live_depth(
+        &mut self,
+        depth: &data::DepthSnapshot,
+        trades: &[data::Trade],
+    ) {
+        match self {
+            Content::Heatmap { chart: Some(c), .. } => {
+                c.update_from_replay(depth, trades);
+            }
+            Content::Ladder(Some(panel)) => {
+                panel.update_from_replay(depth, trades);
+            }
             _ => {}
         }
     }
 
     /// Rebuild the chart from scratch with the given trades (used by replay seek).
-    pub fn rebuild_from_trades(&mut self, trades: &[data::Trade]) {
+    pub(crate) fn rebuild_from_trades(&mut self, trades: &[data::Trade]) {
         match self {
-            Content::Kline { chart: Some(c), .. } => c.rebuild_from_trades(trades),
+            Content::Candlestick { chart: Some(c), .. } => c.rebuild_from_trades(trades),
             Content::Heatmap { chart: Some(c), .. } => c.rebuild_from_trades(trades),
             Content::Profile { chart: Some(c), .. } => c.rebuild_from_trades(trades),
             _ => {}
@@ -359,15 +398,16 @@ impl Content {
 
     /// Clear chart/panel objects while keeping the content kind and settings.
     /// Used when a feed disconnects to unload data without losing the pane layout.
-    pub fn clear_chart(&mut self) {
+    pub(crate) fn clear_chart(&mut self) {
         match self {
             Content::Heatmap { chart, .. } => *chart = None,
-            Content::Kline { chart, .. } => *chart = None,
+            Content::Candlestick { chart, .. } => *chart = None,
             Content::TimeAndSales(panel) => *panel = None,
             Content::Ladder(panel) => *panel = None,
             Content::Comparison(chart) => *chart = None,
             Content::Profile { chart, .. } => *chart = None,
-            Content::Starter => {}
+            Content::Starter
+            | Content::AiAssistant(_) => {}
         }
     }
 
@@ -375,7 +415,7 @@ impl Content {
     /// drawable chart type with a loaded chart).
     pub fn drawing_chart(&self) -> Option<&dyn ChartDrawingAccess> {
         match self {
-            Content::Kline { chart: Some(c), .. } => Some(c),
+            Content::Candlestick { chart: Some(c), .. } => Some(c),
             Content::Heatmap { chart: Some(c), .. } => Some(c),
             Content::Profile { chart: Some(c), .. } => Some(c),
             _ => None,
@@ -385,7 +425,7 @@ impl Content {
     /// Get a mutable reference to the chart's drawing system.
     pub fn drawing_chart_mut(&mut self) -> Option<&mut dyn ChartDrawingAccess> {
         match self {
-            Content::Kline { chart: Some(c), .. } => Some(c),
+            Content::Candlestick { chart: Some(c), .. } => Some(c),
             Content::Heatmap { chart: Some(c), .. } => Some(c),
             Content::Profile { chart: Some(c), .. } => Some(c),
             _ => None,
@@ -413,9 +453,9 @@ impl Content {
     }
 
     /// Scroll the chart to show the latest data.
-    pub fn scroll_to_latest(&mut self) {
+    pub(crate) fn scroll_to_latest(&mut self) {
         match self {
-            Content::Kline { chart: Some(c), .. } => {
+            Content::Candlestick { chart: Some(c), .. } => {
                 c.mut_state().layout.autoscale = Some(data::Autoscale::CenterLatest);
             }
             Content::Heatmap { chart: Some(c), .. } => {
@@ -429,10 +469,10 @@ impl Content {
     }
 
     /// Apply a zoom step to the X-axis (positive = zoom in, negative = zoom out).
-    pub fn zoom_step(&mut self, factor: f32) {
+    pub(crate) fn zoom_step(&mut self, factor: f32) {
         const ZOOM_BASE: f32 = 1.5;
         match self {
-            Content::Kline { chart: Some(c), .. } => {
+            Content::Candlestick { chart: Some(c), .. } => {
                 let state = c.mut_state();
                 state.cell_width = (state.cell_width * ZOOM_BASE.powf(factor)).clamp(2.0, 200.0);
             }
@@ -445,20 +485,6 @@ impl Content {
                 state.cell_width = (state.cell_width * ZOOM_BASE.powf(factor)).clamp(2.0, 200.0);
             }
             _ => {}
-        }
-    }
-
-    /// Get Big Trades study output and tick size for the debug modal.
-    pub fn big_trades_debug_info(&self) -> Option<(&study::StudyOutput, f32)> {
-        match self {
-            Content::Kline { chart: Some(c), .. } => {
-                let tick_size = c.tick_size();
-                c.studies()
-                    .iter()
-                    .find(|s| s.id() == "big_trades")
-                    .map(|s| (s.output(), tick_size))
-            }
-            _ => None,
         }
     }
 
@@ -491,7 +517,7 @@ impl Content {
             };
         }
         match self {
-            Content::Kline {
+            Content::Candlestick {
                 chart: Some(c),
                 study_ids,
                 ..
@@ -525,11 +551,12 @@ impl PartialEq for Content {
             (self, other),
             (Content::Starter, Content::Starter)
                 | (Content::Heatmap { .. }, Content::Heatmap { .. })
-                | (Content::Kline { .. }, Content::Kline { .. })
+                | (Content::Candlestick { .. }, Content::Candlestick { .. })
                 | (Content::TimeAndSales(_), Content::TimeAndSales(_))
                 | (Content::Ladder(_), Content::Ladder(_))
                 | (Content::Comparison(_), Content::Comparison(_))
                 | (Content::Profile { .. }, Content::Profile { .. })
+                | (Content::AiAssistant(_), Content::AiAssistant(_))
         )
     }
 }

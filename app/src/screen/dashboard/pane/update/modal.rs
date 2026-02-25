@@ -1,13 +1,13 @@
 use crate::chart;
 use crate::modals::{self, pane::Modal};
-use crate::screen::dashboard::pane::{Content, ContextMenuAction, Effect, State};
+use crate::screen::dashboard::pane::{Action, Content, ContextMenuAction, State};
 use data::{ChartBasis, ChartConfig, ChartType, DateRange, Timeframe};
 
 impl State {
     pub(super) fn handle_stream_modifier(
         &mut self,
         message: crate::modals::stream::Message,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         if let Some(Modal::StreamModifier(modifier)) = self.modal.take() {
             let mut modifier = modifier;
 
@@ -24,7 +24,7 @@ impl State {
                             Content::Heatmap { chart: Some(c), .. } => {
                                 c.set_basis(new_basis);
                             }
-                            Content::Kline { chart: Some(c), .. } => {
+                            Content::Candlestick { chart: Some(c), .. } => {
                                 if let Some(ticker) = self.ticker_info {
                                     c.switch_basis(new_basis, ticker);
                                 }
@@ -44,7 +44,7 @@ impl State {
     pub(super) fn handle_mini_tickers_list(
         &mut self,
         message: crate::modals::pane::tickers::Message,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         if let Some(Modal::MiniTickersList(ref mut mini_panel)) = self.modal
             && let Some(action) = mini_panel.update(message)
         {
@@ -72,7 +72,7 @@ impl State {
                         chart_type: ChartType::Candlestick,
                     };
 
-                    return Some(Effect::LoadChart {
+                    return Some(Action::LoadChart {
                         config: chart_config,
                         ticker_info,
                     });
@@ -85,7 +85,7 @@ impl State {
                     }
                 }
                 crate::modals::pane::tickers::RowSelection::Switch(ti) => {
-                    return Some(Effect::SwitchTickersInGroup(ti));
+                    return Some(Action::SwitchTickersInGroup(ti));
                 }
             }
         }
@@ -95,7 +95,7 @@ impl State {
     pub(super) fn handle_data_management(
         &mut self,
         message: crate::modals::download::DataManagementMessage,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         if let Some(Modal::DataManagement(ref mut panel)) = self.modal
             && let Some(action) = panel.update(message)
         {
@@ -107,7 +107,7 @@ impl State {
                     schema,
                     date_range,
                 } => {
-                    return Some(Effect::EstimateDataCost {
+                    return Some(Action::EstimateDataCost {
                         ticker,
                         schema,
                         date_range,
@@ -118,7 +118,7 @@ impl State {
                     schema,
                     date_range,
                 } => {
-                    return Some(Effect::DownloadData {
+                    return Some(Action::DownloadData {
                         ticker,
                         schema,
                         date_range,
@@ -131,13 +131,13 @@ impl State {
 
     pub(super) fn handle_drawing_properties_modal(
         &mut self,
-        message: crate::modals::drawing_properties::Message,
-    ) -> Option<Effect> {
+        message: crate::modals::drawing::properties::Message,
+    ) -> Option<Action> {
         if let Some(Modal::DrawingProperties(ref mut modal)) = self.modal {
             let mut modal = modal.clone();
             if let Some(action) = modal.update(message) {
                 match action {
-                    crate::modals::drawing_properties::Action::Applied(
+                    crate::modals::drawing::properties::Action::Applied(
                         id,
                         update,
                     ) => {
@@ -146,7 +146,7 @@ impl State {
                         self.finalize_drawing_properties(id, snapshot);
                         self.modal = None;
                     }
-                    crate::modals::drawing_properties::Action::Cancelled(
+                    crate::modals::drawing::properties::Action::Cancelled(
                         id,
                         original,
                     ) => {
@@ -167,12 +167,12 @@ impl State {
 
     pub(super) fn handle_indicator_manager(
         &mut self,
-        message: modals::pane::indicator_manager::Message,
-    ) -> Option<Effect> {
+        message: modals::pane::indicator::Message,
+    ) -> Option<Action> {
         if let Some(Modal::IndicatorManager(ref mut manager)) = self.modal {
             let mut manager = manager.clone();
             if let Some(action) = manager.update(message) {
-                use modals::pane::indicator_manager::Action;
+                use modals::pane::indicator::Action;
                 match action {
                     Action::ToggleStudy(study_id) => {
                         self.content.toggle_study(&study_id);
@@ -200,10 +200,6 @@ impl State {
                             return self.rebuild_chart_with_days(days);
                         }
                     }
-                    Action::OpenBigTradesDebug => {
-                        self.modal = Some(Modal::BigTradesDebug);
-                        return None;
-                    }
                     Action::Close => {
                         self.modal = None;
                         return None;
@@ -217,10 +213,10 @@ impl State {
 
     pub(super) fn handle_study_configurator(
         &mut self,
-        study_msg: modals::pane::settings::study::StudyMessage,
+        study_msg: modals::pane::settings::StudyMessage,
     ) {
         match study_msg {
-            modals::pane::settings::study::StudyMessage::Heatmap(m) => {
+            modals::pane::settings::StudyMessage::Heatmap(m) => {
                 if let Content::Heatmap {
                     chart, studies, ..
                 } = &mut self.content
@@ -246,7 +242,7 @@ impl State {
     pub(super) fn handle_comparison_chart(
         &mut self,
         message: chart::comparison::Message,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         if let Content::Comparison(chart_opt) = &mut self.content
             && let Some(chart) = chart_opt
             && let Some(action) = chart.update(message)
@@ -275,7 +271,7 @@ impl State {
     pub(super) fn handle_context_menu_action(
         &mut self,
         action: ContextMenuAction,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         self.context_menu = None;
         match action {
             ContextMenuAction::RebuildChart => {
@@ -301,6 +297,13 @@ impl State {
             }
             ContextMenuAction::OpenStudyProperties(idx) => {
                 self.open_indicator_manager_for_study(idx);
+            }
+            ContextMenuAction::CopyAiMessageText(idx) => {
+                if let Content::AiAssistant(ai) = &self.content {
+                    if let Some(text) = ai.message_text(idx) {
+                        return Some(Action::CopyToClipboard(text));
+                    }
+                }
             }
         }
         None

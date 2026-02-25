@@ -59,6 +59,8 @@ pub enum DragEvent {
     Canceled { index: usize },
 }
 
+// ALLOW: Column holds Box<dyn Fn(...)> and Element children; neither implements Debug.
+// A manual Debug impl would only show field counts, not actionable content.
 #[allow(missing_debug_implementations)]
 pub struct Column<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
     spacing: f32,

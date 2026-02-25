@@ -87,6 +87,36 @@ pub mod selection {
     pub const GLOW_ALPHA: f32 = 0.2;
 }
 
+/// Comparison chart legend overlay constants.
+/// Used by `chart/comparison/line_widget.rs`, `legend.rs`, `render.rs`, `scene.rs`.
+pub mod legend {
+    use crate::style::tokens::text;
+
+    /// Padding inside the legend bounding box (pixels).
+    pub const PADDING: f32 = 4.0;
+    /// Height of one legend row: text size + internal vertical gap.
+    pub const LINE_H: f32 = text::BODY + 6.0;
+    /// Approximate rendered width of one character (for text sizing).
+    pub const CHAR_W: f32 = text::BODY * 0.64;
+    /// Square bounding box side for an icon glyph.
+    pub const ICON_BOX: f32 = text::BODY + 8.0;
+    /// Horizontal gap between adjacent icons in the icon cluster.
+    pub const ICON_SPACING: f32 = 4.0;
+    /// Gap between the end of the ticker name text and the icon cluster.
+    pub const ICON_GAP_AFTER_TEXT: f32 = 8.0;
+    /// Body text size for legend labels (mirrors style::tokens::text::BODY).
+    pub const TEXT_SIZE: f32 = text::BODY;
+}
+
+/// Heatmap chart cell size limits
+pub mod heatmap {
+    pub const MAX_CELL_WIDTH: f32 = 12.0;
+    pub const MIN_CELL_WIDTH: f32 = 1.0;
+    pub const MAX_CELL_HEIGHT: f32 = 10.0;
+    pub const MIN_CELL_HEIGHT: f32 = 0.1;
+    pub const DEFAULT_CELL_WIDTH: f32 = 3.0;
+}
+
 /// Float comparison epsilons
 pub mod epsilon {
     /// General float comparison

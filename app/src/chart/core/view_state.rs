@@ -37,6 +37,44 @@ pub fn x_to_interval(x: f32, offset: f64, cell_width: f32, basis: &ChartBasis) -
     }
 }
 
+/// Crosshair synchronization state for a chart.
+///
+/// Uses `Cell` for interior mutability so the main chart's `draw()` can
+/// write and the study/side-panel `draw()` can read in the same frame.
+pub struct CrosshairState {
+    /// Current crosshair interval (snapped timestamp ms or tick index).
+    /// Set whenever the cursor is in the main chart or study panel canvas.
+    ///
+    // INVARIANT: written in main chart draw(), read in panel/side_panel draw() — same frame.
+    // Cell is used because Iced's canvas::Program::draw takes &self.
+    // The draw call order (main → panel → side_panel) is enforced by Iced's layer stacking.
+    pub interval: Cell<Option<u64>>,
+    /// Current cursor Y in canvas-local screen coords for the side panel.
+    ///
+    // INVARIANT: written in main chart draw(), read in panel/side_panel draw() — same frame.
+    // Cell is used because Iced's canvas::Program::draw takes &self.
+    // The draw call order (main → panel → side_panel) is enforced by Iced's layer stacking.
+    pub y: Cell<Option<f32>>,
+    /// Remote crosshair interval from a linked pane.
+    pub remote: Option<u64>,
+}
+
+impl CrosshairState {
+    pub fn new() -> Self {
+        CrosshairState {
+            interval: Cell::new(None),
+            y: Cell::new(None),
+            remote: None,
+        }
+    }
+}
+
+impl Default for CrosshairState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Complete view state for a chart
 ///
 /// Contains all information needed to render the chart at its current
@@ -70,14 +108,8 @@ pub struct ViewState {
     pub ticker_info: FuturesTickerInfo,
     /// Layout configuration (splits, autoscale)
     pub layout: ViewConfig,
-    /// Remote crosshair interval from a linked pane (timestamp ms or tick index)
-    pub remote_crosshair: Option<u64>,
-    /// Current crosshair interval (snapped) — set whenever cursor is in
-    /// either the main chart canvas or the study panel canvas.  Both
-    /// canvases read this to draw a synchronised vertical crosshair.
-    /// Uses `Cell` so the main chart's `draw()` can update it and the
-    /// study panel's `draw()` can read the fresh value in the same frame.
-    pub crosshair_interval: Cell<Option<u64>>,
+    /// Crosshair synchronization state (interior-mutable for same-frame write/read).
+    pub crosshair: CrosshairState,
 }
 
 impl ViewState {
@@ -106,8 +138,7 @@ impl ViewState {
             decimals,
             ticker_info,
             layout,
-            remote_crosshair: None,
-            crosshair_interval: Cell::new(None),
+            crosshair: CrosshairState::new(),
         }
     }
 
@@ -211,6 +242,7 @@ impl ViewState {
         ViewConfig {
             splits: self.layout.splits.clone(),
             autoscale: self.layout.autoscale,
+            side_splits: self.layout.side_splits.clone(),
         }
     }
 

@@ -7,7 +7,7 @@
 
 use super::views;
 use super::{CacheStatus, DownloadConfig, DownloadProgress};
-use crate::components::layout::scrollable_content::scrollable_content;
+use crate::components::layout::scrollable_content;
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
 use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};

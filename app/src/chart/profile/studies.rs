@@ -1,6 +1,5 @@
-use data::Price as DomainPrice;
-
 use super::ProfileChart;
+use crate::chart::shared::study_helper as sh;
 
 impl ProfileChart {
     // ── Study management ──────────────────────────────────────────────
@@ -25,13 +24,9 @@ impl ProfileChart {
     }
 
     pub fn remove_study(&mut self, id: &str) {
-        self.studies.retain(|s| s.id() != id);
+        let has_panels = sh::remove_study_by_id(&mut self.studies, id);
 
         // If no panel studies remain, clear the splits vector
-        let has_panels = self
-            .studies
-            .iter()
-            .any(|s| s.placement() == study::StudyPlacement::Panel);
         if !has_panels {
             self.chart.layout.splits.clear();
         }
@@ -62,17 +57,13 @@ impl ProfileChart {
         if self.studies.is_empty() {
             return;
         }
-        let input = study::StudyInput {
-            candles: &self.chart_data.candles,
-            trades: Some(&self.chart_data.trades),
-            basis: self.basis,
-            tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
-            visible_range: self.last_visible_range,
-        };
-        for s in &mut self.studies {
-            if let Err(e) = s.compute(&input) {
-                log::warn!("Study '{}' compute error: {}", s.id(), e);
-            }
-        }
+        let input = sh::build_study_input(
+            &self.chart_data.candles,
+            &self.chart_data.trades,
+            self.basis,
+            &self.ticker_info,
+            self.last_visible_range,
+        );
+        sh::recompute_all(&mut self.studies, &input);
     }
 }

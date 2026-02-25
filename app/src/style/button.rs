@@ -403,6 +403,48 @@ pub fn cancel(theme: &Theme, status: Status, is_active: bool) -> Style {
     }
 }
 
+// ── Chat Bubbles ─────────────────────────────────────────────────────
+
+/// Assistant message bubble with subtle hover dimming.
+pub fn chat_bubble(theme: &Theme, status: Status) -> Style {
+    let p = theme.extended_palette();
+
+    Style {
+        text_color: p.background.weak.text,
+        background: Some(match status {
+            Status::Hovered => {
+                p.background.weak.color.scale_alpha(tokens::alpha::HOVER_DIM).into()
+            }
+            _ => p.background.weak.color.into(),
+        }),
+        border: Border {
+            radius: tokens::radius::MD.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// User message bubble with subtle hover dimming.
+pub fn chat_bubble_user(theme: &Theme, status: Status) -> Style {
+    let p = theme.extended_palette();
+
+    Style {
+        text_color: p.primary.weak.text,
+        background: Some(match status {
+            Status::Hovered => {
+                p.primary.weak.color.scale_alpha(tokens::alpha::HOVER_DIM).into()
+            }
+            _ => p.primary.weak.color.into(),
+        }),
+        border: Border {
+            radius: tokens::radius::MD.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 // ── Window Controls ───────────────────────────────────────────────────
 
 pub fn window_control(theme: &Theme, status: Status) -> Style {

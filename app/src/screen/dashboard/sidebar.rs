@@ -7,8 +7,8 @@ use crate::{
     components::display::tooltip::{button_with_tooltip, tooltip},
     components::primitives::{Icon, icon_text},
     layout::SavedState,
-    modals::drawing_tools::{self, DrawingToolsPanel, SidebarGroup},
-    modals::settings::{self, SettingsPanel},
+    modals::drawing::tools::{self, DrawingToolsPanel, SidebarGroup},
+    modals::preferences::{self, SettingsPanel},
     style,
     style::tokens,
 };
@@ -23,13 +23,13 @@ use iced::{
 #[derive(Debug, Clone)]
 pub enum Message {
     ToggleSidebarMenu(Option<sidebar::Menu>),
-    DrawingTools(drawing_tools::Message),
-    Settings(settings::Message),
+    DrawingTools(tools::Message),
+    Settings(preferences::Message),
 }
 
 pub enum SidebarAction {
-    Drawing(drawing_tools::Action),
-    Settings(settings::Action),
+    Drawing(tools::Action),
+    Settings(preferences::Action),
 }
 
 pub struct Sidebar {
@@ -70,7 +70,7 @@ impl Sidebar {
                 // Close drawing flyout when settings flyout opens
                 if matches!(
                     msg,
-                    settings::Message::ToggleFlyout(true)
+                    preferences::Message::ToggleFlyout(true)
                 ) {
                     self.drawing_tools.expanded_group = None;
                 }
@@ -170,7 +170,7 @@ impl Sidebar {
                     )
                 })
                 .on_press(Message::Settings(
-                    settings::Message::ToggleFlyout(!is_expanded),
+                    preferences::Message::ToggleFlyout(!is_expanded),
                 )),
             );
 
@@ -237,14 +237,14 @@ impl Sidebar {
                 // For Select, directly activate the tool.
                 let msg = if group.has_submenu() {
                     Message::DrawingTools(
-                        drawing_tools::Message::GroupClicked {
+                        tools::Message::GroupClicked {
                             tool: selected_tool,
                             group,
                         },
                     )
                 } else {
                     Message::DrawingTools(
-                        drawing_tools::Message::ToolSelected(
+                        tools::Message::ToolSelected(
                             selected_tool,
                         ),
                     )
@@ -317,7 +317,7 @@ impl Sidebar {
 
         button_with_tooltip(
             icon_text(icon, 14).width(24).align_x(Alignment::Center),
-            Message::DrawingTools(drawing_tools::Message::ToggleSnap),
+            Message::DrawingTools(tools::Message::ToggleSnap),
             Some(if snap_enabled {
                 "Snap On"
             } else {
@@ -363,8 +363,8 @@ impl Sidebar {
             }
 
             for &tool in *section {
-                let icon = drawing_tools::tool_icon(tool);
-                let label = drawing_tools::tool_label(tool);
+                let icon = tools::tool_icon(tool);
+                let label = tools::tool_label(tool);
                 let is_selected = tool == active_tool;
 
                 let btn = button_with_tooltip(
@@ -372,7 +372,7 @@ impl Sidebar {
                         .width(24)
                         .align_x(Alignment::Center),
                     Message::DrawingTools(
-                        drawing_tools::Message::ToolSelected(tool),
+                        tools::Message::ToolSelected(tool),
                     ),
                     Some(label),
                     tooltip_pos,

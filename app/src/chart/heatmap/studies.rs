@@ -1,4 +1,4 @@
-use crate::modals::pane::settings::study;
+use crate::modals::pane::settings::study_config as study;
 
 use super::HeatmapChart;
 use super::render::HeatmapStudy;

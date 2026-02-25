@@ -1,0 +1,222 @@
+//! Layout Dashboard Operations — runtime layout management and persistence.
+//!
+//! Contains both runtime operations (layout switching, cloning, popout management)
+//! AND the single save path for application state via [`Kairos::save_state_to_disk`].
+//!
+//! ## Counterpart
+//! The load path is [`crate::layout::load_saved_state_without_registry`]
+//! in `app/src/layout/load.rs`.
+
+use std::collections::HashMap;
+
+use iced::Task;
+
+use crate::layout::{LayoutId, configuration};
+use crate::screen::dashboard::Dashboard;
+use crate::infra::window;
+use data::state::WindowSpec;
+
+use super::super::{Kairos, Message};
+
+impl Kairos {
+    pub fn active_dashboard(&self) -> Option<&Dashboard> {
+        let active_layout = self.persistence.layout_manager.active_layout_id()?;
+        self.persistence.layout_manager
+            .get(active_layout.unique)
+            .map(|layout| &layout.dashboard)
+    }
+
+    pub fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
+        let active_layout = self.persistence.layout_manager.active_layout_id()?;
+        let unique = active_layout.unique;
+        self.persistence.layout_manager
+            .get_mut(unique)
+            .map(|layout| &mut layout.dashboard)
+    }
+
+    pub fn load_layout(
+        &mut self,
+        layout_uid: uuid::Uuid,
+        main_window: window::Id,
+    ) -> Task<Message> {
+        match self.persistence.layout_manager.set_active_layout(layout_uid) {
+            Ok(layout) => {
+                layout
+                    .dashboard
+                    .load_layout(main_window)
+                    .map(move |msg| Message::Dashboard {
+                        layout_id: Some(layout_uid),
+                        event: msg,
+                    })
+            }
+            Err(err) => {
+                log::error!("Failed to set active layout: {}", err);
+                Task::none()
+            }
+        }
+    }
+
+    pub fn save_state_to_disk(&mut self, windows: &HashMap<window::Id, WindowSpec>) {
+        if let Some(dashboard) = self.active_dashboard_mut() {
+            dashboard
+                .popout
+                .iter_mut()
+                .for_each(|(id, (_, window_spec))| {
+                    if let Some(new_window_spec) = windows.get(id) {
+                        *window_spec = new_window_spec.clone();
+                    }
+                });
+        }
+
+        let main_window_spec = windows
+            .iter()
+            .find(|(id, _)| **id == self.main_window.id)
+            .map(|(_, spec)| spec.clone());
+
+        // Serialize full pane trees for each layout
+        let active_layout_name = self
+            .persistence.layout_manager
+            .active_layout_id()
+            .map(|id| id.name.clone());
+
+        let layouts_for_save: Vec<data::state::layout::Layout> = self
+            .persistence.layout_manager
+            .layouts
+            .iter()
+            .filter_map(|layout| {
+                self.persistence.layout_manager.get(layout.id.unique).map(|l| {
+                    data::state::layout::Layout {
+                        name: layout.id.name.clone(),
+                        dashboard: data::Dashboard::from(&l.dashboard),
+                    }
+                })
+            })
+            .collect();
+
+        let layout_manager_clone = data::state::app::LayoutManager {
+            layouts: layouts_for_save,
+            active_layout: active_layout_name,
+        };
+
+        let mut state = data::AppState::from_parts(
+            layout_manager_clone,
+            self.ui.theme.clone(),
+            self.modals.theme_editor
+                .custom_theme
+                .clone()
+                .map(crate::style::theme::iced_theme_to_data),
+            main_window_spec,
+            self.ui.timezone,
+            self.ui.sidebar.state.clone(),
+            self.ui.ui_scale_factor,
+            data::lock_or_recover(&self.persistence.downloaded_tickers).clone(),
+            data::lock_or_recover(&self.connections.data_feed_manager).clone(),
+        );
+        state.ai_preferences = self.ui.ai_preferences.clone();
+
+        // Save state using the persistence module
+        let state_dir = crate::infra::platform::data_path(None);
+        if let Err(e) = data::save_state(&state, state_dir.as_path(), "app-state.json") {
+            log::error!("Failed to save application state: {}", e);
+        } else {
+            log::info!("Application state persisted successfully");
+        }
+    }
+
+    pub fn handle_layout_clone(&mut self, id: uuid::Uuid) {
+        let manager = &mut self.persistence.layout_manager;
+
+        let source_data = manager.get(id).map(|layout| {
+            (
+                layout.id.name.clone(),
+                layout.id.unique,
+                data::Dashboard::from(&layout.dashboard),
+            )
+        });
+
+        if let Some((name, _old_id, ser_dashboard)) = source_data {
+            let new_uid = uuid::Uuid::new_v4();
+            let new_layout = LayoutId {
+                unique: new_uid,
+                name: manager.ensure_unique_name(&name, new_uid),
+            };
+
+            let mut popout_windows = Vec::new();
+
+            for (pane, window_spec) in &ser_dashboard.popout {
+                let configuration = configuration(pane.clone());
+                popout_windows.push((configuration, window_spec.clone()));
+            }
+
+            let dashboard = Dashboard::from_config(
+                configuration(ser_dashboard.pane.clone()),
+                popout_windows,
+                self.services.market_data_service.clone(),
+                self.persistence.data_index.clone(),
+            );
+
+            self.persistence.layout_manager.insert_layout(new_layout.clone(), dashboard);
+        }
+    }
+
+    pub fn refresh_edit_menu_panes(&mut self) {
+        use crate::app::update::menu_bar::PaneInfo;
+
+        let main_id = self.main_window.id;
+        let panes: Vec<PaneInfo> = self
+            .active_dashboard()
+            .map(|dashboard| {
+                dashboard
+                    .iter_all_panes(main_id)
+                    .map(|(window_id, pane, state)| {
+                        let kind = state.content.to_string();
+                        let label = if let Some(ti) = state.get_ticker() {
+                            format!("{} - {}", kind, ti.ticker)
+                        } else {
+                            kind
+                        };
+                        PaneInfo {
+                            window_id,
+                            pane,
+                            label,
+                            is_main_window: window_id == main_id,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        self.menu_bar.set_panes(panes);
+    }
+
+    pub fn handle_layout_select(&mut self, layout: uuid::Uuid) -> Task<Message> {
+        use crate::screen::dashboard;
+
+        let active_popout_keys = self
+            .active_dashboard()
+            .map(|d| d.popout.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let window_tasks = Task::batch(
+            active_popout_keys
+                .iter()
+                .map(|&popout_id| window::close::<window::Id>(popout_id))
+                .collect::<Vec<_>>(),
+        )
+        .discard();
+
+        let old_layout_id = self
+            .persistence.layout_manager
+            .active_layout_id()
+            .as_ref()
+            .map(|layout| layout.unique);
+
+        window::collect_window_specs(active_popout_keys, dashboard::Message::SavePopoutSpecs)
+            .map(move |msg| Message::Dashboard {
+                layout_id: old_layout_id,
+                event: msg,
+            })
+            .chain(window_tasks)
+            .chain(self.load_layout(layout, self.main_window.id))
+    }
+}

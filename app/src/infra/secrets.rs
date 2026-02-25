@@ -51,15 +51,16 @@ impl SecretsManager {
             return ApiKeyStatus::FromKeyring(key);
         }
 
-        // Try file-based storage (fallback)
+        // Try file-based storage (fallback when keyring is unavailable).
+        // Returns FromFile — key is base64-encoded on disk, NOT encrypted by the OS.
         if let Some(key) = self.get_from_file(provider)
             && !key.is_empty()
         {
             log::debug!(
-                "Found {} key in file storage",
+                "Found {} key in file storage (keyring fallback)",
                 provider.display_name()
             );
-            return ApiKeyStatus::FromKeyring(key);
+            return ApiKeyStatus::FromFile(key);
         }
 
         // Fall back to environment variable
@@ -143,16 +144,110 @@ impl SecretsManager {
                     "Deleted {} API key from OS keyring",
                     provider.display_name()
                 );
-                Ok(())
             }
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(SecretsError::DeleteFailed(e.to_string())),
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => {
+                return Err(SecretsError::DeleteFailed(e.to_string()));
+            }
         }
+
+        // Also delete the file-based fallback if it exists
+        if let Some(path) = Self::secrets_file_path(provider) {
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+                log::debug!(
+                    "Deleted {} key file: {:?}",
+                    provider.display_name(),
+                    path
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Check if an API key is configured (from any source)
     pub fn has_api_key(&self, provider: ApiProvider) -> bool {
         self.get_api_key(provider).is_available()
+    }
+
+    // ── Per-feed password storage ────────────────────────────────────────
+
+    const FEED_KEYRING_SERVICE: &'static str = "kairos-feed";
+
+    fn feed_key_file_path(feed_id: &str) -> Option<std::path::PathBuf> {
+        let data_dir = crate::infra::platform::data_path(None);
+        Some(data_dir.join("secrets").join(format!("feed-{}.key", feed_id)))
+    }
+
+    /// Store a password for a specific feed connection.
+    pub fn set_feed_password(
+        &self,
+        feed_id: &str,
+        password: &str,
+    ) -> Result<(), SecretsError> {
+        if password.is_empty() {
+            return Err(SecretsError::InvalidKey("Password cannot be empty".to_string()));
+        }
+
+        let keyring_result = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id)
+            .map_err(|e| SecretsError::KeyringAccess(e.to_string()))
+            .and_then(|entry| {
+                entry
+                    .set_password(password)
+                    .map_err(|e| SecretsError::StoreFailed(e.to_string()))
+            });
+
+        // File fallback
+        let file_result = Self::feed_key_file_path(feed_id)
+            .ok_or_else(|| SecretsError::StoreFailed("No data path".to_string()))
+            .and_then(|path| {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| SecretsError::StoreFailed(e.to_string()))?;
+                }
+                std::fs::write(&path, base64_encode(password))
+                    .map_err(|e| SecretsError::StoreFailed(e.to_string()))
+            });
+
+        if let (Err(e), Err(_)) = (&keyring_result, &file_result) {
+            return Err(e.clone());
+        }
+
+        log::info!("Stored password for feed {}", feed_id);
+        Ok(())
+    }
+
+    /// Retrieve the password for a specific feed connection.
+    pub fn get_feed_password(&self, feed_id: &str) -> Option<String> {
+        // Try keyring first
+        if let Ok(entry) = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id) {
+            if let Ok(pw) = entry.get_password()
+                && !pw.is_empty()
+            {
+                return Some(pw);
+            }
+        }
+
+        // File fallback
+        if let Some(path) = Self::feed_key_file_path(feed_id)
+            && path.exists()
+        {
+            if let Ok(encoded) = std::fs::read_to_string(&path) {
+                if let Some(pw) = base64_decode(&encoded)
+                    && !pw.is_empty()
+                {
+                    return Some(pw);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check whether a password has been stored for a specific feed.
+    pub fn has_feed_password(&self, feed_id: &str) -> bool {
+        self.get_feed_password(feed_id).is_some()
     }
 
     /// Save key to OS keyring

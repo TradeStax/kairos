@@ -1,8 +1,6 @@
 use iced::widget::text;
 use iced::{Color, Theme};
 
-use data::feed::FeedStatus;
-
 // ── Semantic colors ───────────────────────────────────────────────────
 // These are the single source of truth for recurring UI colors.
 // Chart-domain colors (candle bodies, heatmap gradients, indicator lines)
@@ -70,16 +68,3 @@ pub fn neutral_text(theme: &Theme) -> text::Style {
     }
 }
 
-// ── Feed status ───────────────────────────────────────────────────────
-
-/// Connection status colors -- single source of truth.
-pub fn status_color(theme: &Theme, status: &FeedStatus) -> Color {
-    let palette = theme.extended_palette();
-    match status {
-        FeedStatus::Connected => success_color(theme),
-        FeedStatus::Connecting => palette.warning.strong.color,
-        FeedStatus::Downloading { .. } => info_color(theme),
-        FeedStatus::Error(_) => error_color(theme),
-        FeedStatus::Disconnected => neutral_color(theme),
-    }
-}

@@ -1,4 +1,7 @@
+mod construct;
+mod invalidate;
 mod render;
+mod replay;
 mod studies;
 
 use crate::chart::{
@@ -6,20 +9,15 @@ use crate::chart::{
     drawing::{ChartDrawingAccess, DrawingManager},
 };
 use data::state::pane::ProfileConfig;
-use data::util::count_decimals;
-use data::{
-    Autoscale, Candle, ChartBasis, ChartData,
-    Price as DomainPrice, Side, Timeframe, Trade, ViewConfig,
-};
+use data::{Candle, ChartBasis, ChartData};
 use exchange::FuturesTickerInfo;
 use exchange::util::{Price, PriceStep};
 use iced::Vector;
 use iced::widget::canvas::Cache;
-use study::Study;
+use study::Study as _;
 use study::config::ParameterValue;
 use study::orderflow::VbpStudy;
 use study::output::{ProfileOutput, StudyOutput};
-use study::traits::StudyInput;
 
 use std::time::Instant;
 
@@ -55,13 +53,9 @@ pub struct ProfileChart {
 }
 
 impl Chart for ProfileChart {
-    fn state(&self) -> &ViewState {
-        &self.chart
-    }
-
-    fn mut_state(&mut self) -> &mut ViewState {
-        &mut self.chart
-    }
+    // Boilerplate: state, mut_state, drawings, studies, panel_cache,
+    // panel_labels_cache, panel_crosshair_cache.
+    crate::chart_impl!(ProfileChart);
 
     fn invalidate_crosshair(&mut self) {
         self.chart.cache.clear_crosshair();
@@ -103,105 +97,9 @@ impl Chart for ProfileChart {
             default_cell_width: 4.0,
         }
     }
-
-    fn drawings(&self) -> Option<&DrawingManager> {
-        Some(&self.drawings)
-    }
-
-    fn studies(&self) -> &[Box<dyn study::Study>] {
-        &self.studies
-    }
-
-    fn panel_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_cache)
-    }
-
-    fn panel_labels_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_labels_cache)
-    }
-
-    fn panel_crosshair_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_crosshair_cache)
-    }
 }
 
 impl ProfileChart {
-    /// Create a new ProfileChart from loaded chart data.
-    pub fn from_chart_data(
-        chart_data: ChartData,
-        ticker_info: FuturesTickerInfo,
-        layout: ViewConfig,
-        config: ProfileConfig,
-    ) -> Self {
-        let step = PriceStep::from_f32(ticker_info.tick_size);
-        let basis = ChartBasis::Time(Timeframe::M5);
-
-        // Compute initial cell_height from price range
-        let (_, _, cell_height) = compute_initial_price_scale(
-            &chart_data.candles,
-            ticker_info.tick_size,
-        );
-
-        let base_price_y = chart_data
-            .candles
-            .iter()
-            .map(|c| c.high)
-            .max()
-            .map(|p| Price::from_units(p.units()))
-            .unwrap_or(Price::from_f32(0.0));
-
-        let default_cell_width = 4.0;
-        let latest_x = chart_data.candles.last().map(|c| c.time.0).unwrap_or(0);
-
-        let mut chart = ViewState::new(
-            basis,
-            step,
-            count_decimals(ticker_info.tick_size),
-            ticker_info,
-            ViewConfig {
-                splits: layout.splits,
-                autoscale: Some(Autoscale::FitAll),
-            },
-            default_cell_width,
-            cell_height,
-        );
-        chart.base_price_y = base_price_y;
-        chart.latest_x = latest_x;
-
-        let x_translation = 0.5
-            * (chart.bounds.width / chart.scaling)
-            - (8.0 * chart.cell_width / chart.scaling);
-        chart.translation.x = x_translation;
-        chart.translation.y = -chart.bounds.height / 2.0;
-
-        let mut profile_study = VbpStudy::new();
-        apply_profile_config_to_study(
-            &mut profile_study,
-            &config,
-            &ticker_info,
-        );
-
-        let mut profile = ProfileChart {
-            chart,
-            chart_data,
-            basis,
-            ticker_info,
-            last_tick: Instant::now(),
-            drawings: DrawingManager::new(),
-            profile_study,
-            fingerprint: (0, 0, 0, 0),
-            display_config: config,
-            studies: Vec::new(),
-            studies_dirty: false,
-            last_visible_range: None,
-            panel_cache: Cache::default(),
-            panel_labels_cache: Cache::default(),
-            panel_crosshair_cache: Cache::default(),
-        };
-        profile.recompute_profile();
-        profile
-    }
-
     /// Apply a new display configuration.
     pub fn set_display_config(&mut self, config: ProfileConfig) {
         self.display_config = config;
@@ -218,7 +116,7 @@ impl ProfileChart {
         self.last_tick
     }
 
-    pub fn chart_layout(&self) -> ViewConfig {
+    pub fn chart_layout(&self) -> data::ViewConfig {
         self.chart.layout()
     }
 
@@ -256,7 +154,7 @@ impl ProfileChart {
             StudyOutput::Profile(profiles, config)
                 if !profiles.is_empty() =>
             {
-                Some((profiles.as_slice(), config))
+                Some((profiles.as_slice(), &config))
             }
             _ => None,
         }
@@ -267,188 +165,6 @@ impl ProfileChart {
         &self,
     ) -> Option<&[study::output::ProfileLevel]> {
         self.profile_output().map(|o| o.levels.as_slice())
-    }
-
-    // ── Profile computation ─────────────────────────────────────
-
-    /// Rebuild the volume profile via the internal VbpStudy.
-    fn recompute_profile(&mut self) {
-        let fp = (
-            self.chart_data.trades.len(),
-            self.chart_data.trades.first().map(|t| t.time.0).unwrap_or(0),
-            self.chart_data.trades.last().map(|t| t.time.0).unwrap_or(0),
-            self.chart_data.candles.len(),
-        );
-        if fp == self.fingerprint
-            && !matches!(
-                self.profile_study.output(),
-                StudyOutput::Empty
-            )
-        {
-            return;
-        }
-        self.fingerprint = fp;
-
-        // Reapply config in case display_config changed
-        apply_profile_config_to_study(
-            &mut self.profile_study,
-            &self.display_config,
-            &self.ticker_info,
-        );
-
-        // Always pass all data — split mode handles segmentation
-        let trades: Option<&[Trade]> =
-            if !self.chart_data.trades.is_empty() {
-                Some(&self.chart_data.trades)
-            } else {
-                None
-            };
-        let input = StudyInput {
-            candles: &self.chart_data.candles,
-            trades,
-            basis: self.basis,
-            tick_size: DomainPrice::from_f32(
-                self.ticker_info.tick_size,
-            ),
-            visible_range: None,
-        };
-        if let Err(e) = self.profile_study.compute(&input) {
-            log::warn!("Profile study compute error: {e}");
-        }
-    }
-
-    pub fn invalidate(&mut self) {
-        // Snapshot the price extremes from the study output before
-        // we mutably borrow `self.chart` for autoscaling.
-        let price_extremes = self
-            .profile_levels()
-            .filter(|l| !l.is_empty())
-            .map(|levels| {
-                let highest = levels
-                    .last()
-                    .map(|l| l.price as f32)
-                    .unwrap_or(0.0);
-                let lowest = levels
-                    .first()
-                    .map(|l| l.price as f32)
-                    .unwrap_or(0.0);
-                (highest, lowest)
-            });
-
-        let chart = &mut self.chart;
-
-        // Fit-all autoscaling: fit price range to visible area
-        if let Some(Autoscale::FitAll) = chart.layout.autoscale {
-            if let Some((highest, lowest)) = price_extremes {
-                let padding = (highest - lowest) * 0.05;
-                let price_span =
-                    (highest - lowest) + (2.0 * padding);
-
-                if price_span > 0.0
-                    && chart.bounds.height > f32::EPSILON
-                {
-                    let padded_highest = highest + padding;
-                    let chart_height = chart.bounds.height;
-                    let tick_size =
-                        chart.tick_size.to_f32_lossy();
-
-                    if tick_size > 0.0 {
-                        chart.cell_height =
-                            (chart_height * tick_size)
-                                / price_span;
-                        chart.base_price_y =
-                            Price::from_f32(padded_highest);
-                        chart.translation.y =
-                            -chart_height / 2.0;
-                    }
-                }
-            }
-        }
-
-        chart.cache.clear_all();
-        self.panel_cache.clear();
-        self.panel_labels_cache.clear();
-        self.panel_crosshair_cache.clear();
-
-        // Check if visible range changed (triggers study recompute)
-        if chart.bounds.width > 0.0 {
-            let region = chart.visible_region(chart.bounds.size());
-            let (_, _) = chart.interval_range(&region);
-            let price_range = chart.price_range(&region);
-            let new_range = Some((price_range.1.units() as u64, price_range.0.units() as u64));
-            if new_range != self.last_visible_range {
-                self.last_visible_range = new_range;
-                self.studies_dirty = true;
-            }
-        }
-
-        if self.studies_dirty {
-            self.recompute_studies();
-            self.studies_dirty = false;
-        }
-
-        self.last_tick = Instant::now();
-    }
-
-    /// Rebuild the chart from scratch with the given trades.
-    pub fn rebuild_from_trades(&mut self, trades: &[Trade]) {
-        self.chart_data.trades.clear();
-        self.chart_data.candles.clear();
-
-        self.profile_study.reset();
-        for s in &mut self.studies {
-            s.reset();
-        }
-
-        for trade in trades {
-            self.append_trade(trade);
-        }
-
-        self.fingerprint = (0, 0, 0, 0); // force recompute
-        self.recompute_profile();
-        self.studies_dirty = true;
-        self.invalidate();
-    }
-
-    /// Append a single trade during replay.
-    pub fn append_trade(&mut self, trade: &Trade) {
-        self.chart_data.trades.push(*trade);
-
-        let (buy_vol, sell_vol) = match trade.side {
-            Side::Buy | Side::Bid => (data::Volume(trade.quantity.0), data::Volume(0.0)),
-            Side::Sell | Side::Ask => (data::Volume(0.0), data::Volume(trade.quantity.0)),
-        };
-
-        match self.basis {
-            ChartBasis::Time(tf) => {
-                let interval = tf.to_milliseconds();
-                if interval == 0 {
-                    return;
-                }
-                let bucket_time = (trade.time.to_millis() / interval) * interval;
-
-                if let Some(last) = self.chart_data.candles.last_mut()
-                    && last.time.0 == bucket_time
-                {
-                    last.high = last.high.max(trade.price);
-                    last.low = last.low.min(trade.price);
-                    last.close = trade.price;
-                    last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
-                    last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
-                    return;
-                }
-                self.chart_data.candles.push(Candle {
-                    time: data::Timestamp::from_millis(bucket_time),
-                    open: trade.price,
-                    high: trade.price,
-                    low: trade.price,
-                    close: trade.price,
-                    buy_volume: buy_vol,
-                    sell_volume: sell_vol,
-                });
-            }
-            ChartBasis::Tick(_) => {} // Profile doesn't use tick basis
-        }
     }
 }
 
@@ -480,7 +196,7 @@ impl ChartDrawingAccess for ProfileChart {
 /// Because ProfileChart does its own period slicing via
 /// `resolve_data_slice()`, we always set the study to `Auto`
 /// period (it will receive the pre-sliced candles/trades).
-fn apply_profile_config_to_study(
+pub(super) fn apply_profile_config_to_study(
     study: &mut VbpStudy,
     cfg: &ProfileConfig,
     _info: &FuturesTickerInfo,
@@ -805,7 +521,7 @@ fn apply_profile_config_to_study(
 }
 
 /// Convert a `ProfileLineStyle` to `study::config::LineStyleValue`.
-fn to_study_line_style(
+pub(super) fn to_study_line_style(
     s: data::state::pane::ProfileLineStyle,
 ) -> study::config::LineStyleValue {
     use data::state::pane::ProfileLineStyle as P;
@@ -818,7 +534,7 @@ fn to_study_line_style(
 
 /// Convert a `ProfileExtendDirection` to the string the VBP study
 /// understands.
-fn extend_to_str(
+pub(super) fn extend_to_str(
     e: data::state::pane::ProfileExtendDirection,
 ) -> &'static str {
     use data::state::pane::ProfileExtendDirection as E;
@@ -831,7 +547,7 @@ fn extend_to_str(
 }
 
 /// Compute initial price scale from profile data.
-fn compute_initial_price_scale(
+pub(super) fn compute_initial_price_scale(
     candles: &[Candle],
     tick_size: f32,
 ) -> (Price, Price, f32) {

@@ -1,4 +1,4 @@
-use super::{Action, Content, Effect, State};
+use super::{Action, Content, State, TickAction};
 use crate::chart::{
     candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart,
     profile::ProfileChart,
@@ -28,7 +28,7 @@ impl State {
             .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
         match &mut self.content {
-            Content::Kline {
+            Content::Candlestick {
                 chart,
                 layout,
                 study_ids,
@@ -49,7 +49,7 @@ impl State {
                     new_chart.set_candle_style(kline_cfg.candle_style.clone());
                 }
                 // Restore active studies with saved parameters
-                let registry = crate::app::services::create_unified_registry();
+                let registry = crate::app::init::services::create_unified_registry();
                 if !self.settings.studies.is_empty() {
                     for cfg in &self.settings.studies {
                         if let Some(mut s) = registry.create(&cfg.study_id) {
@@ -167,7 +167,7 @@ impl State {
                         .load_drawings(self.settings.drawings.clone());
                 }
                 // Restore active studies with saved parameters
-                let registry = crate::app::services::create_unified_registry();
+                let registry = crate::app::init::services::create_unified_registry();
                 if !self.settings.studies.is_empty() {
                     for cfg in &self.settings.studies {
                         if let Some(mut s) = registry.create(&cfg.study_id) {
@@ -206,7 +206,8 @@ impl State {
             }
             Content::TimeAndSales(_panel) => {}
             Content::Ladder(_panel) => {}
-            Content::Starter => {}
+            Content::Starter
+            | Content::AiAssistant(_) => {}
         }
     }
 
@@ -216,7 +217,7 @@ impl State {
         ticker_info: FuturesTickerInfo,
         kind: ContentKind,
         date_range: DateRange,
-    ) -> Effect {
+    ) -> Action {
         let basis = self
             .settings
             .selected_basis
@@ -241,13 +242,13 @@ impl State {
             chart_type: kind.to_chart_type(),
         };
 
-        Effect::LoadChart {
+        Action::LoadChart {
             config,
             ticker_info,
         }
     }
 
-    pub fn invalidate(&mut self, now: Instant) -> Option<Action> {
+    pub fn invalidate(&mut self, now: Instant) -> Option<TickAction> {
         match &mut self.content {
             Content::Heatmap { chart, .. } => {
                 if let Some(c) = chart.as_mut() {
@@ -255,7 +256,7 @@ impl State {
                 }
                 None
             }
-            Content::Kline { chart, .. } => {
+            Content::Candlestick { chart, .. } => {
                 if let Some(c) = chart.as_mut() {
                     c.invalidate()
                 }
@@ -263,17 +264,17 @@ impl State {
             }
             Content::TimeAndSales(panel) => panel
                 .as_mut()
-                .and_then(|p| p.invalidate(Some(now)).map(Action::Panel)),
+                .and_then(|p| p.invalidate(Some(now)).map(TickAction::Panel)),
             Content::Ladder(panel) => panel
                 .as_mut()
-                .and_then(|p| p.invalidate(Some(now)).map(Action::Panel)),
+                .and_then(|p| p.invalidate(Some(now)).map(TickAction::Panel)),
             Content::Profile { chart, .. } => {
                 if let Some(c) = chart.as_mut() {
                     c.invalidate();
                 }
                 None
             }
-            Content::Starter => None,
+            Content::Starter | Content::AiAssistant(_) => None,
             Content::Comparison(_) => None,
         }
     }
@@ -306,7 +307,7 @@ impl State {
             return Some(200);
         }
         match &self.content {
-            Content::Kline { .. }
+            Content::Candlestick { .. }
             | Content::Comparison(_)
             | Content::Profile { .. } => Some(1000),
             Content::Heatmap { chart, .. } => {
@@ -317,7 +318,8 @@ impl State {
                 }
             }
             Content::Ladder(_) | Content::TimeAndSales(_) => Some(100),
-            Content::Starter => None,
+            Content::Starter
+            | Content::AiAssistant(_) => None,
         }
     }
 
@@ -325,7 +327,7 @@ impl State {
         self.content.last_tick()
     }
 
-    pub fn tick(&mut self, now: Instant) -> Option<Action> {
+    pub fn tick(&mut self, now: Instant) -> Option<TickAction> {
         let invalidate_interval: Option<u64> = self.update_interval();
         let last_tick: Option<Instant> = self.last_tick();
 

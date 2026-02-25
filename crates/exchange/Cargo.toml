@@ -15,7 +15,7 @@ log.workspace = true
 thiserror.workspace = true
 rustc-hash.workspace = true
 
-tokio = { version = "1.43", default-features = false, features = ["rt", "macros", "fs"] }
+tokio = { version = "1.43", default-features = false, features = ["rt", "macros", "fs", "net", "time", "sync"] }
 reqwest = { version = "0.12.9", default-features = false, features = ["json", "rustls-tls"] }
 
 # Databento integration
@@ -26,8 +26,10 @@ toml = "0.8"
 kairos-data = { path = "../data" }
 async-trait = "0.1"
 
-# Rithmic integration
-rithmic-rs = "0.7"
+# Rithmic integration (protocol layer inlined from rithmic-rs)
+prost = "0.13.5"
+tokio-tungstenite = { version = "0.27.0", features = ["native-tls"] }
+futures-util = "0.3.31"
 
 # Massive (Polygon) integration
 zstd = "0.13"

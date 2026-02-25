@@ -1,5 +1,5 @@
 use crate::components::display::tooltip::tooltip;
-use crate::components::layout::scrollable_content::scrollable_content;
+use crate::components::layout::scrollable_content;
 use crate::screen::dashboard::pane::Message;
 use crate::style;
 

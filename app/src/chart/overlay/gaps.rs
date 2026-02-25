@@ -6,6 +6,7 @@
 //! - PartialCoverage: yellow-tinted band
 
 use crate::chart::ViewState;
+use crate::style::tokens;
 use data::domain::chart::{DataGap, DataGapKind};
 use iced::widget::canvas;
 use iced::{Color, Point, Rectangle, Size};
@@ -64,8 +65,10 @@ pub fn draw_gap_markers(
 /// Get the color for a gap kind
 fn gap_color(kind: &DataGapKind) -> Color {
     match kind {
-        DataGapKind::NoData => Color::from_rgba(0.8, 0.2, 0.2, 0.08),
-        DataGapKind::MarketClosed => Color::from_rgba(0.5, 0.5, 0.5, 0.05),
-        DataGapKind::PartialCoverage { .. } => Color::from_rgba(0.8, 0.7, 0.2, 0.08),
+        DataGapKind::NoData => tokens::chart::gap::NO_DATA,
+        DataGapKind::MarketClosed => tokens::chart::gap::MARKET_CLOSED,
+        DataGapKind::PartialCoverage { .. } => {
+            tokens::chart::gap::PARTIAL_COVERAGE
+        }
     }
 }

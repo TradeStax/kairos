@@ -37,7 +37,7 @@ pub mod persistence;
 pub mod registry;
 pub mod replay;
 
-pub use app::{AppState, WindowSpec};
+pub use app::{AiPreferences, AppState, WindowSpec};
 pub use chart::ChartState;
 pub use layout::{Axis, Dashboard, Layout, LayoutManager, Layouts, Pane};
 pub use pane::{

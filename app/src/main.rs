@@ -8,15 +8,22 @@ mod layout;
 mod modals;
 mod screen;
 mod style;
-mod window;
 
 use app::Kairos;
 use std::borrow::Cow;
 
 fn main() {
-    infra::logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
+    if let Err(e) = infra::logger::setup(cfg!(debug_assertions)) {
+        // Logger failed to initialize (e.g., OS refused to create logging thread).
+        // Fall through — the app can still run without logging.
+        // In debug mode this is printed to stderr; in release mode it is silent.
+        eprintln!("Warning: Failed to initialize logger: {e}");
+    }
 
-    let _ = iced::daemon(Kairos::new, Kairos::update, Kairos::view)
+    // run() returns Err on GPU init failure or window creation failure.
+    // In release mode (windows_subsystem = "windows") there is no console,
+    // so we must surface errors through a panic message that Windows Error Reporting captures.
+    iced::daemon(Kairos::new, Kairos::update, Kairos::view)
         .settings(iced::Settings {
             antialiasing: true,
             fonts: vec![
@@ -30,5 +37,6 @@ fn main() {
         .theme(Kairos::theme)
         .scale_factor(Kairos::scale_factor)
         .subscription(Kairos::subscription)
-        .run();
+        .run()
+        .expect("Kairos failed to start. Check GPU drivers and display configuration.");
 }

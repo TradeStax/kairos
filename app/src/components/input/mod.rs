@@ -13,4 +13,3 @@ pub mod stepper;
 pub mod text_field;
 pub mod toggle_button;
 pub mod toggle_switch;
-pub mod volume_trackbar;

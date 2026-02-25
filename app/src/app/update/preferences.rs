@@ -1,30 +1,31 @@
 use iced::Task;
 
 use crate::components::display::toast::{Notification, Toast};
-use crate::modals::settings;
+use crate::modals::preferences;
 use crate::screen::dashboard;
 
-use super::super::{DownloadMessage, Kairos, Message, services};
+use super::super::{DownloadMessage, Kairos, Message};
+use super::super::init::services;
 
 impl Kairos {
     pub(crate) fn handle_theme_selected(&mut self, theme: data::Theme) {
-        self.theme = theme;
+        self.ui.theme = theme;
     }
 
     pub(crate) fn handle_scale_factor_changed(
         &mut self,
         value: data::ScaleFactor,
     ) {
-        self.ui_scale_factor = value;
+        self.ui.ui_scale_factor = value;
     }
 
     pub(crate) fn handle_set_timezone(&mut self, tz: data::UserTimezone) {
-        self.timezone = tz;
+        self.ui.timezone = tz;
     }
 
     pub(crate) fn handle_remove_notification(&mut self, index: usize) {
-        if index < self.notifications.len() {
-            self.notifications.remove(index);
+        if index < self.ui.notifications.len() {
+            self.ui.notifications.remove(index);
         }
     }
 
@@ -36,7 +37,7 @@ impl Kairos {
             >,
         >,
     ) {
-        self.confirm_dialog = dialog;
+        self.ui.confirm_dialog = dialog;
     }
 
     pub(crate) fn handle_reinitialize_service(
@@ -75,12 +76,14 @@ impl Kairos {
                 log::info!(
                     "Reinitializing Rithmic service with new password..."
                 );
-                if let Some(feed_id) = self.rithmic_feed_id {
+                if let Some(feed_id) = self.connections.rithmic_feed_id {
                     return Task::done(Message::DataFeeds(
-                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
+                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(
+                            feed_id,
+                        ),
                     ));
                 } else {
-                    self.notifications.push(Toast::new(
+                    self.ui.notifications.push(Toast::new(
                         Notification::Info(
                             "Rithmic password saved. Configure a Rithmic feed \
                              to connect."
@@ -88,6 +91,9 @@ impl Kairos {
                         ),
                     ));
                 }
+            }
+            data::config::secrets::ApiProvider::OpenRouter => {
+                log::info!("OpenRouter API key updated.");
             }
         }
         Task::none()
@@ -97,7 +103,7 @@ impl Kairos {
         &mut self,
         message: crate::modals::layout::Message,
     ) -> Task<Message> {
-        let action = self.layout_manager.update(message);
+        let action = self.persistence.layout_manager.update(message);
 
         match action {
             Some(crate::modals::layout::Action::Select(layout)) => {
@@ -116,18 +122,18 @@ impl Kairos {
         msg: crate::modals::theme::Message,
     ) {
         let iced_theme =
-            crate::style::theme_bridge::theme_to_iced(&self.theme);
-        let action = self.theme_editor.update(msg, &iced_theme);
+            crate::style::theme::theme_to_iced(&self.ui.theme);
+        let action = self.modals.theme_editor.update(msg, &iced_theme);
 
         match action {
             Some(crate::modals::theme::Action::Exit) => {
-                self.sidebar.set_menu(None);
+                self.ui.sidebar.set_menu(None);
             }
             Some(crate::modals::theme::Action::UpdateTheme(
                 iced_theme,
             )) => {
-                self.theme =
-                    crate::style::theme_bridge::iced_theme_to_data(
+                self.ui.theme =
+                    crate::style::theme::iced_theme_to_data(
                         iced_theme,
                     );
                 let main_window = self.main_window.id;
@@ -153,22 +159,18 @@ impl Kairos {
                 data::sidebar::Menu::Connections
             ))
         ) {
-            let feed_manager = self
-                .data_feed_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            self.connections_menu.sync_snapshot(&feed_manager);
+            let feed_manager =
+                data::lock_or_recover(&self.connections.data_feed_manager);
+            self.modals.connections_menu.sync_snapshot(&feed_manager);
         }
 
         if let dashboard::sidebar::Message::ToggleSidebarMenu(
             Some(data::sidebar::Menu::DataFeeds),
         ) = &message
         {
-            let feed_manager = self
-                .data_feed_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            self.data_feeds_modal.sync_snapshot(&feed_manager);
+            let feed_manager =
+                data::lock_or_recover(&self.connections.data_feed_manager);
+            self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
         }
 
         // Trigger initial estimation when opening DataFeeds menu
@@ -176,7 +178,7 @@ impl Kairos {
             Some(data::sidebar::Menu::DataFeeds),
         ) = &message
             && let Some(action) =
-                self.data_management_panel.request_initial_estimation()
+                self.modals.data_management_panel.request_initial_estimation()
         {
             match action {
                 crate::modals::download::data_management::Action::EstimateRequested {
@@ -184,7 +186,7 @@ impl Kairos {
                     schema,
                     date_range,
                 } => {
-                    let (task, _) = self.sidebar.update(message);
+                    let (task, _) = self.ui.sidebar.update(message);
 
                     return task
                         .map(Message::Sidebar)
@@ -210,29 +212,25 @@ impl Kairos {
                 data::sidebar::Menu::Replay
             ))
         ) {
-            let feed_manager = self
-                .data_feed_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let downloaded = self
-                .downloaded_tickers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let feed_manager =
+                data::lock_or_recover(&self.connections.data_feed_manager);
+            let downloaded =
+                data::lock_or_recover(&self.persistence.downloaded_tickers);
 
             let mut ticker_infos =
                 std::collections::HashMap::new();
-            for (ticker, info) in &self.tickers_info {
+            for (ticker, info) in &self.persistence.tickers_info {
                 ticker_infos.insert(ticker.to_string(), *info);
             }
 
-            self.replay_manager.refresh_streams(
+            self.modals.replay_manager.refresh_streams(
                 &feed_manager,
                 &downloaded,
                 &ticker_infos,
             );
         }
 
-        let (task, action) = self.sidebar.update(message);
+        let (task, action) = self.ui.sidebar.update(message);
 
         // Handle sidebar actions
         if let Some(action) = action {
@@ -240,7 +238,7 @@ impl Kairos {
                 dashboard::sidebar::SidebarAction::Drawing(
                     drawing_action,
                 ) => match drawing_action {
-                    crate::modals::drawing_tools::Action::SelectTool(
+                    crate::modals::drawing::tools::Action::SelectTool(
                         tool,
                     ) => {
                         return task
@@ -253,7 +251,7 @@ impl Kairos {
                                     ),
                             }));
                     }
-                    crate::modals::drawing_tools::Action::ToggleSnap => {
+                    crate::modals::drawing::tools::Action::ToggleSnap => {
                         return task
                             .map(Message::Sidebar)
                             .chain(Task::done(Message::Dashboard {
@@ -267,32 +265,32 @@ impl Kairos {
                     settings_action,
                 ) => {
                     match settings_action {
-                        settings::Action::FlyoutToggled(_) => {}
-                        settings::Action::OpenModal(page) => {
+                        preferences::Action::FlyoutToggled(_) => {}
+                        preferences::Action::OpenModal(page) => {
                             let draft =
-                                settings::SettingsPanel::create_draft(
-                                    self.timezone,
-                                    self.sidebar.date_range_preset(),
-                                    self.theme.clone(),
-                                    self.ui_scale_factor,
-                                    self.theme_editor
+                                preferences::SettingsPanel::create_draft(
+                                    self.ui.timezone,
+                                    self.ui.sidebar.date_range_preset(),
+                                    self.ui.theme.clone(),
+                                    self.ui.ui_scale_factor,
+                                    self.modals.theme_editor
                                         .custom_theme
                                         .clone(),
                                 );
-                            self.sidebar.settings.active_modal =
+                            self.ui.sidebar.settings.active_modal =
                                 Some((page, draft));
-                            self.sidebar.set_menu(Some(
+                            self.ui.sidebar.set_menu(Some(
                                 data::sidebar::Menu::Settings,
                             ));
                         }
-                        settings::Action::CloseModal => {
-                            self.sidebar.set_menu(None);
+                        preferences::Action::CloseModal => {
+                            self.ui.sidebar.set_menu(None);
                         }
-                        settings::Action::SaveSettings(draft) => {
-                            self.timezone = draft.timezone;
-                            self.theme = draft.theme;
-                            self.ui_scale_factor = draft.scale_factor;
-                            self.sidebar.state.date_range_preset =
+                        preferences::Action::SaveSettings(draft) => {
+                            self.ui.timezone = draft.timezone;
+                            self.ui.theme = draft.theme;
+                            self.ui.ui_scale_factor = draft.scale_factor;
+                            self.ui.sidebar.state.date_range_preset =
                                 draft.date_range_preset;
                             let main_window = self.main_window.id;
                             if let Some(dashboard) =
@@ -302,15 +300,15 @@ impl Kairos {
                                     main_window,
                                 );
                             }
-                            self.sidebar.set_menu(None);
+                            self.ui.sidebar.set_menu(None);
                         }
-                        settings::Action::OpenThemeEditor => {
-                            self.sidebar.settings.active_modal = None;
-                            self.sidebar.set_menu(Some(
+                        preferences::Action::OpenThemeEditor => {
+                            self.ui.sidebar.settings.active_modal = None;
+                            self.ui.sidebar.set_menu(Some(
                                 data::sidebar::Menu::ThemeEditor,
                             ));
                         }
-                        settings::Action::OpenDataFolder => {
+                        preferences::Action::OpenDataFolder => {
                             return task
                                 .map(Message::Sidebar)
                                 .chain(Task::done(

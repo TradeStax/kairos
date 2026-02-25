@@ -1,18 +1,27 @@
 use crate::components::primitives::icons::{Icon, icon_text};
 use crate::style::{self, tokens};
-use crate::window;
+use crate::infra::window;
 
 use iced::widget::{button, container, mouse_area, row, space, text};
 use iced::{Alignment, Element, Length, mouse, padding};
 
-use crate::app::Message;
+/// Messages produced by the title bar. The caller maps these to their
+/// own message type via the `map` parameter.
+pub enum Action {
+    Drag(window::Id),
+    Minimize(window::Id),
+    ToggleMaximize(window::Id),
+    Close(window::Id),
+    Hover(bool),
+}
 
-pub fn view_title_bar(
+pub fn view_title_bar<'a, Message: 'a + Clone>(
     window_id: window::Id,
     title: String,
     is_maximized: bool,
     hovered: bool,
-) -> Element<'static, Message> {
+    map: impl Fn(Action) -> Message + 'a,
+) -> Element<'a, Message> {
     let title_text = text(title)
         .font(iced::Font {
             weight: iced::font::Weight::Bold,
@@ -27,9 +36,9 @@ pub fn view_title_bar(
             .width(Length::Fill)
             .height(Length::Fill),
     )
-    .width(46)
+    .width(tokens::component::button::WINDOW_CONTROL_WIDTH)
     .height(tokens::layout::TITLE_BAR_HEIGHT)
-    .on_press(Message::WindowMinimize(window_id))
+    .on_press(map(Action::Minimize(window_id)))
     .style(style::button::window_control);
 
     let maximize_icon = if is_maximized {
@@ -44,9 +53,9 @@ pub fn view_title_bar(
             .width(Length::Fill)
             .height(Length::Fill),
     )
-    .width(46)
+    .width(tokens::component::button::WINDOW_CONTROL_WIDTH)
     .height(tokens::layout::TITLE_BAR_HEIGHT)
-    .on_press(Message::WindowToggleMaximize(window_id))
+    .on_press(map(Action::ToggleMaximize(window_id)))
     .style(style::button::window_control);
 
     let close_btn = button(
@@ -56,12 +65,14 @@ pub fn view_title_bar(
             .width(Length::Fill)
             .height(Length::Fill),
     )
-    .width(46)
+    .width(tokens::component::button::WINDOW_CONTROL_WIDTH)
     .height(tokens::layout::TITLE_BAR_HEIGHT)
-    .on_press(Message::WindowClose(window_id))
+    .on_press(map(Action::Close(window_id)))
     .style(style::button::window_close);
 
-    let controls = row![minimize_btn, maximize_btn, close_btn].spacing(tokens::spacing::XXS);
+    let controls =
+        row![minimize_btn, maximize_btn, close_btn]
+            .spacing(tokens::spacing::XXS);
 
     let bar = container(
         row![
@@ -77,10 +88,10 @@ pub fn view_title_bar(
     .style(move |theme| style::window_title_bar(theme, hovered));
 
     mouse_area(bar)
-        .on_press(Message::WindowDrag(window_id))
-        .on_double_click(Message::WindowToggleMaximize(window_id))
-        .on_enter(Message::TitleBarHover(true))
-        .on_exit(Message::TitleBarHover(false))
+        .on_press(map(Action::Drag(window_id)))
+        .on_double_click(map(Action::ToggleMaximize(window_id)))
+        .on_enter(map(Action::Hover(true)))
+        .on_exit(map(Action::Hover(false)))
         .interaction(mouse::Interaction::Grab)
         .into()
 }

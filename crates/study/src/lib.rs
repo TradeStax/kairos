@@ -5,10 +5,11 @@
 //! study data as abstract render primitives.
 
 pub mod config;
+pub mod core;
 pub mod error;
 pub mod output;
+pub mod prelude;
 pub mod registry;
-pub mod traits;
 pub mod util;
 
 // Study implementations
@@ -29,14 +30,19 @@ pub use config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
+pub use config::LineStyleValue;
+pub use core::{Study, StudyCategory, StudyInput, StudyPlacement};
 pub use error::StudyError;
 pub use output::{
-    CandleRenderConfig, FootprintCandle, FootprintCandlePosition,
+    BackgroundColorMode, CandleRenderConfig, FootprintCandle, FootprintCandlePosition,
     FootprintData, FootprintDataType, FootprintGroupingMode,
     FootprintLevel, FootprintRenderMode, FootprintScaling,
-    MarkerData, MarkerRenderConfig, MarkerShape,
+    MarkerData, MarkerRenderConfig, MarkerShape, TradeMarker, TradeMarkerDebug,
+    OutsideBarStyle, TextFormat,
     ProfileOutput, ProfileRenderConfig, StudyOutput,
     VbpGroupingMode, VbpPeriod, VbpSplitPeriod, VbpType,
+    VbpPocConfig, VbpValueAreaConfig, VbpNodeConfig, VbpVwapConfig,
+    ExtendDirection, NodeDetectionMethod, ProfileLevel, ProfileSide, VolumeNode,
+    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel,
 };
 pub use registry::{StudyInfo, StudyRegistry};
-pub use traits::{Study, StudyCategory, StudyInput, StudyPlacement};

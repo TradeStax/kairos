@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Derived from: https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs
+// Original authors: Halloy contributors. Modifications: removed alpha channel; fixed cursor.position() scroll offset bug.
 ///
 /// This widget is slight modification of `color_picker` widget at [`Halloy`]: <https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs>
 /// Credits to the authors of [`Halloy`], <https://github.com/squidowl/halloy/>
@@ -376,7 +379,7 @@ fn picker_hsva<'a, Message: 'a>(
                             shadow: iced::Shadow::default(),
                             snap: true,
                         },
-                        crate::style::theme_bridge::rgba_to_iced_color(
+                        crate::style::theme::rgba_to_iced_color(
                             data::config::theme::hsva_to_rgba(color),
                         ),
                     );
@@ -392,7 +395,7 @@ fn picker_hsva<'a, Message: 'a>(
                             shadow: iced::Shadow::default(),
                             snap: true,
                         },
-                        crate::style::theme_bridge::rgba_to_iced_color(
+                        crate::style::theme::rgba_to_iced_color(
                             data::config::theme::hsva_to_rgba(hsva),
                         ),
                     );

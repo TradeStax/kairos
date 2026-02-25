@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Derived from: https://github.com/squidowl/halloy/blob/main/src/widget/decorate.rs
+// Original authors: Halloy contributors. Modified for Kairos: no changes to logic.
 ///
 /// This widget is exact copy of `decorate` widget at [`Halloy`]: <https://github.com/squidowl/halloy/blob/main/src/widget/decorate.rs>
 /// All credits goes to authors of [`Halloy`], <https://github.com/squidowl/halloy/>

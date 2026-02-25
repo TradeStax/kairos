@@ -1,10 +1,18 @@
+//! Exponential Moving Average (EMA).
+//!
+//! Applies a decreasing weight to older values using the multiplier
+//! `k = 2 / (period + 1)`. Formula: `EMA(t) = P(t) * k + EMA(t-1) * (1 - k)`.
+//!
+//! Seeded with the SMA of the first `period` values. Output starts at
+//! index `period - 1`. Responds faster to recent price changes than SMA.
+
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::util::{candle_key, source_value};
 use data::SerializableColor;
 
@@ -64,7 +72,7 @@ fn make_params() -> Vec<ParameterDef> {
             kind: ParameterKind::Choice {
                 options: SOURCE_OPTIONS,
             },
-            default: ParameterValue::Choice(String::new()),
+            default: ParameterValue::Choice("Close".to_string()),
             tab: ParameterTab::Parameters,
             section: None,
             order: 1,

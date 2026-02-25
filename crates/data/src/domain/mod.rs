@@ -9,6 +9,7 @@
 //! NO infrastructure dependencies - pure business logic only.
 
 pub mod aggregation;
+pub mod assistant;
 pub mod chart;
 pub mod data_index;
 pub mod entities;

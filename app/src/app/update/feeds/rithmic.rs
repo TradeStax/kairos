@@ -1,23 +1,21 @@
 use iced::Task;
 
+use crate::app::{ChartMessage, Kairos, Message};
+use crate::app::core::globals;
+use crate::app::init::services;
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use super::super::super::{Kairos, Message, services};
 
 impl Kairos {
-    pub(super) fn connect_rithmic_feed(
+    pub(crate) fn connect_rithmic_feed(
         &mut self,
         feed_id: data::FeedId,
         mut feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
-        let secrets = crate::infra::secrets::SecretsManager::new();
-        let password_status = secrets.get_api_key(data::config::secrets::ApiProvider::Rithmic);
-
-        let Some(password) = password_status.key() else {
-            self.data_feeds_modal.sync_snapshot(&feed_manager);
-            self.notifications.push(Toast::error(
-                "Rithmic password not configured. Set it in connection \
-                 settings."
+        let Some(password) = self.secrets.get_feed_password(&feed_id.to_string()) else {
+            self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+            self.ui.notifications.push(Toast::error(
+                "Rithmic password not configured. Set it in Manage Connections."
                     .to_string(),
             ));
             return Task::none();
@@ -31,10 +29,8 @@ impl Kairos {
             log::warn!("Feed {} is not a Rithmic feed", feed_id);
             return Task::none();
         };
-        let password = password.to_string();
-
         feed_manager.set_status(feed_id, data::FeedStatus::Connecting);
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
+        self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
         drop(feed_manager);
 
         // Run on blocking thread since rithmic_rs futures are not Send
@@ -50,25 +46,25 @@ impl Kairos {
         mut feed_manager: std::sync::MutexGuard<'_, data::DataFeedManager>,
     ) -> Task<Message> {
         // Remove this feed's contributions from the shared DataIndex
-        data::lock_or_recover(&self.data_index).remove_feed(feed_id);
-        let tickers: std::collections::HashSet<String> =
-            data::lock_or_recover(&self.data_index)
-                .available_tickers()
-                .into_iter()
-                .collect();
-        self.tickers_info = super::super::super::build_tickers_info(tickers);
-        self.ticker_ranges = Kairos::build_ticker_ranges(&self.data_index);
+        data::lock_or_recover(&self.persistence.data_index).remove_feed(feed_id);
+        self.rebuild_ticker_data();
 
-        let client = self.rithmic_client.take();
-        self.rithmic_trade_repo = None;
-        self.rithmic_depth_repo = None;
-        self.rithmic_feed_id = None;
-        super::super::super::globals::set_rithmic_active(false);
+        let client = self.connections.rithmic_client.take();
+        self.connections.rithmic_trade_repo = None;
+        self.connections.rithmic_depth_repo = None;
+        self.connections.rithmic_feed_id = None;
+
+        // Unaffiliate panes so they show "Disconnected" status
+        let main_window = self.main_window.id;
+        for layout in &mut self.persistence.layout_manager.layouts {
+            layout
+                .dashboard
+                .unaffiliate_panes_for_feed(feed_id, main_window);
+        }
 
         if let Some(client) = client {
             feed_manager.set_status(feed_id, data::FeedStatus::Disconnected);
-            self.data_feeds_modal.sync_snapshot(&feed_manager);
-            self.connections_menu.sync_snapshot(&feed_manager);
+            self.sync_feed_snapshots(&feed_manager);
             drop(feed_manager);
 
             return Task::perform(
@@ -87,8 +83,7 @@ impl Kairos {
         }
 
         feed_manager.set_status(feed_id, data::FeedStatus::Disconnected);
-        self.connections_menu.sync_snapshot(&feed_manager);
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
+        self.sync_feed_snapshots(&feed_manager);
         Task::none()
     }
 
@@ -101,13 +96,11 @@ impl Kairos {
             return self.apply_rithmic_connected(feed_id);
         };
 
-        let mut feed_manager = self
-            .data_feed_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut feed_manager =
+            data::lock_or_recover(&self.connections.data_feed_manager);
         feed_manager.set_status(feed_id, data::FeedStatus::Error(e.clone()));
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
-        self.notifications
+        self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+        self.ui.notifications
             .push(Toast::error(format!("Rithmic connection failed: {}", e)));
         Task::none()
     }
@@ -115,30 +108,27 @@ impl Kairos {
     fn apply_rithmic_connected(&mut self, feed_id: data::FeedId) -> Task<Message> {
         // Take service result from global staging
         let service_result = {
-            let mut staging = super::super::super::globals::get_rithmic_service_staging()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut staging =
+                data::lock_or_recover(globals::get_rithmic_service_staging());
             staging.take()
         };
 
         let Some(sr) = service_result else {
             log::error!("Rithmic service result not found in staging");
-            self.notifications.push(Toast::error(
+            self.ui.notifications.push(Toast::error(
                 "Internal error: Rithmic service result lost".to_string(),
             ));
             return Task::none();
         };
 
-        self.rithmic_client = Some(sr.client.clone());
-        self.rithmic_trade_repo = Some(sr.trade_repo);
-        self.rithmic_depth_repo = Some(sr.depth_repo);
-        self.rithmic_feed_id = Some(feed_id);
-        super::super::super::globals::set_rithmic_active(true);
+        self.connections.rithmic_client = Some(sr.client.clone());
+        self.connections.rithmic_trade_repo = Some(sr.trade_repo);
+        self.connections.rithmic_depth_repo = Some(sr.depth_repo);
+        self.connections.rithmic_feed_id = Some(feed_id);
+        self.connections.rithmic_reconnect_attempts = 0;
 
-        let mut feed_manager = self
-            .data_feed_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut feed_manager =
+            data::lock_or_recover(&self.connections.data_feed_manager);
         feed_manager.set_status(feed_id, data::FeedStatus::Connected);
 
         let subscribed_tickers = feed_manager
@@ -147,26 +137,46 @@ impl Kairos {
             .map(|cfg| cfg.subscribed_tickers.clone())
             .unwrap_or_default();
 
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
+        self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
         drop(feed_manager);
 
         // Merge Rithmic contribution into the shared DataIndex
         let rithmic_index =
             exchange::build_rithmic_contribution(feed_id, &subscribed_tickers);
-        data::lock_or_recover(&self.data_index).merge(rithmic_index);
+        data::lock_or_recover(&self.persistence.data_index).merge(rithmic_index);
 
-        self.notifications.push(Toast::new(Notification::Info(
+        // Re-affiliate disconnected panes and collect any that need reloading
+        let main_window = self.main_window.id;
+        let mut reload_tasks: Vec<Task<Message>> = Vec::new();
+        for layout in &mut self.persistence.layout_manager.layouts {
+            let lid = layout.id.unique;
+            let reloads = layout
+                .dashboard
+                .affiliate_and_collect_reloads(feed_id, main_window);
+            for (pane_id, config, ticker_info) in reloads {
+                reload_tasks.push(Task::done(Message::Chart(
+                    ChartMessage::LoadChartData {
+                        layout_id: lid,
+                        pane_id,
+                        config,
+                        ticker_info,
+                    },
+                )));
+            }
+        }
+
+        self.ui.notifications.push(Toast::new(Notification::Info(
             "Rithmic connected".to_string(),
         )));
 
         let client = sr.client.clone();
-        let events_buf = super::super::super::globals::get_rithmic_events().clone();
+        let rithmic_sender = globals::get_rithmic_sender();
 
         // Resolve FuturesTickerInfo for each subscribed ticker symbol
         let ticker_infos: Vec<exchange::FuturesTickerInfo> = subscribed_tickers
             .iter()
             .filter_map(|sym| {
-                self.tickers_info.iter().find_map(|(ticker, info)| {
+                self.persistence.tickers_info.iter().find_map(|(ticker, info)| {
                     if ticker.as_str() == sym || ticker.product() == sym {
                         Some(*info)
                     } else {
@@ -176,16 +186,27 @@ impl Kairos {
             })
             .collect();
 
-        Task::perform(
-            rithmic_streaming_task(client, events_buf, subscribed_tickers, ticker_infos),
+        let streaming_task = Task::perform(
+            rithmic_streaming_task(client, rithmic_sender, subscribed_tickers, ticker_infos),
             |_| Message::RithmicStreamEvent(exchange::Event::ConnectionLost),
-        )
+        );
+
+        if reload_tasks.is_empty() {
+            streaming_task
+        } else {
+            log::info!(
+                "Reloading {} pane(s) after Rithmic connect",
+                reload_tasks.len()
+            );
+            reload_tasks.push(streaming_task);
+            Task::batch(reload_tasks)
+        }
     }
 
     pub(crate) fn handle_rithmic_stream_event(&mut self, event: exchange::Event) -> Task<Message> {
         match event {
             exchange::Event::TradeReceived(stream_kind, ref _trade) => {
-                if self.rithmic_feed_id.is_none() {
+                if self.connections.rithmic_feed_id.is_none() {
                     return Task::none();
                 }
                 return Task::done(Message::Dashboard {
@@ -197,7 +218,7 @@ impl Kairos {
                 });
             }
             exchange::Event::DepthReceived(stream_kind, ts, ref depth, ref trades) => {
-                if self.rithmic_feed_id.is_none() {
+                if self.connections.rithmic_feed_id.is_none() {
                     return Task::none();
                 }
                 return Task::done(Message::Dashboard {
@@ -211,8 +232,25 @@ impl Kairos {
                 });
             }
             exchange::Event::ConnectionLost => {
-                super::super::super::globals::set_rithmic_active(false);
                 return self.handle_rithmic_connection_lost();
+            }
+            exchange::Event::SubscriptionFailed(tickers) => {
+                let msg = format!(
+                    "Failed to subscribe to: {}",
+                    tickers.join(", ")
+                );
+                self.ui.notifications.push(Toast::error(msg));
+                return Task::none();
+            }
+            exchange::Event::ProductCodesReceived(codes) => {
+                let feed_id = self
+                    .connections
+                    .rithmic_feed_id
+                    .unwrap_or(data::FeedId::nil());
+                return Task::done(Message::RithmicProductCodes {
+                    feed_id,
+                    result: Ok(codes),
+                });
             }
             _ => {}
         }
@@ -220,14 +258,26 @@ impl Kairos {
     }
 
     fn handle_rithmic_connection_lost(&mut self) -> Task<Message> {
-        let Some(feed_id) = self.rithmic_feed_id else {
+        let Some(feed_id) = self.connections.rithmic_feed_id else {
             return Task::none();
         };
 
-        let mut feed_manager = self
-            .data_feed_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        // Clear stale client/repos so the old streaming task can't
+        // push events tagged with outdated state.
+        self.connections.rithmic_client = None;
+        self.connections.rithmic_trade_repo = None;
+        self.connections.rithmic_depth_repo = None;
+
+        // Unaffiliate panes so they show stale/disconnected status
+        let main_window = self.main_window.id;
+        for layout in &mut self.persistence.layout_manager.layouts {
+            layout
+                .dashboard
+                .unaffiliate_panes_for_feed(feed_id, main_window);
+        }
+
+        let mut feed_manager =
+            data::lock_or_recover(&self.connections.data_feed_manager);
         let auto_reconnect = feed_manager
             .get(feed_id)
             .and_then(|f| f.rithmic_config())
@@ -235,23 +285,46 @@ impl Kairos {
             .unwrap_or(false);
 
         if auto_reconnect {
+            self.connections.rithmic_reconnect_attempts += 1;
+            let attempts = self.connections.rithmic_reconnect_attempts;
+
+            // Exponential backoff: 1s, 5s, 15s, 30s (capped)
+            let delay_secs = match attempts {
+                1 => 1,
+                2 => 5,
+                3 => 15,
+                _ => 30,
+            };
+
             feed_manager.set_status(feed_id, data::FeedStatus::Connecting);
-            self.data_feeds_modal.sync_snapshot(&feed_manager);
+            self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
             drop(feed_manager);
-            self.notifications.push(Toast::new(Notification::Info(
-                "Rithmic reconnecting...".to_string(),
+            self.ui.notifications.push(Toast::new(Notification::Info(
+                format!(
+                    "Rithmic reconnecting in {}s (attempt {})...",
+                    delay_secs, attempts
+                ),
             )));
-            return Task::done(Message::DataFeeds(
-                crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
-            ));
+
+            let delay = std::time::Duration::from_secs(delay_secs);
+            return Task::perform(
+                async move { tokio::time::sleep(delay).await },
+                move |_| {
+                    Message::DataFeeds(
+                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(
+                            feed_id,
+                        ),
+                    )
+                },
+            );
         }
 
         feed_manager.set_status(
             feed_id,
             data::FeedStatus::Error("Connection lost".to_string()),
         );
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
-        self.notifications
+        self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+        self.ui.notifications
             .push(Toast::error("Rithmic connection lost".to_string()));
         Task::none()
     }
@@ -281,9 +354,8 @@ async fn rithmic_init_and_stage(
 
     match result {
         Ok(Ok(service_result)) => {
-            let mut staging = super::super::super::globals::get_rithmic_service_staging()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut staging =
+                data::lock_or_recover(globals::get_rithmic_service_staging());
             *staging = Some(service_result);
             Ok(())
         }
@@ -294,18 +366,45 @@ async fn rithmic_init_and_stage(
 
 async fn rithmic_streaming_task(
     client: std::sync::Arc<tokio::sync::Mutex<exchange::RithmicClient>>,
-    events_buf: std::sync::Arc<std::sync::Mutex<Vec<exchange::Event>>>,
+    sender: &'static tokio::sync::mpsc::UnboundedSender<exchange::Event>,
     subscribed_tickers: Vec<String>,
     ticker_infos: Vec<exchange::FuturesTickerInfo>,
 ) {
-    // Subscribe to configured tickers
+    // Subscribe to configured tickers, collect failures
+    let mut sub_failures: Vec<String> = Vec::new();
     {
         let mut guard = client.lock().await;
         for ticker in &subscribed_tickers {
             if let Err(e) = guard.subscribe(ticker, "CME").await {
                 log::warn!("Failed to subscribe to {}: {}", ticker, e);
+                sub_failures.push(ticker.clone());
             }
         }
+    }
+
+    // Fetch available product codes from CME and send them to the UI
+    {
+        let guard = client.lock().await;
+        match guard.get_product_codes(Some("CME")).await {
+            Ok(codes) if !codes.is_empty() => {
+                let _ = sender.send(
+                    exchange::Event::ProductCodesReceived(codes),
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                log::warn!("Failed to fetch product codes: {}", e);
+            }
+        }
+    }
+
+    // Notify about subscription failures via the channel
+    if !sub_failures.is_empty() {
+        log::warn!(
+            "Rithmic subscription failures: {:?}",
+            sub_failures
+        );
+        let _ = sender.send(exchange::Event::SubscriptionFailed(sub_failures));
     }
 
     // Take ticker handle and start streaming
@@ -318,44 +417,33 @@ async fn rithmic_streaming_task(
         return;
     };
 
-    // Derive stream_kind from the first resolved ticker info; fall back to ES defaults
-    // if no ticker info could be resolved (e.g. on first connection before data is loaded)
-    let stream_kind = ticker_infos
-        .into_iter()
-        .next()
-        .map(|info| exchange::adapter::StreamKind::DepthAndTrades {
-            ticker_info: info,
-            depth_aggr: exchange::adapter::StreamTicksize::Client,
-            push_freq: exchange::PushFrequency::ServerDefault,
-        })
-        .unwrap_or_else(|| {
-            log::warn!(
-                "No ticker info resolved for Rithmic subscription {:?}; \
-                 using default ES parameters",
-                subscribed_tickers
-            );
-            let default_ticker =
-                exchange::FuturesTicker::new("ES", exchange::FuturesVenue::CMEGlobex);
-            exchange::adapter::StreamKind::DepthAndTrades {
-                ticker_info: exchange::FuturesTickerInfo::new(default_ticker, 0.25, 1.0, 50.0),
-                depth_aggr: exchange::adapter::StreamTicksize::Client,
-                push_freq: exchange::PushFrequency::ServerDefault,
-            }
-        });
+    // Build a symbol → FuturesTickerInfo map so each streaming
+    // event is tagged with the correct contract metadata (C1 fix).
+    let ticker_map: rustc_hash::FxHashMap<String, exchange::FuturesTickerInfo> =
+        subscribed_tickers
+            .iter()
+            .zip(ticker_infos.iter())
+            .map(|(sym, info)| (sym.clone(), *info))
+            .collect();
+
+    if ticker_map.is_empty() {
+        log::warn!(
+            "No ticker info resolved for Rithmic subscription {:?}; \
+             streaming will skip events without symbol match",
+            subscribed_tickers
+        );
+    }
 
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     let stream = exchange::RithmicStream::new(handle);
 
     // Spawn stream reader
-    let buf = events_buf.clone();
     tokio::spawn(async move {
-        stream.run(stream_kind, event_tx).await;
+        stream.run(ticker_map, event_tx).await;
     });
 
-    // Read events from channel
+    // Forward events directly to the global channel sender
     while let Some(event) = event_rx.recv().await {
-        if let Ok(mut buf) = buf.lock() {
-            buf.push(event);
-        }
+        let _ = sender.send(event);
     }
 }

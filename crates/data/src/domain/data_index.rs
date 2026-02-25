@@ -169,6 +169,24 @@ impl DataIndex {
         result
     }
 
+    /// All dates with trade data for a ticker (union across feeds).
+    pub fn available_dates(&self, ticker: &str) -> BTreeSet<NaiveDate> {
+        let trade_key = DataKey {
+            ticker: ticker.to_string(),
+            schema: "trades".to_string(),
+        };
+
+        let Some(contributions) = self.entries.get(&trade_key) else {
+            return BTreeSet::new();
+        };
+
+        let mut all_dates = BTreeSet::new();
+        for contrib in contributions {
+            all_dates.extend(&contrib.dates);
+        }
+        all_dates
+    }
+
     /// Check if any trade data is available for a ticker.
     pub fn has_data(&self, ticker: &str) -> bool {
         let key = DataKey {
@@ -351,5 +369,41 @@ mod tests {
         let index = DataIndex::new();
         assert!(index.resolve_chart_range("ES.c.0", ChartType::Candlestick).is_none());
         assert!(!index.has_data("ES.c.0"));
+    }
+
+    #[test]
+    fn test_available_dates() {
+        let mut index = DataIndex::new();
+        let feed_a = uuid::Uuid::new_v4();
+        let feed_b = uuid::Uuid::new_v4();
+
+        let mut dates_a = BTreeSet::new();
+        dates_a.insert(date(2025, 1, 10));
+        dates_a.insert(date(2025, 1, 11));
+
+        let mut dates_b = BTreeSet::new();
+        dates_b.insert(date(2025, 1, 11));
+        dates_b.insert(date(2025, 1, 13));
+
+        let key = DataKey {
+            ticker: "ES.c.0".into(),
+            schema: "trades".into(),
+        };
+
+        index.add_contribution(key.clone(), feed_a, dates_a, false);
+        index.add_contribution(key, feed_b, dates_b, false);
+
+        let dates = index.available_dates("ES.c.0");
+        let expected: BTreeSet<_> = [
+            date(2025, 1, 10),
+            date(2025, 1, 11),
+            date(2025, 1, 13),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(dates, expected);
+
+        // Non-existent ticker returns empty set
+        assert!(index.available_dates("ZZ.c.0").is_empty());
     }
 }

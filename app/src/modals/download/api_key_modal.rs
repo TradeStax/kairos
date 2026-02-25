@@ -5,7 +5,7 @@
 //! behind credential setup.
 
 use crate::components::input::secure_field::SecureFieldBuilder;
-use crate::components::layout::modal_header::ModalHeaderBuilder;
+use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::style::{self, tokens};
 use iced::{
     Alignment, Element, Length,

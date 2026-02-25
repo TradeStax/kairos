@@ -7,8 +7,8 @@ use iced::{Color, Point, Rectangle};
 
 use super::line_widget::{
     CHAR_W, ICON_BOX, ICON_GAP_AFTER_TEXT, ICON_SPACING, LEGEND_LINE_H, LEGEND_PADDING,
-    TEXT_SIZE_PUB as TEXT_SIZE,
 };
+use super::TEXT_SIZE;
 use super::scene::PlotContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,7 +341,7 @@ where
             py_local = py_local.clamp(half_txt, plot_height - half_txt);
 
             let is_color_dark =
-                data::config::theme::is_dark_rgba(crate::style::theme_bridge::iced_color_to_rgba(s.color()));
+                data::config::theme::is_dark_rgba(crate::style::theme::iced_color_to_rgba(s.color()));
             let text_color = if is_color_dark {
                 Color::WHITE
             } else {

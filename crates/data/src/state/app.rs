@@ -92,6 +92,24 @@ impl Default for MassiveConfigSettings {
     }
 }
 
+/// AI assistant preferences (persisted)
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AiPreferences {
+    pub model: String,
+    pub temperature: f32,
+    pub max_tokens: u32,
+}
+
+impl Default for AiPreferences {
+    fn default() -> Self {
+        Self {
+            model: "google/gemini-3-flash-preview".to_string(),
+            temperature: 0.3,
+            max_tokens: 4096,
+        }
+    }
+}
+
 /// Application state (persisted to saved-state.json)
 ///
 /// This contains ONLY application-level preferences and configuration.
@@ -140,6 +158,10 @@ pub struct AppState {
     /// Data feed connections
     #[serde(default)]
     pub data_feeds: DataFeedManager,
+
+    /// AI assistant preferences
+    #[serde(default)]
+    pub ai_preferences: AiPreferences,
 }
 
 impl Default for AppState {
@@ -158,6 +180,7 @@ impl Default for AppState {
             massive_config: MassiveConfigSettings::default(),
             downloaded_tickers: DownloadedTickersRegistry::default(),
             data_feeds: DataFeedManager::default(),
+            ai_preferences: AiPreferences::default(),
         }
     }
 }
@@ -189,6 +212,7 @@ impl AppState {
             massive_config: MassiveConfigSettings::default(),
             downloaded_tickers,
             data_feeds,
+            ai_preferences: AiPreferences::default(),
         }
     }
 

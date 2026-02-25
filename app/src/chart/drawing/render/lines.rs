@@ -1,7 +1,7 @@
 //! Line-based drawing rendering: Line, Ray, ExtendedLine, Arrow,
 //! HorizontalLine, VerticalLine.
 
-use super::{DrawContext, draw_drawing_label, extend_to_bounds};
+use super::{DrawContext, draw_drawing_label, draw_label, extend_to_bounds};
 use super::super::Drawing;
 use crate::chart::core::tokens;
 use data::DrawingTool;
@@ -94,7 +94,7 @@ fn draw_extended(
 fn draw_arrow(
     frame: &mut Frame,
     ctx: &DrawContext<'_>,
-    _drawing: &Drawing,
+    drawing: &Drawing,
     pts: &[Point],
 ) {
     if pts.len() < 2 {
@@ -105,15 +105,20 @@ fn draw_arrow(
 
     frame.stroke(&Path::line(start, end), ctx.stroke);
 
-    // Arrowhead
     let dx = end.x - start.x;
     let dy = end.y - start.y;
     let len = (dx * dx + dy * dy).sqrt();
-    if len > 1.0 {
-        let arrow_len = tokens::ruler::ARROW_LENGTH;
-        let arrow_width = tokens::ruler::ARROW_WIDTH;
-        let ux = dx / len;
-        let uy = dy / len;
+    if len <= 1.0 {
+        return;
+    }
+
+    let ux = dx / len;
+    let uy = dy / len;
+    let arrow_len = tokens::ruler::ARROW_LENGTH + ctx.stroke_width;
+    let arrow_width = tokens::ruler::ARROW_WIDTH + ctx.stroke_width * 0.5;
+
+    // Arrowhead at end
+    if drawing.style.arrow_head_end {
         let left = Point::new(
             end.x - ux * arrow_len + uy * arrow_width,
             end.y - uy * arrow_len - ux * arrow_width,
@@ -130,4 +135,34 @@ fn draw_arrow(
         });
         frame.fill(&arrow, ctx.stroke_color);
     }
+
+    // Arrowhead at start (direction reversed: points away from end)
+    if drawing.style.arrow_head_start {
+        let left = Point::new(
+            start.x + ux * arrow_len - uy * arrow_width,
+            start.y + uy * arrow_len + ux * arrow_width,
+        );
+        let right = Point::new(
+            start.x + ux * arrow_len + uy * arrow_width,
+            start.y + uy * arrow_len - ux * arrow_width,
+        );
+        let arrow = Path::new(|builder| {
+            builder.move_to(start);
+            builder.line_to(left);
+            builder.line_to(right);
+            builder.close();
+        });
+        frame.fill(&arrow, ctx.stroke_color);
+    }
+
+    // Inline text label at midpoint (from style.text)
+    if let Some(ref text) = drawing.style.text {
+        if !text.is_empty() {
+            let mid = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+            draw_label(frame, text, mid, ctx.stroke_color);
+        }
+    }
+
+    // Named label (from drawing.label, with alignment control)
+    draw_drawing_label(frame, drawing, &[start, end], ctx.bounds, ctx.stroke_color, false);
 }

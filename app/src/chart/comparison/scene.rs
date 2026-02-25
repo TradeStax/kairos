@@ -5,7 +5,7 @@ use iced::advanced::Layout;
 use iced::{Point, Rectangle, mouse};
 
 use super::legend::{EndLabel, IconKind, LegendLayout, LegendMode, resolve_label_overlaps};
-use super::line_widget::TEXT_SIZE_PUB as TEXT_SIZE;
+use super::TEXT_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum HitZone {

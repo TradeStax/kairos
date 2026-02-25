@@ -1,0 +1,424 @@
+use super::{METRICS_HEIGHT_COMPACT, TRADE_ROW_HEIGHT, TimeAndSales};
+use crate::components::primitives::AZERET_MONO;
+use crate::style::tokens;
+use data::config::panel::timeandsales::{StackedBar, StackedBarRatio};
+use data::config::theme::{darken_rgba, lighten_rgba};
+use exchange::util::PriceExt;
+
+use iced::widget::canvas::{self, Text};
+use iced::{Alignment, Event, Point, Rectangle, Renderer, Size, Theme, mouse};
+use std::time::Instant;
+
+impl canvas::Program<super::super::Message> for TimeAndSales {
+    type State = ();
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: &iced::Event,
+        bounds: iced::Rectangle,
+        cursor: iced_core::mouse::Cursor,
+    ) -> Option<canvas::Action<super::super::Message>> {
+        let cursor_position = cursor.position_in(bounds)?;
+
+        match event {
+            Event::Mouse(mouse_event) => match mouse_event {
+                mouse::Event::ButtonPressed(button) => match button {
+                    mouse::Button::Middle => Some(
+                        canvas::Action::publish(
+                            super::super::Message::ResetScroll,
+                        )
+                        .and_capture(),
+                    ),
+                    mouse::Button::Left => {
+                        let paused_box_height = self.pause_overlay_height();
+                        let paused_box = Rectangle {
+                            x: 0.0,
+                            y: 0.0,
+                            width: bounds.width,
+                            height: paused_box_height,
+                        };
+
+                        if self.is_paused
+                            && paused_box.contains(cursor_position)
+                        {
+                            Some(
+                                canvas::Action::publish(
+                                    super::super::Message::ResetScroll,
+                                )
+                                .and_capture(),
+                            )
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+                mouse::Event::WheelScrolled { delta } => {
+                    let scroll_amount = match delta {
+                        mouse::ScrollDelta::Lines { y, .. } => {
+                            *y * TRADE_ROW_HEIGHT * 3.0
+                        }
+                        mouse::ScrollDelta::Pixels { y, .. } => *y,
+                    };
+
+                    Some(
+                        canvas::Action::publish(
+                            super::super::Message::Scrolled(scroll_amount),
+                        )
+                        .and_capture(),
+                    )
+                }
+                mouse::Event::CursorMoved { .. } => {
+                    if self.is_paused {
+                        let now = Some(Instant::now());
+                        Some(
+                            canvas::Action::publish(
+                                super::super::Message::Invalidate(now),
+                            )
+                            .and_capture(),
+                        )
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        theme: &Theme,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let palette = theme.extended_palette();
+        let is_scroll_paused = self.is_paused;
+        let stacked_bar_h = self.stacked_bar_height();
+
+        let content = self.cache.draw(renderer, bounds.size(), |frame| {
+            let content_top_y = -self.scroll_offset;
+
+            if let Some(hist) = &self.config.stacked_bar {
+                let ratio_kind = match hist {
+                    StackedBar::Compact(r) | StackedBar::Full(r) => *r,
+                };
+
+                if let Some((buy_val, sell_val, buy_ratio)) =
+                    self.hist_agg.values_for(ratio_kind)
+                {
+                    let draw_stacked_bar = |frame: &mut canvas::Frame,
+                                            buy_bar_width: f32,
+                                            sell_bar_width: f32| {
+                        frame.fill_rectangle(
+                            Point {
+                                x: 0.0,
+                                y: content_top_y,
+                            },
+                            Size {
+                                width: buy_bar_width,
+                                height: stacked_bar_h,
+                            },
+                            palette.success.weak.color,
+                        );
+
+                        frame.fill_rectangle(
+                            Point {
+                                x: buy_bar_width,
+                                y: content_top_y,
+                            },
+                            Size {
+                                width: sell_bar_width,
+                                height: stacked_bar_h,
+                            },
+                            palette.danger.weak.color,
+                        );
+                    };
+
+                    let buy_bar_width =
+                        (bounds.width * buy_ratio).round();
+                    let sell_bar_width = bounds.width - buy_bar_width;
+
+                    draw_stacked_bar(
+                        frame,
+                        buy_bar_width,
+                        sell_bar_width,
+                    );
+
+                    if matches!(hist, StackedBar::Full(_)) {
+                        let center_y =
+                            content_top_y + (stacked_bar_h / 2.0);
+
+                        let buy_text_content = match ratio_kind {
+                            StackedBarRatio::Count => {
+                                format!("{}", buy_val as i64)
+                            }
+                            StackedBarRatio::AverageSize
+                            | StackedBarRatio::Volume => {
+                                data::util::abbr_large_numbers(
+                                    buy_val as f32,
+                                )
+                            }
+                        };
+                        let buy_text = Text {
+                            content: buy_text_content,
+                            position: Point {
+                                x: 8.0,
+                                y: center_y,
+                            },
+                            size: tokens::text::SMALL.into(),
+                            font: AZERET_MONO,
+                            color: palette.success.weak.text,
+                            align_x: Alignment::Start.into(),
+                            align_y: Alignment::Center.into(),
+                            ..Default::default()
+                        };
+                        frame.fill_text(buy_text);
+
+                        let sell_text_content = match ratio_kind {
+                            StackedBarRatio::Count => {
+                                format!("{}", sell_val as i64)
+                            }
+                            StackedBarRatio::AverageSize
+                            | StackedBarRatio::Volume => {
+                                data::util::abbr_large_numbers(
+                                    sell_val as f32,
+                                )
+                            }
+                        };
+                        let sell_text = Text {
+                            content: sell_text_content,
+                            position: Point {
+                                x: bounds.width - 8.0,
+                                y: center_y,
+                            },
+                            size: tokens::text::SMALL.into(),
+                            font: AZERET_MONO,
+                            color: palette.danger.weak.text,
+                            align_x: Alignment::End.into(),
+                            align_y: Alignment::Center.into(),
+                            ..Default::default()
+                        };
+                        frame.fill_text(sell_text);
+                    }
+                }
+            }
+
+            // Feed
+            let row_height = TRADE_ROW_HEIGHT;
+            let row_width = bounds.width;
+
+            let row_scroll_offset =
+                (self.scroll_offset - stacked_bar_h).max(0.0);
+            let start_index =
+                (row_scroll_offset / row_height).floor() as usize;
+            let visible_rows =
+                (bounds.height / row_height).ceil() as usize;
+
+            let trades_to_draw = self
+                .recent_trades
+                .iter()
+                .filter(|t| t.quantity >= self.config.trade_size_filter)
+                .rev()
+                .skip(start_index)
+                .take(visible_rows + 2);
+
+            let create_text = |content: String,
+                               position: Point,
+                               align_x: Alignment,
+                               color: iced::Color| {
+                Text {
+                    content,
+                    position,
+                    size: tokens::text::SMALL.into(),
+                    font: AZERET_MONO,
+                    color,
+                    align_x: align_x.into(),
+                    ..Default::default()
+                }
+            };
+
+            for (i, entry) in trades_to_draw.enumerate() {
+                let trade = &entry.display;
+                let y_position = content_top_y
+                    + stacked_bar_h
+                    + ((start_index + i) as f32 * row_height);
+
+                if y_position + row_height < 0.0
+                    || y_position > bounds.height
+                {
+                    continue;
+                }
+
+                let bg_color = if trade.is_sell {
+                    palette.danger.weak.color
+                } else {
+                    palette.success.weak.color
+                };
+
+                let bg_color_alpha = if self.max_filtered_qty > 0.0 {
+                    (trade.qty / self.max_filtered_qty).clamp(0.02, 1.0)
+                } else {
+                    0.02
+                };
+
+                let bg_rgba =
+                    crate::style::theme::iced_color_to_rgba(
+                        bg_color,
+                    );
+                let mut text_color = if palette.is_dark {
+                    crate::style::theme::rgba_to_iced_color(
+                        lighten_rgba(bg_rgba, bg_color_alpha.max(0.1)),
+                    )
+                } else {
+                    crate::style::theme::rgba_to_iced_color(
+                        darken_rgba(
+                            bg_rgba,
+                            (bg_color_alpha * 0.8).max(0.1),
+                        ),
+                    )
+                };
+
+                if is_scroll_paused
+                    && y_position
+                        < (stacked_bar_h.max(METRICS_HEIGHT_COMPACT))
+                            + (TRADE_ROW_HEIGHT * 0.8)
+                {
+                    text_color = text_color.scale_alpha(0.1);
+                }
+
+                frame.fill_rectangle(
+                    Point {
+                        x: 0.0,
+                        y: y_position,
+                    },
+                    Size {
+                        width: row_width,
+                        height: row_height,
+                    },
+                    bg_color.scale_alpha(bg_color_alpha.min(0.9)),
+                );
+
+                let trade_time = create_text(
+                    trade.time_str.clone(),
+                    Point {
+                        x: row_width * 0.1,
+                        y: y_position,
+                    },
+                    Alignment::Start,
+                    text_color,
+                );
+                frame.fill_text(trade_time);
+
+                let exchange_price =
+                    exchange::util::Price::from(entry.price);
+                let precision =
+                    exchange::util::Power10::<-8, 2>::from(
+                        self.ticker_info.min_ticksize.to_f32_lossy(),
+                    );
+                let trade_price = create_text(
+                    exchange_price.fmt_with_precision(precision),
+                    Point {
+                        x: row_width * 0.67,
+                        y: y_position,
+                    },
+                    Alignment::End,
+                    text_color,
+                );
+                frame.fill_text(trade_price);
+
+                let trade_qty = create_text(
+                    data::util::abbr_large_numbers(trade.qty),
+                    Point {
+                        x: row_width * 0.9,
+                        y: y_position,
+                    },
+                    Alignment::End,
+                    text_color,
+                );
+                frame.fill_text(trade_qty);
+            }
+
+            if is_scroll_paused {
+                let pause_overlay_height = self.pause_overlay_height();
+                let pause_overlay_y = 0.0;
+
+                let cursor_position = cursor.position_in(bounds);
+
+                let paused_box = Rectangle {
+                    x: 0.0,
+                    y: pause_overlay_y,
+                    width: frame.width(),
+                    height: pause_overlay_height,
+                };
+
+                let bg_color = if let Some(cursor) = cursor_position {
+                    if paused_box.contains(cursor) {
+                        palette.background.strong.color
+                    } else {
+                        palette.background.weak.color
+                    }
+                } else {
+                    palette.background.weak.color
+                };
+
+                frame.fill_rectangle(
+                    Point {
+                        x: 0.0,
+                        y: pause_overlay_y,
+                    },
+                    Size {
+                        width: frame.width(),
+                        height: pause_overlay_height,
+                    },
+                    bg_color,
+                );
+
+                frame.fill_text(Text {
+                    content: "Paused".to_string(),
+                    position: Point {
+                        x: frame.width() * 0.5,
+                        y: pause_overlay_y
+                            + (pause_overlay_height / 2.0),
+                    },
+                    size: tokens::text::BODY.into(),
+                    font: AZERET_MONO,
+                    color: palette.background.strong.text,
+                    align_x: Alignment::Center.into(),
+                    align_y: Alignment::Center.into(),
+                    ..Default::default()
+                });
+            }
+        });
+
+        vec![content]
+    }
+
+    fn mouse_interaction(
+        &self,
+        _state: &Self::State,
+        bounds: iced::Rectangle,
+        cursor: iced_core::mouse::Cursor,
+    ) -> iced_core::mouse::Interaction {
+        if self.is_paused {
+            let stacked_bar_h = self.stacked_bar_height();
+            let paused_box = Rectangle {
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: stacked_bar_h.max(METRICS_HEIGHT_COMPACT)
+                    + TRADE_ROW_HEIGHT,
+            };
+
+            if cursor.is_over(paused_box) {
+                return mouse::Interaction::Pointer;
+            }
+        }
+
+        mouse::Interaction::default()
+    }
+}

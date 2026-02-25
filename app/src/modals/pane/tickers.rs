@@ -8,7 +8,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::app::FUTURES_PRODUCTS;
 
-use tokens::ticker_panel::COMPACT_ROW_HEIGHT;
+use tokens::component::ticker_panel::COMPACT_ROW_HEIGHT;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RowSelection {
@@ -60,7 +60,7 @@ impl MiniPanel {
     pub fn view<'a>(
         &'a self,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
-        selected_tickers: Option<&'a [FuturesTickerInfo]>,
+        selected_tickers: Option<&[FuturesTickerInfo]>,
         base_ticker: Option<FuturesTickerInfo>,
         ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
@@ -137,7 +137,7 @@ fn view_compact_with<'a, M, FSelect, FSearch>(
     search_box_id: &'a iced::widget::Id,
     on_select: FSelect,
     on_search: FSearch,
-    selected_tickers: Option<&'a [FuturesTickerInfo]>,
+    selected_tickers: Option<&[FuturesTickerInfo]>,
     base_ticker: Option<FuturesTickerInfo>,
     ticker_ranges: &'a std::collections::HashMap<String, String>,
 ) -> Element<'a, M>

@@ -163,6 +163,130 @@ impl std::fmt::Display for FeedCapability {
     }
 }
 
+/// Known Rithmic R|Protocol servers
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RithmicServer {
+    /// Core (Chicago)
+    #[default]
+    Chicago,
+    /// New York
+    NewYork,
+    /// Sydney
+    Sydney,
+    /// Sao Paolo
+    SaoPaolo,
+    /// Colo75
+    Colo75,
+    /// Frankfurt
+    Frankfurt,
+    /// Hong Kong
+    HongKong,
+    /// Ireland
+    Ireland,
+    /// Mumbai
+    Mumbai,
+    /// Seoul
+    Seoul,
+    /// Cape Town
+    CapeTown,
+    /// Tokyo
+    Tokyo,
+    /// Singapore
+    Singapore,
+}
+
+impl RithmicServer {
+    pub const ALL: [RithmicServer; 13] = [
+        RithmicServer::Chicago,
+        RithmicServer::NewYork,
+        RithmicServer::Sydney,
+        RithmicServer::SaoPaolo,
+        RithmicServer::Colo75,
+        RithmicServer::Frankfurt,
+        RithmicServer::HongKong,
+        RithmicServer::Ireland,
+        RithmicServer::Mumbai,
+        RithmicServer::Seoul,
+        RithmicServer::CapeTown,
+        RithmicServer::Tokyo,
+        RithmicServer::Singapore,
+    ];
+
+    pub fn url(&self) -> &'static str {
+        match self {
+            RithmicServer::Chicago => "wss://rprotocol.rithmic.com:443",
+            RithmicServer::NewYork => {
+                "wss://rprotocol-nyc.rithmic.com:443"
+            }
+            RithmicServer::Sydney => {
+                "wss://rprotocol-au.rithmic.com:443"
+            }
+            RithmicServer::SaoPaolo => {
+                "wss://rprotocol-br.rithmic.com:443"
+            }
+            RithmicServer::Colo75 => {
+                "wss://rprotocol-colo75.rithmic.com:443"
+            }
+            RithmicServer::Frankfurt => {
+                "wss://rprotocol-de.rithmic.com:443"
+            }
+            RithmicServer::HongKong => {
+                "wss://rprotocol-hk.rithmic.com:443"
+            }
+            RithmicServer::Ireland => {
+                "wss://rprotocol-ie.rithmic.com:443"
+            }
+            RithmicServer::Mumbai => {
+                "wss://rprotocol-in.rithmic.com:443"
+            }
+            RithmicServer::Seoul => {
+                "wss://rprotocol-kr.rithmic.com:443"
+            }
+            RithmicServer::CapeTown => {
+                "wss://rprotocol-za.rithmic.com:443"
+            }
+            RithmicServer::Tokyo => {
+                "wss://rprotocol-jp.rithmic.com:443"
+            }
+            RithmicServer::Singapore => {
+                "wss://rprotocol-sg.rithmic.com:443"
+            }
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            RithmicServer::Chicago => "Core (Chicago)",
+            RithmicServer::NewYork => "New York",
+            RithmicServer::Sydney => "Sydney",
+            RithmicServer::SaoPaolo => "Sao Paolo",
+            RithmicServer::Colo75 => "Colo75",
+            RithmicServer::Frankfurt => "Frankfurt",
+            RithmicServer::HongKong => "Hong Kong",
+            RithmicServer::Ireland => "Ireland",
+            RithmicServer::Mumbai => "Mumbai",
+            RithmicServer::Seoul => "Seoul",
+            RithmicServer::CapeTown => "Cape Town",
+            RithmicServer::Tokyo => "Tokyo",
+            RithmicServer::Singapore => "Singapore",
+        }
+    }
+
+    /// Reverse lookup from URL to server variant (for migration)
+    pub fn from_url(url: &str) -> Option<RithmicServer> {
+        RithmicServer::ALL
+            .iter()
+            .find(|s| s.url() == url)
+            .copied()
+    }
+}
+
+impl std::fmt::Display for RithmicServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
 /// Rithmic connection environment
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RithmicEnvironment {
@@ -230,21 +354,24 @@ impl Default for DatabentoFeedConfig {
 pub struct RithmicFeedConfig {
     /// Connection environment
     pub environment: RithmicEnvironment,
+    /// Selected Rithmic server
+    #[serde(default)]
+    pub server: RithmicServer,
     /// System name for Rithmic connection
     pub system_name: String,
     /// User ID for authentication
     pub user_id: String,
-    /// WebSocket server URL (e.g., "wss://rituz00100.rithmic.com:443")
-    #[serde(default)]
+    /// Legacy server URL — consumed on load for migration, never re-written
+    #[serde(default, skip_serializing)]
     pub server_url: String,
     /// Account ID (may be empty for test environments)
     #[serde(default)]
     pub account_id: String,
-    /// Futures Commission Merchant ID
-    #[serde(default)]
+    /// Legacy FCM ID — consumed on load for migration, never re-written
+    #[serde(default, skip_serializing)]
     pub fcm_id: String,
-    /// Introducing Broker ID
-    #[serde(default)]
+    /// Legacy IB ID — consumed on load for migration, never re-written
+    #[serde(default, skip_serializing)]
     pub ib_id: String,
     /// Auto-reconnect on disconnect
     pub auto_reconnect: bool,
@@ -256,6 +383,7 @@ impl Default for RithmicFeedConfig {
     fn default() -> Self {
         Self {
             environment: RithmicEnvironment::Demo,
+            server: RithmicServer::default(),
             system_name: String::new(),
             user_id: String::new(),
             server_url: String::new(),

@@ -5,10 +5,21 @@
 //! the section_header helper.
 
 use crate::components;
-use crate::components::layout::modal_header::ModalHeaderBuilder;
+use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::style;
 use crate::style::{palette, tokens};
-use data::feed::{DataFeed, FeedKind, FeedProvider, RithmicEnvironment};
+use data::feed::{DataFeed, FeedKind, FeedProvider, FeedStatus, RithmicEnvironment, RithmicServer};
+
+/// Maps a feed connection status to a display color.
+fn feed_status_color(theme: &iced::Theme, status: &FeedStatus) -> iced::Color {
+    match status {
+        FeedStatus::Connected => palette::success_color(theme),
+        FeedStatus::Connecting => theme.extended_palette().warning.strong.color,
+        FeedStatus::Downloading { .. } => palette::info_color(theme),
+        FeedStatus::Error(_) => palette::error_color(theme),
+        FeedStatus::Disconnected => palette::neutral_color(theme),
+    }
+}
 use iced::{
     Alignment, Element, Length, padding,
     widget::{
@@ -19,8 +30,9 @@ use iced::{
 
 use super::{DataFeedsMessage, DataFeedsModal};
 
-/// Predefined Rithmic system names
-const RITHMIC_SYSTEM_NAMES: &[&str] = &["Rithmic Paper Trading", "Rithmic 01", "Rithmic Test"];
+/// Fallback Rithmic system names (used when server probe hasn't completed)
+const RITHMIC_SYSTEM_NAMES_FALLBACK: &[&str] =
+    &["Rithmic Paper Trading", "Rithmic 01", "Rithmic Test"];
 
 /// Tickers available for Rithmic subscription
 const RITHMIC_TICKERS: &[(&str, &str)] = &[
@@ -40,8 +52,8 @@ const RITHMIC_TICKERS: &[(&str, &str)] = &[
 
 impl DataFeedsModal {
     pub fn view(&self) -> Element<'_, DataFeedsMessage> {
-        let header = ModalHeaderBuilder::new("Manage Connections")
-            .on_close(DataFeedsMessage::Close);
+        let header =
+            ModalHeaderBuilder::new("Manage Connections").on_close(DataFeedsMessage::Close);
 
         let left_panel = self.view_left_panel();
         let right_panel = self.view_right_panel();
@@ -196,9 +208,9 @@ impl DataFeedsModal {
         } else {
             // Status dot for connections
             let feed_status = feed.status.clone();
-            components::display::status_dot_themed(
-                move |theme| palette::status_color(theme, &feed_status),
-            )
+            components::display::status_dot_themed(move |theme| {
+                feed_status_color(theme, &feed_status)
+            })
         };
 
         let info = column![
@@ -303,7 +315,7 @@ impl DataFeedsModal {
         // Provider-specific fields
         let provider_fields: Element<'_, DataFeedsMessage> = match self.edit_form.provider {
             Some(FeedProvider::Databento) => self.view_databento_fields(),
-            Some(FeedProvider::Rithmic) => self.view_rithmic_fields(),
+            Some(FeedProvider::Rithmic) => self.view_rithmic_fields(feed.id),
             None => space::vertical().height(0).into(),
         };
 
@@ -385,23 +397,20 @@ impl DataFeedsModal {
         .into()
     }
 
-    fn view_rithmic_fields(&self) -> Element<'_, DataFeedsMessage> {
-        // Environment + System Name on the same row
+    fn view_rithmic_fields(&self, feed_id: data::FeedId) -> Element<'_, DataFeedsMessage> {
+        // Environment
         let env_options: Vec<String> = RithmicEnvironment::ALL
             .iter()
             .map(|e| e.to_string())
             .collect();
         let selected_env = Some(self.edit_form.environment.to_string());
 
-        let system_names = RITHMIC_SYSTEM_NAMES;
-        let system_name_options: Vec<String> = system_names.iter().map(|s| s.to_string()).collect();
-        let selected_system = if self.edit_form.system_name.is_empty() {
-            None
-        } else {
-            Some(self.edit_form.system_name.clone())
-        };
+        // Server dropdown
+        let server_options: Vec<String> =
+            RithmicServer::ALL.iter().map(|s| s.to_string()).collect();
+        let selected_server = Some(self.edit_form.server.to_string());
 
-        let env_system_row = row![
+        let env_server_row = row![
             column![
                 components::primitives::body("Environment"),
                 pick_list(env_options, selected_env, |selected| {
@@ -417,12 +426,15 @@ impl DataFeedsModal {
             .spacing(tokens::spacing::XS)
             .width(Length::FillPortion(1)),
             column![
-                components::primitives::body("System Name"),
-                pick_list(
-                    system_name_options,
-                    selected_system,
-                    DataFeedsMessage::SetSystemName,
-                )
+                components::primitives::body("Server"),
+                pick_list(server_options, selected_server, |selected| {
+                    let server = RithmicServer::ALL
+                        .iter()
+                        .find(|s| s.to_string() == selected)
+                        .copied()
+                        .unwrap_or(RithmicServer::Chicago);
+                    DataFeedsMessage::SetServer(server)
+                },)
                 .text_size(tokens::text::BODY),
             ]
             .spacing(tokens::spacing::XS)
@@ -430,46 +442,48 @@ impl DataFeedsModal {
         ]
         .spacing(tokens::spacing::MD);
 
-        // Server URL (full width)
-        let server_url = column![
-            components::primitives::body("Server URL"),
-            text_input(
-                "wss://server.rithmic.com:443",
-                &self.edit_form.server_url,
+        // System name — dynamic from probe, with fallback
+        let system_name_options: Vec<String> = if !self.edit_form.available_system_names.is_empty()
+        {
+            self.edit_form.available_system_names.clone()
+        } else {
+            RITHMIC_SYSTEM_NAMES_FALLBACK
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        };
+        let selected_system = if self.edit_form.system_name.is_empty() {
+            None
+        } else {
+            Some(self.edit_form.system_name.clone())
+        };
+
+        let system_name_label: Element<'_, DataFeedsMessage> =
+            if self.edit_form.system_names_loading {
+                components::primitives::body("System Name (loading...)").into()
+            } else {
+                components::primitives::body("System Name").into()
+            };
+
+        let system_name_field = column![
+            system_name_label,
+            pick_list(
+                system_name_options,
+                selected_system,
+                DataFeedsMessage::SetSystemName,
             )
-            .on_input(DataFeedsMessage::SetServerUrl)
-            .size(tokens::text::LABEL),
+            .text_size(tokens::text::BODY),
         ]
         .spacing(tokens::spacing::XS);
 
-        // Account ID / FCM ID / IB ID in a 3-column row
-        let ids_row = row![
-            column![
-                components::primitives::body("Account ID"),
-                text_input("", &self.edit_form.account_id)
-                    .on_input(DataFeedsMessage::SetAccountId)
-                    .size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::FillPortion(1)),
-            column![
-                components::primitives::body("FCM ID"),
-                text_input("", &self.edit_form.fcm_id)
-                    .on_input(DataFeedsMessage::SetFcmId)
-                    .size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::FillPortion(1)),
-            column![
-                components::primitives::body("IB ID"),
-                text_input("", &self.edit_form.ib_id)
-                    .on_input(DataFeedsMessage::SetIbId)
-                    .size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::FillPortion(1)),
+        // Account ID (full width, standalone)
+        let account_id = column![
+            components::primitives::body("Account ID"),
+            text_input("", &self.edit_form.account_id)
+                .on_input(DataFeedsMessage::SetAccountId)
+                .size(tokens::text::LABEL),
         ]
-        .spacing(tokens::spacing::MD);
+        .spacing(tokens::spacing::XS);
 
         let user_id = column![
             components::primitives::body("User ID"),
@@ -480,8 +494,8 @@ impl DataFeedsModal {
         .spacing(tokens::spacing::XS);
 
         let password_field = {
-            let has_saved =
-                crate::infra::secrets::SecretsManager::new().has_api_key(data::ApiProvider::Rithmic);
+            let has_saved = crate::infra::secrets::SecretsManager::new()
+                .has_feed_password(&feed_id.to_string());
             let placeholder = if has_saved {
                 "Password saved (leave blank to keep)"
             } else {
@@ -498,16 +512,26 @@ impl DataFeedsModal {
             .into_element()
         };
 
-        // Subscribed tickers as inline checkboxes
+        // Subscribed tickers — use dynamic list if available
+        let ticker_source: Vec<(&str, &str)> = if !self.edit_form.available_tickers.is_empty() {
+            self.edit_form
+                .available_tickers
+                .iter()
+                .map(|s| (s.as_str(), s.as_str()))
+                .collect()
+        } else {
+            RITHMIC_TICKERS.to_vec()
+        };
+
         let selected_tickers = &self.edit_form.subscribed_tickers;
         let mut tickers_col = column![text("Subscribed Tickers").size(tokens::text::LABEL),]
             .spacing(tokens::spacing::XS);
 
-        for &(symbol, _label) in RITHMIC_TICKERS {
-            let is_checked = selected_tickers.iter().any(|t| t == symbol);
+        for (symbol, _label) in &ticker_source {
+            let is_checked = selected_tickers.iter().any(|t| t == *symbol);
             let sym = symbol.to_string();
             let cb = iced::widget::checkbox(is_checked)
-                .label(symbol)
+                .label(*symbol)
                 .on_toggle(move |_| DataFeedsMessage::ToggleTicker(sym.clone()))
                 .text_size(tokens::text::BODY)
                 .spacing(tokens::spacing::XS);
@@ -523,9 +547,9 @@ impl DataFeedsModal {
 
         column![
             components::primitives::title("Rithmic Settings"),
-            env_system_row,
-            server_url,
-            ids_row,
+            env_server_row,
+            system_name_field,
+            account_id,
             user_id,
             password_field,
             tickers_field,

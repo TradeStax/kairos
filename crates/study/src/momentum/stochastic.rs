@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::trend::sma::compute_sma;
 use crate::util::candle_key;
 use data::SerializableColor;

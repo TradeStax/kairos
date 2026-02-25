@@ -3,12 +3,22 @@
 //! Manages connections to Rithmic's Ticker Plant and History Plant.
 //! Provides market data subscriptions and historical data retrieval.
 
-use super::{RithmicConfig, RithmicError};
-use kairos_data::feed::FeedStatus;
-use rithmic_rs::{
-    RithmicHistoryPlant, RithmicHistoryPlantHandle, RithmicTickerPlant, RithmicTickerPlantHandle,
+use super::plants::{
+    RithmicHistoryPlant, RithmicHistoryPlantHandle, RithmicTickerPlant,
+    RithmicTickerPlantHandle,
 };
+use super::protocol::{
+    RithmicConnectionConfig, RithmicEnv, RithmicMessage, RithmicResponse,
+};
+use super::protocol::response::RithmicReceiverApi;
+use super::protocol::sender::RithmicSenderApi;
+use super::protocol::ws::{ConnectStrategy, connect_with_strategy};
+use super::RithmicConfig;
+use super::RithmicError;
+use futures_util::{SinkExt, StreamExt};
+use kairos_data::feed::FeedStatus;
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite;
 
 /// Rithmic client wrapping ticker and history plants
 pub struct RithmicClient {
@@ -27,7 +37,10 @@ pub struct RithmicClient {
 
 impl RithmicClient {
     /// Create a new RithmicClient (not yet connected)
-    pub fn new(config: RithmicConfig, status_tx: mpsc::UnboundedSender<FeedStatus>) -> Self {
+    pub fn new(
+        config: RithmicConfig,
+        status_tx: mpsc::UnboundedSender<FeedStatus>,
+    ) -> Self {
         Self {
             ticker_handle: None,
             history_handle: None,
@@ -41,20 +54,23 @@ impl RithmicClient {
     /// Connect to Rithmic ticker plant and history plant
     pub async fn connect(
         &mut self,
-        rithmic_config: &rithmic_rs::RithmicConfig,
+        rithmic_config: &RithmicConnectionConfig,
     ) -> Result<(), RithmicError> {
         let _ = self.status_tx.send(FeedStatus::Connecting);
 
         let strategy = self.config.connect_strategy;
 
         // Connect ticker plant
-        let ticker_plant = RithmicTickerPlant::connect(rithmic_config, strategy)
-            .await
-            .map_err(|e| {
-                let msg = format!("Failed to connect ticker plant: {}", e);
-                let _ = self.status_tx.send(FeedStatus::Error(msg.clone()));
-                RithmicError::Connection(msg)
-            })?;
+        let ticker_plant =
+            RithmicTickerPlant::connect(rithmic_config, strategy)
+                .await
+                .map_err(|e| {
+                    let msg =
+                        format!("Failed to connect ticker plant: {}", e);
+                    let _ =
+                        self.status_tx.send(FeedStatus::Error(msg.clone()));
+                    RithmicError::Connection(msg)
+                })?;
 
         let ticker_handle = ticker_plant.get_handle();
 
@@ -68,19 +84,33 @@ impl RithmicClient {
         log::info!("Rithmic ticker plant connected and authenticated");
 
         // Connect history plant (clean up ticker plant on failure)
-        let history_plant = match RithmicHistoryPlant::connect(rithmic_config, strategy).await {
-            Ok(plant) => plant,
-            Err(e) => {
-                let msg = format!("Failed to connect history plant: {}", e);
-                let _ = self.status_tx.send(FeedStatus::Error(msg.clone()));
-                // Clean up already-connected ticker plant
-                log::warn!("Cleaning up ticker plant after history plant connection failure");
-                if let Err(dc_err) = ticker_handle.disconnect().await {
-                    log::warn!("Ticker plant cleanup error: {}", dc_err);
+        let history_plant =
+            match RithmicHistoryPlant::connect(rithmic_config, strategy)
+                .await
+            {
+                Ok(plant) => plant,
+                Err(e) => {
+                    let msg = format!(
+                        "Failed to connect history plant: {}",
+                        e
+                    );
+                    let _ = self
+                        .status_tx
+                        .send(FeedStatus::Error(msg.clone()));
+                    // Clean up already-connected ticker plant
+                    log::warn!(
+                        "Cleaning up ticker plant after history plant \
+                         connection failure"
+                    );
+                    if let Err(dc_err) = ticker_handle.disconnect().await {
+                        log::warn!(
+                            "Ticker plant cleanup error: {}",
+                            dc_err
+                        );
+                    }
+                    return Err(RithmicError::Connection(msg));
                 }
-                return Err(RithmicError::Connection(msg));
-            }
-        };
+            };
 
         let history_handle = history_plant.get_handle();
 
@@ -107,14 +137,23 @@ impl RithmicClient {
     }
 
     /// Subscribe to real-time market data for a symbol
-    pub async fn subscribe(&mut self, symbol: &str, exchange: &str) -> Result<(), RithmicError> {
+    pub async fn subscribe(
+        &mut self,
+        symbol: &str,
+        exchange: &str,
+    ) -> Result<(), RithmicError> {
         let handle = self
             .ticker_handle
             .as_mut()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| {
+                RithmicError::Connection("Not connected".to_string())
+            })?;
 
         handle.subscribe(symbol, exchange).await.map_err(|e| {
-            RithmicError::Subscription(format!("Failed to subscribe {}: {}", symbol, e))
+            RithmicError::Subscription(format!(
+                "Failed to subscribe {}: {}",
+                symbol, e
+            ))
         })?;
 
         log::info!(
@@ -126,17 +165,30 @@ impl RithmicClient {
     }
 
     /// Unsubscribe from real-time market data
-    pub async fn unsubscribe(&mut self, symbol: &str, exchange: &str) -> Result<(), RithmicError> {
+    pub async fn unsubscribe(
+        &mut self,
+        symbol: &str,
+        exchange: &str,
+    ) -> Result<(), RithmicError> {
         let handle = self
             .ticker_handle
             .as_mut()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| {
+                RithmicError::Connection("Not connected".to_string())
+            })?;
 
         handle.unsubscribe(symbol, exchange).await.map_err(|e| {
-            RithmicError::Subscription(format!("Failed to unsubscribe {}: {}", symbol, e))
+            RithmicError::Subscription(format!(
+                "Failed to unsubscribe {}: {}",
+                symbol, e
+            ))
         })?;
 
-        log::info!("Unsubscribed from Rithmic: {} on {}", symbol, exchange);
+        log::info!(
+            "Unsubscribed from Rithmic: {} on {}",
+            symbol,
+            exchange
+        );
         Ok(())
     }
 
@@ -146,24 +198,29 @@ impl RithmicClient {
         symbol: &str,
         exchange: &str,
     ) -> Result<String, RithmicError> {
-        let handle = self
-            .ticker_handle
-            .as_ref()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+        let handle = self.ticker_handle.as_ref().ok_or_else(|| {
+            RithmicError::Connection("Not connected".to_string())
+        })?;
 
         let response = handle
             .get_front_month_contract(symbol, exchange, false)
             .await
             .map_err(|e| {
-                RithmicError::Data(format!("Failed to get front month for {}: {}", symbol, e))
+                RithmicError::Data(format!(
+                    "Failed to get front month for {}: {}",
+                    symbol, e
+                ))
             })?;
 
         if let Some(err) = &response.error {
-            return Err(RithmicError::Data(format!("Front month error: {}", err)));
+            return Err(RithmicError::Data(format!(
+                "Front month error: {}",
+                err
+            )));
         }
 
         // Extract the front month trading symbol from the response
-        if let rithmic_rs::rti::messages::RithmicMessage::ResponseFrontMonthContract(fmc) =
+        if let RithmicMessage::ResponseFrontMonthContract(fmc) =
             &response.message
         {
             if let Some(trading_symbol) = &fmc.trading_symbol {
@@ -191,11 +248,12 @@ impl RithmicClient {
         exchange: &str,
         start_secs: i32,
         end_secs: i32,
-    ) -> Result<Vec<rithmic_rs::RithmicResponse>, RithmicError> {
-        let handle = self
-            .history_handle
-            .as_ref()
-            .ok_or_else(|| RithmicError::Connection("History plant not connected".to_string()))?;
+    ) -> Result<Vec<RithmicResponse>, RithmicError> {
+        let handle = self.history_handle.as_ref().ok_or_else(|| {
+            RithmicError::Connection(
+                "History plant not connected".to_string(),
+            )
+        })?;
 
         handle
             .load_ticks(
@@ -205,14 +263,57 @@ impl RithmicClient {
                 end_secs,
             )
             .await
-            .map_err(|e| RithmicError::Data(format!("Failed to load ticks for {}: {}", symbol, e)))
+            .map_err(|e| {
+                RithmicError::Data(format!(
+                    "Failed to load ticks for {}: {}",
+                    symbol, e
+                ))
+            })
+    }
+
+    /// Fetch available product codes from an exchange
+    pub async fn get_product_codes(
+        &self,
+        exchange: Option<&str>,
+    ) -> Result<Vec<String>, RithmicError> {
+        let handle = self.ticker_handle.as_ref().ok_or_else(|| {
+            RithmicError::Connection("Not connected".to_string())
+        })?;
+
+        let responses = handle
+            .get_product_codes(exchange, None)
+            .await
+            .map_err(|e| {
+                RithmicError::Data(format!(
+                    "Failed to get product codes: {}",
+                    e
+                ))
+            })?;
+
+        let codes: Vec<String> = responses
+            .iter()
+            .filter_map(|r| {
+                if let super::protocol::RithmicMessage::ResponseProductCodes(
+                    pc,
+                ) = &r.message
+                {
+                    pc.product_code.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(codes)
     }
 
     /// Take the ticker handle's subscription receiver for streaming
     ///
     /// This consumes the receiver - only call once to create a streaming
     /// subscription.
-    pub fn take_ticker_handle(&mut self) -> Option<RithmicTickerPlantHandle> {
+    pub fn take_ticker_handle(
+        &mut self,
+    ) -> Option<RithmicTickerPlantHandle> {
         self.ticker_handle.take()
     }
 
@@ -242,4 +343,112 @@ impl RithmicClient {
     pub fn is_connected(&self) -> bool {
         self.ticker_handle.is_some() && self.history_handle.is_some()
     }
+}
+
+/// Probe a Rithmic server for available system names (pre-login).
+///
+/// Opens a WebSocket, sends `RequestRithmicSystemInfo`, reads the
+/// response, and returns the list of `system_name` values.
+/// Wrapped in a 10-second timeout.
+pub async fn probe_system_names(
+    server_url: &str,
+) -> Result<Vec<String>, RithmicError> {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        probe_system_names_inner(server_url),
+    )
+    .await;
+
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err(RithmicError::Connection(
+            "System info probe timed out after 10s".to_string(),
+        )),
+    }
+}
+
+async fn probe_system_names_inner(
+    server_url: &str,
+) -> Result<Vec<String>, RithmicError> {
+    // Open WS with simple (no retry) strategy
+    let mut ws = connect_with_strategy(
+        server_url,
+        server_url,
+        ConnectStrategy::Simple,
+    )
+    .await
+    .map_err(|e| {
+        RithmicError::Connection(format!(
+            "Failed to connect to {}: {}",
+            server_url, e
+        ))
+    })?;
+
+    // Build a minimal sender (only needs message counter)
+    let dummy_config = RithmicConnectionConfig {
+        env: RithmicEnv::Demo,
+        user: String::new(),
+        password: String::new(),
+        system_name: String::new(),
+        url: server_url.to_string(),
+        beta_url: server_url.to_string(),
+        account_id: String::new(),
+        fcm_id: String::new(),
+        ib_id: String::new(),
+    };
+    let mut sender = RithmicSenderApi::new(&dummy_config);
+    let (buf, _id) = sender.request_rithmic_system_info();
+
+    // Send the request
+    ws.send(tungstenite::Message::Binary(buf.into()))
+        .await
+        .map_err(|e| {
+            RithmicError::Connection(format!(
+                "Failed to send system info request: {}",
+                e
+            ))
+        })?;
+
+    // Read the response frame
+    let receiver = RithmicReceiverApi {
+        source: "probe".to_string(),
+    };
+
+    while let Some(msg) = ws.next().await {
+        let msg = msg.map_err(|e| {
+            RithmicError::Connection(format!(
+                "WebSocket read error: {}",
+                e
+            ))
+        })?;
+
+        let data = match msg {
+            tungstenite::Message::Binary(data) => data,
+            tungstenite::Message::Close(_) => break,
+            _ => continue,
+        };
+
+        let response = receiver
+            .buf_to_message(data)
+            .map_err(|e| {
+                RithmicError::Data(format!(
+                    "Failed to decode response: {:?}",
+                    e.error
+                ))
+            })?;
+
+        if let RithmicMessage::ResponseRithmicSystemInfo(info) =
+            response.message
+        {
+            // Send close frame (best-effort)
+            let _ = ws
+                .send(tungstenite::Message::Close(None))
+                .await;
+            return Ok(info.system_name);
+        }
+    }
+
+    Err(RithmicError::Data(
+        "No system info response received".to_string(),
+    ))
 }

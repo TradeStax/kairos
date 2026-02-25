@@ -23,6 +23,9 @@ pub struct DateRangeCalendar {
     pub selection_mode: SelectionMode,
     /// Which dates are cached (for coloring)
     pub cached_dates: Option<HashSet<NaiveDate>>,
+    /// When set, only these dates are clickable (overrides cached_dates logic).
+    /// Used by backtest modal to restrict selection to available data.
+    pub selectable_dates: Option<HashSet<NaiveDate>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,6 +53,7 @@ impl DateRangeCalendar {
             end_date: yesterday,
             selection_mode: SelectionMode::SelectingStart,
             cached_dates: None,
+            selectable_dates: None,
         }
     }
 
@@ -195,12 +199,25 @@ impl DateRangeCalendar {
                     .map(|set| set.contains(&date))
                     .unwrap_or(false);
 
+                // When selectable_dates is set, it overrides the default
+                // cached-date logic for clickability and highlighting.
+                let (is_highlighted, is_clickable) =
+                    if let Some(ref selectable) = self.selectable_dates {
+                        let in_set = selectable.contains(&date);
+                        (in_set, in_set)
+                    } else {
+                        (is_cached, !is_cached)
+                    };
+
                 let base_text_color = if !is_current_month {
-                    Color::from_rgba(0.5, 0.5, 0.5, 0.3)
-                } else if is_cached {
-                    Color::from_rgba(1.0, 1.0, 1.0, 1.0)
+                    tokens::calendar::OTHER_MONTH_TEXT
+                } else if is_highlighted {
+                    tokens::calendar::CACHED_TEXT
+                } else if self.selectable_dates.is_some() {
+                    // Selectable mode: non-selectable dates dimmed
+                    tokens::calendar::OTHER_MONTH_TEXT
                 } else {
-                    Color::from_rgba(1.0, 1.0, 1.0, 0.5)
+                    tokens::calendar::UNCACHED_TEXT
                 };
 
                 let day_text = tiny(format!("{}", date.day())).align_x(Alignment::Center);
@@ -208,11 +225,11 @@ impl DateRangeCalendar {
                 let day_button = button(day_text)
                     .width(Length::FillPortion(1))
                     .height(Length::Fixed(26.0))
-                    .style(calendar_day_style(base_text_color, is_in_range, is_cached))
-                    .on_press_maybe(if is_cached {
-                        None
-                    } else {
+                    .style(calendar_day_style(base_text_color, is_in_range, is_highlighted))
+                    .on_press_maybe(if is_clickable {
                         Some(map_msg(CalendarMessage::DayClicked(date)))
+                    } else {
+                        None
                     });
 
                 week_row = week_row.push(day_button);
@@ -245,7 +262,7 @@ fn calendar_day_style(
                 _ => base_text_color,
             },
             background: if is_cached {
-                Some(Color::from_rgba(0.5, 0.5, 0.5, 0.2).into())
+                Some(tokens::calendar::CACHED_BG.into())
             } else {
                 None
             },

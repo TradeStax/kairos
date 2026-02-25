@@ -1,5 +1,4 @@
 mod databento;
-mod lifecycle;
 mod rithmic;
 
 use iced::Task;
@@ -11,67 +10,99 @@ impl Kairos {
         &mut self,
         msg: crate::modals::data_feeds::DataFeedsMessage,
     ) -> Task<Message> {
-        let mut feed_manager = self
-            .data_feed_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut feed_manager =
+            data::lock_or_recover(&self.connections.data_feed_manager);
 
-        let action = self.data_feeds_modal.update(msg, &mut feed_manager);
+        let actions =
+            self.modals.data_feeds_modal.update(msg, &mut feed_manager);
 
-        if let Some(action) = action {
-            // Drop feed_manager before calling self methods to avoid borrow conflicts
-            drop(feed_manager);
-
-            match action {
-                crate::modals::data_feeds::Action::ConnectFeed(feed_id) => {
-                    let mgr = self.data_feed_manager.clone();
-                    let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
-                    return self.connect_feed(feed_id, feed_manager);
-                }
-                crate::modals::data_feeds::Action::DisconnectFeed(feed_id) => {
-                    let mgr = self.data_feed_manager.clone();
-                    let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
-                    return self.disconnect_feed(feed_id, feed_manager);
-                }
-                crate::modals::data_feeds::Action::FeedsUpdated => {
-                    let mgr = self.data_feed_manager.clone();
-                    let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
-                    return self.handle_feeds_updated(feed_manager);
-                }
-                crate::modals::data_feeds::Action::OpenHistoricalDownload => {
-                    let has_key = crate::infra::secrets::SecretsManager::new()
-                        .has_api_key(data::config::secrets::ApiProvider::Databento);
-                    if has_key {
-                        self.historical_download_modal =
-                            Some(crate::modals::download::HistoricalDownloadModal::new());
-                    } else {
-                        self.api_key_setup_modal =
-                            Some(crate::modals::download::ApiKeySetupModal::new());
-                    }
-                    return Task::none();
-                }
-                crate::modals::data_feeds::Action::LoadPreview(feed_id, info) => {
-                    return self.load_feed_preview(feed_id, info);
-                }
-                crate::modals::data_feeds::Action::Close => {
-                    self.sidebar.set_menu(None);
-                    return Task::none();
-                }
-                crate::modals::data_feeds::Action::SaveApiKey { provider, key } => {
-                    let secrets = crate::infra::secrets::SecretsManager::new();
-                    if let Err(e) = secrets.set_api_key(provider, &key) {
-                        log::warn!("Failed to save API key for {:?}: {}", provider, e);
-                    }
-                    let mgr = self.data_feed_manager.clone();
-                    let feed_manager = mgr.lock().unwrap_or_else(|e| e.into_inner());
-                    return self.handle_feeds_updated(feed_manager);
-                }
-            }
+        if actions.is_empty() {
+            // Sync snapshot after any update
+            self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+            return Task::none();
         }
 
-        // Sync snapshot after any update
-        self.data_feeds_modal.sync_snapshot(&feed_manager);
-        Task::none()
+        // Drop feed_manager before calling self methods
+        drop(feed_manager);
+
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for action in actions {
+            tasks.push(self.dispatch_data_feeds_action(action));
+        }
+
+        match tasks.len() {
+            0 => Task::none(),
+            1 => tasks.remove(0),
+            _ => Task::batch(tasks),
+        }
+    }
+
+    fn dispatch_data_feeds_action(
+        &mut self,
+        action: crate::modals::data_feeds::Action,
+    ) -> Task<Message> {
+        match action {
+            crate::modals::data_feeds::Action::ConnectFeed(feed_id) => {
+                let dm = self.connections.data_feed_manager.clone();
+                let feed_manager = data::lock_or_recover(&dm);
+                self.connect_feed(feed_id, feed_manager)
+            }
+            crate::modals::data_feeds::Action::DisconnectFeed(feed_id) => {
+                let dm = self.connections.data_feed_manager.clone();
+                let feed_manager = data::lock_or_recover(&dm);
+                self.disconnect_feed(feed_id, feed_manager)
+            }
+            crate::modals::data_feeds::Action::FeedsUpdated => {
+                self.handle_feeds_updated()
+            }
+            crate::modals::data_feeds::Action::OpenHistoricalDownload => {
+                let has_key = self.secrets
+                    .has_api_key(data::config::secrets::ApiProvider::Databento);
+                if has_key {
+                    self.modals.historical_download_modal =
+                        Some(crate::modals::download::HistoricalDownloadModal::new());
+                } else {
+                    self.modals.api_key_setup_modal =
+                        Some(crate::modals::download::ApiKeySetupModal::new());
+                }
+                Task::none()
+            }
+            crate::modals::data_feeds::Action::LoadPreview(feed_id, info) => {
+                self.load_feed_preview(feed_id, info)
+            }
+            crate::modals::data_feeds::Action::Close => {
+                self.ui.sidebar.set_menu(None);
+                Task::none()
+            }
+            crate::modals::data_feeds::Action::SaveApiKey { provider, key } => {
+                if let Err(e) = self.secrets.set_api_key(provider, &key) {
+                    log::warn!("Failed to save API key for {:?}: {}", provider, e);
+                }
+                self.handle_feeds_updated()
+            }
+            crate::modals::data_feeds::Action::SaveFeedPassword { feed_id, password } => {
+                if let Err(e) = self.secrets.set_feed_password(&feed_id.to_string(), &password) {
+                    log::warn!("Failed to save password for feed {}: {}", feed_id, e);
+                }
+                self.handle_feeds_updated()
+            }
+            crate::modals::data_feeds::Action::ProbeSystemNames(server) => {
+                Task::perform(
+                    async move {
+                        let handle = tokio::runtime::Handle::current();
+                        tokio::task::spawn_blocking(move || {
+                            handle.block_on(
+                                exchange::probe_system_names(server.url()),
+                            )
+                        })
+                        .await
+                        .map_err(|e| format!("Task join error: {}", e))
+                        .and_then(|r| r.map_err(|e| e.to_string()))
+                    },
+                    move |result| Message::RithmicSystemNames { server, result },
+                )
+            }
+        }
     }
 
     fn connect_feed(
@@ -101,7 +132,7 @@ impl Kairos {
         let provider = feed_manager.get(feed_id).map(|f| f.provider);
 
         // Check if this is the active Rithmic feed
-        if self.rithmic_feed_id == Some(feed_id) {
+        if self.connections.rithmic_feed_id == Some(feed_id) {
             return self.disconnect_rithmic_feed(feed_id, feed_manager);
         }
 
@@ -110,8 +141,7 @@ impl Kairos {
         if provider == Some(data::FeedProvider::Databento) {
             self.disconnect_databento_feed(feed_id, feed_manager)
         } else {
-            self.connections_menu.sync_snapshot(&feed_manager);
-            self.data_feeds_modal.sync_snapshot(&feed_manager);
+            self.sync_feed_snapshots(&feed_manager);
             Task::none()
         }
     }
@@ -121,7 +151,7 @@ impl Kairos {
         feed_id: data::FeedId,
         info: data::HistoricalDatasetInfo,
     ) -> Task<Message> {
-        if let Some(service) = self.market_data_service.clone() {
+        if let Some(service) = self.services.market_data_service.clone() {
             let ticker_str = info.ticker.clone();
             let date_range = info.date_range;
             let _schema = info.schema.clone();
@@ -185,12 +215,9 @@ impl Kairos {
         feed_id: data::FeedId,
         result: Result<crate::modals::data_feeds::PreviewData, String>,
     ) {
-        self.data_feeds_modal.update(
+        self.modals.data_feeds_modal.update(
             crate::modals::data_feeds::DataFeedsMessage::PreviewLoaded(feed_id, result),
-            &mut self
-                .data_feed_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
+            &mut data::lock_or_recover(&self.connections.data_feed_manager),
         );
     }
 
@@ -198,34 +225,42 @@ impl Kairos {
         &mut self,
         msg: crate::modals::connections::ConnectionsMenuMessage,
     ) -> Task<Message> {
-        if let Some(action) = self.connections_menu.update(msg) {
+        if let Some(action) = self.modals.connections_menu.update(msg) {
             match action {
                 crate::modals::connections::Action::ConnectFeed(feed_id) => {
-                    self.sidebar.set_menu(None);
+                    self.ui.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
                         crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(feed_id),
                     ));
                 }
                 crate::modals::connections::Action::DisconnectFeed(feed_id) => {
-                    self.sidebar.set_menu(None);
+                    self.ui.sidebar.set_menu(None);
                     return Task::done(Message::DataFeeds(
                         crate::modals::data_feeds::DataFeedsMessage::DisconnectFeed(feed_id),
                     ));
                 }
                 crate::modals::connections::Action::Close => {
-                    self.sidebar.set_menu(None);
+                    self.ui.sidebar.set_menu(None);
                     return Task::none();
                 }
                 crate::modals::connections::Action::OpenManageDialog => {
-                    self.sidebar.set_menu(Some(data::sidebar::Menu::DataFeeds));
-                    let feed_manager = self
-                        .data_feed_manager
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
-                    self.data_feeds_modal.sync_snapshot(&feed_manager);
+                    self.ui.sidebar.set_menu(Some(data::sidebar::Menu::DataFeeds));
+                    let feed_manager =
+                        data::lock_or_recover(&self.connections.data_feed_manager);
+                    self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
                 }
             }
         }
+        Task::none()
+    }
+
+    pub(super) fn handle_feeds_updated(&mut self) -> Task<Message> {
+        log::info!("Data feeds updated, persisting to disk");
+        let windows = std::collections::HashMap::new();
+        self.save_state_to_disk(&windows);
+        let dm = self.connections.data_feed_manager.clone();
+        let feed_manager = data::lock_or_recover(&dm);
+        self.sync_feed_snapshots(&feed_manager);
         Task::none()
     }
 }

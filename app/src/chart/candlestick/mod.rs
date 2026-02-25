@@ -21,17 +21,14 @@ use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
 impl Chart for KlineChart {
-    fn state(&self) -> &ViewState {
-        &self.chart
-    }
-
-    fn mut_state(&mut self) -> &mut ViewState {
-        &mut self.chart
-    }
+    // Boilerplate: state, mut_state, drawings, studies, panel_cache,
+    // panel_labels_cache, panel_crosshair_cache.
+    crate::chart_impl!(KlineChart);
 
     fn invalidate_crosshair(&mut self) {
         self.chart.cache.clear_crosshair();
         self.panel_crosshair_cache.clear();
+        self.side_panel_crosshair_cache.clear();
     }
 
     fn invalidate_all(&mut self) {
@@ -87,24 +84,12 @@ impl Chart for KlineChart {
         }
     }
 
-    fn drawings(&self) -> Option<&DrawingManager> {
-        Some(&self.drawings)
+    fn side_panel_cache(&self) -> Option<&Cache> {
+        Some(&self.side_panel_cache)
     }
 
-    fn studies(&self) -> &[Box<dyn study::Study>] {
-        &self.studies
-    }
-
-    fn panel_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_cache)
-    }
-
-    fn panel_labels_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_labels_cache)
-    }
-
-    fn panel_crosshair_cache(&self) -> Option<&Cache> {
-        Some(&self.panel_crosshair_cache)
+    fn side_panel_crosshair_cache(&self) -> Option<&Cache> {
+        Some(&self.side_panel_crosshair_cache)
     }
 
     fn hit_test_study_overlay(&self, point: iced::Point) -> Option<usize> {
@@ -147,6 +132,10 @@ pub struct KlineChart {
     panel_labels_cache: Cache,
     /// Rendering cache for panel crosshair overlay
     panel_crosshair_cache: Cache,
+    /// Rendering cache for side panel content
+    side_panel_cache: Cache,
+    /// Rendering cache for side panel crosshair overlay
+    side_panel_crosshair_cache: Cache,
     /// Whether to show the debug performance overlay
     pub(crate) show_debug_info: bool,
     /// Last draw() call instant — uses Cell for interior mutability during draw
@@ -195,6 +184,7 @@ impl KlineChart {
             ViewConfig {
                 splits: layout.splits,
                 autoscale: Some(Autoscale::FitAll),
+                side_splits: layout.side_splits,
             },
             default_cell_width,
             cell_height,
@@ -220,6 +210,8 @@ impl KlineChart {
             panel_cache: Cache::default(),
             panel_labels_cache: Cache::default(),
             panel_crosshair_cache: Cache::default(),
+            side_panel_cache: Cache::default(),
+            side_panel_crosshair_cache: Cache::default(),
             show_debug_info: false,
             last_draw_instant: Cell::new(Instant::now()),
             last_frame_time_ms: Cell::new(0.0),
@@ -444,6 +436,8 @@ impl KlineChart {
         self.panel_cache.clear();
         self.panel_labels_cache.clear();
         self.panel_crosshair_cache.clear();
+        self.side_panel_cache.clear();
+        self.side_panel_crosshair_cache.clear();
 
         // Check if visible range changed (triggers VBP recompute)
         if chart.bounds.width > 0.0 {
@@ -631,18 +625,17 @@ impl KlineChart {
                     last.close = trade.price;
                     last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
                     last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
-                    self.chart.latest_x = last.time.0;
-                    return;
+                } else {
+                    self.chart_data.candles.push(Candle {
+                        time: data::Timestamp::from_millis(bucket_time),
+                        open: trade.price,
+                        high: trade.price,
+                        low: trade.price,
+                        close: trade.price,
+                        buy_volume: buy_vol,
+                        sell_volume: sell_vol,
+                    });
                 }
-                self.chart_data.candles.push(Candle {
-                    time: data::Timestamp::from_millis(bucket_time),
-                    open: trade.price,
-                    high: trade.price,
-                    low: trade.price,
-                    close: trade.price,
-                    buy_volume: buy_vol,
-                    sell_volume: sell_vol,
-                });
             }
             ChartBasis::Tick(count) => {
                 let count = count as usize;
@@ -662,18 +655,17 @@ impl KlineChart {
                     last.close = trade.price;
                     last.buy_volume = data::Volume(last.buy_volume.0 + buy_vol.0);
                     last.sell_volume = data::Volume(last.sell_volume.0 + sell_vol.0);
-                    self.chart.latest_x = last.time.0;
-                    return;
+                } else {
+                    self.chart_data.candles.push(Candle {
+                        time: trade.time,
+                        open: trade.price,
+                        high: trade.price,
+                        low: trade.price,
+                        close: trade.price,
+                        buy_volume: buy_vol,
+                        sell_volume: sell_vol,
+                    });
                 }
-                self.chart_data.candles.push(Candle {
-                    time: trade.time,
-                    open: trade.price,
-                    high: trade.price,
-                    low: trade.price,
-                    close: trade.price,
-                    buy_volume: buy_vol,
-                    sell_volume: sell_vol,
-                });
             }
         }
 
@@ -699,6 +691,7 @@ impl KlineChart {
                     log::warn!("Study '{}' append error: {}", s.id(), e);
                 }
             }
+            self.chart.cache.clear_main();
         }
     }
 

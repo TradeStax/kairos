@@ -172,6 +172,22 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
         }
 
         let palette = theme.extended_palette();
+
+        // The panel canvas may be wider than the main chart canvas when a
+        // side panel is active (the panel spans the full width so it doesn't
+        // appear cut off).  Data coordinates must still align with the candles
+        // directly above, so we use state.bounds.width (the main chart canvas
+        // width, set via BoundsChanged) as the X-axis reference.  Visual
+        // elements that should span the full panel (separators, zero-lines)
+        // continue to use bounds.width.
+        let chart_width = if self.state.bounds.width > 0.0 {
+            self.state.bounds.width
+        } else {
+            bounds.width
+        };
+        // Crosshair size uses chart_width for correct X positioning.
+        let chart_size = Size::new(chart_width, bounds.height);
+
         let geo = self.cache.draw(renderer, bounds.size(), |frame| {
             let num = self.panels.len();
             let panel_h = bounds.height / num as f32;
@@ -179,7 +195,7 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
             for (i, panel) in self.panels.iter().enumerate() {
                 let y_off = i as f32 * panel_h;
 
-                // Separator between panels
+                // Separator between panels spans the full panel width
                 if i > 0 {
                     frame.fill_rectangle(
                         Point::new(0.0, y_off),
@@ -192,7 +208,7 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                     frame,
                     panel.output,
                     self.state,
-                    bounds.width,
+                    chart_width, // X scale matches main chart canvas width
                     y_off,
                     panel_h,
                     palette,
@@ -210,25 +226,23 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
             }
         });
 
-        // Crosshair layer — draws a vertical dashed line synced with
-        // the main chart's crosshair position.  Uses crosshair_interval
-        // (set by both main chart and panel cursor) so the line appears
-        // regardless of which canvas the cursor is in.
+        // Crosshair layer — vertical line synced with the main chart.
         let crosshair_geo =
             self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
                 let dashed_line = style::dashed_line(theme);
 
                 let interval = self
                     .state
-                    .crosshair_interval
+                    .crosshair
+                    .interval
                     .get()
-                    .or(self.state.remote_crosshair);
+                    .or(self.state.crosshair.remote);
 
                 if let Some(interval) = interval {
                     draw_panel_remote_crosshair(
                         self.state,
                         frame,
-                        bounds.size(),
+                        chart_size, // use chart_width for X positioning
                         interval,
                         dashed_line,
                     );
@@ -505,7 +519,7 @@ fn render_line_with_range(
     }
 
     let color: Color =
-        crate::style::theme_bridge::rgba_to_iced_color(series.color);
+        crate::style::theme::rgba_to_iced_color(series.color);
     let stroke = Stroke::with_color(
         Stroke {
             width: series.width,
@@ -557,7 +571,7 @@ fn render_panel_bars(
                 interval_to_screen_x(state, point.x, canvas_width);
             let left = sx - bar_w / 2.0;
             let color: Color =
-                crate::style::theme_bridge::rgba_to_iced_color(
+                crate::style::theme::rgba_to_iced_color(
                     point.color,
                 );
 
@@ -650,7 +664,7 @@ fn draw_histogram_bars(
         let sx = interval_to_screen_x(state, bar.x, canvas_width);
         let left = sx - bar_w / 2.0;
         let color: Color =
-            crate::style::theme_bridge::rgba_to_iced_color(bar.color);
+            crate::style::theme::rgba_to_iced_color(bar.color);
 
         let y_val = value_to_y(
             bar.value,

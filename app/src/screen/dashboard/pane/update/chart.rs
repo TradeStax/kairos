@@ -1,13 +1,13 @@
 use crate::chart;
-use crate::screen::dashboard::pane::{Content, Effect, State};
+use crate::screen::dashboard::pane::{Action, Content, State};
 
 impl State {
     /// Handle chart interaction events.
-    /// Returns `Some(Effect)` if a side-effect should bubble up.
+    /// Returns `Some(Action)` if a side-effect should bubble up.
     pub(super) fn handle_chart_interaction(
         &mut self,
         msg: chart::Message,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         match msg {
             chart::Message::StudyOverlaySelect(_) => {
                 // Selection state lives in ChartState; no-op here
@@ -27,7 +27,7 @@ impl State {
             }
             chart::Message::DrawingClick(point, shift_held) => {
                 if self.handle_drawing_click(point, shift_held) {
-                    return Some(Effect::DrawingToolChanged(data::DrawingTool::None));
+                    return Some(Action::DrawingToolChanged(data::DrawingTool::None));
                 }
             }
             chart::Message::DrawingMove(point, shift_held) => {
@@ -92,7 +92,7 @@ impl State {
                 // Only clear the main crosshair cache, skip indicator caches
                 use crate::chart::Chart;
                 match &mut self.content {
-                    Content::Kline { chart: Some(c), .. } => {
+                    Content::Candlestick { chart: Some(c), .. } => {
                         if c.drawings().active_tool() != data::DrawingTool::None {
                             c.mut_state().cache.clear_crosshair();
                         } else {
@@ -121,12 +121,12 @@ impl State {
                     let interval = cursor_pos.and_then(|pos| {
                         self.compute_crosshair_interval(pos)
                     });
-                    return Some(Effect::CrosshairSync { interval });
+                    return Some(Action::CrosshairSync { timestamp: interval });
                 }
             }
             chart::Message::CursorLeft => {
                 match &mut self.content {
-                    Content::Kline { chart: Some(c), .. } => {
+                    Content::Candlestick { chart: Some(c), .. } => {
                         chart::update(c, &msg);
                     }
                     Content::Heatmap { chart: Some(c), .. } => {
@@ -139,14 +139,14 @@ impl State {
                 }
 
                 if self.link_group.is_some() {
-                    return Some(Effect::CrosshairSync { interval: None });
+                    return Some(Action::CrosshairSync { timestamp: None });
                 }
             }
             _ => match &mut self.content {
                 Content::Heatmap { chart: Some(c), .. } => {
                     chart::update(c, &msg);
                 }
-                Content::Kline { chart: Some(c), .. } => {
+                Content::Candlestick { chart: Some(c), .. } => {
                     chart::update(c, &msg);
                 }
                 Content::Profile { chart: Some(c), .. } => {
@@ -166,7 +166,7 @@ impl State {
     ) -> Option<u64> {
         use crate::chart::Chart;
         let state = match &self.content {
-            Content::Kline { chart: Some(c), .. } => c.state(),
+            Content::Candlestick { chart: Some(c), .. } => c.state(),
             Content::Heatmap { chart: Some(c), .. } => c.state(),
             Content::Profile { chart: Some(c), .. } => c.state(),
             _ => return None,

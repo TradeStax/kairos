@@ -1,7 +1,10 @@
+pub(crate) mod ai;
+mod backtest;
 mod chart;
 mod download;
 mod feeds;
-mod navigation;
+pub(crate) mod menu_bar;
+mod shell;
 #[cfg(feature = "options")]
 mod options;
 mod preferences;
@@ -9,11 +12,62 @@ mod replay;
 
 use iced::Task;
 
+use crate::components::display::toast::Toast;
+
 #[cfg(feature = "options")]
 use super::OptionsMessage;
-use super::{ChartMessage, DownloadMessage, Kairos, Message};
+use super::{ChartMessage, DownloadMessage, Kairos, Message, WindowMessage, build_tickers_info};
 
 impl Kairos {
+    /// Lock the DataFeedManager and call `f` with a mutable reference.
+    /// Avoids the clone-Arc → lock → drop → clone-Arc → re-lock pattern.
+    pub(crate) fn with_feed_manager<R>(
+        &self,
+        f: impl FnOnce(&mut data::DataFeedManager) -> R,
+    ) -> R {
+        self.connections.with_feed_manager(f)
+    }
+
+    /// Rebuild `tickers_info` and `ticker_ranges` from the current DataIndex.
+    pub(crate) fn rebuild_ticker_data(&mut self) {
+        let tickers: std::collections::HashSet<String> =
+            data::lock_or_recover(&self.persistence.data_index)
+                .available_tickers()
+                .into_iter()
+                .collect();
+        self.persistence.tickers_info = build_tickers_info(tickers);
+        self.persistence.ticker_ranges =
+            Self::build_ticker_ranges(&self.persistence.data_index);
+    }
+
+    /// Sync both feed modal snapshots from the current DataFeedManager state.
+    pub(crate) fn sync_feed_snapshots(
+        &mut self,
+        feed_manager: &data::DataFeedManager,
+    ) {
+        self.modals.data_feeds_modal.sync_snapshot(feed_manager);
+        self.modals.connections_menu.sync_snapshot(feed_manager);
+    }
+
+    /// Get market data service or push error toast and return None.
+    pub(crate) fn require_market_service(
+        &mut self,
+    ) -> Option<std::sync::Arc<data::MarketDataService>> {
+        if let Some(service) = self.services.market_data_service.clone() {
+            Some(service)
+        } else {
+            log::warn!(
+                "Market data service not available (API key not configured)"
+            );
+            self.ui.notifications.push(Toast::error(
+                "Databento API key not configured. Set it in connection \
+                 settings."
+                    .to_string(),
+            ));
+            None
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // Chart data loading (sub-enum)
@@ -124,6 +178,29 @@ impl Kairos {
             Message::RithmicConnected { feed_id, result } => {
                 return self.handle_rithmic_connected(feed_id, result);
             }
+            Message::RithmicSystemNames { server, result } => {
+                self.modals.data_feeds_modal.update(
+                    crate::modals::data_feeds::DataFeedsMessage::SystemNamesLoaded(
+                        server, result,
+                    ),
+                    &mut data::lock_or_recover(
+                        &self.connections.data_feed_manager,
+                    ),
+                );
+            }
+            Message::RithmicProductCodes {
+                feed_id: _,
+                result,
+            } => {
+                self.modals.data_feeds_modal.update(
+                    crate::modals::data_feeds::DataFeedsMessage::AvailableTickersLoaded(
+                        result,
+                    ),
+                    &mut data::lock_or_recover(
+                        &self.connections.data_feed_manager,
+                    ),
+                );
+            }
             Message::RithmicStreamEvent(event) => {
                 return self.handle_rithmic_stream_event(event);
             }
@@ -132,6 +209,9 @@ impl Kairos {
             }
             Message::ReplayEvent(event) => {
                 return self.handle_replay_event(event);
+            }
+            Message::Backtest(msg) => {
+                return self.handle_backtest_message(msg);
             }
             Message::MenuBar(msg) => {
                 return self.handle_menu_bar(msg);
@@ -190,23 +270,31 @@ impl Kairos {
             }
 
             // Window control messages (custom title bar)
-            Message::TitleBarHover(hovered) => {
-                self.title_bar_hovered = hovered;
-            }
-            Message::WindowDrag(id) => {
-                return self.handle_window_drag(id);
-            }
-            Message::WindowMinimize(id) => {
-                return self.handle_window_minimize(id);
-            }
-            Message::WindowToggleMaximize(id) => {
-                return self.handle_window_toggle_maximize(id);
-            }
-            Message::WindowClose(id) => {
-                return self.handle_window_close(id);
-            }
+            Message::Window(msg) => match msg {
+                WindowMessage::TitleBarHover(hovered) => {
+                    self.ui.title_bar_hovered = hovered;
+                }
+                WindowMessage::Drag(id) => {
+                    return self.handle_window_drag(id);
+                }
+                WindowMessage::Minimize(id) => {
+                    return self.handle_window_minimize(id);
+                }
+                WindowMessage::ToggleMaximize(id) => {
+                    return self.handle_window_toggle_maximize(id);
+                }
+                WindowMessage::Close(id) => {
+                    return self.handle_window_close(id);
+                }
+            },
             Message::ServicesReady(result) => {
                 return self.handle_services_ready(result);
+            }
+            Message::AiStreamEvent(event) => {
+                return self.handle_ai_stream_event(event);
+            }
+            Message::AiStreamComplete => {
+                return self.handle_ai_stream_complete();
             }
         }
         Task::none()

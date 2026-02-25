@@ -77,6 +77,14 @@ impl Toast {
             status: Status::Warning,
         }
     }
+
+    pub fn success(body: impl Into<String>) -> Self {
+        Self {
+            title: "Saved".to_string(),
+            body: body.into(),
+            status: Status::Success,
+        }
+    }
 }
 
 pub struct Manager<'a, Message> {

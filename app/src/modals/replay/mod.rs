@@ -6,6 +6,7 @@
 
 mod controller_view;
 mod setup_view;
+pub mod volume_trackbar;
 
 use chrono::{Datelike, NaiveDate};
 use data::domain::TimeRange;

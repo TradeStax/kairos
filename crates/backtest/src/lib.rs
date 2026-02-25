@@ -1,0 +1,20 @@
+pub mod config;
+pub mod core;
+pub mod domain;
+pub mod engine;
+pub mod portfolio;
+pub mod prelude;
+pub mod registry;
+pub mod strategies;
+
+pub use config::backtest::BacktestConfig;
+pub use config::risk::{PositionSizeMode, RiskConfig, SlippageModel};
+pub use core::metadata::{StrategyCategory, StrategyMetadata};
+pub use core::{BacktestStrategy, Signal, StrategyInput};
+pub use domain::metrics::PerformanceMetrics;
+pub use domain::progress::BacktestProgressEvent;
+pub use domain::result::BacktestResult;
+pub use domain::trade_record::{ExitReason, TradeRecord};
+pub use engine::runner::BacktestRunner;
+pub use portfolio::equity::{EquityCurve, EquityPoint};
+pub use registry::{StrategyInfo, StrategyRegistry};

@@ -11,7 +11,9 @@ use super::trades::{
 use super::{HeatmapChart, VisualConfig};
 use crate::chart::drawing;
 use crate::chart::perf::{LodCalculator, LodLevel};
-use crate::chart::{Chart, ChartState, Interaction, Message, ViewState};
+use crate::chart::{
+    Chart, ChartState, Interaction, Message, ViewState, base_mouse_interaction,
+};
 use crate::components::primitives::AZERET_MONO;
 use data::util::abbr_large_numbers;
 use data::{ChartBasis, HeatmapIndicator, Price as DataPrice};
@@ -259,8 +261,8 @@ impl canvas::Program<Message> for HeatmapChart {
                         interaction,
                     );
 
-                    chart.crosshair_interval.set(Some(result.interval));
-                } else if let Some(interval) = chart.crosshair_interval.get() {
+                    chart.crosshair.interval.set(Some(result.interval));
+                } else if let Some(interval) = chart.crosshair.interval.get() {
                     // Crosshair driven by study panel cursor
                     crate::chart::overlay::draw_remote_crosshair(
                         chart,
@@ -269,7 +271,7 @@ impl canvas::Program<Message> for HeatmapChart {
                         bounds_size,
                         interval,
                     );
-                } else if let Some(interval) = chart.remote_crosshair {
+                } else if let Some(interval) = chart.crosshair.remote {
                     // Remote crosshair from linked pane
                     crate::chart::overlay::draw_remote_crosshair(
                         chart,
@@ -293,43 +295,27 @@ impl canvas::Program<Message> for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        match &state.interaction {
-            Interaction::Panning { .. } => mouse::Interaction::Grabbing,
-            Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
-            Interaction::Drawing { .. } | Interaction::PlacingClone => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Crosshair
-                } else {
-                    mouse::Interaction::default()
-                }
+        if let Some(i) =
+            base_mouse_interaction(&state.interaction, bounds, cursor)
+        {
+            return i;
+        }
+        if let Some(cursor_position) = cursor.position_in(bounds) {
+            if self
+                .hit_test_drawing_handle(cursor_position, bounds.size())
+                .is_some()
+            {
+                mouse::Interaction::Grab
+            } else if self
+                .hit_test_drawing(cursor_position, bounds.size())
+                .is_some()
+            {
+                mouse::Interaction::Pointer
+            } else {
+                mouse::Interaction::Crosshair
             }
-            Interaction::EditingDrawing { .. } => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Grabbing
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
-            Interaction::None
-            | Interaction::SelectedLockedDrawing { .. }
-            | Interaction::Ruler { .. }
-            | Interaction::Decelerating { .. } => {
-                if let Some(cursor_position) = cursor.position_in(bounds) {
-                    if self
-                        .hit_test_drawing_handle(cursor_position, bounds.size())
-                        .is_some()
-                    {
-                        return mouse::Interaction::Grab;
-                    } else if self
-                        .hit_test_drawing(cursor_position, bounds.size())
-                        .is_some()
-                    {
-                        return mouse::Interaction::Pointer;
-                    }
-                    return mouse::Interaction::Crosshair;
-                }
-                mouse::Interaction::default()
-            }
+        } else {
+            mouse::Interaction::default()
         }
     }
 }
@@ -470,8 +456,9 @@ fn draw_trade_markers(
     visual_config: &VisualConfig,
     visible_trade_count: usize,
 ) {
-    // Calculate LOD level for adaptive quality
-    let lod_calc = crate::chart::perf::lod::LodCalculator::new(
+    // LOD-gates trade rendering quality (sparse/dense switch + decimation).
+    // LodCalculator is used here and in sparse render_sparse_trades below.
+    let lod_calc = LodCalculator::new(
         chart.scaling,
         chart.cell_width,
         visible_trade_count,
@@ -483,7 +470,7 @@ fn draw_trade_markers(
     let effective_mode = match visual_config.trade_rendering_mode {
         TradeRenderingMode::Sparse => {
             // Even in sparse mode, switch to dense if LOD is low
-            if matches!(lod_level, crate::chart::perf::lod::LodLevel::Low)
+            if matches!(lod_level, LodLevel::Low)
                 && visible_trade_count > SPARSE_MODE_THRESHOLD
             {
                 TradeRenderingMode::Dense
@@ -494,7 +481,7 @@ fn draw_trade_markers(
         TradeRenderingMode::Dense => TradeRenderingMode::Dense,
         TradeRenderingMode::Auto => {
             if visible_trade_count > SPARSE_MODE_THRESHOLD
-                || matches!(lod_level, crate::chart::perf::lod::LodLevel::Low)
+                || matches!(lod_level, LodLevel::Low)
             {
                 TradeRenderingMode::Dense
             } else {

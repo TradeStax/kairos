@@ -67,8 +67,6 @@ pub enum Icon {
     DrawText,           // type
     DrawPriceLabel,     // tag
     DrawArrow,          // arrow-up-right
-    DrawPriceRange,     // bar-chart-2
-    DrawDateRange,      // calendar
     DrawBuyCalc,        // buy calculator (trending-up)
     DrawSellCalc,       // sell calculator (trending-down)
     DrawVolumeProfile,  // align-left
@@ -78,6 +76,11 @@ pub enum Icon {
     SnapOff,     // zap-off
     ChevronUp,   // chevron-up
     ChevronDown, // chevron-down
+    // ── AI assistant ─────────────────────────────────────────────
+    MessageSquare, // message-square  — AI panel label
+    Send,          // send            — send message button
+    Cpu,           // cpu             — AI processing indicator
+    RefreshCw,     // refresh-cw      — streaming / loading
     // ── Window controls (system font) ────────────────────────────
     Minimize,
 }
@@ -139,8 +142,6 @@ impl From<Icon> for char {
             Icon::DrawText => '\u{E82C}',           // type
             Icon::DrawPriceLabel => '\u{E82D}',     // tag
             Icon::DrawArrow => '\u{E82E}',          // arrow-up-right
-            Icon::DrawPriceRange => '\u{E82F}',     // bar-chart-2
-            Icon::DrawDateRange => '\u{E830}',      // calendar
             Icon::DrawBuyCalc => '\u{E826}',        // trending-up
             Icon::DrawSellCalc => '\u{E835}',       // trending-down
             Icon::DrawVolumeProfile => '\u{E836}',  // align-left
@@ -150,6 +151,11 @@ impl From<Icon> for char {
             Icon::SnapOff => '\u{E834}',     // zap-off
             Icon::ChevronUp => '\u{E815}',   // chevron-up
             Icon::ChevronDown => '\u{E814}', // chevron-down
+            // ── AI assistant ─────────────────────────────────────
+            Icon::MessageSquare => '\u{E837}', // message-square
+            Icon::Send => '\u{E838}',          // send
+            Icon::Cpu => '\u{E839}',           // cpu
+            Icon::RefreshCw => '\u{E83A}',     // refresh-cw
             // ── Window controls (system font) ────────────────────
             Icon::Minimize => '\u{2013}', // EN DASH
         }
@@ -157,13 +163,15 @@ impl From<Icon> for char {
 }
 
 pub fn icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
-    if icon.uses_default_font() {
+    let t = if icon.uses_default_font() {
         iced::widget::text(char::from(icon).to_string()).size(iced::Pixels(size.into()))
     } else {
         iced::widget::text(char::from(icon).to_string())
             .font(ICONS_FONT)
             .size(iced::Pixels(size.into()))
-    }
+    };
+    t.align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
 }
 
 pub fn exchange_icon(venue: FuturesVenue) -> Icon {

@@ -1,2 +1,2 @@
-pub(crate) mod menu_bar;
-pub(crate) mod title_bar;
+// menu_bar moved to app/src/app/update/menu_bar.rs (app-specific domain events)
+pub mod title_bar;

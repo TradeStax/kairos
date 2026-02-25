@@ -10,11 +10,10 @@ impl Kairos {
     pub(crate) fn handle_replay_message(&mut self, msg: replay::Message) -> Task<Message> {
         match msg {
             replay::Message::Close => {
-                self.sidebar.set_menu(None);
+                self.ui.sidebar.set_menu(None);
                 return Task::none();
             }
             replay::Message::LoadData => {
-                super::super::globals::set_replay_active(true);
                 return self.replay_load_data();
             }
             replay::Message::Play => {
@@ -27,13 +26,12 @@ impl Kairos {
             }
             replay::Message::EndReplay => {
                 // Stop replay, restore chart data, hide controller
-                super::super::globals::set_replay_active(false);
-                self.replay_manager.data_loaded = false;
-                self.replay_manager.progress = 0.0;
-                self.replay_manager.position = 0;
-                self.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
-                self.replay_manager.controller_visible = false;
-                self.replay_manager.volume_buckets.clear();
+                self.modals.replay_manager.data_loaded = false;
+                self.modals.replay_manager.progress = 0.0;
+                self.modals.replay_manager.position = 0;
+                self.modals.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
+                self.modals.replay_manager.controller_visible = false;
+                self.modals.replay_manager.volume_buckets.clear();
 
                 self.exit_replay_on_all_panes();
 
@@ -42,13 +40,13 @@ impl Kairos {
             }
             replay::Message::CloseController => {
                 // Hide controller but keep replay playing
-                self.replay_manager.controller_visible = false;
+                self.modals.replay_manager.controller_visible = false;
             }
             replay::Message::OpenController => {
-                self.replay_manager.controller_visible = true;
+                self.modals.replay_manager.controller_visible = true;
             }
             replay::Message::SetSpeed(speed) => {
-                self.replay_manager.speed = speed;
+                self.modals.replay_manager.speed = speed;
                 return self.replay_engine_action(move |engine| {
                     Box::pin(engine.set_speed(speed))
                 });
@@ -66,7 +64,7 @@ impl Kairos {
             }
             other => {
                 // UI-only messages (SelectStream, SelectDate, etc.)
-                self.replay_manager.update(other);
+                self.modals.replay_manager.update(other);
             }
         }
         Task::none()
@@ -87,7 +85,7 @@ impl Kairos {
                 }
 
                 let ticker_info = self
-                    .replay_manager
+                    .modals.replay_manager
                     .selected_stream
                     .as_ref()
                     .map(|s| s.ticker_info);
@@ -106,11 +104,11 @@ impl Kairos {
                 timestamp,
                 progress,
             } => {
-                self.replay_manager.position = timestamp;
-                self.replay_manager.progress = progress;
+                self.modals.replay_manager.position = timestamp;
+                self.modals.replay_manager.progress = progress;
             }
             data::services::ReplayEvent::StatusChanged(status) => {
-                self.replay_manager.playback_status = status;
+                self.modals.replay_manager.playback_status = status;
             }
             data::services::ReplayEvent::DataLoaded {
                 ticker: _,
@@ -118,15 +116,15 @@ impl Kairos {
                 depth_count,
                 time_range,
             } => {
-                self.replay_manager.trade_count = trade_count;
-                self.replay_manager.depth_count = depth_count;
-                self.replay_manager.time_range = Some(time_range);
-                self.replay_manager.data_loaded = true;
-                self.replay_manager.loading_progress = None;
-                self.replay_manager.error = None;
+                self.modals.replay_manager.trade_count = trade_count;
+                self.modals.replay_manager.depth_count = depth_count;
+                self.modals.replay_manager.time_range = Some(time_range);
+                self.modals.replay_manager.data_loaded = true;
+                self.modals.replay_manager.loading_progress = None;
+                self.modals.replay_manager.error = None;
 
                 // Show the floating controller
-                self.replay_manager.controller_visible = true;
+                self.modals.replay_manager.controller_visible = true;
 
                 // Enter replay mode on matching panes
                 self.enter_replay_on_matching_panes();
@@ -135,28 +133,28 @@ impl Kairos {
                 return self.compute_volume_histogram();
             }
             data::services::ReplayEvent::LoadingProgress { progress, message } => {
-                self.replay_manager.loading_progress = Some((progress, message));
+                self.modals.replay_manager.loading_progress = Some((progress, message));
             }
             data::services::ReplayEvent::Error(msg) => {
-                self.replay_manager.error = Some(msg.clone());
-                self.replay_manager.loading_progress = None;
-                self.notifications
+                self.modals.replay_manager.error = Some(msg.clone());
+                self.modals.replay_manager.loading_progress = None;
+                self.ui.notifications
                     .push(Toast::error(format!("Replay: {}", msg)));
             }
             data::services::ReplayEvent::PlaybackComplete => {
-                self.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
-                self.replay_manager.progress = 1.0;
+                self.modals.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
+                self.modals.replay_manager.progress = 1.0;
             }
             data::services::ReplayEvent::SeekCompleted {
                 timestamp,
                 progress,
             } => {
-                self.replay_manager.position = timestamp;
-                self.replay_manager.progress = progress;
+                self.modals.replay_manager.position = timestamp;
+                self.modals.replay_manager.progress = progress;
             }
             data::services::ReplayEvent::ChartRebuild { trades } => {
                 let ticker_info = self
-                    .replay_manager
+                    .modals.replay_manager
                     .selected_stream
                     .as_ref()
                     .map(|s| s.ticker_info);
@@ -184,7 +182,7 @@ impl Kairos {
                 > + Send
             + 'static,
     {
-        let Some(engine) = self.replay_engine.clone() else {
+        let Some(engine) = self.services.replay_engine.clone() else {
             return Task::none();
         };
 
@@ -201,39 +199,36 @@ impl Kairos {
     }
 
     fn replay_load_data(&mut self) -> Task<Message> {
-        let Some(ref stream) = self.replay_manager.selected_stream else {
+        let Some(ref stream) = self.modals.replay_manager.selected_stream else {
             return Task::none();
         };
 
-        let Some(engine) = self.replay_engine.clone() else {
-            self.replay_manager.error = Some("Replay engine not available".to_string());
+        let Some(engine) = self.services.replay_engine.clone() else {
+            self.modals.replay_manager.error = Some("Replay engine not available".to_string());
             return Task::none();
         };
 
         let ticker_info = stream.ticker_info;
         let date_range = stream.date_range;
-        let events_buf = super::super::globals::get_replay_events().clone();
+        let replay_sender = super::super::core::globals::get_replay_sender();
 
         // Compute the user-specified start timestamp from date + time fields
         let start_timestamp = self.compute_replay_start_timestamp();
 
         // Set initial loading state
-        self.replay_manager.loading_progress = Some((0.0, "Starting load...".to_string()));
-        self.replay_manager.error = None;
+        self.modals.replay_manager.loading_progress = Some((0.0, "Starting load...".to_string()));
+        self.modals.replay_manager.error = None;
 
         Task::perform(
             async move {
                 let mut guard = engine.lock().await;
 
-                // Take the event_rx and bridge to global buffer
+                // Take the event_rx and bridge to the global channel sender
                 if let Some(rx) = guard.take_event_rx() {
-                    let buf = events_buf.clone();
                     tokio::spawn(async move {
                         let mut rx = rx;
                         while let Some(event) = rx.recv().await {
-                            if let Ok(mut b) = buf.lock() {
-                                b.push(event);
-                            }
+                            let _ = replay_sender.send(event);
                         }
                     });
                 }
@@ -260,8 +255,8 @@ impl Kairos {
     /// The input is interpreted in the user's configured timezone.
     /// Returns None if the fields are empty or invalid.
     fn compute_replay_start_timestamp(&self) -> Option<u64> {
-        let date_str = &self.replay_manager.start_date;
-        let time_str = &self.replay_manager.start_time;
+        let date_str = &self.modals.replay_manager.start_date;
+        let time_str = &self.modals.replay_manager.start_time;
 
         if date_str.is_empty() {
             return None;
@@ -275,13 +270,13 @@ impl Kairos {
         };
 
         let dt = chrono::NaiveDateTime::new(date, time);
-        let utc_millis = self.timezone.naive_to_utc_millis(dt);
+        let utc_millis = self.ui.timezone.naive_to_utc_millis(dt);
         Some(utc_millis as u64)
     }
 
     /// Compute volume histogram from loaded data and deliver to UI.
     fn compute_volume_histogram(&self) -> Task<Message> {
-        let Some(engine) = self.replay_engine.clone() else {
+        let Some(engine) = self.services.replay_engine.clone() else {
             return Task::none();
         };
 
@@ -296,7 +291,7 @@ impl Kairos {
 
     /// Enter replay mode on all panes matching the selected stream's ticker.
     fn enter_replay_on_matching_panes(&mut self) {
-        let Some(ref stream) = self.replay_manager.selected_stream else {
+        let Some(ref stream) = self.modals.replay_manager.selected_stream else {
             return;
         };
         let ticker = stream.ticker_info.ticker;
@@ -342,9 +337,9 @@ impl Kairos {
     }
 
     fn replay_seek(&mut self, progress: f32) -> Task<Message> {
-        self.replay_manager.progress = progress;
+        self.modals.replay_manager.progress = progress;
 
-        let Some(ref range) = self.replay_manager.time_range else {
+        let Some(ref range) = self.modals.replay_manager.time_range else {
             return Task::none();
         };
 

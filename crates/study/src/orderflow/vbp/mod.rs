@@ -17,17 +17,17 @@
 mod compute;
 mod config;
 pub(crate) mod params;
+pub mod profile_core;
 
 use crate::config::{
     ParameterDef, ParameterTab, ParameterValue, StudyConfig,
 };
 use crate::error::StudyError;
-use crate::orderflow::profile_core;
 use crate::output::{
     ProfileOutput, ProfileRenderConfig, StudyOutput,
     VbpGroupingMode, VbpPeriod, VbpSplitPeriod,
 };
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 
 use params::*;
 
@@ -275,7 +275,7 @@ impl VbpStudy {
             vwap_upper_points,
             vwap_lower_points,
             grouping_mode,
-            resolved_cache: std::sync::Mutex::new(None),
+            resolved_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 }
@@ -294,7 +294,11 @@ impl Study for VbpStudy {
     }
 
     fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Background
+        if self.config.get_choice("display_location", "In Chart") == "Side Panel" {
+            StudyPlacement::SidePanel
+        } else {
+            StudyPlacement::Background
+        }
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -340,10 +344,10 @@ impl Study for VbpStudy {
         static LABELS: &[(&str, ParameterTab)] = &[
             ("Data", ParameterTab::Parameters),
             ("Style", ParameterTab::Style),
-            ("POC", ParameterTab::Tab4),
-            ("Value Area", ParameterTab::Tab5),
-            ("Peak & Valley", ParameterTab::Tab6),
-            ("VWAP", ParameterTab::Tab7),
+            ("POC", ParameterTab::PocSettings),
+            ("Value Area", ParameterTab::ValueArea),
+            ("Peak & Valley", ParameterTab::Nodes),
+            ("VWAP", ParameterTab::Vwap),
         ];
         Some(LABELS)
     }
@@ -377,32 +381,34 @@ impl Study for VbpStudy {
             tick_units * manual
         };
 
-        // Build a fingerprint that includes split params.
-        let split_hash = match period {
-            VbpPeriod::Split => {
-                let split = self.parse_split_period();
-                let max_p = self
-                    .config
-                    .get_int("max_profiles", 20)
-                    as u64;
-                // Encode split params into a hash-like u64
-                match split {
-                    VbpSplitPeriod::Day => {
-                        1000 + max_p
-                    }
-                    VbpSplitPeriod::Hours(h) => {
-                        2000 + h as u64 * 100 + max_p
-                    }
-                    VbpSplitPeriod::Minutes(m) => {
-                        3000 + m as u64 * 100 + max_p
-                    }
-                    VbpSplitPeriod::Contracts(n) => {
-                        4000 + n as u64 * 100 + max_p
+        // Build a fingerprint that includes split params and display mode.
+        let is_side_panel =
+            self.config.get_choice("display_location", "In Chart") == "Side Panel";
+        let is_cumulative = is_side_panel
+            && self.config.get_bool("side_panel_cumulative", true);
+        let location_hash: u64 = if is_side_panel {
+            if is_cumulative { 10_000 } else { 20_000 }
+        } else {
+            0
+        };
+
+        let split_hash = location_hash
+            + match period {
+                VbpPeriod::Split => {
+                    let split = self.parse_split_period();
+                    let max_p = self
+                        .config
+                        .get_int("max_profiles", 20)
+                        as u64;
+                    match split {
+                        VbpSplitPeriod::Day => 1000 + max_p,
+                        VbpSplitPeriod::Hours(h) => 2000 + h as u64 * 100 + max_p,
+                        VbpSplitPeriod::Minutes(m) => 3000 + m as u64 * 100 + max_p,
+                        VbpSplitPeriod::Contracts(n) => 4000 + n as u64 * 100 + max_p,
                     }
                 }
-            }
-            VbpPeriod::Custom => 0,
-        };
+                VbpPeriod::Custom => 0,
+            };
 
         // For Split mode, use all candles; for Custom,
         // resolve the range.
@@ -476,26 +482,41 @@ impl Study for VbpStudy {
         let node_config = self.build_node_config();
         let vwap_config = self.build_vwap_config();
 
-        // Build profile(s)
-        let profiles = match period {
-            VbpPeriod::Split => {
-                let split = self.parse_split_period();
-                let max_profiles = self
-                    .config
-                    .get_int("max_profiles", 20)
-                    .max(1)
-                    as usize;
-                let segments =
-                    Self::split_candles_into_segments(
+        // For side panel with cumulative mode, merge all candles into one profile
+        let profiles = if is_cumulative {
+            if let Some(p) = self.compute_single_profile(
+                all_candles,
+                input,
+                tick_units,
+                group_quantum,
+                is_automatic,
+                &poc_config,
+                &va_config,
+                &node_config,
+                &vwap_config,
+            ) {
+                vec![p]
+            } else {
+                Vec::new()
+            }
+        } else {
+            // Build profile(s) using the normal period split/custom logic
+            match period {
+                VbpPeriod::Split => {
+                    let split = self.parse_split_period();
+                    let max_profiles = self
+                        .config
+                        .get_int("max_profiles", 20)
+                        .max(1)
+                        as usize;
+                    let segments = Self::split_candles_into_segments(
                         all_candles,
                         split,
                         max_profiles,
                     );
-                let mut profiles =
-                    Vec::with_capacity(segments.len());
-                for seg in &segments {
-                    if let Some(p) =
-                        self.compute_single_profile(
+                    let mut profiles = Vec::with_capacity(segments.len());
+                    for seg in &segments {
+                        if let Some(p) = self.compute_single_profile(
                             seg,
                             input,
                             tick_units,
@@ -505,16 +526,14 @@ impl Study for VbpStudy {
                             &va_config,
                             &node_config,
                             &vwap_config,
-                        )
-                    {
-                        profiles.push(p);
+                        ) {
+                            profiles.push(p);
+                        }
                     }
+                    profiles
                 }
-                profiles
-            }
-            VbpPeriod::Custom => {
-                if let Some(p) =
-                    self.compute_single_profile(
+                VbpPeriod::Custom => {
+                    if let Some(p) = self.compute_single_profile(
                         all_candles,
                         input,
                         tick_units,
@@ -524,11 +543,11 @@ impl Study for VbpStudy {
                         &va_config,
                         &node_config,
                         &vwap_config,
-                    )
-                {
-                    vec![p]
-                } else {
-                    Vec::new()
+                    ) {
+                        vec![p]
+                    } else {
+                        Vec::new()
+                    }
                 }
             }
         };
@@ -787,16 +806,16 @@ mod tests {
 
         let has_tab4 = params
             .iter()
-            .any(|p| p.tab == ParameterTab::Tab4);
+            .any(|p| p.tab == ParameterTab::PocSettings);
         let has_tab5 = params
             .iter()
-            .any(|p| p.tab == ParameterTab::Tab5);
+            .any(|p| p.tab == ParameterTab::ValueArea);
         let has_tab6 = params
             .iter()
-            .any(|p| p.tab == ParameterTab::Tab6);
+            .any(|p| p.tab == ParameterTab::Nodes);
         let has_tab7 = params
             .iter()
-            .any(|p| p.tab == ParameterTab::Tab7);
+            .any(|p| p.tab == ParameterTab::Vwap);
 
         assert!(has_tab4, "Missing POC tab params");
         assert!(has_tab5, "Missing Value Area tab params");

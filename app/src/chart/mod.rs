@@ -12,19 +12,21 @@ pub mod overlay;
 pub mod perf;
 pub mod profile;
 pub(crate) mod scale;
+pub(crate) mod shared;
 pub mod study_renderer;
+mod update;
 
 // Re-export KlineChart for backwards compatibility
 
 // Re-export core types for public API
 pub use core::{
     Chart, ChartState, Interaction, PlotLimits, ViewState,
-    canvas_interaction,
+    base_mouse_interaction, canvas_interaction,
 };
 
 use crate::components::layout::multi_split::MultiSplit;
 use crate::style;
-use data::{Autoscale, ChartBasis};
+use data::Autoscale;
 use scale::{AxisLabelsX, AxisLabelsY};
 
 use iced::widget::canvas::Canvas;
@@ -36,9 +38,24 @@ use iced::{
 use crate::style::tokens;
 
 use study_renderer::panel::{PanelAxisLabelsY, StudyPanelCanvas};
+use study_renderer::side_panel::SidePanelCanvas;
 
 /// Zoom sensitivity for scroll wheel operations
 const ZOOM_SENSITIVITY: f32 = tokens::chart::ZOOM_SENSITIVITY;
+
+/// Default horizontal split for the side panel (80% main / 20% side).
+fn default_side_splits() -> &'static Vec<f32> {
+    use std::sync::OnceLock;
+    static D: OnceLock<Vec<f32>> = OnceLock::new();
+    D.get_or_init(|| vec![0.80])
+}
+
+/// Default vertical split for chart vs. bottom panel (75% chart / 25% panel).
+fn default_panel_splits() -> &'static Vec<f32> {
+    use std::sync::OnceLock;
+    static D: OnceLock<Vec<f32>> = OnceLock::new();
+    D.get_or_init(|| vec![0.75])
+}
 /// Exponential zoom base (ratio per unit)
 const ZOOM_BASE: f32 = tokens::chart::ZOOM_BASE;
 /// Text size for labels
@@ -63,6 +80,8 @@ pub enum Message {
     XScaling(f32, f32, bool),
     BoundsChanged(Rectangle),
     SplitDragged(usize, f32),
+    SideSplitDragged(usize, f32),
+    SidePanelCrosshairMoved(Option<f32>),
     DoubleClick(AxisScaleClicked),
     // Drawing operations (bool = shift_held for snap constraints)
     DrawingClick(Point, bool),
@@ -94,259 +113,11 @@ pub enum Action {
     ErrorOccurred(crate::infra::error::InternalError),
 }
 
-/// Update chart state based on message
-pub fn update<T: Chart>(chart: &mut T, message: &Message) {
-    match message {
-        Message::DoubleClick(scale) => {
-            let default_chart_width = chart.plot_limits().default_cell_width;
-            let autoscaled_coords = chart.autoscaled_coords();
-            let supports_fit_autoscaling = chart.supports_fit_autoscaling();
-
-            let state = chart.mut_state();
-
-            match scale {
-                AxisScaleClicked::X => {
-                    state.cell_width = default_chart_width;
-                    state.translation = autoscaled_coords;
-                }
-                AxisScaleClicked::Y => {
-                    if supports_fit_autoscaling {
-                        state.layout.autoscale = Some(Autoscale::FitAll);
-                        state.scaling = 1.0;
-                    } else {
-                        state.layout.autoscale = Some(Autoscale::CenterLatest);
-                    }
-                }
-            }
-        }
-        Message::Translated(translation) => {
-            let state = chart.mut_state();
-
-            if let Some(Autoscale::FitAll) = state.layout.autoscale {
-                state.translation.x = translation.x;
-            } else {
-                state.translation = *translation;
-                state.layout.autoscale = None;
-            }
-        }
-        Message::Scaled(scaling, translation) => {
-            let state = chart.mut_state();
-            state.scaling = *scaling;
-            state.translation = *translation;
-
-            state.layout.autoscale = None;
-        }
-        Message::AutoscaleToggled => {
-            let supports_fit_autoscaling = chart.supports_fit_autoscaling();
-            let state = chart.mut_state();
-
-            let current_autoscale = state.layout.autoscale;
-            state.layout.autoscale = {
-                match current_autoscale {
-                    None => Some(Autoscale::CenterLatest),
-                    Some(Autoscale::CenterLatest) => {
-                        if supports_fit_autoscaling {
-                            Some(Autoscale::FitAll)
-                        } else {
-                            Some(Autoscale::Disabled)
-                        }
-                    }
-                    Some(Autoscale::FitAll) => Some(Autoscale::Disabled),
-                    Some(Autoscale::Disabled) => None,
-                }
-            };
-
-            if state.layout.autoscale.is_some() {
-                state.scaling = 1.0;
-            }
-        }
-        Message::XScaling(delta, cursor_to_center_x, is_wheel_scroll) => {
-            let limits = chart.plot_limits();
-            let min_cell_width = limits.min_cell_width;
-            let max_cell_width = limits.max_cell_width;
-
-            let state = chart.mut_state();
-
-            if !(*delta < 0.0 && state.cell_width > min_cell_width
-                || *delta > 0.0 && state.cell_width < max_cell_width)
-            {
-                return;
-            }
-
-            let is_fit_to_visible_zoom =
-                !is_wheel_scroll && matches!(state.layout.autoscale, Some(Autoscale::FitAll));
-
-            let zoom_factor = if is_fit_to_visible_zoom {
-                ZOOM_SENSITIVITY / 1.5
-            } else if *is_wheel_scroll {
-                ZOOM_SENSITIVITY
-            } else {
-                ZOOM_SENSITIVITY * 3.0
-            };
-
-            let new_width = (state.cell_width * ZOOM_BASE.powf(delta / zoom_factor))
-                .clamp(min_cell_width, max_cell_width);
-
-            if is_fit_to_visible_zoom {
-                let anchor_interval = {
-                    let latest_x_coord = state.interval_to_x(state.latest_x);
-                    if state.is_interval_x_visible(latest_x_coord) {
-                        state.latest_x
-                    } else {
-                        let visible_region = state.visible_region(state.bounds.size());
-                        state.x_to_interval(visible_region.x + visible_region.width)
-                    }
-                };
-
-                let old_anchor_chart_x = state.interval_to_x(anchor_interval);
-
-                state.cell_width = new_width;
-
-                let new_anchor_chart_x = state.interval_to_x(anchor_interval);
-
-                let shift = new_anchor_chart_x - old_anchor_chart_x;
-                state.translation.x -= shift;
-            } else {
-                let (old_scaling, old_translation_x) = { (state.scaling, state.translation.x) };
-
-                let latest_x = state.interval_to_x(state.latest_x);
-                let is_interval_x_visible = state.is_interval_x_visible(latest_x);
-
-                let cursor_chart_x = {
-                    if *is_wheel_scroll || !is_interval_x_visible {
-                        cursor_to_center_x / old_scaling - old_translation_x
-                    } else {
-                        latest_x / old_scaling - old_translation_x
-                    }
-                };
-
-                let new_cursor_x = match state.basis {
-                    ChartBasis::Time(_) => {
-                        let cursor_time = state.x_to_interval(cursor_chart_x);
-                        state.cell_width = new_width;
-
-                        state.interval_to_x(cursor_time)
-                    }
-                    ChartBasis::Tick(_) => {
-                        let tick_index = cursor_chart_x / state.cell_width;
-                        state.cell_width = new_width;
-
-                        tick_index * state.cell_width
-                    }
-                };
-
-                if *is_wheel_scroll || !is_interval_x_visible {
-                    if !new_cursor_x.is_nan() && !cursor_chart_x.is_nan() {
-                        state.translation.x -= new_cursor_x - cursor_chart_x;
-                    }
-
-                    state.layout.autoscale = None;
-                }
-            }
-        }
-        Message::YScaling(delta, cursor_to_center_y, is_wheel_scroll) => {
-            let limits = chart.plot_limits();
-            let min_cell_height = limits.min_cell_height;
-            let max_cell_height = limits.max_cell_height;
-
-            let state = chart.mut_state();
-
-            if !(*delta < 0.0 && state.cell_height > min_cell_height
-                || *delta > 0.0 && state.cell_height < max_cell_height)
-            {
-                return;
-            }
-
-            let zoom_factor = if *is_wheel_scroll {
-                ZOOM_SENSITIVITY
-            } else {
-                ZOOM_SENSITIVITY * 3.0
-            };
-
-            let new_height = (state.cell_height * ZOOM_BASE.powf(delta / zoom_factor))
-                .clamp(min_cell_height, max_cell_height);
-
-            let (old_scaling, old_translation_y) = (state.scaling, state.translation.y);
-
-            let cursor_chart_y = cursor_to_center_y / old_scaling - old_translation_y;
-            let cursor_price = state.y_to_price(cursor_chart_y);
-
-            state.cell_height = new_height;
-
-            let new_cursor_y = state.price_to_y(cursor_price);
-
-            if !new_cursor_y.is_nan() && !cursor_chart_y.is_nan() {
-                state.translation.y -= new_cursor_y - cursor_chart_y;
-            }
-
-            if *is_wheel_scroll {
-                state.layout.autoscale = None;
-            }
-        }
-        Message::BoundsChanged(bounds) => {
-            let state = chart.mut_state();
-
-            // calculate how center shifted
-            let old_center_x = state.bounds.width / 2.0;
-            let new_center_x = bounds.width / 2.0;
-            let center_delta_x = (new_center_x - old_center_x) / state.scaling;
-
-            state.bounds = *bounds;
-
-            if state.layout.autoscale != Some(Autoscale::CenterLatest) {
-                state.translation.x += center_delta_x;
-            }
-        }
-        Message::SplitDragged(split, size) => {
-            let state = chart.mut_state();
-
-            if let Some(split) = state.layout.splits.get_mut(*split) {
-                *split = (size * 100.0).round() / 100.0;
-            }
-        }
-        Message::CrosshairMoved(pos) => {
-            if let Some(p) = pos {
-                let state = chart.state();
-                let bounds = state.bounds.size();
-                if bounds.width > f32::EPSILON {
-                    let region = state.visible_region(bounds);
-                    let (interval, _) =
-                        state.snap_x_to_index(p.x, bounds, region);
-                    state.crosshair_interval.set(Some(interval));
-                }
-            } else {
-                chart.state().crosshair_interval.set(None);
-            }
-            return chart.invalidate_crosshair();
-        }
-        Message::CursorLeft => {
-            chart.state().crosshair_interval.set(None);
-            return chart.invalidate_crosshair();
-        }
-        // Drawing messages are handled at the pane level where we have mutable access
-        Message::DrawingClick(_, _)
-        | Message::DrawingMove(_, _)
-        | Message::DrawingCancel
-        | Message::DrawingDelete
-        | Message::DrawingSelect(_)
-        | Message::DrawingDeselect
-        | Message::DrawingDrag(_, _)
-        | Message::DrawingHandleDrag(_, _, _)
-        | Message::DrawingDragEnd
-        | Message::ClonePlacementMove(_)
-        | Message::ClonePlacementConfirm(_)
-        | Message::ClonePlacementCancel
-        | Message::ContextMenu(_, _)
-        | Message::DrawingDoubleClick(_)
-        | Message::StudyOverlaySelect(_)
-        | Message::StudyOverlayDoubleClick(_)
-        | Message::StudyOverlayContextMenu(_, _) => {
-            // These are handled by the pane/dashboard, not the chart itself
-            return;
-        }
-    }
-    chart.invalidate_all();
-}
+/// Update chart state based on message.
+///
+/// Delegates to the `update` sub-module to keep `mod.rs` focused on
+/// type/message definitions and module declarations.
+pub use update::update;
 
 /// Render chart view
 pub fn view<'a, T: Chart>(
@@ -370,8 +141,8 @@ pub fn view<'a, T: Chart>(
         chart_bounds: state.bounds,
         interval_keys: chart.interval_keys(),
         autoscaling: state.layout.autoscale,
-        remote_crosshair: state.remote_crosshair,
-        crosshair_interval: state.crosshair_interval.get(),
+        remote_crosshair: state.crosshair.remote,
+        crosshair_interval: state.crosshair.interval.get(),
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -408,56 +179,126 @@ pub fn view<'a, T: Chart>(
 
     let y_labels_width = state.y_labels_width();
 
-    // Collect panel studies
+    // Collect panel and side panel studies
     let panels = chart.panel_studies();
     let panel_cache = chart.panel_cache();
+    let sp_cache = chart.side_panel_cache();
+    let has_side_panel = !chart.side_panel_studies().is_empty() && sp_cache.is_some();
 
-    let content: Element<'_, Message> = {
-        let axis_labels_y = Canvas::new(AxisLabelsY {
-            labels_cache: &state.cache.y_labels,
-            translation_y: state.translation.y,
-            scaling: state.scaling,
-            decimals: state.decimals,
-            min: state.base_price_y.to_f32(),
-            last_price: state.last_price,
-            tick_size: state.tick_size.to_f32_lossy(),
-            cell_height: state.cell_height,
-            basis: state.basis,
-            chart_bounds: state.bounds,
-        })
+    // Effective side splits — default to [0.80] until user drags to resize.
+    let effective_side_splits: &Vec<f32> =
+        if has_side_panel && state.layout.side_splits.is_empty() {
+            default_side_splits()
+        } else {
+            &state.layout.side_splits
+        };
+
+    // Compute fill-portion integers (×1000) for panel/axis alignment rows.
+    let (main_fill, side_fill): (u16, u16) = if has_side_panel {
+        let r = effective_side_splits.first().copied().unwrap_or(0.80);
+        let m = (r * 1000.0).round() as u16;
+        (m, 1000u16.saturating_sub(m))
+    } else {
+        (10, 0)
+    };
+
+    let axis_labels_y = Canvas::new(AxisLabelsY {
+        labels_cache: &state.cache.y_labels,
+        translation_y: state.translation.y,
+        scaling: state.scaling,
+        decimals: state.decimals,
+        min: state.base_price_y.to_f32(),
+        last_price: state.last_price,
+        tick_size: state.tick_size.to_f32_lossy(),
+        cell_height: state.cell_height,
+        basis: state.basis,
+        chart_bounds: state.bounds,
+        crosshair_y: state.crosshair.y.get(),
+    })
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    let main_canvas_elem: Element<'_, Message> = container(
+        mouse_area(Canvas::new(chart).width(Length::Fill).height(Length::Fill))
+            .on_exit(Message::CursorLeft),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into();
+
+    // Build the content row: [chart (+side panel) | rule | y_axis].
+    // The side panel canvas lives here so it shares the exact same height
+    // as the main chart canvas — both are siblings inside this row.
+    let content: Element<'_, Message> = if has_side_panel {
+        let cache = sp_cache.unwrap();
+        let xhair_cache = chart.side_panel_crosshair_cache().unwrap_or(cache);
+
+        let side_canvas_elem: Element<'_, Message> = container(
+            mouse_area(
+                Canvas::new(SidePanelCanvas {
+                    studies: chart.side_panel_studies(),
+                    state,
+                    cache,
+                    crosshair_cache: xhair_cache,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill),
+            )
+            .on_move(|p| Message::SidePanelCrosshairMoved(Some(p.y)))
+            .on_exit(Message::CursorLeft),
+        )
         .width(Length::Fill)
-        .height(Length::Fill);
+        .height(Length::Fill)
+        .into();
+
+        // Always use MultiSplit::horizontal so the separator is draggable.
+        let chart_and_side: Element<'_, Message> = MultiSplit::horizontal(
+            vec![main_canvas_elem, side_canvas_elem],
+            effective_side_splits,
+            Message::SideSplitDragged,
+        )
+        .into();
 
         row![
+            container(chart_and_side)
+                .width(Length::FillPortion(main_fill + side_fill))
+                .height(Length::FillPortion(120)),
+            rule::vertical(1).style(style::split_ruler),
             container(
-                mouse_area(
-                    Canvas::new(chart).width(Length::Fill).height(Length::Fill)
-                )
-                .on_exit(Message::CursorLeft)
+                mouse_area(axis_labels_y)
+                    .on_double_click(Message::DoubleClick(AxisScaleClicked::Y)),
             )
+            .width(y_labels_width)
+            .height(Length::FillPortion(120)),
+        ]
+        .into()
+    } else {
+        row![
+            container(main_canvas_elem)
                 .width(Length::FillPortion(10))
                 .height(Length::FillPortion(120)),
             rule::vertical(1).style(style::split_ruler),
             container(
                 mouse_area(axis_labels_y)
-                    .on_double_click(Message::DoubleClick(AxisScaleClicked::Y))
+                    .on_double_click(Message::DoubleClick(AxisScaleClicked::Y)),
             )
             .width(y_labels_width)
-            .height(Length::FillPortion(120))
+            .height(Length::FillPortion(120)),
         ]
         .into()
     };
 
-    // Build the x-axis row (shared between panel and non-panel layouts)
+    // X-axis row always spans the full available width so time labels align
+    // with both the main chart canvas and the ATR panel below.
     let x_axis_row = row![
         container(
             mouse_area(axis_labels_x)
-                .on_double_click(Message::DoubleClick(AxisScaleClicked::X))
+                .on_double_click(Message::DoubleClick(AxisScaleClicked::X)),
         )
         .padding(iced::padding::right(1))
         .width(Length::FillPortion(10))
         .height(Length::Fixed(26.0)),
-        buttons.width(y_labels_width).height(Length::Fixed(26.0))
+        buttons.width(y_labels_width).height(Length::Fixed(26.0)),
     ];
 
     // Build panel row if panel studies exist
@@ -467,7 +308,6 @@ pub fn view<'a, T: Chart>(
     let chart_body: Element<'_, Message> = if has_panels {
         let cache = panel_cache.unwrap();
 
-        // Build panel Y-axis labels canvas
         let panel_y_axis: Element<'_, Message> =
             if let Some(labels_cache) = panel_labels_cache {
                 Canvas::new(PanelAxisLabelsY {
@@ -482,47 +322,42 @@ pub fn view<'a, T: Chart>(
             };
 
         let panel_crosshair_cache = chart.panel_crosshair_cache();
-        let crosshair_cache_ref = panel_crosshair_cache
-            .unwrap_or(cache);
+        let crosshair_cache_ref = panel_crosshair_cache.unwrap_or(cache);
 
-        let panel_canvas =
-            Canvas::new(StudyPanelCanvas {
-                panels,
-                state,
-                cache,
-                crosshair_cache: crosshair_cache_ref,
-            })
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let panel_canvas = Canvas::new(StudyPanelCanvas {
+            panels,
+            state,
+            cache,
+            crosshair_cache: crosshair_cache_ref,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill);
 
+        // The panel row (ATR, RSI, etc.) always spans the full available width —
+        // the VBP side panel lives in the content row above, not here.
+        // Keeping full width prevents the panel from appearing cut off under the
+        // side panel area and keeps the time axis aligned.
         let panel_row: Element<'_, Message> = row![
             container(
-                mouse_area(panel_canvas)
-                    .on_exit(Message::CursorLeft)
+                mouse_area(panel_canvas).on_exit(Message::CursorLeft),
             )
-                .width(Length::FillPortion(10)),
+            .width(Length::FillPortion(10)),
             rule::vertical(1).style(style::split_ruler),
-            container(panel_y_axis).width(y_labels_width)
+            container(panel_y_axis).width(y_labels_width),
         ]
         .into();
 
-        // Ensure layout.splits has at least one entry for the
-        // main/panel divider. Default to 0.75 (75% main chart).
+        // Always use MultiSplit — never the column fallback.  The fallback
+        // splits Fill height 50/50 which squishes or covers the bottom panel.
         let splits = &state.layout.splits;
-        if splits.is_empty() {
-            // No splits yet — use a fixed column layout as fallback
-            // (the SplitDragged handler will populate splits on first drag)
-            column![content, rule::horizontal(1).style(style::split_ruler), panel_row]
-                .height(Length::Fill)
-                .into()
-        } else {
-            MultiSplit::new(
-                vec![content, panel_row],
-                splits,
-                |idx, pos| Message::SplitDragged(idx, pos),
-            )
-            .into()
-        }
+        let effective_splits =
+            if splits.is_empty() { default_panel_splits() } else { splits };
+        MultiSplit::new(
+            vec![content, panel_row],
+            effective_splits,
+            |idx, pos| Message::SplitDragged(idx, pos),
+        )
+        .into()
     } else {
         content
     };

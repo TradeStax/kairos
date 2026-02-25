@@ -5,20 +5,21 @@ use crate::{
     modals::{self, pane::Modal},
     screen::dashboard::panel,
 };
+
 use data::{
-    ChartConfig, ChartData, ContentKind, DrawingId, LinkGroup, LoadingStatus, Settings, VisualConfig,
+    ChartData, ContentKind, DrawingId, LinkGroup,
+    LoadingStatus, Settings, VisualConfig,
+    domain::assistant::ApiMessage,
 };
 use exchange::FuturesTickerInfo;
 use iced::{Point, widget::pane_grid};
 
-pub enum Action {
-    Chart(chart::Action),
-    Panel(panel::Action),
-    LoadChart {
-        config: ChartConfig,
-        ticker_info: FuturesTickerInfo,
-    },
-}
+// Re-export AI types from ai_state so external code can use either path.
+pub use super::ai_state::{
+    AI_MODELS, ActiveContext, AiAssistantEvent, AiAssistantState,
+    AiContextBubble, AiContextBubbleEvent, AiContextSummary,
+    TickAction, model_display_name, model_id_from_name,
+};
 
 /// What was right-clicked on the chart
 #[derive(Debug, Clone)]
@@ -36,6 +37,11 @@ pub enum ContextMenuKind {
         position: Point,
         study_index: usize,
     },
+    /// Right-clicked an AI assistant message
+    AiMessage {
+        position: Point,
+        message_index: usize,
+    },
 }
 
 impl ContextMenuKind {
@@ -43,7 +49,8 @@ impl ContextMenuKind {
         match self {
             ContextMenuKind::Chart { position }
             | ContextMenuKind::Drawing { position, .. }
-            | ContextMenuKind::StudyOverlay { position, .. } => *position,
+            | ContextMenuKind::StudyOverlay { position, .. }
+            | ContextMenuKind::AiMessage { position, .. } => *position,
         }
     }
 }
@@ -59,6 +66,7 @@ pub enum ContextMenuAction {
     CloneDrawing(DrawingId),
     OpenDrawingProperties(DrawingId),
     OpenStudyProperties(usize),
+    CopyAiMessageText(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -89,35 +97,39 @@ pub enum Event {
     DeleteNotification(usize),
     ReorderIndicator(crate::components::layout::reorderable_list::DragEvent),
     DataManagementInteraction(crate::modals::download::DataManagementMessage),
-    StudyConfigurator(modals::pane::settings::study::StudyMessage),
+    StudyConfigurator(modals::pane::settings::StudyMessage),
     StreamModifierChanged(modals::stream::Message),
     ComparisonChartInteraction(chart::comparison::Message),
     MiniTickersListInteraction(modals::pane::tickers::Message),
     ContextMenuAction(ContextMenuAction),
     DismissContextMenu,
-    DrawingPropertiesChanged(crate::modals::drawing_properties::Message),
-    IndicatorManagerInteraction(crate::modals::pane::indicator_manager::Message),
+    DrawingPropertiesChanged(crate::modals::drawing::properties::Message),
+    IndicatorManagerInteraction(crate::modals::pane::indicator::Message),
     OpenIndicatorManager,
+    AiAssistant(AiAssistantEvent),
+    AiContextBubble(AiContextBubbleEvent),
 }
 
 pub struct State {
     id: uuid::Uuid,
-    pub modal: Option<Modal>,
-    pub content: Content,
-    pub settings: Settings,
-    pub notifications: Vec<Toast>,
-    pub loading_status: LoadingStatus,
-    pub ticker_info: Option<FuturesTickerInfo>,
-    pub chart_data: Option<ChartData>,
-    pub link_group: Option<LinkGroup>,
+    pub(crate) modal: Option<Modal>,
+    pub(crate) content: Content,
+    pub(crate) settings: Settings,
+    pub(crate) notifications: Vec<Toast>,
+    pub(crate) loading_status: LoadingStatus,
+    pub(crate) ticker_info: Option<FuturesTickerInfo>,
+    pub(crate) chart_data: Option<ChartData>,
+    pub(crate) link_group: Option<LinkGroup>,
     /// Tracks which feed provided this pane's data (set when chart data loads)
-    pub feed_id: Option<data::FeedId>,
+    pub(crate) feed_id: Option<data::FeedId>,
     /// Backup of chart data before replay (restored on stop)
-    pub replay_backup: Option<ChartData>,
+    pub(crate) replay_backup: Option<ChartData>,
     /// Active right-click context menu
-    pub context_menu: Option<ContextMenuKind>,
+    pub(crate) context_menu: Option<ContextMenuKind>,
     /// The date range that was used to load this pane's data
-    pub loaded_date_range: Option<data::DateRange>,
+    pub(crate) loaded_date_range: Option<data::DateRange>,
+    /// Floating AI context bubble (shown after AiContext drawing completes)
+    pub(crate) ai_context_bubble: Option<AiContextBubble>,
 }
 
 impl State {
@@ -153,14 +165,54 @@ impl State {
     pub fn set_remote_crosshair(&mut self, interval: Option<u64>) {
         use crate::chart::Chart;
         let state = match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => c.mut_state(),
+            Content::Candlestick { chart: Some(c), .. } => c.mut_state(),
             Content::Heatmap { chart: Some(c), .. } => c.mut_state(),
             Content::Profile { chart: Some(c), .. } => c.mut_state(),
             _ => return,
         };
-        if state.remote_crosshair != interval {
-            state.remote_crosshair = interval;
+        if state.crosshair.remote != interval {
+            state.crosshair.remote = interval;
             state.cache.clear_crosshair();
+        }
+    }
+
+    /// Get the AI conversation ID if this pane is an AI assistant.
+    pub fn ai_conversation_id(&self) -> Option<uuid::Uuid> {
+        match &self.content {
+            Content::AiAssistant(state) => Some(state.conversation_id),
+            _ => None,
+        }
+    }
+
+    /// Handle an AI stream event, routing to the AI state.
+    pub fn handle_ai_event(
+        &mut self,
+        event: crate::app::core::globals::AiStreamEventClone,
+    ) {
+        if let Content::AiAssistant(state) = &mut self.content {
+            state.handle_event(event);
+        }
+    }
+
+    /// Start AI streaming: returns (model, conversation_id,
+    /// api_history) or None.
+    pub fn ai_start_streaming(
+        &mut self,
+        user_message: &str,
+    ) -> Option<(String, uuid::Uuid, Vec<ApiMessage>)> {
+        if let Content::AiAssistant(state) = &mut self.content {
+            Some(state.start_streaming(user_message))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the scrollable widget Id for the AI chat list, if any.
+    pub fn ai_scroll_id(&self) -> Option<iced::widget::Id> {
+        if let Content::AiAssistant(state) = &self.content {
+            Some(state.scroll_id.clone())
+        } else {
+            None
         }
     }
 }
@@ -181,6 +233,7 @@ impl Default for State {
             replay_backup: None,
             context_menu: None,
             loaded_date_range: None,
+            ai_context_bubble: None,
         }
     }
 }

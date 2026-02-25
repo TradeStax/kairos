@@ -7,6 +7,8 @@
 
 pub mod client;
 pub mod mapper;
+mod plants;
+mod protocol;
 pub mod streaming;
 
 use super::AdapterError;
@@ -69,11 +71,15 @@ impl From<RithmicError> for AdapterError {
     fn from(err: RithmicError) -> Self {
         match err {
             RithmicError::Connection(s) => AdapterError::ConnectionError(s),
-            RithmicError::Auth(s) => AdapterError::InvalidRequest(format!("Rithmic auth: {}", s)),
+            RithmicError::Auth(s) => {
+                AdapterError::InvalidRequest(format!("Rithmic auth: {}", s))
+            }
             RithmicError::Subscription(s) => {
                 AdapterError::InvalidRequest(format!("Rithmic sub: {}", s))
             }
-            RithmicError::Data(s) => AdapterError::ParseError(format!("Rithmic data: {}", s)),
+            RithmicError::Data(s) => {
+                AdapterError::ParseError(format!("Rithmic data: {}", s))
+            }
             RithmicError::Config(s) => {
                 AdapterError::InvalidRequest(format!("Rithmic config: {}", s))
             }
@@ -85,9 +91,9 @@ impl From<RithmicError> for AdapterError {
 #[derive(Debug, Clone)]
 pub struct RithmicConfig {
     /// Rithmic environment (Demo, Live, etc.)
-    pub env: rithmic_rs::RithmicEnv,
+    pub env: protocol::RithmicEnv,
     /// Connection strategy
-    pub connect_strategy: rithmic_rs::ConnectStrategy,
+    pub connect_strategy: protocol::ConnectStrategy,
     /// Auto-reconnect on disconnection
     pub auto_reconnect: bool,
     /// Cache directory for historical data
@@ -102,8 +108,8 @@ impl Default for RithmicConfig {
             .join("rithmic");
 
         Self {
-            env: rithmic_rs::RithmicEnv::Demo,
-            connect_strategy: rithmic_rs::ConnectStrategy::Retry,
+            env: protocol::RithmicEnv::Demo,
+            connect_strategy: protocol::ConnectStrategy::Retry,
             auto_reconnect: true,
             cache_dir,
         }
@@ -113,13 +119,13 @@ impl Default for RithmicConfig {
 impl RithmicConfig {
     /// Create from environment variables for a given Rithmic environment.
     ///
-    /// Returns both the local config and the upstream `rithmic_rs::RithmicConfig`
+    /// Returns both the local config and the upstream connection config
     /// needed to connect.
     pub fn from_env(
-        env: rithmic_rs::RithmicEnv,
-    ) -> Result<(Self, rithmic_rs::RithmicConfig), AdapterError> {
+        env: protocol::RithmicEnv,
+    ) -> Result<(Self, protocol::RithmicConnectionConfig), AdapterError> {
         let rithmic_config =
-            rithmic_rs::RithmicConfig::from_env(env).map_err(|e| {
+            protocol::RithmicConnectionConfig::from_env(env).map_err(|e| {
                 AdapterError::InvalidRequest(format!(
                     "Failed to load Rithmic config from env: {}",
                     e
@@ -137,12 +143,12 @@ impl RithmicConfig {
 
     /// Create from a UI feed config and password.
     ///
-    /// Builds the `rithmic_rs::RithmicConfig` entirely from UI-provided
+    /// Builds the connection config entirely from UI-provided
     /// fields — no environment variables required.
     pub fn from_feed_config(
         feed_config: &kairos_data::feed::RithmicFeedConfig,
         password: &str,
-    ) -> Result<(Self, rithmic_rs::RithmicConfig), AdapterError> {
+    ) -> Result<(Self, protocol::RithmicConnectionConfig), AdapterError> {
         // Validate required fields
         if feed_config.user_id.trim().is_empty() {
             return Err(AdapterError::InvalidRequest(
@@ -159,28 +165,30 @@ impl RithmicConfig {
                 "System name is required".to_string(),
             ));
         }
-        if feed_config.server_url.trim().is_empty() {
-            return Err(AdapterError::InvalidRequest(
-                "Server URL is required".to_string(),
-            ));
-        }
 
         let env = match feed_config.environment {
-            kairos_data::feed::RithmicEnvironment::Demo => rithmic_rs::RithmicEnv::Demo,
-            kairos_data::feed::RithmicEnvironment::Live => rithmic_rs::RithmicEnv::Live,
-            kairos_data::feed::RithmicEnvironment::Test => rithmic_rs::RithmicEnv::Test,
+            kairos_data::feed::RithmicEnvironment::Demo => {
+                protocol::RithmicEnv::Demo
+            }
+            kairos_data::feed::RithmicEnvironment::Live => {
+                protocol::RithmicEnv::Live
+            }
+            kairos_data::feed::RithmicEnvironment::Test => {
+                protocol::RithmicEnv::Test
+            }
         };
 
-        let rithmic_config = rithmic_rs::RithmicConfig {
+        let server_url = feed_config.server.url().to_string();
+        let rithmic_config = protocol::RithmicConnectionConfig {
             env,
             user: feed_config.user_id.clone(),
             password: password.to_string(),
             system_name: feed_config.system_name.clone(),
-            url: feed_config.server_url.clone(),
-            beta_url: feed_config.server_url.clone(),
+            url: server_url.clone(),
+            beta_url: server_url,
             account_id: feed_config.account_id.clone(),
-            fcm_id: feed_config.fcm_id.clone(),
-            ib_id: feed_config.ib_id.clone(),
+            fcm_id: String::new(),
+            ib_id: String::new(),
         };
 
         let local = Self {

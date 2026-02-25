@@ -23,26 +23,26 @@ impl ResolvedColors {
         Self {
             bull_body: style
                 .bull_body_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.success.base.color),
             bear_body: style
                 .bear_body_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.danger.base.color),
             bull_wick: style
                 .bull_wick_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.success.base.color),
             bear_wick: style
                 .bear_wick_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.danger.base.color),
             bull_border: style
                 .bull_border_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color),
+                .map(crate::style::theme::rgba_to_iced_color),
             bear_border: style
                 .bear_border_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color),
+                .map(crate::style::theme::rgba_to_iced_color),
         }
     }
 }

@@ -77,9 +77,9 @@ pub fn draw(
 
     // Colors
     let target_color =
-        crate::style::theme_bridge::rgba_to_iced_color(config.target_color);
+        crate::style::theme::rgba_to_iced_color(config.target_color);
     let stop_color =
-        crate::style::theme_bridge::rgba_to_iced_color(config.stop_color);
+        crate::style::theme::rgba_to_iced_color(config.stop_color);
 
     let is_preview = pts.len() < 3;
     let zone_alpha = if is_preview {

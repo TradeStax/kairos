@@ -14,7 +14,7 @@ use data::{
     self,
     feed::{
         DataFeed, DataFeedManager, DatabentoFeedConfig, FeedConfig, FeedId, FeedProvider,
-        FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig,
+        FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig, RithmicServer,
     },
 };
 
@@ -58,15 +58,16 @@ pub(super) struct EditForm {
     pub(super) cache_max_days: String,
     // Rithmic
     pub(super) environment: RithmicEnvironment,
+    pub(super) server: RithmicServer,
     pub(super) system_name: String,
-    pub(super) server_url: String,
     pub(super) account_id: String,
-    pub(super) fcm_id: String,
-    pub(super) ib_id: String,
     pub(super) user_id: String,
     pub(super) password: String,
     pub(super) auto_reconnect: bool,
     pub(super) subscribed_tickers: Vec<String>,
+    pub(super) system_names_loading: bool,
+    pub(super) available_system_names: Vec<String>,
+    pub(super) available_tickers: Vec<String>,
     // General
     pub(super) auto_connect: bool,
 }
@@ -81,15 +82,16 @@ impl Default for EditForm {
             cache_enabled: true,
             cache_max_days: "90".to_string(),
             environment: RithmicEnvironment::Demo,
+            server: RithmicServer::default(),
             system_name: String::new(),
-            server_url: String::new(),
             account_id: String::new(),
-            fcm_id: String::new(),
-            ib_id: String::new(),
             user_id: String::new(),
             password: String::new(),
             auto_reconnect: true,
             subscribed_tickers: Vec::new(),
+            system_names_loading: false,
+            available_system_names: Vec::new(),
+            available_tickers: Vec::new(),
             auto_connect: false,
         }
     }
@@ -112,11 +114,17 @@ impl EditForm {
             }
             FeedConfig::Rithmic(cfg) => {
                 form.environment = cfg.environment;
+                // Migrate: try server enum first, fall back to URL lookup
+                form.server = if cfg.server != RithmicServer::default()
+                    || cfg.server_url.is_empty()
+                {
+                    cfg.server
+                } else {
+                    RithmicServer::from_url(&cfg.server_url)
+                        .unwrap_or(cfg.server)
+                };
                 form.system_name = cfg.system_name.clone();
-                form.server_url = cfg.server_url.clone();
                 form.account_id = cfg.account_id.clone();
-                form.fcm_id = cfg.fcm_id.clone();
-                form.ib_id = cfg.ib_id.clone();
                 form.user_id = cfg.user_id.clone();
                 form.auto_reconnect = cfg.auto_reconnect;
                 form.subscribed_tickers = cfg.subscribed_tickers.clone();
@@ -138,6 +146,7 @@ impl EditForm {
                 provider: Some(FeedProvider::Rithmic),
                 name: "New Connection".to_string(),
                 priority: "5".to_string(),
+                server: RithmicServer::Chicago,
                 ..Default::default()
             },
         }
@@ -167,16 +176,16 @@ pub enum DataFeedsMessage {
     SetCacheMaxDays(String),
     // Rithmic fields
     SetEnvironment(RithmicEnvironment),
+    SetServer(RithmicServer),
     SetSystemName(String),
-    SetServerUrl(String),
     SetAccountId(String),
-    SetFcmId(String),
-    SetIbId(String),
     SetUserId(String),
     SetPassword(String),
     SetAutoReconnect(bool),
     SetAutoConnect(bool),
     ToggleTicker(String),
+    SystemNamesLoaded(RithmicServer, Result<Vec<String>, String>),
+    AvailableTickersLoaded(Result<Vec<String>, String>),
     // Connection actions
     ConnectFeed(FeedId),
     DisconnectFeed(FeedId),
@@ -200,6 +209,13 @@ pub enum Action {
         provider: data::ApiProvider,
         key: String,
     },
+    /// Persist a per-connection Rithmic password keyed by feed ID.
+    SaveFeedPassword {
+        feed_id: FeedId,
+        password: String,
+    },
+    /// Probe a Rithmic server for available system names (pre-login).
+    ProbeSystemNames(RithmicServer),
     Close,
 }
 
@@ -225,10 +241,10 @@ impl DataFeedsModal {
         &mut self,
         message: DataFeedsMessage,
         feed_manager: &mut DataFeedManager,
-    ) -> Option<Action> {
+    ) -> Vec<Action> {
         match message {
             DataFeedsMessage::Close => {
-                return Some(Action::Close);
+                return vec![Action::Close];
             }
 
             // ── Left panel ────────────────────────────────────────────────
@@ -249,11 +265,22 @@ impl DataFeedsModal {
                         {
                             self.preview_loading = true;
                             self.preview_data = None;
-                            return Some(Action::LoadPreview(id, info.clone()));
+                            return vec![Action::LoadPreview(
+                                id,
+                                info.clone(),
+                            )];
                         }
                     } else {
                         self.preview_data = None;
                         self.preview_loading = false;
+                    }
+
+                    // Probe system names for Rithmic feeds
+                    if feed.provider == FeedProvider::Rithmic {
+                        self.edit_form.system_names_loading = true;
+                        return vec![Action::ProbeSystemNames(
+                            self.edit_form.server,
+                        )];
                     }
                 }
             }
@@ -272,7 +299,7 @@ impl DataFeedsModal {
                     self.has_changes = false;
                     self.preview_data = None;
                 }
-                return Some(Action::FeedsUpdated);
+                return vec![Action::FeedsUpdated];
             }
 
             // ── "+" popup ──────────────────────────────────────────────────
@@ -291,11 +318,15 @@ impl DataFeedsModal {
                 self.is_creating = true;
                 self.has_changes = false;
                 self.edit_form = EditForm::for_provider(FeedProvider::Rithmic);
-                return Some(Action::FeedsUpdated);
+                self.edit_form.system_names_loading = true;
+                return vec![
+                    Action::FeedsUpdated,
+                    Action::ProbeSystemNames(self.edit_form.server),
+                ];
             }
             DataFeedsMessage::OpenHistoricalDownload => {
                 self.add_popup_open = false;
-                return Some(Action::OpenHistoricalDownload);
+                return vec![Action::OpenHistoricalDownload];
             }
 
             // ── Right panel: form ──────────────────────────────────────────
@@ -312,16 +343,20 @@ impl DataFeedsModal {
                         }
                         FeedProvider::Rithmic => {
                             self.edit_form.environment = RithmicEnvironment::Demo;
+                            self.edit_form.server = RithmicServer::Chicago;
                             self.edit_form.system_name = String::new();
-                            self.edit_form.server_url = String::new();
                             self.edit_form.account_id = String::new();
-                            self.edit_form.fcm_id = String::new();
-                            self.edit_form.ib_id = String::new();
                             self.edit_form.user_id = String::new();
                             self.edit_form.password = String::new();
                             self.edit_form.auto_reconnect = true;
                             self.edit_form.subscribed_tickers = Vec::new();
+                            self.edit_form.available_system_names = Vec::new();
+                            self.edit_form.available_tickers = Vec::new();
+                            self.edit_form.system_names_loading = true;
                             self.edit_form.priority = "5".to_string();
+                            return vec![Action::ProbeSystemNames(
+                                RithmicServer::Chicago,
+                            )];
                         }
                     }
                     if let Some(id) = self.selected_feed
@@ -361,21 +396,21 @@ impl DataFeedsModal {
                     if provider == Some(FeedProvider::Databento)
                         && !self.edit_form.api_key.is_empty()
                     {
-                        return Some(Action::SaveApiKey {
+                        return vec![Action::SaveApiKey {
                             provider: data::ApiProvider::Databento,
                             key: self.edit_form.api_key.clone(),
-                        });
+                        }];
                     }
                     if provider == Some(FeedProvider::Rithmic)
                         && !self.edit_form.password.is_empty()
                     {
-                        return Some(Action::SaveApiKey {
-                            provider: data::ApiProvider::Rithmic,
-                            key: self.edit_form.password.clone(),
-                        });
+                        return vec![Action::SaveFeedPassword {
+                            feed_id: id,
+                            password: self.edit_form.password.clone(),
+                        }];
                     }
 
-                    return Some(Action::FeedsUpdated);
+                    return vec![Action::FeedsUpdated];
                 }
             }
             DataFeedsMessage::CancelEdit => {
@@ -386,7 +421,7 @@ impl DataFeedsModal {
                     self.selected_feed = None;
                     self.is_creating = false;
                     self.has_changes = false;
-                    return Some(Action::FeedsUpdated);
+                    return vec![Action::FeedsUpdated];
                 } else if let Some(id) = self.selected_feed
                     && let Some(feed) = feed_manager.get(id)
                 {
@@ -397,10 +432,10 @@ impl DataFeedsModal {
 
             // ── Connection actions ─────────────────────────────────────────
             DataFeedsMessage::ConnectFeed(id) => {
-                return Some(Action::ConnectFeed(id));
+                return vec![Action::ConnectFeed(id)];
             }
             DataFeedsMessage::DisconnectFeed(id) => {
-                return Some(Action::DisconnectFeed(id));
+                return vec![Action::DisconnectFeed(id)];
             }
 
             // ── Status updates ────────────────────────────────────────────
@@ -434,7 +469,7 @@ impl DataFeedsModal {
                     && feed.is_historical()
                 {
                     feed.name = self.edit_form.name.clone();
-                    return Some(Action::FeedsUpdated);
+                    return vec![Action::FeedsUpdated];
                 }
             }
             DataFeedsMessage::SetApiKey(v) => {
@@ -453,24 +488,20 @@ impl DataFeedsModal {
                 self.edit_form.environment = v;
                 self.has_changes = true;
             }
+            DataFeedsMessage::SetServer(server) => {
+                self.edit_form.server = server;
+                self.edit_form.system_names_loading = true;
+                self.edit_form.available_system_names.clear();
+                self.edit_form.system_name.clear();
+                self.has_changes = true;
+                return vec![Action::ProbeSystemNames(server)];
+            }
             DataFeedsMessage::SetSystemName(v) => {
                 self.edit_form.system_name = v;
                 self.has_changes = true;
             }
-            DataFeedsMessage::SetServerUrl(v) => {
-                self.edit_form.server_url = v;
-                self.has_changes = true;
-            }
             DataFeedsMessage::SetAccountId(v) => {
                 self.edit_form.account_id = v;
-                self.has_changes = true;
-            }
-            DataFeedsMessage::SetFcmId(v) => {
-                self.edit_form.fcm_id = v;
-                self.has_changes = true;
-            }
-            DataFeedsMessage::SetIbId(v) => {
-                self.edit_form.ib_id = v;
                 self.has_changes = true;
             }
             DataFeedsMessage::SetUserId(v) => {
@@ -495,7 +526,7 @@ impl DataFeedsModal {
                     && feed.is_historical()
                 {
                     feed.auto_connect = v;
-                    return Some(Action::FeedsUpdated);
+                    return vec![Action::FeedsUpdated];
                 }
             }
             DataFeedsMessage::ToggleTicker(ticker) => {
@@ -511,9 +542,47 @@ impl DataFeedsModal {
                 }
                 self.has_changes = true;
             }
+            DataFeedsMessage::SystemNamesLoaded(server, result) => {
+                // Only apply if server still matches current form
+                if self.edit_form.server == server {
+                    self.edit_form.system_names_loading = false;
+                    match result {
+                        Ok(names) => {
+                            // Auto-select first system name if none set
+                            if self.edit_form.system_name.is_empty() {
+                                if let Some(first) = names.first() {
+                                    self.edit_form.system_name =
+                                        first.clone();
+                                }
+                            }
+                            self.edit_form.available_system_names = names;
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to probe system names: {}",
+                                e
+                            );
+                            self.edit_form.available_system_names.clear();
+                        }
+                    }
+                }
+            }
+            DataFeedsMessage::AvailableTickersLoaded(result) => {
+                match result {
+                    Ok(tickers) => {
+                        self.edit_form.available_tickers = tickers;
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to load available tickers: {}",
+                            e
+                        );
+                    }
+                }
+            }
         }
 
-        None
+        vec![]
     }
 
     fn apply_form_to_feed(&self, feed: &mut DataFeed) {
@@ -536,11 +605,9 @@ impl DataFeedsModal {
             }
             FeedConfig::Rithmic(cfg) => {
                 cfg.environment = self.edit_form.environment;
+                cfg.server = self.edit_form.server;
                 cfg.system_name = self.edit_form.system_name.clone();
-                cfg.server_url = self.edit_form.server_url.clone();
                 cfg.account_id = self.edit_form.account_id.clone();
-                cfg.fcm_id = self.edit_form.fcm_id.clone();
-                cfg.ib_id = self.edit_form.ib_id.clone();
                 cfg.user_id = self.edit_form.user_id.clone();
                 cfg.auto_reconnect = self.edit_form.auto_reconnect;
                 cfg.subscribed_tickers = self.edit_form.subscribed_tickers.clone();

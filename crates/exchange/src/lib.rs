@@ -54,6 +54,7 @@ pub use adapter::massive::{HistoricalOptionsManager, MassiveConfig, MassiveError
 
 // Re-export Rithmic adapter
 pub use adapter::rithmic::{RithmicClient, RithmicConfig, RithmicError, RithmicStream};
+pub use adapter::rithmic::client::probe_system_names;
 
 // Re-export download schema wrapper (replaces direct databento::dbn::Schema re-export)
 pub use types::DownloadSchema;

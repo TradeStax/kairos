@@ -81,6 +81,9 @@ impl std::fmt::Display for DataSchema {
 pub struct ViewConfig {
     pub splits: Vec<f32>,
     pub autoscale: Option<Autoscale>,
+    /// Horizontal split ratios for the side panel; empty = no side panel.
+    #[serde(default)]
+    pub side_splits: Vec<f32>,
 }
 
 impl Default for ViewConfig {
@@ -88,6 +91,7 @@ impl Default for ViewConfig {
         Self {
             splits: vec![],
             autoscale: Some(Autoscale::CenterLatest),
+            side_splits: vec![],
         }
     }
 }

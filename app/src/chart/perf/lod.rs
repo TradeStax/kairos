@@ -39,16 +39,19 @@ impl LodLevel {
     }
 
     /// Should render text labels at this LOD level
+    #[allow(dead_code)] // planned: used by future culling pass
     pub fn show_text(&self) -> bool {
         matches!(self, LodLevel::High)
     }
 
     /// Should render fine details (small circles, thin lines)
+    #[allow(dead_code)] // planned: used by future culling pass
     pub fn show_fine_details(&self) -> bool {
         !matches!(self, LodLevel::Low)
     }
 
     /// Get maximum safe render count for this LOD level
+    #[allow(dead_code)] // planned: used by future culling pass
     pub fn max_render_count(&self) -> usize {
         match self {
             LodLevel::Low => 1_000,

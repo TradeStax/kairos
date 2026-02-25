@@ -1,5 +1,7 @@
 use crate::chart::drawing;
-use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE};
+use crate::chart::{
+    Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction,
+};
 use crate::components::primitives::AZERET_MONO;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Frame, Geometry, Text};
@@ -150,7 +152,7 @@ impl canvas::Program<Message> for ProfileChart {
                                 interaction,
                             );
 
-                        chart.crosshair_interval.set(Some(result.interval));
+                        chart.crosshair.interval.set(Some(result.interval));
 
                         // Profile tooltip
                         draw_profile_tooltip(
@@ -163,7 +165,7 @@ impl canvas::Program<Message> for ProfileChart {
                             bounds_size,
                         );
                     } else if let Some(interval) =
-                        chart.crosshair_interval.get()
+                        chart.crosshair.interval.get()
                     {
                         // Crosshair driven by study panel cursor
                         crate::chart::overlay::draw_remote_crosshair(
@@ -174,7 +176,7 @@ impl canvas::Program<Message> for ProfileChart {
                             interval,
                         );
                     } else if let Some(interval) =
-                        chart.remote_crosshair
+                        chart.crosshair.remote
                     {
                         // Remote crosshair from linked pane
                         crate::chart::overlay::draw_remote_crosshair(
@@ -196,38 +198,15 @@ impl canvas::Program<Message> for ProfileChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        match &state.interaction {
-            Interaction::Panning { .. } => {
-                mouse::Interaction::Grabbing
-            }
-            Interaction::Zoomin { .. } => {
-                mouse::Interaction::ZoomIn
-            }
-            Interaction::Drawing { .. }
-            | Interaction::PlacingClone => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Crosshair
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
-            Interaction::EditingDrawing { .. } => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Grabbing
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
-            Interaction::None
-            | Interaction::SelectedLockedDrawing { .. }
-            | Interaction::Ruler { .. }
-            | Interaction::Decelerating { .. } => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Crosshair
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
+        if let Some(i) =
+            base_mouse_interaction(&state.interaction, bounds, cursor)
+        {
+            return i;
+        }
+        if cursor.is_over(bounds) {
+            mouse::Interaction::Crosshair
+        } else {
+            mouse::Interaction::default()
         }
     }
 }

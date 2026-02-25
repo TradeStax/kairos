@@ -1,7 +1,7 @@
 use super::{Dashboard, Event, Message, pane};
 use crate::{
     components::display::toast::Toast, modals::download::DownloadProgress, modals::pane::Modal,
-    window::Window,
+    infra::window::Window,
 };
 use data::LoadingStatus;
 use iced::Task;
@@ -61,13 +61,6 @@ impl Dashboard {
                     }
                 }
                 pane::Message::ClosePane(pane) => {
-                    // Get pane UUID before closing to clean up chart state
-                    if let Some(pane_state) = self.panes.get(pane) {
-                        let uuid = pane_state.unique_id();
-                        self.charts.remove(&uuid);
-                        log::debug!("Cleaned up chart state for closed pane {}", uuid);
-                    }
-
                     if let Some((_, sibling)) = self.panes.close(pane) {
                         self.focus = Some((window, sibling));
                     }
@@ -104,7 +97,7 @@ impl Dashboard {
                                             (&cfg, &state.content),
                                             (
                                                 data::state::pane::VisualConfig::Kline(_),
-                                                pane::Content::Kline { .. }
+                                                pane::Content::Candlestick { .. }
                                             ) | (
                                                 data::state::pane::VisualConfig::Heatmap(_),
                                                 pane::Content::Heatmap { .. }
@@ -194,7 +187,7 @@ impl Dashboard {
                         let pane_id = state.unique_id();
                         let triggering_pane_link_group = state.link_group; // Capture link group BEFORE matching on effect
                         let (task, event) = match effect {
-                            pane::Effect::LoadChart {
+                            pane::Action::LoadChart {
                                 mut config,
                                 ticker_info,
                             } => {
@@ -212,7 +205,7 @@ impl Dashboard {
                                 let event = self.load_chart(pane_id, config, ticker_info);
                                 (Task::none(), Some(event))
                             }
-                            pane::Effect::SwitchTickersInGroup(ticker_info) => {
+                            pane::Action::SwitchTickersInGroup(ticker_info) => {
                                 // Switch tickers for all panes in the same link group
                                 // If no link group, pass pane_id to switch just this single pane
                                 let task = self.switch_tickers_in_group(
@@ -223,10 +216,10 @@ impl Dashboard {
                                 );
                                 (task, None)
                             }
-                            pane::Effect::FocusWidget(id) => {
+                            pane::Action::FocusWidget(id) => {
                                 (iced::widget::operation::focus(id), None)
                             }
-                            pane::Effect::EstimateDataCost {
+                            pane::Action::EstimateDataCost {
                                 ticker,
                                 schema,
                                 date_range,
@@ -240,7 +233,7 @@ impl Dashboard {
                                 });
                                 (task, None)
                             }
-                            pane::Effect::DownloadData {
+                            pane::Action::DownloadData {
                                 ticker,
                                 schema,
                                 date_range,
@@ -254,10 +247,62 @@ impl Dashboard {
                                 });
                                 (task, None)
                             }
-                            pane::Effect::DrawingToolChanged(tool) => {
+                            pane::Action::DrawingToolChanged(tool) => {
                                 (Task::none(), Some(Event::DrawingToolChanged(tool)))
                             }
-                            pane::Effect::CrosshairSync { interval } => {
+                            pane::Action::AiRequest {
+                                pane_id: ai_pane_id,
+                                user_message,
+                            } => {
+                                return (
+                                    Task::none(),
+                                    Some(Event::AiRequest {
+                                        pane_id: ai_pane_id,
+                                        user_message,
+                                    }),
+                                );
+                            }
+                            pane::Action::SaveAiApiKey(key) => {
+                                return (
+                                    Task::none(),
+                                    Some(Event::SaveAiApiKey(key)),
+                                );
+                            }
+                            pane::Action::AiContextQuery {
+                                source_pane_id,
+                                context,
+                                question,
+                            } => {
+                                return (
+                                    Task::none(),
+                                    Some(Event::AiContextQuery {
+                                        source_pane_id,
+                                        context,
+                                        question,
+                                    }),
+                                );
+                            }
+                            pane::Action::AiPreferencesChanged {
+                                model,
+                                temperature,
+                                max_tokens,
+                            } => {
+                                return (
+                                    Task::none(),
+                                    Some(Event::AiPreferencesChanged {
+                                        model,
+                                        temperature,
+                                        max_tokens,
+                                    }),
+                                );
+                            }
+                            pane::Action::CopyToClipboard(text) => {
+                                return (
+                                    iced::clipboard::write(text),
+                                    None,
+                                );
+                            }
+                            pane::Action::CrosshairSync { timestamp: interval } => {
                                 if let Some(group) = triggering_pane_link_group {
                                     // Update/remove stored position
                                     if let Some(ts) = interval {
@@ -490,23 +535,89 @@ impl Dashboard {
                 }
             }
             Message::ExchangeEvent(event) => {
-                // Forward live streaming events to chart panes
+                // Forward live streaming events to matching panes (filtered by ticker)
                 log::trace!("Dashboard received exchange event");
                 match &event {
-                    exchange::Event::TradeReceived(_stream_kind, trade) => {
-                        // Convert exchange::Trade to domain::Trade and append
+                    exchange::Event::TradeReceived(stream_kind, trade) => {
+                        let event_ticker = stream_kind.ticker_info().ticker;
                         let domain_trade = data::Trade::from_raw(
                             trade.time,
                             trade.price,
                             trade.qty,
                             trade.side == exchange::TradeSide::Sell,
                         );
-                        for chart_state in self.charts.values_mut() {
-                            chart_state.append_live_trade(domain_trade);
+                        for (_, state) in self.panes.iter_mut() {
+                            if state.ticker_info.map_or(false, |ti| {
+                                ti.ticker == event_ticker
+                            }) {
+                                state.content.append_trade(&domain_trade);
+                            }
+                        }
+                        for (_, (popout_panes, _)) in self.popout.iter_mut() {
+                            for (_, state) in popout_panes.iter_mut() {
+                                if state.ticker_info.map_or(false, |ti| {
+                                    ti.ticker == event_ticker
+                                }) {
+                                    state.content.append_trade(&domain_trade);
+                                }
+                            }
                         }
                     }
-                    exchange::Event::DepthReceived(_stream_kind, _ts, _depth, _trades) => {
-                        // Depth updates handled by heatmap panes
+                    exchange::Event::DepthReceived(
+                        stream_kind, ts, depth, trades,
+                    ) => {
+                        let event_ticker = stream_kind.ticker_info().ticker;
+                        // Convert exchange depth → domain DepthSnapshot
+                        let domain_depth = data::DepthSnapshot::new(
+                            data::Timestamp::from_millis(*ts),
+                            depth
+                                .bids
+                                .iter()
+                                .map(|(&p, &q)| {
+                                    (data::Price::from_units(p), data::Quantity(q as f64))
+                                })
+                                .collect(),
+                            depth
+                                .asks
+                                .iter()
+                                .map(|(&p, &q)| {
+                                    (data::Price::from_units(p), data::Quantity(q as f64))
+                                })
+                                .collect(),
+                        );
+                        let domain_trades: Vec<data::Trade> = trades
+                            .iter()
+                            .map(|t| {
+                                data::Trade::from_raw(
+                                    t.time,
+                                    t.price,
+                                    t.qty,
+                                    t.side == exchange::TradeSide::Sell,
+                                )
+                            })
+                            .collect();
+                        for (_, state) in self.panes.iter_mut() {
+                            if state.ticker_info.map_or(false, |ti| {
+                                ti.ticker == event_ticker
+                            }) {
+                                state.content.update_live_depth(
+                                    &domain_depth,
+                                    &domain_trades,
+                                );
+                            }
+                        }
+                        for (_, (popout_panes, _)) in self.popout.iter_mut() {
+                            for (_, state) in popout_panes.iter_mut() {
+                                if state.ticker_info.map_or(false, |ti| {
+                                    ti.ticker == event_ticker
+                                }) {
+                                    state.content.update_live_depth(
+                                        &domain_depth,
+                                        &domain_trades,
+                                    );
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }

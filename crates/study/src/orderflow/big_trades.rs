@@ -13,7 +13,7 @@ use crate::output::{
     MarkerData, MarkerRenderConfig, MarkerShape, StudyOutput,
     TradeMarker, TradeMarkerDebug,
 };
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use data::SerializableColor;
 
 const DEFAULT_DAYS_TO_LOAD: i64 = 1;
@@ -81,7 +81,7 @@ impl BigTradesStudy {
                 description: "Minimum contracts to display (0 = none)".into(),
                 kind: ParameterKind::Integer {
                     min: 0,
-                    max: 100000,
+                    max: 2000,
                 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MIN),
                 tab: ParameterTab::Parameters,
@@ -96,7 +96,7 @@ impl BigTradesStudy {
                 description: "Maximum contracts to display (0 = none)".into(),
                 kind: ParameterKind::Integer {
                     min: 0,
-                    max: 100000,
+                    max: 2000,
                 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MAX),
                 tab: ParameterTab::Parameters,
@@ -111,7 +111,7 @@ impl BigTradesStudy {
                 description: "Max ms gap between fills to merge".into(),
                 kind: ParameterKind::Integer {
                     min: 10,
-                    max: 5000,
+                    max: 500,
                 },
                 default: ParameterValue::Integer(DEFAULT_AGGREGATION_WINDOW_MS),
                 tab: ParameterTab::Parameters,
@@ -1000,7 +1000,7 @@ mod tests {
         let mut study = BigTradesStudy::new();
         let candles = vec![];
         let trades: Vec<Trade> = vec![];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         let mut study = BigTradesStudy::new();
         let candles = vec![make_candle(1000, 100.0)];
         let trades = vec![make_trade(1000, 100.0, 100.0, Side::Buy)];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1033,7 +1033,7 @@ mod tests {
         let mut study = BigTradesStudy::new();
         let candles = vec![make_candle(1000, 100.0)];
         let trades = vec![make_trade(1000, 100.0, 10.0, Side::Buy)];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
 
@@ -1055,7 +1055,7 @@ mod tests {
                 ParameterValue::Integer(50),
             )
             .unwrap();
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1088,7 +1088,7 @@ mod tests {
             make_trade(1000, 5432.75, 7.0, Side::Buy),
             make_trade(1010, 5433.25, 13.0, Side::Buy),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1126,7 +1126,7 @@ mod tests {
             make_trade(1000, 100.0, 60.0, Side::Buy),
             make_trade(1200, 101.0, 60.0, Side::Buy),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1147,7 +1147,7 @@ mod tests {
             make_trade(1000, 100.0, 60.0, Side::Buy),
             make_trade(1050, 100.0, 60.0, Side::Sell),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1175,7 +1175,7 @@ mod tests {
         let trades: Vec<Trade> = (0..10)
             .map(|i| make_trade(1000 + i * 100, 100.0, 10.0, Side::Buy))
             .collect();
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1213,7 +1213,7 @@ mod tests {
             make_trade(1050, 100.0, 0.0, Side::Sell), // zero qty
             make_trade(1100, 100.0, 10.0, Side::Buy),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1243,14 +1243,14 @@ mod tests {
         let trades = vec![make_trade(1000, 100.0, 30.0, Side::Buy)];
 
         // Default filter_min=50, so 30 contracts won't show
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
 
         // Lower threshold to 20
         study
             .set_parameter("filter_min", ParameterValue::Integer(20))
             .unwrap();
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
         assert!(matches!(study.output(), StudyOutput::Markers(_)));
     }
 
@@ -1287,7 +1287,7 @@ mod tests {
             make_trade(1000, 100.0, 20.0, Side::Buy),
             make_trade(1030, 101.0, 30.0, Side::Buy),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1311,7 +1311,7 @@ mod tests {
 
         // First batch: 30 contracts (below threshold)
         let trades1 = vec![make_trade(1000, 100.0, 30.0, Side::Buy)];
-        study.compute(&study_input(&candles, &trades1));
+        study.compute(&study_input(&candles, &trades1)).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
 
         // Append more trades to reach threshold
@@ -1319,7 +1319,7 @@ mod tests {
         trades2.push(make_trade(1030, 100.0, 30.0, Side::Buy));
 
         let input = study_input(&candles, &trades2);
-        study.append_trades(&trades2[1..], &input);
+        study.append_trades(&trades2[1..], &input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1359,7 +1359,7 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         };
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1400,7 +1400,7 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         };
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1439,7 +1439,7 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         };
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1465,7 +1465,7 @@ mod tests {
         study
             .set_parameter(
                 "aggregation_window_ms",
-                ParameterValue::Integer(5000),
+                ParameterValue::Integer(200),
             )
             .unwrap();
 
@@ -1488,7 +1488,7 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         };
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1516,7 +1516,7 @@ mod tests {
         study
             .set_parameter(
                 "aggregation_window_ms",
-                ParameterValue::Integer(5000),
+                ParameterValue::Integer(400),
             )
             .unwrap();
 
@@ -1525,9 +1525,10 @@ mod tests {
             make_candle(2000, 101.0),
         ];
         // Two same-side trades straddling tick candle boundary
+        // (200ms apart, well within the 400ms window)
         let trades = vec![
             make_trade(1500, 100.0, 30.0, Side::Buy),
-            make_trade(2500, 100.0, 30.0, Side::Buy),
+            make_trade(1700, 100.0, 30.0, Side::Buy),
         ];
 
         let input = StudyInput {
@@ -1537,7 +1538,7 @@ mod tests {
             tick_size: Price::from_f32(0.25),
             visible_range: None,
         };
-        study.compute(&input);
+        study.compute(&input).unwrap();
 
         let output = study.output();
         assert!(matches!(output, StudyOutput::Markers(_)), "Expected Markers");
@@ -1574,7 +1575,7 @@ mod tests {
             make_trade(1000, 100.0, 30.0, Side::Buy),
             make_trade(2000, 100.0, 60.0, Side::Sell),
         ];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(
@@ -1602,7 +1603,7 @@ mod tests {
         let candles = vec![make_candle(1000, 100.0)];
         let trades =
             vec![make_trade(1000, 100.0, 10000.0, Side::Buy)];
-        study.compute(&study_input(&candles, &trades));
+        study.compute(&study_input(&candles, &trades)).unwrap();
 
         let output = study.output();
         assert!(

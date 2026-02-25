@@ -1,5 +1,5 @@
 use iced::{
-    Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector,
+    Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget,
         layout::{Limits, Node},
@@ -15,7 +15,16 @@ use std::fmt::{Debug, Formatter};
 use crate::style;
 
 pub const DRAG_SIZE: f32 = 1.0;
-const MIN_PANEL_HEIGHT: f32 = 40.0;
+const MIN_PANEL_SIZE: f32 = 40.0;
+
+/// Axis along which panels are split.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitAxis {
+    /// Panels stacked vertically, draggable horizontal rules.
+    Vertical,
+    /// Panels placed side by side, draggable vertical rules.
+    Horizontal,
+}
 
 #[derive(Default)]
 struct State {
@@ -27,12 +36,14 @@ pub struct MultiSplit<'a, Message> {
     panels: Vec<Element<'a, Message>>,
     splits: &'a Vec<f32>,
     resize: fn(usize, f32) -> Message,
+    axis: SplitAxis,
 }
 
 impl<Message> Debug for MultiSplit<'_, Message> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiSplit")
             .field("splits", &self.splits)
+            .field("axis", &self.axis)
             .finish_non_exhaustive()
     }
 }
@@ -41,13 +52,14 @@ impl<'a, Message> MultiSplit<'a, Message>
 where
     Message: 'a,
 {
+    /// Create a vertically-split multi-panel widget (panels stacked top-to-bottom).
     pub fn new(
         panels: Vec<Element<'a, Message>>,
         splits: &'a Vec<f32>,
         resize: fn(usize, f32) -> Message,
     ) -> Self {
-        assert!(panels.len() >= 2, "MultiSplit needs at least 2 panels");
-        assert_eq!(
+        debug_assert!(panels.len() >= 2, "MultiSplit needs at least 2 panels");
+        debug_assert_eq!(
             panels.len() - 1,
             splits.len(),
             "Number of splits must be one less than number of panels"
@@ -56,7 +68,6 @@ where
         let mut elements = Vec::with_capacity(panels.len() * 2 - 1);
         for (i, panel) in panels.into_iter().enumerate() {
             elements.push(panel);
-
             if i < splits.len() {
                 elements.push(rule::horizontal(DRAG_SIZE).style(style::split_ruler).into());
             }
@@ -66,6 +77,36 @@ where
             panels: elements,
             splits,
             resize,
+            axis: SplitAxis::Vertical,
+        }
+    }
+
+    /// Create a horizontally-split multi-panel widget (panels placed left-to-right).
+    pub fn horizontal(
+        panels: Vec<Element<'a, Message>>,
+        splits: &'a Vec<f32>,
+        resize: fn(usize, f32) -> Message,
+    ) -> Self {
+        debug_assert!(panels.len() >= 2, "MultiSplit needs at least 2 panels");
+        debug_assert_eq!(
+            panels.len() - 1,
+            splits.len(),
+            "Number of splits must be one less than number of panels"
+        );
+
+        let mut elements = Vec::with_capacity(panels.len() * 2 - 1);
+        for (i, panel) in panels.into_iter().enumerate() {
+            elements.push(panel);
+            if i < splits.len() {
+                elements.push(rule::vertical(DRAG_SIZE).style(style::split_ruler).into());
+            }
+        }
+
+        Self {
+            panels: elements,
+            splits,
+            resize,
+            axis: SplitAxis::Horizontal,
         }
     }
 }
@@ -93,54 +134,101 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &Limits) -> Node {
         let max_limits = limits.max();
-
         let panel_count = self.panels.len().div_ceil(2);
-
         let mut children = Vec::with_capacity(self.panels.len());
-        let mut current_y = 0.0;
 
-        for i in 0..self.panels.len() {
-            if i % 2 == 0 {
-                let panel_index = i / 2;
-                let is_last = panel_index == panel_count - 1;
+        match self.axis {
+            SplitAxis::Vertical => {
+                let mut current_y = 0.0;
+                for i in 0..self.panels.len() {
+                    if i % 2 == 0 {
+                        let panel_index = i / 2;
+                        let is_last = panel_index == panel_count - 1;
 
-                let height = if is_last {
-                    max_limits.height - current_y
-                } else {
-                    let split_position = self.splits[panel_index];
-                    let split_y = max_limits.height * split_position;
+                        let height = if is_last {
+                            max_limits.height - current_y
+                        } else {
+                            let split_position = self.splits[panel_index];
+                            let split_y = max_limits.height * split_position;
+                            split_y - current_y - (DRAG_SIZE * 0.5)
+                        };
 
-                    split_y - current_y - (DRAG_SIZE * 0.5)
-                };
+                        let panel_limits = Limits::new(
+                            Size::new(0.0, 0.0),
+                            Size::new(max_limits.width, height.max(0.0)),
+                        );
 
-                let panel_limits = Limits::new(
-                    Size::new(0.0, 0.0),
-                    Size::new(max_limits.width, height.max(0.0)),
-                );
+                        let panel_node = self.panels[i]
+                            .as_widget_mut()
+                            .layout(&mut tree.children[i], renderer, &panel_limits)
+                            .translate(Vector::new(0.0, current_y));
 
-                let panel_node = self.panels[i]
-                    .as_widget_mut()
-                    .layout(&mut tree.children[i], renderer, &panel_limits)
-                    .translate(Vector::new(0.0, current_y));
+                        children.push(panel_node);
 
-                children.push(panel_node);
+                        if !is_last {
+                            current_y += height;
+                        }
+                    } else {
+                        let ruler_limits = Limits::new(
+                            Size::new(0.0, DRAG_SIZE),
+                            Size::new(max_limits.width, DRAG_SIZE),
+                        );
 
-                if !is_last {
-                    current_y += height;
+                        let ruler_node = self.panels[i]
+                            .as_widget_mut()
+                            .layout(&mut tree.children[i], renderer, &ruler_limits)
+                            .translate(Vector::new(0.0, current_y));
+
+                        children.push(ruler_node);
+                        current_y += DRAG_SIZE;
+                    }
                 }
-            } else {
-                let ruler_limits = Limits::new(
-                    Size::new(0.0, DRAG_SIZE),
-                    Size::new(max_limits.width, DRAG_SIZE),
-                );
+            }
+            SplitAxis::Horizontal => {
+                let mut current_x = 0.0;
+                for i in 0..self.panels.len() {
+                    if i % 2 == 0 {
+                        let panel_index = i / 2;
+                        let is_last = panel_index == panel_count - 1;
 
-                let ruler_node = self.panels[i]
-                    .as_widget_mut()
-                    .layout(&mut tree.children[i], renderer, &ruler_limits)
-                    .translate(Vector::new(0.0, current_y));
+                        let width = if is_last {
+                            max_limits.width - current_x
+                        } else {
+                            let split_position = self.splits[panel_index];
+                            let split_x = max_limits.width * split_position;
+                            split_x - current_x - (DRAG_SIZE * 0.5)
+                        };
 
-                children.push(ruler_node);
-                current_y += DRAG_SIZE;
+                        let panel_limits = Limits::new(
+                            Size::new(0.0, 0.0),
+                            Size::new(width.max(0.0), max_limits.height),
+                        );
+
+                        let panel_node = self.panels[i]
+                            .as_widget_mut()
+                            .layout(&mut tree.children[i], renderer, &panel_limits)
+                            .translate(Vector::new(current_x, 0.0));
+
+                        children.push(panel_node);
+
+                        if !is_last {
+                            current_x += width;
+                        }
+                    } else {
+                        let ruler_limits = Limits::new(
+                            Size::new(DRAG_SIZE, 0.0),
+                            Size::new(DRAG_SIZE, max_limits.height),
+                        );
+
+                        let ruler_node = self.panels[i]
+                            .as_widget_mut()
+                            .layout(&mut tree.children[i], renderer, &ruler_limits)
+                            .translate(Vector::new(current_x, 0.0));
+
+                        children.push(ruler_node);
+                        current_x += DRAG_SIZE;
+                    }
+                }
             }
         }
 
@@ -193,14 +281,22 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
                         }
                     }
                 }
-                mouse::Event::CursorMoved {
-                    position: Point { y, .. },
-                    ..
-                } => {
+                mouse::Event::CursorMoved { position, .. } => {
                     if let Some(index) = state.dragging_index {
-                        let split_at = (y - bounds.y) / bounds.height;
+                        let split_at = match self.axis {
+                            SplitAxis::Vertical => {
+                                (position.y - bounds.y) / bounds.height
+                            }
+                            SplitAxis::Horizontal => {
+                                (position.x - bounds.x) / bounds.width
+                            }
+                        };
 
-                        let threshold = (DRAG_SIZE + MIN_PANEL_HEIGHT) / bounds.height;
+                        let dimension = match self.axis {
+                            SplitAxis::Vertical => bounds.height,
+                            SplitAxis::Horizontal => bounds.width,
+                        };
+                        let threshold = (DRAG_SIZE + MIN_PANEL_SIZE) / dimension;
 
                         let lower = if index > 0 {
                             self.splits[index - 1] + threshold
@@ -282,7 +378,10 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
         let state = tree.state.downcast_ref::<State>();
 
         if state.dragging_index.is_some() || state.hovering_index.is_some() {
-            Interaction::ResizingVertically
+            match self.axis {
+                SplitAxis::Vertical => Interaction::ResizingVertically,
+                SplitAxis::Horizontal => Interaction::ResizingHorizontally,
+            }
         } else {
             self.panels
                 .iter()

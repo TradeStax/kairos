@@ -1,7 +1,9 @@
 use crate::chart::core::tokens;
 use crate::chart::drawing;
 use crate::chart::perf::{LodCalculator, LodIteratorExt};
-use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE};
+use crate::chart::{
+    Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction,
+};
 use crate::components::primitives::AZERET_MONO;
 use data::state::pane::CandleStyle;
 use data::util::count_decimals;
@@ -269,7 +271,7 @@ impl canvas::Program<Message> for KlineChart {
                     interaction,
                 );
 
-                chart.crosshair_interval.set(Some(result.interval));
+                chart.crosshair.interval.set(Some(result.interval));
 
                 let has_candle = draw_crosshair_tooltip(
                     &self.chart_data.candles,
@@ -295,7 +297,7 @@ impl canvas::Program<Message> for KlineChart {
                         cursor_position,
                     );
                 }
-            } else if let Some(interval) = chart.crosshair_interval.get() {
+            } else if let Some(interval) = chart.crosshair.interval.get() {
                 // Crosshair driven by study panel cursor
                 crate::chart::overlay::draw_remote_crosshair(
                     chart,
@@ -304,7 +306,7 @@ impl canvas::Program<Message> for KlineChart {
                     bounds_size,
                     interval,
                 );
-            } else if let Some(interval) = chart.remote_crosshair {
+            } else if let Some(interval) = chart.crosshair.remote {
                 // Remote crosshair from linked pane (only when local cursor absent)
                 crate::chart::overlay::draw_remote_crosshair(
                     chart,
@@ -338,54 +340,36 @@ impl canvas::Program<Message> for KlineChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        match &state.interaction {
-            Interaction::Panning { .. } => mouse::Interaction::Grabbing,
-            Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
-            Interaction::Drawing { .. } | Interaction::PlacingClone => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Crosshair
-                } else {
-                    mouse::Interaction::default()
-                }
+        if let Some(i) =
+            base_mouse_interaction(&state.interaction, bounds, cursor)
+        {
+            return i;
+        }
+        if let Some(cursor_position) = cursor.position_in(bounds) {
+            // Check study overlay labels first
+            if self
+                .study_overlay_rects
+                .borrow()
+                .iter()
+                .any(|(_, r)| r.contains(cursor_position))
+            {
+                mouse::Interaction::Pointer
+            // Check if hovering over a drawing handle
+            } else if self
+                .hit_test_drawing_handle(cursor_position, bounds.size())
+                .is_some()
+            {
+                mouse::Interaction::Grab
+            } else if self
+                .hit_test_drawing(cursor_position, bounds.size())
+                .is_some()
+            {
+                mouse::Interaction::Pointer
+            } else {
+                mouse::Interaction::Crosshair
             }
-            Interaction::EditingDrawing { .. } => {
-                if cursor.is_over(bounds) {
-                    mouse::Interaction::Grabbing
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
-            Interaction::None
-            | Interaction::SelectedLockedDrawing { .. }
-            | Interaction::Ruler { .. }
-            | Interaction::Decelerating { .. } => {
-                if let Some(cursor_position) = cursor.position_in(bounds) {
-                    // Check study overlay labels first
-                    if self
-                        .study_overlay_rects
-                        .borrow()
-                        .iter()
-                        .any(|(_, r)| r.contains(cursor_position))
-                    {
-                        mouse::Interaction::Pointer
-                    // Check if hovering over a drawing handle
-                    } else if self
-                        .hit_test_drawing_handle(cursor_position, bounds.size())
-                        .is_some()
-                    {
-                        mouse::Interaction::Grab
-                    } else if self
-                        .hit_test_drawing(cursor_position, bounds.size())
-                        .is_some()
-                    {
-                        mouse::Interaction::Pointer
-                    } else {
-                        mouse::Interaction::Crosshair
-                    }
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
+        } else {
+            mouse::Interaction::default()
         }
     }
 }
@@ -495,12 +479,12 @@ fn draw_crosshair_tooltip(
         let change_color = if change_pct >= 0.0 {
             candle_style
                 .bull_body_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.success.base.color)
         } else {
             candle_style
                 .bear_body_color
-                .map(crate::style::theme_bridge::rgba_to_iced_color)
+                .map(crate::style::theme::rgba_to_iced_color)
                 .unwrap_or(palette.danger.base.color)
         };
 
@@ -661,7 +645,7 @@ fn draw_output_entries(
         study::StudyOutput::Lines(series) => {
             for s in series {
                 let value_color =
-                    crate::style::theme_bridge::rgba_to_iced_color(
+                    crate::style::theme::rgba_to_iced_color(
                         s.color,
                     );
                 buf.clear();
@@ -689,7 +673,7 @@ fn draw_output_entries(
                 .map(|m| m.color)
                 .unwrap_or(upper.color);
             let value_color =
-                crate::style::theme_bridge::rgba_to_iced_color(sc);
+                crate::style::theme::rgba_to_iced_color(sc);
 
             let u = find_line_value_at(&upper.points, at);
             let m = middle
@@ -721,7 +705,7 @@ fn draw_output_entries(
                     .points
                     .first()
                     .map(|p| {
-                        crate::style::theme_bridge::rgba_to_iced_color(
+                        crate::style::theme::rgba_to_iced_color(
                             p.color,
                         )
                     })
@@ -746,7 +730,7 @@ fn draw_output_entries(
             let value_color = bars
                 .first()
                 .map(|b| {
-                    crate::style::theme_bridge::rgba_to_iced_color(
+                    crate::style::theme::rgba_to_iced_color(
                         b.color,
                     )
                 })

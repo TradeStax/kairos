@@ -69,9 +69,7 @@ pub fn constrain_creation(tool: DrawingTool, anchor: Point, cursor: Point) -> Po
         | DrawingTool::Arrow
         | DrawingTool::FibRetracement => constrain_angle(anchor, cursor),
 
-        DrawingTool::Rectangle | DrawingTool::PriceRange | DrawingTool::DateRange => {
-            constrain_square(anchor, cursor)
-        }
+        DrawingTool::Rectangle => constrain_square(anchor, cursor),
 
         DrawingTool::Ellipse => constrain_circle(anchor, cursor),
 
@@ -134,9 +132,7 @@ pub fn constrain_handle(
         | DrawingTool::ExtendedLine
         | DrawingTool::Arrow
         | DrawingTool::FibRetracement
-        | DrawingTool::Rectangle
-        | DrawingTool::PriceRange
-        | DrawingTool::DateRange => {
+        | DrawingTool::Rectangle => {
             if handle_index == 0 {
                 1
             } else {
@@ -166,9 +162,7 @@ pub fn constrain_handle(
         | DrawingTool::Arrow
         | DrawingTool::FibRetracement => constrain_angle(anchor, cursor),
 
-        DrawingTool::Rectangle | DrawingTool::PriceRange | DrawingTool::DateRange => {
-            constrain_square(anchor, cursor)
-        }
+        DrawingTool::Rectangle => constrain_square(anchor, cursor),
 
         DrawingTool::Ellipse => constrain_circle(anchor, cursor),
 

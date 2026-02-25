@@ -1,4 +1,5 @@
-use crate::chart::scale::{AxisLabel, TEXT_SIZE};
+use crate::chart::TEXT_SIZE;
+use crate::chart::scale::AxisLabel;
 
 use chrono::{DateTime, Datelike, Months, Offset};
 use data::{

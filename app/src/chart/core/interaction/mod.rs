@@ -6,7 +6,7 @@ mod drawing;
 mod pan_zoom;
 mod ruler;
 
-use super::traits::Chart;
+use super::Chart;
 use crate::chart::Message;
 use crate::components::layout::multi_split::DRAG_SIZE;
 use crate::style::animation;
@@ -140,6 +140,35 @@ impl Interaction {
                 state: DrawingState::Placing,
             }
         }
+    }
+}
+
+/// Resolve `mouse::Interaction` for the "active" interaction modes
+/// (Panning, Zoomin, Drawing, EditingDrawing). Returns `None` when
+/// the interaction is idle and chart-specific logic should take over.
+pub fn base_mouse_interaction(
+    interaction: &Interaction,
+    bounds: Rectangle,
+    cursor: mouse::Cursor,
+) -> Option<mouse::Interaction> {
+    match interaction {
+        Interaction::Panning { .. } => Some(mouse::Interaction::Grabbing),
+        Interaction::Zoomin { .. } => Some(mouse::Interaction::ZoomIn),
+        Interaction::Drawing { .. } | Interaction::PlacingClone => {
+            Some(if cursor.is_over(bounds) {
+                mouse::Interaction::Crosshair
+            } else {
+                mouse::Interaction::default()
+            })
+        }
+        Interaction::EditingDrawing { .. } => {
+            Some(if cursor.is_over(bounds) {
+                mouse::Interaction::Grabbing
+            } else {
+                mouse::Interaction::default()
+            })
+        }
+        _ => None,
     }
 }
 

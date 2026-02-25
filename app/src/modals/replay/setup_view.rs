@@ -2,7 +2,7 @@ use super::*;
 
 use crate::components::display::progress_bar::ProgressBarBuilder;
 use crate::components::display::status_dot::status_badge_themed;
-use crate::components::layout::modal_header::ModalHeaderBuilder;
+use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icon_button::toolbar_icon;
 use crate::components::primitives::label::small;
 use crate::components::primitives::{Icon, icon_text};
@@ -38,9 +38,9 @@ impl ReplayManager {
 
         if let Some(popup) = self.active_popup {
             let (popup_content, offset_y) = match popup {
-                Popup::StreamPicker => (self.view_stream_popup(), tokens::replay_layout::STREAM_POPUP_Y),
-                Popup::DatePicker => (self.view_date_popup(), tokens::replay_layout::DATETIME_POPUP_Y),
-                Popup::TimePicker => (self.view_time_popup(), tokens::replay_layout::DATETIME_POPUP_Y),
+                Popup::StreamPicker => (self.view_stream_popup(), tokens::component::replay::STREAM_POPUP_Y),
+                Popup::DatePicker => (self.view_date_popup(), tokens::component::replay::DATETIME_POPUP_Y),
+                Popup::TimePicker => (self.view_time_popup(), tokens::component::replay::DATETIME_POPUP_Y),
             };
 
             let align_x = match popup {
@@ -301,7 +301,7 @@ impl ReplayManager {
                             .style(palette::neutral_text)
                             .align_x(Alignment::Center),
                     )
-                    .width(tokens::replay_layout::CALENDAR_CELL),
+                    .width(tokens::component::replay::CALENDAR_CELL),
                 );
             }
             r
@@ -317,7 +317,7 @@ impl ReplayManager {
 
         // Leading blanks
         for _ in 0..offset {
-            week_row = week_row.push(container(text("")).width(tokens::replay_layout::CALENDAR_CELL));
+            week_row = week_row.push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
         }
 
         for day in 1..=total_days {
@@ -331,7 +331,7 @@ impl ReplayManager {
                 .align_x(Alignment::Center)
                 .width(Length::Fill);
 
-            let mut day_btn = button(day_text).width(tokens::replay_layout::CALENDAR_CELL).padding([7.0, 0.0]);
+            let mut day_btn = button(day_text).width(tokens::component::replay::CALENDAR_CELL).padding([7.0, 0.0]);
 
             if in_range && !is_weekend {
                 day_btn =
@@ -366,7 +366,7 @@ impl ReplayManager {
         let remaining = (offset + total_days as usize) % 7;
         if remaining != 0 {
             for _ in 0..(7 - remaining) {
-                week_row = week_row.push(container(text("")).width(tokens::replay_layout::CALENDAR_CELL));
+                week_row = week_row.push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
             }
             grid = grid.push(week_row);
         }

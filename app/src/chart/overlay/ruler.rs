@@ -6,6 +6,7 @@
 //! - Number of bars/ticks
 
 use crate::chart::core::ViewState;
+use crate::chart::core::tokens as chart_tokens;
 use crate::components::primitives::AZERET_MONO;
 use crate::style::tokens;
 use data::ChartBasis;
@@ -94,7 +95,7 @@ pub fn draw_ruler(
     frame.fill_rectangle(
         Point::new(rect_x, rect_y),
         Size::new(rect_w, rect_h),
-        palette.primary.base.color.scale_alpha(tokens::chart::ruler::FILL_ALPHA),
+        palette.primary.base.color.scale_alpha(chart_tokens::ruler::FILL_ALPHA),
     );
 
     // Find corner closest to cursor for text positioning
@@ -116,7 +117,7 @@ pub fn draw_ruler(
         .map(|(i, &c)| (c, i))
         .unwrap();
 
-    let text_padding = tokens::chart::ruler::TEXT_PADDING;
+    let text_padding = chart_tokens::ruler::TEXT_PADDING;
     let text_pos = match idx {
         0 => Point::new(text_corner.x + text_padding, text_corner.y + text_padding),
         1 => Point::new(text_corner.x - text_padding, text_corner.y + text_padding),
@@ -149,7 +150,7 @@ pub fn draw_ruler(
 
     let text_width = (label_text.len() as f32) * TEXT_SIZE * 0.6;
     let text_height = TEXT_SIZE * 1.2;
-    let rect_padding = tokens::chart::ruler::RECT_PADDING;
+    let rect_padding = chart_tokens::ruler::RECT_PADDING;
 
     let (bg_x, bg_y) = match idx {
         0 => (text_pos.x - rect_padding, text_pos.y - rect_padding),

@@ -2,7 +2,7 @@
 
 use super::Interaction;
 use crate::chart::Message;
-use crate::chart::core::traits::Chart;
+use crate::chart::core::Chart;
 use iced::{Point, Vector, mouse, widget::canvas};
 
 /// Handle cursor movement during panning

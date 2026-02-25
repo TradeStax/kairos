@@ -6,8 +6,8 @@
 pub mod manager;
 pub mod types;
 
-pub use manager::DataFeedManager;
+pub use manager::{DataFeedManager, ResolvedFeed};
 pub use types::{
     DataFeed, DatabentoFeedConfig, FeedCapability, FeedConfig, FeedId, FeedKind, FeedProvider,
-    FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig,
+    FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig, RithmicServer,
 };

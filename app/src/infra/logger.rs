@@ -10,6 +10,12 @@ pub use data::log::Error;
 
 const MAX_LOG_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
 
+/// Filename for the rotated previous log (sibling of the current log file).
+///
+/// When the app starts or when the log exceeds `MAX_LOG_FILE_SIZE`, the current
+/// log is renamed to this filename. Only one generation of previous log is kept.
+const PREVIOUS_LOG_FILENAME: &str = "kairos-previous.log";
+
 enum LogMessage {
     Content(Vec<u8>),
     Flush,
@@ -69,7 +75,7 @@ fn initial_rotation(log_path: &PathBuf) -> io::Result<()> {
 
     let dir = log_path.parent().unwrap_or(&path);
 
-    let previous_log_path = dir.join("kairos-previous.log");
+    let previous_log_path = dir.join(PREVIOUS_LOG_FILENAME);
 
     if previous_log_path.exists() {
         fs::remove_file(&previous_log_path)?;
@@ -179,8 +185,8 @@ impl Logger {
         let old_path = self
             .path
             .parent()
-            .map(|p| p.join("kairos.log.old"))
-            .unwrap_or_else(|| PathBuf::from("kairos.log.old"));
+            .map(|p| p.join(PREVIOUS_LOG_FILENAME))
+            .unwrap_or_else(|| PathBuf::from(PREVIOUS_LOG_FILENAME));
 
         // Rename current log to .old (overwriting any previous)
         if let Err(e) = fs::rename(&self.path, &old_path) {

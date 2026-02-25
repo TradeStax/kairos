@@ -15,7 +15,7 @@ pub fn icon_button<'a, Message>(icon: Icon) -> IconButtonBuilder<'a, Message> {
 /// Shorthand: create a toolbar-sized icon button (small padding, 14px icon).
 pub fn toolbar_icon<'a, Message>(icon: Icon, on_press: Message) -> IconButtonBuilder<'a, Message> {
     IconButtonBuilder::new(icon)
-        .size(14)
+        .size(tokens::component::icon::MD)
         .padding(Padding::from(tokens::spacing::XS))
         .on_press(on_press)
 }
@@ -24,7 +24,7 @@ type ButtonStyleFn = Box<dyn Fn(&Theme, button::Status) -> button::Style>;
 
 pub struct IconButtonBuilder<'a, Message> {
     icon: Icon,
-    size: u16,
+    size: f32,
     on_press: Option<Message>,
     tooltip_text: Option<&'a str>,
     tooltip_position: tooltip::Position,
@@ -32,13 +32,14 @@ pub struct IconButtonBuilder<'a, Message> {
     is_active: bool,
     padding: Padding,
     width: Option<Length>,
+    height: Option<Length>,
 }
 
 impl<'a, Message> IconButtonBuilder<'a, Message> {
     pub fn new(icon: Icon) -> Self {
         Self {
             icon,
-            size: 16,
+            size: tokens::component::icon::LG,
             on_press: None,
             tooltip_text: None,
             tooltip_position: tooltip::Position::Bottom,
@@ -46,10 +47,11 @@ impl<'a, Message> IconButtonBuilder<'a, Message> {
             is_active: false,
             padding: Padding::from(tokens::spacing::SM),
             width: None,
+            height: None,
         }
     }
 
-    pub fn size(mut self, size: u16) -> Self {
+    pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
@@ -89,19 +91,29 @@ impl<'a, Message> IconButtonBuilder<'a, Message> {
         self
     }
 
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = Some(height.into());
+        self
+    }
+
     pub fn into_element(self) -> Element<'a, Message>
     where
         Message: Clone + 'a,
     {
         let icon_text = if self.icon.uses_default_font() {
-            text(char::from(self.icon).to_string()).size(iced::Pixels(self.size.into()))
+            text(char::from(self.icon).to_string())
+                .size(iced::Pixels(self.size))
+                .line_height(1.0)
+                .align_y(Alignment::Center)
         } else {
             text(char::from(self.icon).to_string())
                 .font(ICONS_FONT)
-                .size(iced::Pixels(self.size.into()))
+                .size(iced::Pixels(self.size))
+                .line_height(1.0)
+                .align_y(Alignment::Center)
         };
 
-        let sz = Length::Fixed(self.size as f32);
+        let sz = Length::Fixed(self.size);
         let icon_content = container(icon_text)
             .width(sz)
             .height(sz)
@@ -124,6 +136,10 @@ impl<'a, Message> IconButtonBuilder<'a, Message> {
 
         if let Some(w) = self.width {
             btn = btn.width(w);
+        }
+
+        if let Some(h) = self.height {
+            btn = btn.height(h);
         }
 
         let btn_element: Element<'a, Message> = btn.into();

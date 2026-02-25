@@ -3,18 +3,14 @@
 //! Converts abstract `StudyOutput` render primitives from the study crate
 //! into iced canvas draw calls.
 
-mod band;
-mod bar;
 pub(crate) mod coord;
-
-pub use bar::{VolumeBarSpec, draw_volume_bar};
 pub(crate) mod footprint;
-mod histogram;
-mod levels;
-mod line;
-mod markers;
+mod primitives;
 pub(crate) mod vbp;
 pub mod panel;
+pub mod side_panel;
+
+pub use primitives::bar::{VolumeBarSpec, draw_volume_bar};
 
 use crate::chart::ViewState;
 use iced::Size;
@@ -37,7 +33,7 @@ pub fn render_study_output(
 ) {
     match output {
         StudyOutput::Lines(lines) => {
-            line::render_lines(frame, lines, state, bounds, placement);
+            primitives::line::render_lines(frame, lines, state, bounds, placement);
         }
         StudyOutput::Band {
             upper,
@@ -45,7 +41,7 @@ pub fn render_study_output(
             lower,
             fill_opacity,
         } => {
-            band::render_band(
+            primitives::band::render_band(
                 frame,
                 upper,
                 middle.as_ref(),
@@ -57,21 +53,28 @@ pub fn render_study_output(
             );
         }
         StudyOutput::Bars(bars) => {
-            bar::render_bars(frame, bars, state, bounds, placement);
+            primitives::bar::render_bars(frame, bars, state, bounds, placement);
         }
         StudyOutput::Histogram(bars) => {
-            histogram::render_histogram(frame, bars, state, bounds, placement);
+            primitives::histogram::render_histogram(frame, bars, state, bounds, placement);
         }
         StudyOutput::Levels(levels) => {
-            levels::render_levels(frame, levels, state, bounds);
+            primitives::levels::render_levels(frame, levels, state, bounds);
         }
         StudyOutput::Profile(profiles, config) => {
-            vbp::render_vbp_multi(
-                frame, profiles, config, state, bounds,
-            );
+            // Side-panel studies render exclusively in SidePanelCanvas — skip here
+            match placement {
+                StudyPlacement::SidePanel => {}
+                StudyPlacement::Overlay
+                | StudyPlacement::Panel
+                | StudyPlacement::Background
+                | StudyPlacement::CandleReplace => {
+                    vbp::render_vbp_multi(frame, profiles, config, state, bounds);
+                }
+            }
         }
         StudyOutput::Markers(data) => {
-            markers::render_markers(
+            primitives::markers::render_markers(
                 frame,
                 &data.markers,
                 state,

@@ -1,7 +1,12 @@
-//! Delta Study
+//! Volume Delta.
 //!
-//! Displays volume delta (buy_volume - sell_volume) per candle as colored bars.
-//! Green for positive delta, red for negative.
+//! Per-candle delta: buy volume minus sell volume. Positive delta indicates
+//! net buying pressure; negative delta indicates net selling pressure.
+//!
+//! Requires trade-level data (`StudyInput::trades`). Returns `StudyOutput::Empty`
+//! if no trade data is available.
+//!
+//! Output: `StudyOutput::Bars` — one bar per candle, colored by sign.
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
@@ -9,7 +14,7 @@ use crate::config::{
 };
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 

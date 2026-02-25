@@ -1,10 +1,18 @@
+//! Bollinger Bands.
+//!
+//! A volatility envelope around a Simple Moving Average (SMA). The upper and
+//! lower bands are placed at `multiplier * stddev` above and below the SMA.
+//! Default: 20-period SMA ± 2 standard deviations.
+//!
+//! Output: `StudyOutput::Band` with upper, middle (SMA), and lower lines.
+
 use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
     ParameterValue, StudyConfig, Visibility,
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::util::{candle_key, source_value};
 use data::SerializableColor;
 

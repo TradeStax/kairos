@@ -5,7 +5,7 @@
 
 use super::views;
 use super::{CacheStatus, DownloadConfig, DownloadProgress};
-use crate::components::layout::modal_header::ModalHeaderBuilder;
+use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
 use crate::style::{self, tokens};
 use data::{DateRange, FuturesTicker};

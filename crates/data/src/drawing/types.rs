@@ -58,11 +58,6 @@ pub enum DrawingTool {
     PriceLabel,
     /// Arrow from point A to point B with arrowhead
     Arrow,
-    // ── Measurement ───────────────────────────────────────────────────
-    /// Price range measurement (2 points, shows price delta)
-    PriceRange,
-    /// Date range measurement (2 points, shows time delta)
-    DateRange,
     // ── Trading ──────────────────────────────────────────────────────
     /// Buy position calculator (entry + target + auto-generated stop)
     BuyCalculator,
@@ -71,6 +66,8 @@ pub enum DrawingTool {
     // ── Analysis ─────────────────────────────────────────────────────
     /// Volume-by-Price profile (2 points define time range)
     VolumeProfile,
+    /// AI context selection (2-point rectangle that triggers AI analysis)
+    AiContext,
 }
 
 impl DrawingTool {
@@ -89,11 +86,10 @@ impl DrawingTool {
             | DrawingTool::Rectangle
             | DrawingTool::Ellipse
             | DrawingTool::Arrow
-            | DrawingTool::PriceRange
-            | DrawingTool::DateRange
             | DrawingTool::BuyCalculator
             | DrawingTool::SellCalculator
-            | DrawingTool::VolumeProfile => 2,
+            | DrawingTool::VolumeProfile
+            | DrawingTool::AiContext => 2,
             DrawingTool::FibExtension | DrawingTool::ParallelChannel => 3,
         }
     }
@@ -118,14 +114,12 @@ impl DrawingTool {
         DrawingTool::TextLabel,
         DrawingTool::PriceLabel,
         DrawingTool::Arrow,
-        // Measurement
-        DrawingTool::PriceRange,
-        DrawingTool::DateRange,
         // Trading
         DrawingTool::BuyCalculator,
         DrawingTool::SellCalculator,
         // Analysis
         DrawingTool::VolumeProfile,
+        DrawingTool::AiContext,
     ];
 }
 
@@ -146,11 +140,10 @@ impl std::fmt::Display for DrawingTool {
             DrawingTool::TextLabel => write!(f, "Text"),
             DrawingTool::PriceLabel => write!(f, "Price Label"),
             DrawingTool::Arrow => write!(f, "Arrow"),
-            DrawingTool::PriceRange => write!(f, "Price Range"),
-            DrawingTool::DateRange => write!(f, "Date Range"),
             DrawingTool::BuyCalculator => write!(f, "Buy Calculator"),
             DrawingTool::SellCalculator => write!(f, "Sell Calculator"),
             DrawingTool::VolumeProfile => write!(f, "Volume Profile"),
+            DrawingTool::AiContext => write!(f, "AI Context"),
         }
     }
 }
@@ -388,6 +381,14 @@ impl Default for VbpDrawingConfig {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_text_font_size() -> f32 {
+    13.0
+}
+
 /// Drawing style configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DrawingStyle {
@@ -416,6 +417,15 @@ pub struct DrawingStyle {
     /// VBP drawing config (for VolumeProfile tool)
     #[serde(default)]
     pub vbp_config: Option<VbpDrawingConfig>,
+    /// Arrowhead at the start point (in addition to the default end arrowhead)
+    #[serde(default)]
+    pub arrow_head_start: bool,
+    /// Arrowhead at the end point (default true)
+    #[serde(default = "default_true")]
+    pub arrow_head_end: bool,
+    /// Font size for text label / annotation text in pixels (default 13.0)
+    #[serde(default = "default_text_font_size")]
+    pub text_font_size: f32,
 }
 
 impl Default for DrawingStyle {
@@ -432,6 +442,9 @@ impl Default for DrawingStyle {
             label_alignment: LabelAlignment::default(),
             position_calc: None,
             vbp_config: None,
+            arrow_head_start: false,
+            arrow_head_end: true,
+            text_font_size: 13.0,
         }
     }
 }

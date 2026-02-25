@@ -242,10 +242,9 @@ fn dispatch_draw(
         | DrawingTool::ExtendedLine
         | DrawingTool::Arrow => lines::draw(frame, ctx, drawing, screen_points),
 
-        DrawingTool::Rectangle
-        | DrawingTool::PriceRange
-        | DrawingTool::DateRange
-        | DrawingTool::Ellipse => shapes::draw(frame, ctx, drawing, screen_points),
+        DrawingTool::Rectangle | DrawingTool::Ellipse | DrawingTool::AiContext => {
+            shapes::draw(frame, ctx, drawing, screen_points)
+        }
 
         DrawingTool::FibRetracement | DrawingTool::FibExtension => {
             fibonacci::draw(frame, ctx, drawing, screen_points)
@@ -534,20 +533,3 @@ pub(super) fn draw_drawing_label(
     }
 }
 
-/// Format a duration in milliseconds to a human-readable string.
-pub(super) fn format_duration(ms: u64) -> String {
-    let seconds = ms / 1000;
-    let minutes = seconds / 60;
-    let hours = minutes / 60;
-    let days = hours / 24;
-
-    if days > 0 {
-        format!("{}d {}h", days, hours % 24)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes % 60)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds % 60)
-    } else {
-        format!("{}s", seconds)
-    }
-}

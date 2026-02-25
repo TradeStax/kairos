@@ -1,12 +1,11 @@
 pub mod connections;
 pub mod data_feeds;
 pub mod download;
-pub mod drawing_properties;
-pub mod drawing_tools;
+pub mod drawing;
 pub mod layout;
 pub mod pane;
+pub mod preferences;
 pub mod replay;
-pub mod settings;
 pub mod theme;
 
 use iced::widget::{center, container, mouse_area, opaque, stack};

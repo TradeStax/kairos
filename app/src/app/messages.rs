@@ -4,8 +4,39 @@ use data::FeedId;
 use data::state::WindowSpec;
 use std::collections::HashMap;
 
-use crate::components::chrome::menu_bar;
-use crate::window;
+use crate::app::update::menu_bar;
+use crate::infra::window;
+
+/// Messages for the backtest subsystem.
+#[derive(Debug, Clone)]
+pub enum BacktestMessage {
+    /// Open the backtest launch modal/sidebar panel.
+    OpenLaunchModal,
+    /// Open the backtest manager modal.
+    OpenManager,
+    /// User interaction with the launch modal.
+    LaunchModalInteraction(crate::screen::backtest::launch::Message),
+    /// User interaction with the management modal.
+    ManagerInteraction(
+        crate::screen::backtest::manager::ManagerMessage,
+    ),
+    /// User clicked Run — triggers async engine run.
+    Run { config: backtest::BacktestConfig },
+    /// Streamed progress event from the engine.
+    ProgressEvent(backtest::BacktestProgressEvent),
+    /// Engine completed — Box to keep Message size bounded.
+    Completed {
+        run_id: uuid::Uuid,
+        result: Box<backtest::BacktestResult>,
+    },
+    /// Engine failed.
+    Failed {
+        run_id: uuid::Uuid,
+        error: String,
+    },
+    /// CSV export completed (or was cancelled).
+    CsvExported(Option<Result<std::path::PathBuf, String>>),
+}
 
 #[derive(Debug, Clone)]
 pub enum ChartMessage {
@@ -79,6 +110,15 @@ pub enum DownloadMessage {
 }
 
 #[derive(Debug, Clone)]
+pub enum WindowMessage {
+    TitleBarHover(bool),
+    Drag(crate::infra::window::Id),
+    Minimize(crate::infra::window::Id),
+    ToggleMaximize(crate::infra::window::Id),
+    Close(crate::infra::window::Id),
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Sidebar(dashboard::sidebar::Message),
     Dashboard {
@@ -116,15 +156,22 @@ pub enum Message {
         feed_id: FeedId,
         result: Result<(), String>,
     },
+    RithmicSystemNames {
+        server: data::feed::RithmicServer,
+        result: Result<Vec<String>, String>,
+    },
+    RithmicProductCodes {
+        feed_id: FeedId,
+        result: Result<Vec<String>, String>,
+    },
     RithmicStreamEvent(exchange::Event),
     Replay(modals::replay::Message),
     ReplayEvent(data::services::ReplayEvent),
+    Backtest(BacktestMessage),
     MenuBar(menu_bar::Message),
     // Window control messages (custom title bar)
-    TitleBarHover(bool),
-    WindowDrag(window::Id),
-    WindowMinimize(window::Id),
-    WindowToggleMaximize(window::Id),
-    WindowClose(window::Id),
-    ServicesReady(super::services::AllServicesResult),
+    Window(WindowMessage),
+    ServicesReady(super::init::services::AllServicesResult),
+    AiStreamEvent(super::core::globals::AiStreamEventClone),
+    AiStreamComplete,
 }

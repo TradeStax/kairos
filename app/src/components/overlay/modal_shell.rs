@@ -1,7 +1,7 @@
 use iced::widget::{center, column, container, mouse_area, opaque, scrollable, stack};
 use iced::{Color, Element, Length, Padding};
 
-use crate::components::layout::modal_header::ModalHeaderBuilder;
+use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::style;
 use crate::style::tokens;
 
@@ -142,9 +142,9 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
                 self.body,
                 scrollable::Direction::Vertical(
                     scrollable::Scrollbar::new()
-                        .width(4)
-                        .scroller_width(4)
-                        .spacing(2),
+                        .width(tokens::component::scrollbar::WIDTH)
+                        .scroller_width(tokens::component::scrollbar::SCROLLER_WIDTH)
+                        .spacing(tokens::component::scrollbar::SPACING),
                 ),
             )
             .style(style::scroll_bar);

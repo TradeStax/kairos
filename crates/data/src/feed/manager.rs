@@ -6,6 +6,14 @@
 use super::types::{DataFeed, FeedCapability, FeedId, FeedProvider, FeedStatus};
 use serde::{Deserialize, Serialize};
 
+/// Result of feed resolution for chart loading.
+pub struct ResolvedFeed {
+    pub feed_id: FeedId,
+    pub provider: FeedProvider,
+    /// Whether this feed supports historical data loading.
+    pub has_historical: bool,
+}
+
 /// Manages all configured data feeds
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -141,6 +149,29 @@ impl DataFeedManager {
             .iter()
             .find(|f| f.provider == provider && f.enabled && f.status.is_connected())
             .map(|f| f.id)
+    }
+
+    /// Resolve the best available feed for chart data loading.
+    ///
+    /// Priority: historical feeds (Databento) first, then realtime (Rithmic).
+    pub fn resolve_feed_for_chart(&self) -> Option<ResolvedFeed> {
+        // Priority 1: Connected Databento feed (full historical data)
+        if let Some(id) = self.connected_feed_id_for_provider(FeedProvider::Databento) {
+            return Some(ResolvedFeed {
+                feed_id: id,
+                provider: FeedProvider::Databento,
+                has_historical: true,
+            });
+        }
+        // Priority 2: Connected Rithmic feed (live streaming only)
+        if let Some(id) = self.connected_feed_id_for_provider(FeedProvider::Rithmic) {
+            return Some(ResolvedFeed {
+                feed_id: id,
+                provider: FeedProvider::Rithmic,
+                has_historical: false,
+            });
+        }
+        None
     }
 
     // ── Migration ──────────────────────────────────────────────────────

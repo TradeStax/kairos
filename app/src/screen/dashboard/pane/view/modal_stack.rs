@@ -1,19 +1,121 @@
 use super::super::{ContextMenuAction, ContextMenuKind, Event, Message, State};
+use super::ai_context_bubble;
 use super::helpers::link_group_modal;
 use crate::{
     components::{display::toast, overlay::context_menu::context_menu},
     modals::{self, pane::Modal},
+    screen::dashboard::pane::types::AiContextBubbleEvent,
     style::{self, tokens},
 };
 use exchange::{FuturesTicker, FuturesTickerInfo};
 use iced::{
-    Alignment, Element, padding,
-    widget::{column, container, pane_grid, stack},
+    Alignment, Element, Length, padding,
+    widget::{column, container, mouse_area, opaque, pane_grid, stack},
 };
 use rustc_hash::FxHashMap;
 
 /// Alias for the optional compact-controls overlay element.
 pub(crate) type CompactControls<'a> = Option<Element<'a, Message>>;
+
+/// Build the context menu items for a given context menu kind and pane.
+fn context_menu_items(
+    ctx: &ContextMenuKind,
+    pane: pane_grid::Pane,
+    has_indicators: bool,
+) -> Vec<(String, Option<Message>)> {
+    match ctx {
+        ContextMenuKind::Chart { .. } => {
+            let mut items = vec![];
+
+            if has_indicators {
+                items.push((
+                    "Indicators".into(),
+                    Some(Message::PaneEvent(
+                        pane,
+                        Event::ContextMenuAction(ContextMenuAction::OpenIndicators),
+                    )),
+                ));
+            }
+
+            items.push((
+                "Center Last Price".into(),
+                Some(Message::PaneEvent(
+                    pane,
+                    Event::ContextMenuAction(ContextMenuAction::CenterLastPrice),
+                )),
+            ));
+
+            items.push((
+                "Rebuild Chart".into(),
+                Some(Message::PaneEvent(
+                    pane,
+                    Event::ContextMenuAction(ContextMenuAction::RebuildChart),
+                )),
+            ));
+
+            items
+        }
+        ContextMenuKind::StudyOverlay { study_index, .. } => {
+            let idx = *study_index;
+            vec![(
+                "Properties".into(),
+                Some(Message::PaneEvent(
+                    pane,
+                    Event::ContextMenuAction(
+                        ContextMenuAction::OpenStudyProperties(idx),
+                    ),
+                )),
+            )]
+        }
+        ContextMenuKind::Drawing { id, locked, .. } => {
+            let id = *id;
+            vec![
+                (
+                    "Properties".into(),
+                    Some(Message::PaneEvent(
+                        pane,
+                        Event::ContextMenuAction(ContextMenuAction::OpenDrawingProperties(
+                            id,
+                        )),
+                    )),
+                ),
+                (
+                    if *locked { "Unlock" } else { "Lock" }.into(),
+                    Some(Message::PaneEvent(
+                        pane,
+                        Event::ContextMenuAction(ContextMenuAction::ToggleLockDrawing(id)),
+                    )),
+                ),
+                (
+                    "Clone".into(),
+                    Some(Message::PaneEvent(
+                        pane,
+                        Event::ContextMenuAction(ContextMenuAction::CloneDrawing(id)),
+                    )),
+                ),
+                (
+                    "Delete".into(),
+                    Some(Message::PaneEvent(
+                        pane,
+                        Event::ContextMenuAction(ContextMenuAction::DeleteDrawing(id)),
+                    )),
+                ),
+            ]
+        }
+        ContextMenuKind::AiMessage { message_index, .. } => {
+            let idx = *message_index;
+            vec![(
+                "Copy".into(),
+                Some(Message::PaneEvent(
+                    pane,
+                    Event::ContextMenuAction(
+                        ContextMenuAction::CopyAiMessageText(idx),
+                    ),
+                )),
+            )]
+        }
+    }
+}
 
 impl State {
     pub(crate) fn compose_stack_view<'a, F>(
@@ -22,7 +124,7 @@ impl State {
         pane: pane_grid::Pane,
         compact_controls: Option<Element<'a, Message>>,
         settings_modal: F,
-        selected_tickers: Option<&'a [FuturesTickerInfo]>,
+        selected_tickers: Option<&[FuturesTickerInfo]>,
         tickers_info: &'a FxHashMap<FuturesTicker, FuturesTickerInfo>,
         ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message>
@@ -112,7 +214,7 @@ impl State {
                     Message::PaneEvent(
                         pane,
                         Event::IndicatorManagerInteraction(
-                            crate::modals::pane::indicator_manager::Message::Close,
+                            crate::modals::pane::indicator::Message::Close,
                         ),
                     ),
                 )
@@ -150,112 +252,42 @@ impl State {
                     Message::PaneEvent(
                         pane,
                         Event::DrawingPropertiesChanged(
-                            crate::modals::drawing_properties::Message::Close,
+                            crate::modals::drawing::properties::Message::Close,
                         ),
                     ),
-                )
-            }
-            Some(Modal::BigTradesDebug) => {
-                let (output, tick_size) = self
-                    .content
-                    .big_trades_debug_info()
-                    .unwrap_or((&study::StudyOutput::Empty, 0.25));
-                let content = modals::pane::settings::big_trades_debug_view(
-                    output, tick_size,
-                );
-                stack_modal(
-                    base,
-                    content,
-                    on_blur,
-                    padding::all(tokens::spacing::LG),
-                    Alignment::Center,
                 )
             }
             None => base,
         };
 
+        // AI context bubble overlay (between modals and context menu)
+        let base = if let Some(ref bubble) = self.ai_context_bubble {
+            let panel = ai_context_bubble::view(bubble, pane);
+            let overlay = container(opaque(panel))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::End)
+                .align_y(Alignment::End)
+                .padding(tokens::spacing::LG);
+            stack![
+                base,
+                mouse_area(overlay).on_press(Message::PaneEvent(
+                    pane,
+                    Event::AiContextBubble(AiContextBubbleEvent::Dismiss),
+                ))
+            ]
+            .into()
+        } else {
+            base
+        };
+
         // Context menu overlay on top of everything
         if let Some(ref ctx_menu) = self.context_menu {
-            let items = match ctx_menu {
-                ContextMenuKind::Chart { .. } => {
-                    let mut items = vec![];
-
-                    if self.content.has_indicators() {
-                        items.push((
-                            "Indicators".into(),
-                            Some(Message::PaneEvent(
-                                pane,
-                                Event::ContextMenuAction(ContextMenuAction::OpenIndicators),
-                            )),
-                        ));
-                    }
-
-                    items.push((
-                        "Center Last Price".into(),
-                        Some(Message::PaneEvent(
-                            pane,
-                            Event::ContextMenuAction(ContextMenuAction::CenterLastPrice),
-                        )),
-                    ));
-
-                    items.push((
-                        "Rebuild Chart".into(),
-                        Some(Message::PaneEvent(
-                            pane,
-                            Event::ContextMenuAction(ContextMenuAction::RebuildChart),
-                        )),
-                    ));
-
-                    items
-                }
-                ContextMenuKind::StudyOverlay { study_index, .. } => {
-                    let idx = *study_index;
-                    vec![(
-                        "Properties".into(),
-                        Some(Message::PaneEvent(
-                            pane,
-                            Event::ContextMenuAction(
-                                ContextMenuAction::OpenStudyProperties(idx),
-                            ),
-                        )),
-                    )]
-                }
-                ContextMenuKind::Drawing { id, locked, .. } => {
-                    let id = *id;
-                    vec![
-                        (
-                            "Properties".into(),
-                            Some(Message::PaneEvent(
-                                pane,
-                                Event::ContextMenuAction(ContextMenuAction::OpenDrawingProperties(
-                                    id,
-                                )),
-                            )),
-                        ),
-                        (
-                            if *locked { "Unlock" } else { "Lock" }.into(),
-                            Some(Message::PaneEvent(
-                                pane,
-                                Event::ContextMenuAction(ContextMenuAction::ToggleLockDrawing(id)),
-                            )),
-                        ),
-                        (
-                            "Clone".into(),
-                            Some(Message::PaneEvent(
-                                pane,
-                                Event::ContextMenuAction(ContextMenuAction::CloneDrawing(id)),
-                            )),
-                        ),
-                        (
-                            "Delete".into(),
-                            Some(Message::PaneEvent(
-                                pane,
-                                Event::ContextMenuAction(ContextMenuAction::DeleteDrawing(id)),
-                            )),
-                        ),
-                    ]
-                }
-            };
+            let items = context_menu_items(
+                ctx_menu,
+                pane,
+                self.content.has_indicators(),
+            );
             let position = ctx_menu.position();
             let overlay = context_menu(
                 items,

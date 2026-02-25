@@ -41,7 +41,7 @@ pub use services::{
 };
 
 pub use state::{
-    AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
+    AiPreferences, AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
     DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
     Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileSplitUnit,
     Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
@@ -69,7 +69,8 @@ pub use drawing::{
 // Re-export feed types
 pub use feed::{
     DataFeed, DataFeedManager, DatabentoFeedConfig, FeedCapability, FeedConfig, FeedId, FeedKind,
-    FeedProvider, FeedStatus, HistoricalDatasetInfo, RithmicEnvironment, RithmicFeedConfig,
+    FeedProvider, FeedStatus, HistoricalDatasetInfo, ResolvedFeed, RithmicEnvironment,
+    RithmicFeedConfig,
 };
 
 // Re-export logging util for convenience
@@ -78,12 +79,25 @@ pub use util::logging as log;
 // Re-export crate-level error type
 pub use error::DataError;
 
-/// Safely lock a mutex and recover from poisoned locks
+/// Safely lock a mutex and recover from poisoned locks.
 ///
-/// This is a utility function to handle mutex locks safely by recovering
-/// from poisoned locks using the `into_inner()` method.
+/// If the mutex is poisoned (a thread panicked while holding it), this recovers
+/// the data via `into_inner()` to avoid deadlocking the UI thread. The incident
+/// is logged as an error because the recovered state may be partially mutated.
+///
+/// Callers should treat the returned guard as potentially inconsistent when a
+/// poisoning event has occurred.
 pub fn lock_or_recover<T>(
     mutex: &std::sync::Arc<std::sync::Mutex<T>>,
 ) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|e| e.into_inner())
+    mutex.lock().unwrap_or_else(|e| {
+        // A thread panicked while holding this lock. We recover the data to avoid
+        // deadlocking the UI thread, but log the incident for debugging.
+        // Use ::log:: to bypass the `pub use util::logging as log` re-export in this file.
+        ::log::error!(
+            "Mutex poisoned: recovering from panicked lock holder. \
+             The application may be in an inconsistent state."
+        );
+        e.into_inner()
+    })
 }

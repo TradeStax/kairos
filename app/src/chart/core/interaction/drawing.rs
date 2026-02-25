@@ -3,7 +3,7 @@
 use super::{DrawingEditMode, DrawingState, Interaction};
 use crate::chart::Message;
 use crate::chart::core::tokens;
-use crate::chart::core::traits::Chart;
+use crate::chart::core::Chart;
 use data::{DrawingId, DrawingTool};
 use iced::{Point, widget::canvas};
 

@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::components::input::volume_trackbar::volume_trackbar;
+use super::volume_trackbar::volume_trackbar;
 use crate::components::primitives::icon_button::toolbar_icon;
 use crate::components::primitives::label::{mono, small};
 use crate::components::primitives::Icon;
@@ -46,7 +46,7 @@ impl ReplayManager {
 
         let jump_back: Element<'_, Message> =
             toolbar_icon(Icon::SkipBackward, Message::JumpBackward)
-                .size(10)
+                .size(10.0)
                 .style(|theme, status| {
                     let mut s = style::button::transparent(theme, status, false);
                     s.border.radius = tokens::radius::ROUND.into();
@@ -57,7 +57,7 @@ impl ReplayManager {
 
         let play_pause: Element<'_, Message> = match self.playback_status {
             PlaybackStatus::Playing => toolbar_icon(Icon::Pause, Message::Pause)
-                .size(12)
+                .size(12.0)
                 .style(|theme, status| {
                     let mut s = style::button::transparent(theme, status, false);
                     s.border.radius = tokens::radius::ROUND.into();
@@ -66,7 +66,7 @@ impl ReplayManager {
                 .tooltip("Pause")
                 .into(),
             _ => toolbar_icon(Icon::Play, Message::Play)
-                .size(12)
+                .size(12.0)
                 .style(|theme, status| {
                     let mut s = style::button::transparent(theme, status, false);
                     s.border.radius = tokens::radius::ROUND.into();
@@ -78,7 +78,7 @@ impl ReplayManager {
 
         let jump_fwd: Element<'_, Message> =
             toolbar_icon(Icon::SkipForward, Message::JumpForward)
-                .size(10)
+                .size(10.0)
                 .style(|theme, status| {
                     let mut s = style::button::transparent(theme, status, false);
                     s.border.radius = tokens::radius::ROUND.into();

@@ -15,6 +15,8 @@ pub enum ApiProvider {
     Massive,
     /// Rithmic for realtime + historical futures data
     Rithmic,
+    /// OpenRouter API for AI assistant
+    OpenRouter,
 }
 
 impl ApiProvider {
@@ -29,6 +31,7 @@ impl ApiProvider {
             ApiProvider::Databento => "databento_api_key",
             ApiProvider::Massive => "massive_api_key",
             ApiProvider::Rithmic => "rithmic_password",
+            ApiProvider::OpenRouter => "openrouter_api_key",
         }
     }
 
@@ -38,6 +41,7 @@ impl ApiProvider {
             ApiProvider::Databento => "DATABENTO_API_KEY",
             ApiProvider::Massive => "MASSIVE_API_KEY",
             ApiProvider::Rithmic => "RITHMIC_PASSWORD",
+            ApiProvider::OpenRouter => "OPENROUTER_API_KEY",
         }
     }
 
@@ -47,6 +51,7 @@ impl ApiProvider {
             ApiProvider::Databento => "Databento",
             ApiProvider::Massive => "Massive (Polygon)",
             ApiProvider::Rithmic => "Rithmic",
+            ApiProvider::OpenRouter => "OpenRouter",
         }
     }
 
@@ -54,8 +59,11 @@ impl ApiProvider {
     pub fn api_key_url(&self) -> &'static str {
         match self {
             ApiProvider::Databento => "https://databento.com/portal/keys",
-            ApiProvider::Massive => "https://polygon.io/dashboard/api-keys",
+            ApiProvider::Massive => {
+                "https://polygon.io/dashboard/api-keys"
+            }
             ApiProvider::Rithmic => "https://rithmic.com",
+            ApiProvider::OpenRouter => "https://openrouter.ai/keys",
         }
     }
 
@@ -71,6 +79,9 @@ impl ApiProvider {
             ApiProvider::Rithmic => {
                 "Required for Rithmic realtime + historical futures data"
             }
+            ApiProvider::OpenRouter => {
+                "Required for AI assistant (supports many LLM providers)"
+            }
         }
     }
 
@@ -80,6 +91,7 @@ impl ApiProvider {
             ApiProvider::Databento,
             ApiProvider::Massive,
             ApiProvider::Rithmic,
+            ApiProvider::OpenRouter,
         ]
     }
 }
@@ -93,8 +105,11 @@ impl std::fmt::Display for ApiProvider {
 /// Status of an API key
 #[derive(Debug, Clone)]
 pub enum ApiKeyStatus {
-    /// Key was found in OS keyring (UI-configured)
+    /// Key was found in OS keyring (UI-configured, encrypted by OS credential store)
     FromKeyring(String),
+    /// Key was loaded from the file-based fallback (base64-encoded, NOT encrypted).
+    /// Used when the OS keyring is unavailable (e.g., headless, unsupported platform).
+    FromFile(String),
     /// Key was found in environment variable
     FromEnv(String),
     /// Key is not configured anywhere
@@ -111,6 +126,7 @@ impl ApiKeyStatus {
     pub fn key(&self) -> Option<&str> {
         match self {
             ApiKeyStatus::FromKeyring(key)
+            | ApiKeyStatus::FromFile(key)
             | ApiKeyStatus::FromEnv(key) => Some(key),
             ApiKeyStatus::NotConfigured => None,
         }
@@ -119,7 +135,8 @@ impl ApiKeyStatus {
     /// Get a description of the key source
     pub fn source_description(&self) -> &'static str {
         match self {
-            ApiKeyStatus::FromKeyring(_) => "Configured in app",
+            ApiKeyStatus::FromKeyring(_) => "Configured in app (keyring)",
+            ApiKeyStatus::FromFile(_) => "Configured in app (file)",
             ApiKeyStatus::FromEnv(_) => "From environment variable",
             ApiKeyStatus::NotConfigured => "Not configured",
         }
@@ -167,6 +184,11 @@ mod tests {
             ApiKeyStatus::FromKeyring("test_key".to_string());
         assert!(from_keyring.is_available());
         assert_eq!(from_keyring.key(), Some("test_key"));
+
+        let from_file = ApiKeyStatus::FromFile("file_key".to_string());
+        assert!(from_file.is_available());
+        assert_eq!(from_file.key(), Some("file_key"));
+        assert_eq!(from_file.source_description(), "Configured in app (file)");
 
         let not_configured = ApiKeyStatus::NotConfigured;
         assert!(!not_configured.is_available());

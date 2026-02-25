@@ -53,7 +53,7 @@ impl<'a, Message: 'a> SearchFieldBuilder<'a, Message> {
     {
         let search_icon = text(char::from(Icon::Search).to_string())
             .font(ICONS_FONT)
-            .size(12);
+            .size(tokens::component::icon::SM);
 
         let mut input = text_input(self.placeholder, self.value).on_input(self.on_input);
 
@@ -74,7 +74,7 @@ impl<'a, Message: 'a> SearchFieldBuilder<'a, Message> {
         {
             let clear_icon = text(char::from(Icon::Close).to_string())
                 .font(ICONS_FONT)
-                .size(12);
+                .size(tokens::component::icon::SM);
 
             let clear_btn = button(clear_icon)
                 .on_press(clear_msg)

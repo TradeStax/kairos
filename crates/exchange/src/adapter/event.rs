@@ -29,4 +29,8 @@ pub enum Event {
     KlineReceived(StreamKind, Kline),
     /// Individual trade update (for real-time feed)
     TradeReceived(StreamKind, Trade),
+    /// Subscription failures for requested tickers
+    SubscriptionFailed(Vec<String>),
+    /// Product codes received from Rithmic after connection
+    ProductCodesReceived(Vec<String>),
 }

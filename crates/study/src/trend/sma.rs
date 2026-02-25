@@ -1,10 +1,19 @@
+//! Simple Moving Average (SMA).
+//!
+//! Computes an equal-weight average of the last `period` candle values.
+//! Formula: `SMA(t) = (P(t) + P(t-1) + ... + P(t-n+1)) / n`
+//! where `P` is the chosen price source (Close by default).
+//!
+//! Implemented as an efficient O(n) sliding-window sum. Output starts at
+//! index `period - 1` (the first candle for which a full window is available).
+
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::util::{candle_key, source_value};
 use data::SerializableColor;
 
@@ -64,7 +73,7 @@ fn make_params() -> Vec<ParameterDef> {
             kind: ParameterKind::Choice {
                 options: SOURCE_OPTIONS,
             },
-            default: ParameterValue::Choice(String::new()),
+            default: ParameterValue::Choice("Close".to_string()),
             tab: ParameterTab::Parameters,
             section: None,
             order: 1,

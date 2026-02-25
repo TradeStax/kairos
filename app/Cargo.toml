@@ -20,6 +20,7 @@ iced = { version = "0.14.0", default-features = false, features = [
     "crisp",
     "x11",
     "wayland",
+    "markdown",
 ] }
 iced_core.workspace = true
 iced_futures.workspace = true
@@ -41,10 +42,13 @@ open = "5.3.2"
 fern = "0.7.1"
 tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
 futures = "0.3"
+rfd = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
 exchange = { version = "0.1.0", path = "../crates/exchange", package = "kairos-exchange" }
 data = { version = "0.1.0", path = "../crates/data", package = "kairos-data" }
 study = { version = "0.1.0", path = "../crates/study", package = "kairos-study" }
+backtest = { version = "0.1.0", path = "../crates/backtest", package = "kairos-backtest" }
 
 [build-dependencies]
 winresource = "0.1"

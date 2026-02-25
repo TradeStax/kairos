@@ -9,12 +9,13 @@ pub mod spring {
     use super::*;
 
     /// Fast response, critically damped (no bounce).
+    /// Perceived as "subtle" because it settles quickly without visible oscillation.
+    /// Maps to `Motion::SMOOTH` (the iced_anim preset name).
     /// Use for: hover color transitions, status dot color, toggle states.
     pub const SUBTLE: Motion = Motion::SMOOTH;
 
-    /// Smooth with very slight overshoot.
-    /// Use for: modal backdrop fade, overlay appearance, panel transitions.
-    pub const SMOOTH: Motion = Motion::SNAPPY;
+    // SMOOTH was removed — it mapped to Motion::SNAPPY (misleading name) and had zero call sites.
+    // If you need a "moderate speed with slight overshoot" motion, add it here using Motion::SNAPPY.
 
     /// Moderate speed, slight bounce for expand/collapse.
     /// Use for: collapsible arrow rotation, accordion sections.

@@ -48,3 +48,18 @@ pub fn colored<'a>(
 ) -> Text<'a, Theme, Renderer> {
     text(content).size(text_tokens::BODY).color(color)
 }
+
+/// Text element that clips at `max_width` pixels without wrapping.
+pub fn truncated<'a, Message: 'a>(
+    content: &'a str,
+    max_width: f32,
+) -> iced::Element<'a, Message, Theme, Renderer> {
+    iced::widget::container(
+        text(content)
+            .size(text_tokens::BODY)
+            .wrapping(text::Wrapping::None),
+    )
+    .max_width(max_width)
+    .clip(true)
+    .into()
+}

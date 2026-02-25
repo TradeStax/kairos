@@ -1,4 +1,5 @@
-use super::{Content, Effect, State};
+use super::{Action, Content, State};
+use super::types::{AiContextBubble, AiContextSummary};
 use crate::chart::ViewState;
 use crate::chart::drawing::{
     ChartDrawingAccess, Drawing, DrawingManager, DrawingPoint, snap,
@@ -8,6 +9,19 @@ use data::{
     DrawingTool, LoadingStatus, Timeframe,
 };
 use iced::Size;
+
+/// Format a number with comma thousands separators.
+fn format_number(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
+}
 
 /// Get the anchor point in screen coords for shift-constrained creation.
 /// Returns `(tool, anchor_screen_point)` if a pending drawing has an anchor.
@@ -84,11 +98,21 @@ impl State {
         };
 
         if let Some(id) = completed_id {
+            // Check if this was an AiContext drawing before resetting tool
+            let is_ai_context = chart
+                .drawings()
+                .get(id)
+                .is_some_and(|d| d.tool == DrawingTool::AiContext);
+
             chart.drawings_mut().set_tool(DrawingTool::None);
             chart.drawings_mut().select(id);
             chart.compute_pending_vbp();
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
+
+            if is_ai_context {
+                self.show_ai_context_bubble(id);
+            }
+
             return true;
         }
         chart.invalidate_crosshair_cache();
@@ -132,28 +156,37 @@ impl State {
 
     /// Handle drawing delete (Delete/Backspace key)
     pub(super) fn handle_drawing_delete(&mut self) {
+        self.ai_context_bubble = None;
         if let Some(chart) = self.content.drawing_chart_mut() {
             chart.drawings_mut().delete_selected();
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
     /// Handle drawing selection
     pub(super) fn handle_drawing_select(&mut self, id: DrawingId) {
         if let Some(chart) = self.content.drawing_chart_mut() {
+            let is_ai_context = chart
+                .drawings()
+                .get(id)
+                .is_some_and(|d| d.tool == DrawingTool::AiContext);
             chart.drawings_mut().select(id);
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
+
+            if is_ai_context {
+                self.show_ai_context_bubble(id);
+            } else {
+                self.ai_context_bubble = None;
+            }
         }
     }
 
     /// Handle drawing deselection
     pub(super) fn handle_drawing_deselect(&mut self) {
+        self.ai_context_bubble = None;
         if let Some(chart) = self.content.drawing_chart_mut() {
             chart.drawings_mut().clear_selection();
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
@@ -189,8 +222,7 @@ impl State {
                 chart.drawings_mut().start_drag(point, id, screen_point);
             }
         }
-        chart.invalidate_drawings_cache();
-        chart.invalidate_crosshair_cache();
+        chart.invalidate_all_drawing_caches();
     }
 
     /// Handle single-handle drag
@@ -248,8 +280,7 @@ impl State {
             chart.drawings_mut().start_drag(point, id, screen_point);
         }
         chart.drawings_mut().update_handle_drag(id, handle_index, point);
-        chart.invalidate_drawings_cache();
-        chart.invalidate_crosshair_cache();
+        chart.invalidate_all_drawing_caches();
     }
 
     /// Handle drawing drag end
@@ -257,8 +288,7 @@ impl State {
         if let Some(chart) = self.content.drawing_chart_mut() {
             chart.drawings_mut().end_drag();
             chart.compute_pending_vbp();
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
@@ -279,8 +309,19 @@ impl State {
 
     /// Open the drawing properties modal for the given drawing
     pub(super) fn handle_open_drawing_properties(&mut self, id: DrawingId) {
-        use crate::modals::drawing_properties::DrawingPropertiesModal;
+        use crate::modals::drawing::properties::DrawingPropertiesModal;
         use crate::modals::pane::Modal;
+
+        // AiContext: re-show the bubble instead of properties modal
+        let is_ai_context = self
+            .content
+            .drawing_chart()
+            .and_then(|c| c.drawings().get(id))
+            .is_some_and(|d| d.tool == DrawingTool::AiContext);
+        if is_ai_context {
+            self.show_ai_context_bubble(id);
+            return;
+        }
 
         let ticker_info = self.ticker_info;
         let modal = self.content.drawing_chart().and_then(|c| {
@@ -309,7 +350,7 @@ impl State {
     pub(super) fn apply_drawing_style(
         &mut self,
         id: DrawingId,
-        update: &crate::modals::drawing_properties::DrawingUpdate,
+        update: &crate::modals::drawing::properties::DrawingUpdate,
     ) {
         if let Some(chart) = self.content.drawing_chart_mut() {
             if let Some(d) = chart.drawings_mut().get_mut(id) {
@@ -334,8 +375,7 @@ impl State {
                 }
             }
             chart.compute_pending_vbp();
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
@@ -360,10 +400,16 @@ impl State {
 
     /// Delete a specific drawing by ID (from context menu)
     pub(super) fn handle_drawing_context_delete(&mut self, id: DrawingId) {
+        if self
+            .ai_context_bubble
+            .as_ref()
+            .is_some_and(|b| b.drawing_id == id)
+        {
+            self.ai_context_bubble = None;
+        }
         if let Some(chart) = self.content.drawing_chart_mut() {
             chart.drawings_mut().delete(id);
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
@@ -414,8 +460,7 @@ impl State {
             if let Some(id) = chart.drawings_mut().confirm_clone_placement() {
                 chart.drawings_mut().select(id);
             }
-            chart.invalidate_drawings_cache();
-            chart.invalidate_crosshair_cache();
+            chart.invalidate_all_drawing_caches();
         }
     }
 
@@ -431,7 +476,7 @@ impl State {
     pub(super) fn rebuild_chart_with_days(
         &mut self,
         days: i64,
-    ) -> Option<Effect> {
+    ) -> Option<Action> {
         let ticker_info = self.ticker_info?;
         let kind = self.content.kind();
 
@@ -459,7 +504,7 @@ impl State {
             .selected_basis
             .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
-        Some(Effect::LoadChart {
+        Some(Action::LoadChart {
             config: ChartConfig {
                 ticker: ticker_info.ticker,
                 basis,
@@ -471,7 +516,7 @@ impl State {
     }
 
     /// Rebuild the current chart by re-requesting data load
-    pub(super) fn rebuild_current_chart(&mut self) -> Option<Effect> {
+    pub(super) fn rebuild_current_chart(&mut self) -> Option<Action> {
         let ticker_info = self.ticker_info?;
         let kind = self.content.kind();
 
@@ -502,7 +547,7 @@ impl State {
             .selected_basis
             .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
-        Some(Effect::LoadChart {
+        Some(Action::LoadChart {
             config: ChartConfig {
                 ticker: ticker_info.ticker,
                 basis,
@@ -511,6 +556,148 @@ impl State {
             },
             ticker_info,
         })
+    }
+
+    /// Show the AI context bubble for a completed AiContext drawing.
+    ///
+    /// Extracts chart context from the drawing's time range and builds
+    /// a summary for the floating input panel.
+    pub(super) fn show_ai_context_bubble(&mut self, id: DrawingId) {
+        let chart = match self.content.drawing_chart() {
+            Some(c) => c,
+            None => return,
+        };
+        let drawing = match chart.drawings().get(id) {
+            Some(d) if d.tool == DrawingTool::AiContext => d,
+            _ => return,
+        };
+        if drawing.points.len() < 2 {
+            return;
+        }
+
+        let t1 = drawing.points[0].time;
+        let t2 = drawing.points[1].time;
+        let (time_start, time_end) = (t1.min(t2), t1.max(t2));
+
+        let p1 = drawing.points[0].price.to_f64();
+        let p2 = drawing.points[1].price.to_f64();
+        let (price_lo, price_hi) = if p1 < p2 { (p1, p2) } else { (p2, p1) };
+
+        // Ticker + timeframe
+        let ticker = self
+            .ticker_info
+            .map(|t| t.ticker.as_str().to_string())
+            .unwrap_or_else(|| "?".into());
+        let timeframe = self
+            .settings
+            .selected_basis
+            .map(|b| format!("{}", b))
+            .unwrap_or_else(|| "?".into());
+
+        // Tick decimals for price formatting
+        let tick_decimals = self
+            .ticker_info
+            .map(|t| {
+                let ts = t.tick_size;
+                if ts <= 0.0 {
+                    2
+                } else {
+                    (-(ts as f64).log10()).ceil() as usize
+                }
+            })
+            .unwrap_or(2);
+
+        // Filter candles in range
+        let candles: Vec<_> = self
+            .chart_data
+            .as_ref()
+            .map(|cd| {
+                cd.candles
+                    .iter()
+                    .filter(|c| c.time.0 >= time_start && c.time.0 <= time_end)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if candles.is_empty() {
+            // No candles — delete drawing and show toast
+            if let Some(chart) = self.content.drawing_chart_mut() {
+                chart.drawings_mut().delete(id);
+                chart.invalidate_all_drawing_caches();
+            }
+            self.notifications.push(
+                crate::components::display::toast::Toast::warn(
+                    "No candles in selected range".to_string(),
+                ),
+            );
+            return;
+        }
+
+        // Aggregate stats
+        let candle_count = candles.len();
+        let total_volume: u64 =
+            candles.iter().map(|c| c.volume() as u64).sum();
+        let net_delta: i64 = candles
+            .iter()
+            .map(|c| c.buy_volume.0 as i64 - c.sell_volume.0 as i64)
+            .sum();
+
+        // Format timestamps
+        let fmt_ts = |ms: u64| -> String {
+            chrono::DateTime::from_timestamp_millis(ms as i64)
+                .map(|dt| dt.format("%m/%d %H:%M").to_string())
+                .unwrap_or_else(|| "?".into())
+        };
+
+        // Pre-format OHLCV lines (cap at 50)
+        let max_lines = 50;
+        let candle_ohlcv_lines: Vec<String> = candles
+            .iter()
+            .take(max_lines)
+            .map(|c| {
+                let ts =
+                    chrono::DateTime::from_timestamp_millis(c.time.0 as i64)
+                        .map(|dt| dt.format("%H:%M").to_string())
+                        .unwrap_or_else(|| "?".into());
+                let delta =
+                    c.buy_volume.0 as i64 - c.sell_volume.0 as i64;
+                let sign = if delta >= 0 { "+" } else { "" };
+                format!(
+                    "{} O={:.prec$} H={:.prec$} L={:.prec$} C={:.prec$} \
+                     V={:.0} D={sign}{}",
+                    ts,
+                    c.open.to_f64(),
+                    c.high.to_f64(),
+                    c.low.to_f64(),
+                    c.close.to_f64(),
+                    c.volume(),
+                    delta,
+                    prec = tick_decimals,
+                )
+            })
+            .collect();
+
+        let summary = AiContextSummary {
+            ticker: ticker.clone(),
+            timeframe: timeframe.clone(),
+            time_start_fmt: fmt_ts(time_start),
+            time_end_fmt: fmt_ts(time_end),
+            price_high: format!("{:.prec$}", price_hi, prec = tick_decimals),
+            price_low: format!("{:.prec$}", price_lo, prec = tick_decimals),
+            candle_count,
+            total_volume: format_number(total_volume),
+            net_delta: {
+                let sign = if net_delta >= 0 { "+" } else { "" };
+                format!("{sign}{}", format_number(net_delta.unsigned_abs()))
+            },
+            candle_ohlcv_lines,
+        };
+
+        self.ai_context_bubble = Some(AiContextBubble {
+            drawing_id: id,
+            input_text: String::new(),
+            range_summary: summary,
+        });
     }
 
     /// Center the chart view on the last price, showing ~50 bars
@@ -527,7 +714,7 @@ impl State {
             .map(|c| domain_to_exchange_price(c.close));
 
         match &mut self.content {
-            Content::Kline { chart: Some(c), .. } => {
+            Content::Candlestick { chart: Some(c), .. } => {
                 let chart = c.mut_state();
                 let x_translation = 0.5
                     * (chart.bounds.width / chart.scaling)

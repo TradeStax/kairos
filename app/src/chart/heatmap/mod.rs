@@ -30,10 +30,11 @@ pub mod trades;
 
 use crate::chart::{
     Chart, PlotLimits, ViewState,
+    core::tokens as chart_tokens,
     drawing::{ChartDrawingAccess, DrawingManager},
     scale::linear::PriceInfoLabel,
 };
-use crate::modals::pane::settings::study;
+use crate::modals::pane::settings::study_config as study;
 
 use data::{HeatmapData, QtyScale, VolumeProfile, VolumeProfileKey};
 
@@ -55,19 +56,11 @@ pub use render::HeatmapStudy;
 pub use trades::TradeRenderingMode;
 
 // ── Constants - Visual Configuration ──────────────────────────────────
+// Cell size limits are defined centrally in chart::core::tokens::heatmap.
 
-/// Maximum cell width in pixels
-const MAX_CELL_WIDTH: f32 = 12.0;
-/// Minimum cell width in pixels
-const MIN_CELL_WIDTH: f32 = 1.0;
-
-/// Maximum cell height in pixels
-const MAX_CELL_HEIGHT: f32 = 10.0;
-/// Minimum cell height in pixels
-const MIN_CELL_HEIGHT: f32 = 0.1;
-
-/// Default cell width
-const DEFAULT_CELL_WIDTH: f32 = 3.0;
+use chart_tokens::heatmap::{
+    DEFAULT_CELL_WIDTH, MAX_CELL_HEIGHT, MAX_CELL_WIDTH, MIN_CELL_HEIGHT, MIN_CELL_WIDTH,
+};
 
 // ── Chart Trait Implementation ────────────────────────────────────────
 
@@ -300,6 +293,7 @@ impl HeatmapChart {
             ViewConfig {
                 splits: layout.splits,
                 autoscale: Some(::data::Autoscale::CenterLatest),
+                side_splits: layout.side_splits,
             },
             DEFAULT_CELL_WIDTH,
             4.0,

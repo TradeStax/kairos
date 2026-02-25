@@ -8,9 +8,9 @@ use crate::config::{
     ParameterValue, StudyConfig, Visibility,
 };
 use crate::error::StudyError;
-use crate::orderflow::profile_core;
+use crate::orderflow::vbp::profile_core;
 use crate::output::{PriceLevel, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 

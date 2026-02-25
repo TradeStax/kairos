@@ -190,6 +190,16 @@ impl DrawingManager {
                 vbp_config: Some(VbpDrawingConfig::default()),
                 ..self.default_style.clone()
             },
+            DrawingTool::AiContext => DrawingStyle {
+                stroke_color: data::SerializableColor::new(0.35, 0.55, 0.95, 0.7),
+                stroke_width: 1.0,
+                line_style: LineStyle::Dashed,
+                fill_color: Some(data::SerializableColor::new(
+                    0.35, 0.55, 0.95, 0.08,
+                )),
+                fill_opacity: 0.08,
+                ..self.default_style.clone()
+            },
             _ => self.default_style.clone(),
         }
     }
@@ -225,6 +235,7 @@ impl DrawingManager {
                     drawing.vbp_study = Some(Box::new(study));
                 }
             }
+            DrawingTool::AiContext => {} // Handled by pane drawing logic
             _ => {}
         }
     }

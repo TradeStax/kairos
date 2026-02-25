@@ -1,6 +1,4 @@
-mod chart_loading;
-mod feed_management;
-mod pane_management;
+pub(crate) mod ops;
 pub mod pane;
 pub mod panel;
 pub mod sidebar;
@@ -9,7 +7,7 @@ mod view;
 
 pub use sidebar::Sidebar;
 
-use crate::{components::display::toast::Toast, window};
+use crate::{components::display::toast::Toast, infra::window};
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum DashboardError {
@@ -20,7 +18,7 @@ pub enum DashboardError {
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
-use data::{ChartConfig, ChartData, ChartState, LoadingStatus, WindowSpec};
+use data::{ChartConfig, ChartData, LoadingStatus, WindowSpec};
 use exchange::FuturesTickerInfo;
 
 use iced::widget::pane_grid::{self, Configuration};
@@ -80,13 +78,12 @@ pub enum Message {
 }
 
 pub struct Dashboard {
-    pub panes: pane_grid::State<pane::State>,
-    pub focus: Option<(window::Id, pane_grid::Pane)>,
-    pub popout: HashMap<window::Id, (pane_grid::State<pane::State>, WindowSpec)>,
-    pub charts: HashMap<uuid::Uuid, ChartState>,
-    pub market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-    pub crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>,
-    pub data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    pub(crate) panes: pane_grid::State<pane::State>,
+    pub(crate) focus: Option<(window::Id, pane_grid::Pane)>,
+    pub(crate) popout: HashMap<window::Id, (pane_grid::State<pane::State>, WindowSpec)>,
+    pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
+    pub(crate) crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>,
+    pub(crate) data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
 }
 
 impl Dashboard {
@@ -97,7 +94,6 @@ impl Dashboard {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
             focus: None,
-            charts: HashMap::new(),
             market_data_service,
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
@@ -131,6 +127,25 @@ pub enum Event {
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)
     DrawingToolChanged(data::DrawingTool),
+    /// AI assistant wants to send a message
+    AiRequest {
+        pane_id: uuid::Uuid,
+        user_message: String,
+    },
+    /// AI pane credential modal: save an OpenRouter API key
+    SaveAiApiKey(String),
+    /// AI context query from a chart drawing selection
+    AiContextQuery {
+        source_pane_id: uuid::Uuid,
+        context: String,
+        question: String,
+    },
+    /// AI preferences changed (persist to saved state)
+    AiPreferencesChanged {
+        model: String,
+        temperature: f32,
+        max_tokens: u32,
+    },
 }
 
 impl Dashboard {
@@ -163,7 +178,6 @@ impl Dashboard {
         Self {
             panes,
             focus: None,
-            charts: HashMap::new(),
             market_data_service,
             popout,
             crosshair_positions: HashMap::new(),

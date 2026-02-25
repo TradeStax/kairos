@@ -20,49 +20,58 @@ impl Kairos {
             config.chart_type
         );
 
-        // Validate that a Databento feed is connected and track which feed
-        let databento_feed_id = {
-            let feed_manager = self
-                .data_feed_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            match feed_manager.connected_feed_id_for_provider(data::FeedProvider::Databento) {
-                Some(fid) => fid,
-                None => {
-                    log::warn!("No Databento feed connected - cannot load chart data");
-                    self.notifications.push(Toast::error(
-                        "No data feed connected. Connect a feed in \
-                         connection settings."
-                            .to_string(),
-                    ));
-                    return Task::done(Message::Dashboard {
-                        layout_id: Some(layout_id),
-                        event: dashboard::Message::ChangePaneStatus(
-                            pane_id,
-                            LoadingStatus::Error {
-                                message: "No data feed connected".to_string(),
-                            },
-                        ),
-                    });
-                }
-            }
+        // Resolve the best available data feed (Databento > Rithmic)
+        let resolved = {
+            let feed_manager =
+                data::lock_or_recover(&self.connections.data_feed_manager);
+            feed_manager.resolve_feed_for_chart()
+        };
+
+        let Some(resolved) = resolved else {
+            log::warn!("No data feed connected - cannot load chart data");
+            self.ui.notifications.push(Toast::error(
+                "No data feed connected. Connect a feed in \
+                 connection settings."
+                    .to_string(),
+            ));
+            return Task::done(Message::Dashboard {
+                layout_id: Some(layout_id),
+                event: dashboard::Message::ChangePaneStatus(
+                    pane_id,
+                    LoadingStatus::Error {
+                        message: "No data feed connected".to_string(),
+                    },
+                ),
+            });
         };
 
         // Set feed_id on the pane so we know which feed owns its data
-        if let Some(dashboard) = self.layout_manager.mut_dashboard(layout_id) {
+        if let Some(dashboard) = self.persistence.layout_manager.mut_dashboard(layout_id) {
             let main_window = self.main_window.id;
-            if let Some(pane_state) = dashboard.get_mut_pane_state_by_uuid(main_window, pane_id) {
-                pane_state.feed_id = Some(databento_feed_id);
+            if let Some(pane_state) =
+                dashboard.get_mut_pane_state_by_uuid(main_window, pane_id)
+            {
+                pane_state.feed_id = Some(resolved.feed_id);
             }
         }
 
-        let Some(service) = self.market_data_service.clone() else {
-            log::warn!("Market data service not available (API key not configured)");
-            self.notifications.push(Toast::error(
-                "Databento API key not configured. Set it in connection \
-                 settings."
-                    .to_string(),
-            ));
+        // Realtime-only feed (e.g. Rithmic): create empty chart data
+        // and let the live stream populate it
+        if !resolved.has_historical {
+            log::info!(
+                "Realtime-only feed for pane {} — empty chart, \
+                 live data will populate",
+                pane_id
+            );
+            let chart_data = data::ChartData::from_trades(vec![], vec![]);
+            return Task::done(Message::Chart(ChartMessage::ChartDataLoaded {
+                layout_id,
+                pane_id,
+                result: Ok(chart_data),
+            }));
+        }
+
+        let Some(service) = self.require_market_service() else {
             return Task::none();
         };
 
@@ -119,7 +128,7 @@ impl Kairos {
             }
             Err(e) => {
                 log::error!("Failed to load chart data for pane {}: {}", pane_id, e);
-                self.notifications
+                self.ui.notifications
                     .push(Toast::error(format!("Failed to load chart data: {}", e)));
 
                 Task::done(Message::Dashboard {
@@ -140,17 +149,17 @@ impl Kairos {
         layout_id: uuid::Uuid,
         pane_id: uuid::Uuid,
     ) -> Task<Message> {
-        if !self.replay_manager.data_loaded {
+        if !self.modals.replay_manager.data_loaded {
             return Task::none();
         }
 
-        let Some(ref stream) = self.replay_manager.selected_stream else {
+        let Some(ref stream) = self.modals.replay_manager.selected_stream else {
             return Task::none();
         };
         let replay_ticker = stream.ticker_info.ticker;
 
         // Find the pane in the layout and check its ticker
-        let Some(layout) = self.layout_manager.get(layout_id) else {
+        let Some(layout) = self.persistence.layout_manager.get(layout_id) else {
             return Task::none();
         };
 
@@ -180,7 +189,7 @@ impl Kairos {
             return Task::none();
         }
 
-        let Some(engine) = self.replay_engine.clone() else {
+        let Some(engine) = self.services.replay_engine.clone() else {
             return Task::none();
         };
 
@@ -216,26 +225,21 @@ impl Kairos {
 
         // 1. Merge the scanned index into the shared DataIndex
         {
-            let mut index = data::lock_or_recover(&self.data_index);
+            let mut index = data::lock_or_recover(&self.persistence.data_index);
             index.merge(new_index);
         }
 
         // 2. Rebuild tickers_info and ticker_ranges from the index
-        let available_tickers: std::collections::HashSet<String> = {
-            let index = data::lock_or_recover(&self.data_index);
-            index.available_tickers().into_iter().collect()
-        };
-        self.tickers_info = super::super::build_tickers_info(available_tickers);
-        self.ticker_ranges = Self::build_ticker_ranges(&self.data_index);
+        self.rebuild_ticker_data();
         log::info!(
             "DataIndex rebuilt - {} ticker(s) available",
-            self.tickers_info.len()
+            self.persistence.tickers_info.len()
         );
 
         // 3. For each pane with a ticker, resolve the range and reload
         //    if the resolved range differs from the pane's current loaded range
         let Some(lid) = self
-            .layout_manager
+            .persistence.layout_manager
             .active_layout_id()
             .map(|id| id.unique)
         else {
@@ -245,7 +249,7 @@ impl Kairos {
         let main_window = self.main_window.id;
         let mut reload_tasks = Vec::new();
 
-        for layout in &mut self.layout_manager.layouts {
+        for layout in &mut self.persistence.layout_manager.layouts {
             for (_, _, state) in layout.dashboard.iter_all_panes(main_window) {
                 let Some(ticker_info) = state.ticker_info else {
                     continue;
@@ -253,10 +257,8 @@ impl Kairos {
 
                 let chart_type = state.content.kind().to_chart_type();
                 let resolved_range = {
-                    let index = self
-                        .data_index
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
+                    let index =
+                        data::lock_or_recover(&self.persistence.data_index);
                     index.resolve_chart_range(
                         ticker_info.ticker.as_str(),
                         chart_type,
@@ -267,8 +269,13 @@ impl Kairos {
                     continue;
                 };
 
-                // Skip if already loaded with this range
-                if state.loaded_date_range == Some(range) {
+                // Skip if already loaded with this range (unless in error state)
+                if state.loaded_date_range == Some(range)
+                    && !matches!(
+                        state.loading_status,
+                        LoadingStatus::Error { .. }
+                    )
+                {
                     continue;
                 }
 
@@ -307,7 +314,7 @@ impl Kairos {
     }
 
     pub(crate) fn fetch_loading_statuses(&mut self) -> Task<Message> {
-        let Some(service) = self.market_data_service.clone() else {
+        let Some(service) = self.services.market_data_service.clone() else {
             return Task::none();
         };
 
@@ -323,29 +330,74 @@ impl Kairos {
         &mut self,
         all_statuses: std::collections::HashMap<String, LoadingStatus>,
     ) -> Task<Message> {
+        let mut tasks = Vec::new();
+
         for (chart_key, status) in all_statuses {
-            for layout in &self.layout_manager.layouts {
-                if let Some((pane_id, _)) =
-                    layout.dashboard.charts.iter().find(|(_, chart_state)| {
-                        let config = &chart_state.config;
+            for layout in &self.persistence.layout_manager.layouts {
+                // Check main panes
+                for (_, state) in layout.dashboard.panes.iter() {
+                    let Some(ticker_info) = state.ticker_info else {
+                        continue;
+                    };
+                    let basis = state
+                        .settings
+                        .selected_basis
+                        .unwrap_or(data::ChartBasis::Time(data::Timeframe::M5));
+                    let Some(date_range) = state.loaded_date_range else {
+                        continue;
+                    };
+                    let key = format!(
+                        "{}-{:?}-{:?}",
+                        ticker_info.ticker, basis, date_range
+                    );
+                    if key == chart_key {
+                        tasks.push(Task::done(Message::Dashboard {
+                            layout_id: Some(layout.id.unique),
+                            event: dashboard::Message::ChangePaneStatus(
+                                state.unique_id(),
+                                status.clone(),
+                            ),
+                        }));
+                    }
+                }
+                // Check popout panes
+                for (_, (popout_panes, _)) in &layout.dashboard.popout {
+                    for (_, state) in popout_panes.iter() {
+                        let Some(ticker_info) = state.ticker_info else {
+                            continue;
+                        };
+                        let basis = state
+                            .settings
+                            .selected_basis
+                            .unwrap_or(
+                                data::ChartBasis::Time(data::Timeframe::M5),
+                            );
+                        let Some(date_range) = state.loaded_date_range
+                        else {
+                            continue;
+                        };
                         let key = format!(
                             "{}-{:?}-{:?}",
-                            config.ticker, config.basis, config.date_range
+                            ticker_info.ticker, basis, date_range
                         );
-                        key == chart_key
-                    })
-                {
-                    return Task::done(Message::Dashboard {
-                        layout_id: Some(layout.id.unique),
-                        event: dashboard::Message::ChangePaneStatus(
-                            *pane_id,
-                            status.clone(),
-                        ),
-                    });
+                        if key == chart_key {
+                            tasks.push(Task::done(Message::Dashboard {
+                                layout_id: Some(layout.id.unique),
+                                event: dashboard::Message::ChangePaneStatus(
+                                    state.unique_id(),
+                                    status.clone(),
+                                ),
+                            }));
+                        }
+                    }
                 }
             }
         }
 
-        Task::none()
+        if tasks.is_empty() {
+            Task::none()
+        } else {
+            Task::batch(tasks)
+        }
     }
 }

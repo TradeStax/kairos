@@ -32,13 +32,39 @@ Four workspace crates (Rust edition 2024):
 
 ```
 app/src/                # Application layer — kairos (Iced GUI)
-├── app/               # Kairos struct, message enums, update routing, services
-│   ├── globals.rs     # OnceLock statics: DOWNLOAD_PROGRESS, RITHMIC_EVENTS, REPLAY_EVENTS
-│   ├── messages.rs    # Message, ChartMessage, DownloadMessage, OptionsMessage
-│   ├── view.rs        # Kairos::view() — top-level view dispatch
-│   ├── sidebar_view.rs # view_with_modal() — sidebar modal rendering
-│   ├── ticker_registry.rs # build_tickers_info(), futures product list
-│   └── update/        # Message handlers: chart, download, feeds, navigation, options, preferences, replay
+├── app/               # Kairos struct, message enums, update routing
+│   ├── mod.rs         # Kairos struct, new(), re-exports
+│   ├── messages.rs    # Message, ChartMessage, DownloadMessage, OptionsMessage, WindowMessage, BacktestMessage
+│   ├── backtest/      # Backtest app state
+│   │   ├── mod.rs     # Re-exports
+│   │   └── history.rs # BacktestHistory, BacktestStatus, BacktestHistoryEntry
+│   ├── core/          # App-level globals and subscriptions (distinct from chart/core)
+│   │   ├── globals.rs # OnceLock/AtomicBool statics (download, rithmic, replay, backtest, AI)
+│   │   └── subscriptions.rs # build_subscription(), event monitors
+│   ├── init/          # Startup and service creation
+│   │   ├── bootstrap.rs # seed_data_index_from_registry, auto_connect_feeds, handle_services_ready
+│   │   ├── services.rs   # create_unified_registry, initialize_*_services, AllServicesResult
+│   │   └── ticker_registry.rs # FUTURES_PRODUCTS, build_tickers_info
+│   ├── layout/        # Layout and dashboard operations
+│   │   └── dashboard.rs # active_dashboard, load_layout, save_state_to_disk, handle_layout_*
+│   ├── update/        # Message handlers
+│   │   ├── mod.rs     # Kairos::update() dispatch, with_feed_manager, rebuild_ticker_data
+│   │   ├── ai.rs
+│   │   ├── backtest.rs
+│   │   ├── chart.rs
+│   │   ├── download.rs
+│   │   ├── feeds/      # Data feed connect/disconnect, preview
+│   │   │   ├── mod.rs
+│   │   │   ├── databento.rs
+│   │   │   └── rithmic.rs
+│   │   ├── menu_bar.rs
+│   │   ├── shell.rs    # Tick, window events, exit, go_back, dashboard dispatch, data folder
+│   │   ├── options.rs  # #[cfg(feature = "options")]
+│   │   ├── preferences.rs
+│   │   └── replay.rs
+│   └── view/          # Top-level view
+│       ├── main.rs    # Kairos::view() — root view
+│       └── sidebar.rs # view_with_modal() — sidebar modal overlay
 ├── screen/dashboard/  # Main dashboard: pane grid, sidebar, panels (ladder, time&sales)
 │   ├── pane/          # Pane state, content types, lifecycle, view rendering
 │   ├── panel/         # Side panels: Ladder, TimeAndSales

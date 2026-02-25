@@ -28,9 +28,7 @@ pub fn hit_test_tool(
         DrawingTool::ExtendedLine => {
             hit_test_extended_line(screen_points, cursor, tolerance)
         }
-        DrawingTool::Rectangle | DrawingTool::PriceRange | DrawingTool::DateRange => {
-            hit_test_rect(screen_points, cursor, tolerance, style)
-        }
+        DrawingTool::Rectangle => hit_test_rect(screen_points, cursor, tolerance, style),
         DrawingTool::Ellipse => hit_test_ellipse(screen_points, cursor, tolerance, style),
         DrawingTool::FibRetracement => {
             hit_test_fib_retracement(screen_points, cursor, tolerance, style, bounds)
@@ -48,8 +46,9 @@ pub fn hit_test_tool(
             hit_test_calculator(screen_points, cursor, tolerance)
         }
         DrawingTool::VolumeProfile => {
-            hit_test_rect(screen_points, cursor, tolerance, style)
+            hit_test_rect_outline_only(screen_points, cursor, tolerance)
         }
+        DrawingTool::AiContext => hit_test_rect(screen_points, cursor, tolerance, style),
     }
 }
 
@@ -114,6 +113,30 @@ fn hit_test_extended_line(pts: &[Point], cursor: Point, tol: f32) -> bool {
 }
 
 // ── Shapes ───────────────────────────────────────────────────────────────
+
+/// Hit test only the outline of a rectangle (edges). Used for VBP so that
+/// clicking in the empty space inside does not select the drawing.
+fn hit_test_rect_outline_only(pts: &[Point], cursor: Point, tol: f32) -> bool {
+    if pts.len() < 2 {
+        return false;
+    }
+
+    let min_x = pts[0].x.min(pts[1].x);
+    let max_x = pts[0].x.max(pts[1].x);
+    let min_y = pts[0].y.min(pts[1].y);
+    let max_y = pts[0].y.max(pts[1].y);
+
+    let near_left =
+        (cursor.x - min_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_right =
+        (cursor.x - max_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_top =
+        (cursor.y - min_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+    let near_bottom =
+        (cursor.y - max_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+
+    near_left || near_right || near_top || near_bottom
+}
 
 fn hit_test_rect(
     pts: &[Point],
@@ -294,19 +317,21 @@ fn hit_test_channel(pts: &[Point], cursor: Point, tol: f32) -> bool {
 
 fn hit_test_text(pts: &[Point], cursor: Point, style: &DrawingStyle) -> bool {
     pts.first().map_or(false, |p| {
-        // Estimate bounding box based on text content length
+        let font_size = style.text_font_size.max(8.0);
         let text_len = style
             .text
             .as_deref()
-            .map(|t| t.len())
-            .unwrap_or(4) // "Text" default
+            .map(|t| t.chars().count())
+            .unwrap_or(4)
             .max(4);
-        // ~7px per character at 11px font size, with padding
-        let half_w = (text_len as f32 * 7.0 / 2.0).max(20.0);
-        let half_h = 10.0;
-        // Text is drawn at position (left-aligned), not centered
-        let cx = p.x + half_w;
-        (cursor.x - cx).abs() <= half_w && (cursor.y - p.y).abs() <= half_h
+        let char_width = font_size * 0.55;
+        let box_w = (text_len as f32 * char_width).max(20.0) + 8.0;
+        let box_h = font_size * 1.3 + 4.0;
+        // Box is drawn to the right of and below p
+        cursor.x >= p.x
+            && cursor.x <= p.x + box_w
+            && cursor.y >= p.y
+            && cursor.y <= p.y + box_h
     })
 }
 

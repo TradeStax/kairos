@@ -1,7 +1,7 @@
 use super::{Dashboard, Message, pane};
 use crate::{
     style::{self, tokens},
-    window::{self, Window},
+    infra::window::{self, Window},
 };
 use data::UserTimezone;
 use exchange::{FuturesTicker, FuturesTickerInfo};
@@ -86,6 +86,7 @@ impl Dashboard {
         timezone: UserTimezone,
         ticker_ranges: &'a std::collections::HashMap<String, String>,
     ) -> Element<'a, Message> {
+        // Pre-compute available chart panes from all panes (main + popout)
         if let Some((state, _)) = self.popout.get(&window) {
             let content = container(
                 PaneGrid::new(state, |id, pane, _maximized| {

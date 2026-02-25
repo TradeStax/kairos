@@ -58,7 +58,7 @@ fn draw_extension(
         }
         let level_y = pts[2].y + y_range * level.ratio as f32;
         let level_color: Color =
-            crate::style::theme_bridge::rgba_to_iced_color(level.color);
+            crate::style::theme::rgba_to_iced_color(level.color);
         let level_stroke =
             create_stroke(level_color, ctx.stroke_width, drawing.style.line_style);
 
@@ -109,7 +109,7 @@ fn draw_fib_levels(
 
         let level_y = p1.y + y_range * level.ratio as f32;
         let level_color: Color =
-            crate::style::theme_bridge::rgba_to_iced_color(level.color);
+            crate::style::theme::rgba_to_iced_color(level.color);
         let level_stroke = create_stroke(level_color, stroke_width, line_style);
 
         let (lx, rx) = if config.extend_lines {
@@ -133,7 +133,7 @@ fn draw_fib_levels(
 
     // Draw fill between levels using first level's color with low opacity
     let fill_color = if let Some(level) = config.levels.first() {
-        let c: Color = crate::style::theme_bridge::rgba_to_iced_color(level.color);
+        let c: Color = crate::style::theme::rgba_to_iced_color(level.color);
         c.scale_alpha(0.05)
     } else {
         Color::from_rgba(0.5, 0.5, 0.5, 0.05)

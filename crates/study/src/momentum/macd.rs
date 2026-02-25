@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::error::StudyError;
 use crate::output::{HistogramBar, LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::trend::ema::compute_ema;
 use crate::util::candle_key;
 use crate::{BEARISH_COLOR, BULLISH_COLOR};

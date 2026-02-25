@@ -3,9 +3,8 @@
 use iced::widget::{column, container, row, slider, space, text};
 use iced::{
     Alignment::{self, Center},
-    Color, Element,
+    Element,
     Length::{self, Fill},
-    Theme, border,
 };
 
 use crate::style::{self, tokens};
@@ -150,35 +149,7 @@ where
     let mut slider = iced::widget::slider(range, current, on_change)
         .width(Fill)
         .height(tokens::layout::SLIDER_HEIGHT)
-        .style(|theme: &Theme, status| {
-            let palette = theme.extended_palette();
-
-            slider::Style {
-                rail: slider::Rail {
-                    backgrounds: (
-                        palette.background.strong.color.into(),
-                        Color::TRANSPARENT.into(),
-                    ),
-                    width: 24.0,
-                    border: border::rounded(2),
-                },
-                handle: slider::Handle {
-                    shape: slider::HandleShape::Rectangle {
-                        width: 2,
-                        border_radius: 2.0.into(),
-                    },
-                    background: match status {
-                        iced::widget::slider::Status::Active => {
-                            palette.background.strong.color.into()
-                        }
-                        iced::widget::slider::Status::Hovered => palette.primary.base.color.into(),
-                        iced::widget::slider::Status::Dragged => palette.primary.weak.color.into(),
-                    },
-                    border_width: 0.0,
-                    border_color: Color::TRANSPARENT,
-                },
-            }
-        });
+        .style(style::slider::flat);
 
     if let Some(v) = step {
         slider = slider.step(v);

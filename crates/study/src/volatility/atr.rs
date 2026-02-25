@@ -1,10 +1,18 @@
+//! Average True Range (ATR).
+//!
+//! Measures market volatility as the Wilder-smoothed average of the True Range.
+//! True Range = max(High - Low, |High - PrevClose|, |Low - PrevClose|).
+//! Smoothing uses Wilder's method: `ATR(t) = (ATR(t-1) * (n-1) + TR(t)) / n`.
+//!
+//! Output: `StudyOutput::Lines` — a single volatility line in a Panel.
+
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::util::candle_key;
 use data::SerializableColor;
 

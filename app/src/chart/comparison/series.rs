@@ -51,7 +51,7 @@ impl TickerSeriesEditor {
                 }
                 self.show_config_for = Some(ticker);
                 self.editing_color = Some(data::config::theme::rgba_to_hsva(
-                    crate::style::theme_bridge::iced_color_to_rgba(applied_color),
+                    crate::style::theme::iced_color_to_rgba(applied_color),
                 ));
                 self.editing_name = applied_name;
                 None
@@ -61,7 +61,7 @@ impl TickerSeriesEditor {
                 if let Some(t) = self.show_config_for {
                     return Some(Action::SeriesColorChanged(
                         t,
-                        crate::style::theme_bridge::rgba_to_iced_color(
+                        crate::style::theme::rgba_to_iced_color(
                             data::config::theme::hsva_to_rgba(hsva),
                         ),
                     ));
@@ -115,7 +115,7 @@ impl TickerSeriesEditor {
                 let hsva_in = self
                     .editing_color
                     .unwrap_or_else(|| {
-                        data::config::theme::rgba_to_hsva(crate::style::theme_bridge::iced_color_to_rgba(
+                        data::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(
                             applied,
                         ))
                     });

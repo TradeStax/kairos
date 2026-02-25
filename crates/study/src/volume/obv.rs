@@ -1,10 +1,18 @@
+//! On Balance Volume (OBV).
+//!
+//! Cumulative indicator: adds the candle's volume when the close is higher
+//! than the previous close, subtracts it when lower.
+//! Formula: `OBV(t) = OBV(t-1) + sign(Close(t) - Close(t-1)) * Volume(t)`
+//!
+//! Output: `StudyOutput::Lines` — a single cumulative line.
+
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::traits::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::util::candle_key;
 use data::SerializableColor;
 

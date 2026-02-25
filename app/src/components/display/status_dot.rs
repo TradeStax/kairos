@@ -1,4 +1,8 @@
 //! Status indicator dot and badge.
+//!
+//! Note: `status_color()` (FeedStatus → Color mapping) lives in the consuming modals
+//! (`modals/data_feeds/view.rs`, `modals/connections/mod.rs`) — it is not part of
+//! this generic component library because it depends on `data::feed::FeedStatus`.
 
 use iced::widget::{container, row, text};
 use iced::{Border, Color, Element, Renderer, Theme};
@@ -6,11 +10,11 @@ use iced_anim::AnimationBuilder;
 
 use crate::style::{animation, palette, tokens};
 
-/// A small colored circle (8x8) indicating status.
+/// A small colored circle indicating status.
 pub fn status_dot<'a, Message: 'a>(color: Color) -> Element<'a, Message, Theme, Renderer> {
     container(iced::widget::Space::new())
-        .width(8)
-        .height(8)
+        .width(tokens::component::status_dot::SIZE)
+        .height(tokens::component::status_dot::SIZE)
         .style(move |_theme: &Theme| container::Style {
             background: Some(color.into()),
             border: Border {
@@ -22,13 +26,13 @@ pub fn status_dot<'a, Message: 'a>(color: Color) -> Element<'a, Message, Theme, 
         .into()
 }
 
-/// A small colored circle (8x8) with theme-derived color.
+/// A small colored circle with theme-derived color.
 pub fn status_dot_themed<'a, Message: 'a>(
     color_fn: impl Fn(&Theme) -> Color + 'a,
 ) -> Element<'a, Message, Theme, Renderer> {
     container(iced::widget::Space::new())
-        .width(8)
-        .height(8)
+        .width(tokens::component::status_dot::SIZE)
+        .height(tokens::component::status_dot::SIZE)
         .style(move |theme: &Theme| container::Style {
             background: Some(color_fn(theme).into()),
             border: Border {
@@ -65,7 +69,7 @@ pub fn status_badge_themed<'a, Message: 'a>(
     .into()
 }
 
-/// Animated small colored circle (8x8) — color smoothly transitions
+/// Animated small colored circle — color smoothly transitions
 /// when the target color changes between renders.
 pub fn animated_status_dot<'a, Message: Clone + 'a>(
     color: Color,

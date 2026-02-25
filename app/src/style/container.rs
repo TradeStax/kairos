@@ -1,9 +1,35 @@
 //! Container styles. Only `container::Style` return types.
 
+use iced::theme::palette::Extended as ExtendedPalette;
 use iced::widget::container::Style;
 use iced::{Border, Color, Shadow, Theme};
 
 use super::tokens;
+
+// ── Theme-polarity helpers ────────────────────────────────────────────
+//
+// Dark themes need lighter surfaces for contrast, light themes need darker
+// surfaces for the same effect — the polarity is inverted.
+//
+// These helpers encapsulate the recurring pattern:
+//   if palette.is_dark { lighter_value } else { darker_value }
+
+/// Returns `weak.color` on dark themes, `strong.color` on light themes.
+/// Use for subtle surface-level backgrounds that must adapt to theme polarity.
+fn shade_color(palette: &ExtendedPalette) -> Color {
+    if palette.is_dark {
+        palette.background.weak.color
+    } else {
+        palette.background.strong.color
+    }
+}
+
+/// Returns `Color::BLACK` scaled by `dark_alpha` on dark themes,
+/// `light_alpha` on light themes.
+/// Use for shadows that must be heavier on dark themes to remain visible.
+fn shadow_color(palette: &ExtendedPalette, dark_alpha: f32, light_alpha: f32) -> Color {
+    Color::BLACK.scale_alpha(if palette.is_dark { dark_alpha } else { light_alpha })
+}
 
 // ── Window Title Bar ──────────────────────────────────────────────────
 
@@ -37,39 +63,13 @@ pub fn pane_title_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: {
-            if palette.is_dark {
-                Some(
-                    palette
-                        .background
-                        .weak
-                        .color
-                        .scale_alpha(tokens::alpha::FAINT)
-                        .into(),
-                )
-            } else {
-                Some(
-                    palette
-                        .background
-                        .strong
-                        .color
-                        .scale_alpha(tokens::alpha::FAINT)
-                        .into(),
-                )
-            }
-        },
+        background: Some(shade_color(&palette).scale_alpha(tokens::alpha::FAINT).into()),
         ..Default::default()
     }
 }
 
 pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
     let palette = theme.extended_palette();
-
-    let color = if palette.is_dark {
-        palette.background.weak.color
-    } else {
-        palette.background.strong.color
-    };
 
     Style {
         text_color: Some(palette.background.base.text),
@@ -84,7 +84,7 @@ pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
             } else {
                 Border {
                     width: tokens::border::THIN,
-                    color: color.scale_alpha(tokens::alpha::MEDIUM),
+                    color: shade_color(&palette).scale_alpha(tokens::alpha::MEDIUM),
                     radius: tokens::radius::SM.into(),
                 }
             }
@@ -115,11 +115,7 @@ pub fn chart_modal(theme: &Theme) -> Style {
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
             blur_radius: tokens::shadow::XL,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::LIGHT
-            } else {
-                tokens::alpha::FAINT
-            }),
+            color: shadow_color(&palette, tokens::alpha::LIGHT, tokens::alpha::FAINT),
         },
         snap: true,
     }
@@ -144,11 +140,7 @@ pub fn dashboard_modal(theme: &Theme) -> Style {
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
             blur_radius: tokens::shadow::XXL,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::HEAVY
-            } else {
-                tokens::alpha::LIGHT
-            }),
+            color: shadow_color(&palette, tokens::alpha::HEAVY, tokens::alpha::LIGHT),
         },
         ..Default::default()
     }
@@ -194,11 +186,7 @@ pub fn modal_container(theme: &Theme) -> Style {
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
             blur_radius: tokens::shadow::SM,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::HEAVY
-            } else {
-                tokens::alpha::FAINT
-            }),
+            color: shadow_color(&palette, tokens::alpha::HEAVY, tokens::alpha::FAINT),
         },
         snap: true,
     }
@@ -219,11 +207,7 @@ pub fn dropdown_container(theme: &Theme) -> Style {
         shadow: Shadow {
             offset: iced::Vector { x: 2.0, y: 2.0 },
             blur_radius: tokens::shadow::LG,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::STRONG
-            } else {
-                tokens::alpha::SUBTLE
-            }),
+            color: shadow_color(&palette, tokens::alpha::STRONG, tokens::alpha::SUBTLE),
         },
         ..Default::default()
     }
@@ -253,29 +237,13 @@ pub fn floating_panel(theme: &Theme) -> Style {
         background: Some(palette.background.weakest.color.into()),
         border: Border {
             width: tokens::border::THIN,
-            color: if palette.is_dark {
-                palette
-                    .background
-                    .weak
-                    .color
-                    .scale_alpha(tokens::alpha::MEDIUM)
-            } else {
-                palette
-                    .background
-                    .strong
-                    .color
-                    .scale_alpha(tokens::alpha::MEDIUM)
-            },
+            color: shade_color(&palette).scale_alpha(tokens::alpha::MEDIUM),
             radius: tokens::radius::MD.into(),
         },
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 2.0 },
             blur_radius: tokens::shadow::XL,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::HEAVY
-            } else {
-                tokens::alpha::LIGHT
-            }),
+            color: shadow_color(&palette, tokens::alpha::HEAVY, tokens::alpha::LIGHT),
         },
         snap: true,
     }
@@ -285,27 +253,7 @@ pub fn floating_panel_header(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: {
-            if palette.is_dark {
-                Some(
-                    palette
-                        .background
-                        .weak
-                        .color
-                        .scale_alpha(tokens::alpha::FAINT)
-                        .into(),
-                )
-            } else {
-                Some(
-                    palette
-                        .background
-                        .strong
-                        .color
-                        .scale_alpha(tokens::alpha::FAINT)
-                        .into(),
-                )
-            }
-        },
+        background: Some(shade_color(&palette).scale_alpha(tokens::alpha::FAINT).into()),
         ..Default::default()
     }
 }
@@ -316,27 +264,7 @@ pub fn ticker_card(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: {
-            if palette.is_dark {
-                Some(
-                    palette
-                        .background
-                        .weak
-                        .color
-                        .scale_alpha(tokens::alpha::LIGHT)
-                        .into(),
-                )
-            } else {
-                Some(
-                    palette
-                        .background
-                        .strong
-                        .color
-                        .scale_alpha(tokens::alpha::LIGHT)
-                        .into(),
-                )
-            }
-        },
+        background: Some(shade_color(&palette).scale_alpha(tokens::alpha::LIGHT).into()),
         border: Border {
             radius: tokens::radius::MD.into(),
             width: tokens::border::THIN,
@@ -377,11 +305,7 @@ pub fn dragger_row_container(theme: &Theme) -> Style {
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
             blur_radius: tokens::shadow::MD,
-            color: Color::BLACK.scale_alpha(if palette.is_dark {
-                tokens::alpha::HEAVY
-            } else {
-                tokens::alpha::FAINT
-            }),
+            color: shadow_color(&palette, tokens::alpha::HEAVY, tokens::alpha::FAINT),
         },
         snap: true,
     }
