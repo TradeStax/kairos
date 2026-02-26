@@ -6,7 +6,7 @@
 use crate::components;
 use crate::style;
 use crate::style::{palette, tokens};
-use data::feed::{DataFeed, HistoricalDatasetInfo};
+use data::{Connection, HistoricalDatasetInfo};
 use iced::{
     Alignment, Color, Element, Length,
     widget::{button, canvas, column, container, row, scrollable, space, text_input},
@@ -19,7 +19,7 @@ use super::{DataFeedsMessage, DataFeedsModal};
 /// Preview data loaded for a historical dataset
 #[derive(Debug, Clone)]
 pub struct PreviewData {
-    pub feed_id: data::feed::FeedId,
+    pub feed_id: data::FeedId,
     pub price_line: Vec<(u64, f64)>,
     pub trades: Vec<TradePreviewRow>,
     pub total_trades: usize,
@@ -131,7 +131,7 @@ impl<Message> canvas::Program<Message> for PriceLineChart {
 impl DataFeedsModal {
     pub(super) fn view_historical_panel<'a>(
         &'a self,
-        feed: &'a DataFeed,
+        feed: &'a Connection,
         info: &'a HistoricalDatasetInfo,
     ) -> Element<'a, DataFeedsMessage> {
         // Editable name
@@ -236,14 +236,12 @@ impl DataFeedsModal {
                 let mut rows = column![header].spacing(tokens::spacing::XXXS);
                 for trade in preview.trades.iter().take(50) {
                     let is_buy = trade.side == "Buy";
-                    let side_text_style = move |theme: &iced::Theme| {
-                        iced::widget::text::Style {
-                            color: Some(if is_buy {
-                                palette::success_color(theme)
-                            } else {
-                                palette::error_color(theme)
-                            }),
-                        }
+                    let side_text_style = move |theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(if is_buy {
+                            palette::success_color(theme)
+                        } else {
+                            palette::error_color(theme)
+                        }),
                     };
 
                     let trade_row = row![

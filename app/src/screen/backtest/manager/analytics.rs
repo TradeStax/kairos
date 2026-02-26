@@ -3,20 +3,14 @@
 //! Five sections: prop firm simulation, Monte Carlo, risk & position
 //! sizing, P&L distribution + MAE/MFE scatter, and P&L by hour.
 
-use super::charts::{
-    BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart,
-    ScatterChart,
-};
+use super::charts::{BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart, ScatterChart};
 use super::computed::{ComputedAnalytics, PropFirmStatus};
 use super::{BacktestManager, ManagerMessage};
 use crate::app::backtest_history::BacktestHistory;
 use crate::components::primitives::icon_button::icon_button;
-use crate::components::primitives::icons::{Icon, AZERET_MONO};
+use crate::components::primitives::icons::{AZERET_MONO, Icon};
 use crate::style::{palette, tokens};
-use iced::widget::{
-    button, canvas, column, container, row, rule, scrollable,
-    text,
-};
+use iced::widget::{button, canvas, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};
 
 // ── Public Entry Point ──────────────────────────────────────────────
@@ -26,53 +20,37 @@ pub fn view<'a>(
     manager: &'a BacktestManager,
     history: &'a BacktestHistory,
 ) -> Element<'a, ManagerMessage> {
-    let entry = manager
-        .selected_id
-        .and_then(|id| history.get(id));
+    let entry = manager.selected_id.and_then(|id| history.get(id));
 
     let Some(entry) = entry else {
-        return empty_state(
-            "Select a completed backtest",
-        );
+        return empty_state("Select a completed backtest");
     };
 
     let Some(ref result) = entry.result else {
-        return empty_state(
-            "Select a completed backtest",
-        );
+        return empty_state("Select a completed backtest");
     };
 
     let Some(ref analytics) = manager.analytics else {
-        return empty_state(
-            "Select a completed backtest",
-        );
+        return empty_state("Select a completed backtest");
     };
 
     // ── Section 1: Prop Firm Simulation ────────────────────────
     let prop_firm_section = {
         let header = section_header("PROP FIRM SIMULATION");
 
-        let mut cards_row =
-            row![].spacing(tokens::spacing::SM);
-        for (i, pf) in
-            analytics.prop_firm_results.iter().enumerate()
-        {
+        let mut cards_row = row![].spacing(tokens::spacing::SM);
+        for (i, pf) in analytics.prop_firm_results.iter().enumerate() {
             let selected = manager.selected_prop_firm == Some(i);
-            cards_row = cards_row
-                .push(prop_firm_card(pf, i, selected));
+            cards_row = cards_row.push(prop_firm_card(pf, i, selected));
         }
 
-        let mut section = column![header, cards_row]
-            .spacing(tokens::spacing::SM);
+        let mut section = column![header, cards_row].spacing(tokens::spacing::SM);
 
         if let Some(pf) = manager
             .selected_prop_firm
             .and_then(|i| analytics.prop_firm_results.get(i))
         {
-            section = section.push(prop_firm_detail_view(
-                pf,
-                &manager.prop_firm_chart_cache,
-            ));
+            section = section.push(prop_firm_detail_view(pf, &manager.prop_firm_chart_cache));
         }
 
         section
@@ -80,9 +58,7 @@ pub fn view<'a>(
 
     // ── Section 2: Monte Carlo Simulation ──────────────────────
     let monte_carlo_section = {
-        let header = section_header(
-            "MONTE CARLO SIMULATION (100 paths)",
-        );
+        let header = section_header("MONTE CARLO SIMULATION (100 paths)");
 
         let original_equity: Vec<f64> = result
             .equity_curve
@@ -102,8 +78,7 @@ pub fn view<'a>(
         .width(Length::Fill)
         .height(Length::Fixed(250.0));
 
-        column![header, chart]
-            .spacing(tokens::spacing::SM)
+        column![header, chart].spacing(tokens::spacing::SM)
     };
 
     // ── Section 3: Risk & Position Sizing ──────────────────────
@@ -144,13 +119,11 @@ pub fn view<'a>(
             .width(Length::FillPortion(1))
     };
 
-    let charts_row = row![histogram_col, scatter_col]
-        .spacing(tokens::spacing::MD);
+    let charts_row = row![histogram_col, scatter_col].spacing(tokens::spacing::MD);
 
     // ── Section 5: Performance by Hour ─────────────────────────
     let hour_section = {
-        let header =
-            section_header("PERFORMANCE BY HOUR");
+        let header = section_header("PERFORMANCE BY HOUR");
 
         let bars: Vec<(String, f64)> = analytics
             .pnl_by_hour
@@ -162,11 +135,10 @@ pub fn view<'a>(
             bars,
             cache: &manager.bar_chart_cache,
         })
-            .width(Length::Fill)
-            .height(Length::Fixed(180.0));
+        .width(Length::Fill)
+        .height(Length::Fixed(180.0));
 
-        column![header, chart]
-            .spacing(tokens::spacing::SM)
+        column![header, chart].spacing(tokens::spacing::SM)
     };
 
     // ── Assemble ─────────────────────────────────────────────────
@@ -192,9 +164,7 @@ pub fn view<'a>(
 
 // ── Section Header ─────────────────────────────────────────────────
 
-fn section_header(
-    title: &str,
-) -> Element<'static, ManagerMessage> {
+fn section_header(title: &str) -> Element<'static, ManagerMessage> {
     text(title.to_string())
         .size(tokens::text::LABEL)
         .style(palette::neutral_text)
@@ -208,57 +178,41 @@ fn prop_firm_card(
     idx: usize,
     selected: bool,
 ) -> Element<'static, ManagerMessage> {
-    let name = text(pf.account_name.to_string())
-        .size(tokens::text::LABEL);
+    let name = text(pf.account_name.to_string()).size(tokens::text::LABEL);
 
-    let (badge_text, badge_style): (
-        &str,
-        fn(&iced::Theme) -> iced::widget::text::Style,
-    ) = match pf.status {
-        PropFirmStatus::Passed => ("PASSED", palette::success_text),
-        PropFirmStatus::Failed => ("FAILED", palette::error_text),
-        PropFirmStatus::Active => ("ACTIVE", palette::info_text),
-    };
+    let (badge_text, badge_style): (&str, fn(&iced::Theme) -> iced::widget::text::Style) =
+        match pf.status {
+            PropFirmStatus::Passed => ("PASSED", palette::success_text),
+            PropFirmStatus::Failed => ("FAILED", palette::error_text),
+            PropFirmStatus::Active => ("ACTIVE", palette::info_text),
+        };
     let badge = text(badge_text.to_string())
         .size(tokens::text::SMALL)
         .style(badge_style);
 
-    let pnl_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
-        if pf.final_pnl >= 0.0 {
-            palette::success_text
-        } else {
-            palette::error_text
-        };
-    let pnl_row = kv_row(
-        "P&L",
-        &format_pnl(pf.final_pnl),
-        Some(pnl_style),
-    );
+    let pnl_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.final_pnl >= 0.0 {
+        palette::success_text
+    } else {
+        palette::error_text
+    };
+    let pnl_row = kv_row("P&L", &format_pnl(pf.final_pnl), Some(pnl_style));
 
-    let dd_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
-        if pf.hit_drawdown_limit {
-            palette::error_text
-        } else {
-            palette::neutral_text
-        };
+    let dd_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.hit_drawdown_limit {
+        palette::error_text
+    } else {
+        palette::neutral_text
+    };
     let dd_row = kv_row(
         "Worst DD",
         &format!("{:.1}%", pf.worst_drawdown_pct),
         Some(dd_style),
     );
 
-    let daily_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
-        if pf.hit_daily_limit {
-            palette::warning_text
-        } else {
-            palette::neutral_text
-        };
+    let daily_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.hit_daily_limit {
+        palette::warning_text
+    } else {
+        palette::neutral_text
+    };
     let daily_row = kv_row(
         "Daily Loss",
         &format!("{:.1}%", pf.worst_daily_loss_pct),
@@ -270,11 +224,9 @@ fn prop_firm_card(
     let progress_bar = progress_bar_widget(progress_pct);
 
     let card_content =
-        column![name, badge, pnl_row, dd_row, daily_row, progress_bar]
-            .spacing(tokens::spacing::XS);
+        column![name, badge, pnl_row, dd_row, daily_row, progress_bar].spacing(tokens::spacing::XS);
 
-    let style_fn = move |theme: &iced::Theme,
-                         status: button::Status| {
+    let style_fn = move |theme: &iced::Theme, status: button::Status| {
         let p = theme.extended_palette();
         let bg_alpha = match status {
             button::Status::Hovered => 0.08,
@@ -315,9 +267,7 @@ fn prop_firm_card(
 
 // ── Progress Bar Widget ───────────────────────────────────────────
 
-fn progress_bar_widget(
-    pct: f64,
-) -> Element<'static, ManagerMessage> {
+fn progress_bar_widget(pct: f64) -> Element<'static, ManagerMessage> {
     let clamped = pct.clamp(0.0, 100.0) as f32 / 100.0;
     let fill_color = if pct >= 100.0 {
         tokens::backtest::PROP_FIRM_PROGRESS_COMPLETE
@@ -328,17 +278,11 @@ fn progress_bar_widget(
     // Track
     let track = container(
         container(text("").size(1.0))
-            .width(Length::FillPortion(
-                (clamped * 1000.0) as u16,
-            ))
+            .width(Length::FillPortion((clamped * 1000.0) as u16))
             .height(Length::Fixed(3.0))
-            .style(move |_theme: &iced::Theme| {
-                container::Style {
-                    background: Some(Background::Color(
-                        fill_color,
-                    )),
-                    ..Default::default()
-                }
+            .style(move |_theme: &iced::Theme| container::Style {
+                background: Some(Background::Color(fill_color)),
+                ..Default::default()
             }),
     )
     .width(Length::Fill)
@@ -375,31 +319,21 @@ fn prop_firm_detail_view<'a>(
         .size(tokens::text::BODY)
         .tooltip("Collapse")
         .on_press(ManagerMessage::SelectPropFirm(None))
-        .style(|theme, status| {
-            crate::style::button::secondary(theme, status)
-        });
+        .style(crate::style::button::secondary);
 
     let title_row = row![
-        text(format!("{} Detail", pf.account_name))
-            .size(tokens::text::LABEL),
+        text(format!("{} Detail", pf.account_name)).size(tokens::text::LABEL),
         iced::widget::Space::new().width(Length::Fill),
         collapse_btn,
     ]
     .align_y(iced::Alignment::Center);
 
-    let target_dollar =
-        pf.account_size * pf.profit_target_pct / 100.0;
-    let dd_limit_dollar =
-        pf.account_size * pf.max_drawdown_pct / 100.0;
-    let daily_limit_dollar =
-        pf.account_size * pf.daily_loss_limit_pct / 100.0;
+    let target_dollar = pf.account_size * pf.profit_target_pct / 100.0;
+    let dd_limit_dollar = pf.account_size * pf.max_drawdown_pct / 100.0;
+    let daily_limit_dollar = pf.account_size * pf.daily_loss_limit_pct / 100.0;
 
     let metrics = column![
-        kv_row_mono(
-            "Account Size",
-            &format_dollar(pf.account_size),
-            None,
-        ),
+        kv_row_mono("Account Size", &format_dollar(pf.account_size), None,),
         kv_row_mono(
             "Profit Target",
             &format!(
@@ -455,18 +389,12 @@ fn prop_firm_detail_view<'a>(
                 palette::neutral_text
             }),
         ),
-        kv_row_mono(
-            "Progress",
-            &format!("{:.1}%", pf.progress_pct),
-            None,
-        ),
+        kv_row_mono("Progress", &format!("{:.1}%", pf.progress_pct), None,),
     ]
     .spacing(tokens::spacing::XS);
 
-    let left_col = container(
-        column![metrics].spacing(tokens::spacing::SM),
-    )
-    .width(Length::Fixed(240.0));
+    let left_col =
+        container(column![metrics].spacing(tokens::spacing::SM)).width(Length::Fixed(240.0));
 
     // ── Right: equity curve chart ───────────────────────────
     let chart = canvas(PropFirmEquityChart {
@@ -484,53 +412,40 @@ fn prop_firm_detail_view<'a>(
         .width(Length::Fill)
         .height(Length::Fixed(200.0));
 
-    let body =
-        row![left_col, right_col].spacing(tokens::spacing::MD);
+    let body = row![left_col, right_col].spacing(tokens::spacing::MD);
 
-    container(
-        column![title_row, body].spacing(tokens::spacing::SM),
-    )
-    .padding(tokens::spacing::MD)
-    .width(Length::Fill)
-    .style(card_background)
-    .into()
+    container(column![title_row, body].spacing(tokens::spacing::SM))
+        .padding(tokens::spacing::MD)
+        .width(Length::Fill)
+        .style(card_background)
+        .into()
 }
 
 // ── Risk & Expectancy Card ─────────────────────────────────────────
 
-fn risk_expectancy_card<'a>(
-    analytics: &ComputedAnalytics,
-) -> Element<'a, ManagerMessage> {
+fn risk_expectancy_card<'a>(analytics: &ComputedAnalytics) -> Element<'a, ManagerMessage> {
     let title = text("RISK & EXPECTANCY")
         .size(tokens::text::LABEL)
         .style(palette::neutral_text);
 
-    let e_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
+    let e_style: fn(&iced::Theme) -> iced::widget::text::Style =
         if analytics.expectancy_per_trade >= 0.0 {
             palette::success_text
         } else {
             palette::error_text
         };
 
-    let var_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
-        if analytics.var_95 >= 0.0 {
-            palette::success_text
-        } else {
-            palette::error_text
-        };
+    let var_style: fn(&iced::Theme) -> iced::widget::text::Style = if analytics.var_95 >= 0.0 {
+        palette::success_text
+    } else {
+        palette::error_text
+    };
 
-    let cvar_style: fn(
-        &iced::Theme,
-    ) -> iced::widget::text::Style =
-        if analytics.cvar_99 >= 0.0 {
-            palette::success_text
-        } else {
-            palette::error_text
-        };
+    let cvar_style: fn(&iced::Theme) -> iced::widget::text::Style = if analytics.cvar_99 >= 0.0 {
+        palette::success_text
+    } else {
+        palette::error_text
+    };
 
     let rows = column![
         kv_row_mono(
@@ -556,20 +471,16 @@ fn risk_expectancy_card<'a>(
     ]
     .spacing(tokens::spacing::XS);
 
-    container(
-        column![title, rows].spacing(tokens::spacing::SM),
-    )
-    .padding(tokens::spacing::MD)
-    .width(Length::FillPortion(1))
-    .style(card_background)
-    .into()
+    container(column![title, rows].spacing(tokens::spacing::SM))
+        .padding(tokens::spacing::MD)
+        .width(Length::FillPortion(1))
+        .style(card_background)
+        .into()
 }
 
 // ── Position Sizing Card ───────────────────────────────────────────
 
-fn position_sizing_card<'a>(
-    analytics: &ComputedAnalytics,
-) -> Element<'a, ManagerMessage> {
+fn position_sizing_card<'a>(analytics: &ComputedAnalytics) -> Element<'a, ManagerMessage> {
     let title = text("POSITION SIZING")
         .size(tokens::text::LABEL)
         .style(palette::neutral_text);
@@ -577,17 +488,10 @@ fn position_sizing_card<'a>(
     let rows = column![
         kv_row_mono(
             "Kelly %",
-            &format!(
-                "{:.1}%",
-                analytics.kelly_criterion * 100.0
-            ),
+            &format!("{:.1}%", analytics.kelly_criterion * 100.0),
             None,
         ),
-        kv_row_mono(
-            "Optimal f",
-            &format!("{:.2}", analytics.optimal_f),
-            None,
-        ),
+        kv_row_mono("Optimal f", &format!("{:.2}", analytics.optimal_f), None,),
         kv_row_mono(
             "Risk of Ruin",
             &format!("{:.1}%", analytics.risk_of_ruin),
@@ -601,13 +505,11 @@ fn position_sizing_card<'a>(
     ]
     .spacing(tokens::spacing::XS);
 
-    container(
-        column![title, rows].spacing(tokens::spacing::SM),
-    )
-    .padding(tokens::spacing::MD)
-    .width(Length::FillPortion(1))
-    .style(card_background)
-    .into()
+    container(column![title, rows].spacing(tokens::spacing::SM))
+        .padding(tokens::spacing::MD)
+        .width(Length::FillPortion(1))
+        .style(card_background)
+        .into()
 }
 
 // ── Shared Helpers ─────────────────────────────────────────────────
@@ -615,9 +517,7 @@ fn position_sizing_card<'a>(
 fn kv_row(
     label: &str,
     value: &str,
-    style: Option<
-        fn(&iced::Theme) -> iced::widget::text::Style,
-    >,
+    style: Option<fn(&iced::Theme) -> iced::widget::text::Style>,
 ) -> Element<'static, ManagerMessage> {
     let lbl = text(label.to_string())
         .size(tokens::text::SMALL)
@@ -625,24 +525,18 @@ fn kv_row(
         .width(Length::Fixed(80.0));
 
     let val = if let Some(s) = style {
-        text(value.to_string())
-            .size(tokens::text::SMALL)
-            .style(s)
+        text(value.to_string()).size(tokens::text::SMALL).style(s)
     } else {
         text(value.to_string()).size(tokens::text::SMALL)
     };
 
-    row![lbl, val]
-        .spacing(tokens::spacing::SM)
-        .into()
+    row![lbl, val].spacing(tokens::spacing::SM).into()
 }
 
 fn kv_row_mono(
     label: &str,
     value: &str,
-    style: Option<
-        fn(&iced::Theme) -> iced::widget::text::Style,
-    >,
+    style: Option<fn(&iced::Theme) -> iced::widget::text::Style>,
 ) -> Element<'static, ManagerMessage> {
     let lbl = text(label.to_string())
         .size(tokens::text::SMALL)
@@ -660,9 +554,7 @@ fn kv_row_mono(
             .font(AZERET_MONO)
     };
 
-    row![lbl, val]
-        .spacing(tokens::spacing::SM)
-        .into()
+    row![lbl, val].spacing(tokens::spacing::SM).into()
 }
 
 // ── Currency Formatting ─────────────────────────────────────────────
@@ -688,9 +580,7 @@ fn format_pnl(value: f64) -> String {
 
 // ── Shared Styles ───────────────────────────────────────────────────
 
-fn card_background(
-    theme: &iced::Theme,
-) -> container::Style {
+fn card_background(theme: &iced::Theme) -> container::Style {
     let p = theme.extended_palette();
     container::Style {
         background: Some(Background::Color(Color {
@@ -707,9 +597,7 @@ fn card_background(
 
 // ── Empty State ─────────────────────────────────────────────────────
 
-fn empty_state<'a>(
-    msg: &'static str,
-) -> Element<'a, ManagerMessage> {
+fn empty_state<'a>(msg: &'static str) -> Element<'a, ManagerMessage> {
     let label = text(msg)
         .size(tokens::text::BODY)
         .color(Color::from_rgba(1.0, 1.0, 1.0, 0.4));

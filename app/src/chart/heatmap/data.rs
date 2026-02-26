@@ -3,7 +3,7 @@
 //! This module contains the internal data structures for organizing
 //! depth snapshots and trades into efficient lookup structures.
 
-use data::{ChartBasis, DepthSnapshot, Price as DataPrice, Trade as DomainTrade};
+use data::{ChartBasis, Depth as DepthSnapshot, Price as DataPrice, Trade as DomainTrade};
 use std::collections::BTreeMap;
 
 /// A single depth run - continuous orderbook presence at a price level
@@ -128,7 +128,7 @@ impl HeatmapData {
         basis: ChartBasis,
         _tick_size: DataPrice,
     ) {
-        let time = snapshot.time.to_millis();
+        let time = snapshot.time;
         let bucket_time = self.bucket_time(time, basis);
         let bucket_duration = self.bucket_duration(bucket_time, basis);
 
@@ -136,14 +136,13 @@ impl HeatmapData {
 
         // Process bids (buy orders)
         for (price, qty) in &snapshot.bids {
-            let price_units = price.units();
-            let qty_f32 = qty.value() as f32;
+            let price_units = *price;
+            let qty_f32 = *qty;
             let runs = self.depth_by_price.entry(price_units).or_default();
             // Coalesce with the last run if qty and side match and times are
             // adjacent
             if let Some(last) = runs.last_mut() {
-                if last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time
-                {
+                if last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time {
                     last.until_time = new_until;
                     continue;
                 }
@@ -158,14 +157,13 @@ impl HeatmapData {
 
         // Process asks (sell orders)
         for (price, qty) in &snapshot.asks {
-            let price_units = price.units();
-            let qty_f32 = qty.value() as f32;
+            let price_units = *price;
+            let qty_f32 = *qty;
             let runs = self.depth_by_price.entry(price_units).or_default();
             // Coalesce with the last run if qty and side match and times are
             // adjacent
             if let Some(last) = runs.last_mut() {
-                if !last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time
-                {
+                if !last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time {
                     last.until_time = new_until;
                     continue;
                 }
@@ -415,38 +413,32 @@ impl HeatmapData {
         let mut profile = vec![(0.0f32, 0.0f32); num_ticks];
         let mut max_aggr_volume = 0.0f32;
 
-        self.trades_by_time
-            .range(time_range)
-            .for_each(|(_, dp)| {
-                for (&(price_units, is_sell), &qty) in &dp.grouped_trades {
-                    let price = DataPrice::from_units(price_units);
-                    let grouped_price = if is_sell {
-                        price.round_to_side_step(true, step_as_price)
-                    } else {
-                        price.round_to_side_step(false, step_as_price)
-                    };
+        self.trades_by_time.range(time_range).for_each(|(_, dp)| {
+            for (&(price_units, is_sell), &qty) in &dp.grouped_trades {
+                let price = DataPrice::from_units(price_units);
+                let grouped_price = if is_sell {
+                    price.round_to_side_step(true, step_as_price)
+                } else {
+                    price.round_to_side_step(false, step_as_price)
+                };
 
-                    let grouped_units = grouped_price.units();
-                    if grouped_units < first_tick_units
-                        || grouped_units > last_tick_units
-                    {
-                        continue;
-                    }
-
-                    let index =
-                        ((grouped_units - first_tick_units) / step_units) as usize;
-
-                    if let Some(entry) = profile.get_mut(index) {
-                        if is_sell {
-                            entry.1 += qty;
-                        } else {
-                            entry.0 += qty;
-                        }
-                        max_aggr_volume =
-                            max_aggr_volume.max(entry.0 + entry.1);
-                    }
+                let grouped_units = grouped_price.units();
+                if grouped_units < first_tick_units || grouped_units > last_tick_units {
+                    continue;
                 }
-            });
+
+                let index = ((grouped_units - first_tick_units) / step_units) as usize;
+
+                if let Some(entry) = profile.get_mut(index) {
+                    if is_sell {
+                        entry.1 += qty;
+                    } else {
+                        entry.0 += qty;
+                    }
+                    max_aggr_volume = max_aggr_volume.max(entry.0 + entry.1);
+                }
+            }
+        });
 
         VolumeProfile {
             profile,

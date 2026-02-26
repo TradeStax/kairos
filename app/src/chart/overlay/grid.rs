@@ -3,8 +3,8 @@
 //! Draws subtle horizontal price grid lines and vertical time grid lines
 //! behind all chart content.
 
-use crate::chart::core::tokens;
 use crate::chart::core::ViewState;
+use crate::chart::core::tokens;
 use data::ChartBasis;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, Path, Stroke};
@@ -40,8 +40,11 @@ pub fn draw_price_grid(
         return;
     }
 
-    let grid_color =
-        palette.background.weak.color.scale_alpha(tokens::grid::ALPHA);
+    let grid_color = palette
+        .background
+        .weak
+        .color
+        .scale_alpha(tokens::grid::ALPHA);
     let grid_stroke = Stroke {
         width: tokens::grid::LINE_WIDTH,
         ..Stroke::default()
@@ -52,7 +55,7 @@ pub fn draw_price_grid(
     let mut iterations = 0;
 
     while price >= lowest && iterations < 200 {
-        let y = state.price_to_y(exchange::util::Price::from_f32(price));
+        let y = state.price_to_y(data::Price::from_f32(price));
 
         frame.stroke(
             &Path::line(
@@ -74,8 +77,11 @@ pub fn draw_time_grid(
     palette: &Extended,
     region: &Rectangle,
 ) {
-    let grid_color =
-        palette.background.weak.color.scale_alpha(tokens::grid::ALPHA);
+    let grid_color = palette
+        .background
+        .weak
+        .color
+        .scale_alpha(tokens::grid::ALPHA);
     let grid_stroke = Stroke {
         width: tokens::grid::LINE_WIDTH,
         ..Stroke::default()
@@ -148,6 +154,65 @@ pub fn draw_time_grid(
                 iterations += 1;
             }
         }
+    }
+}
+
+/// Draw vertical separator lines at day boundaries for sub-daily charts.
+///
+/// Only draws for `ChartBasis::Time` with intervals less than one day.
+/// Uses UTC midnight as the boundary — an acceptable approximation that
+/// avoids threading timezone into the canvas renderer.
+pub fn draw_date_separators(
+    state: &ViewState,
+    frame: &mut Frame,
+    palette: &Extended,
+    region: &Rectangle,
+) {
+    let interval_ms = match state.basis {
+        ChartBasis::Time(timeframe) => timeframe.to_milliseconds(),
+        ChartBasis::Tick(_) => return,
+    };
+
+    const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+    if interval_ms >= ONE_DAY_MS {
+        return;
+    }
+
+    let earliest = state.x_to_interval(region.x);
+    let latest = state.x_to_interval(region.x + region.width);
+
+    if latest <= earliest {
+        return;
+    }
+
+    let sep_color = palette
+        .background
+        .weak
+        .color
+        .scale_alpha(tokens::date_separator::ALPHA);
+    let sep_stroke = Stroke {
+        width: tokens::date_separator::LINE_WIDTH,
+        ..Stroke::default()
+    };
+    let sep_stroke = Stroke::with_color(sep_stroke, sep_color);
+
+    // Find first midnight at or after earliest
+    let first_midnight = ((earliest + ONE_DAY_MS - 1) / ONE_DAY_MS) * ONE_DAY_MS;
+
+    let mut t = first_midnight;
+    let mut iterations = 0;
+    while t <= latest && iterations < 100 {
+        let x = state.interval_to_x(t);
+        frame.stroke(
+            &Path::line(
+                Point::new(x, region.y),
+                Point::new(x, region.y + region.height),
+            ),
+            sep_stroke,
+        );
+        t += ONE_DAY_MS;
+        iterations += 1;
     }
 }
 

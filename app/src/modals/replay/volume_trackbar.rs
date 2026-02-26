@@ -1,8 +1,8 @@
 //! Custom canvas-based seek bar with volume histogram overlay.
 
-use data::UserTimezone;
-use data::domain::TimeRange;
-use data::services::VolumeBucket;
+use crate::config::UserTimezone;
+use crate::services::VolumeBucket;
+use data::TimeRange;
 use iced::widget::canvas::{self, Frame, Geometry, LineDash, Path, Stroke, Text as CanvasText};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, mouse};
 
@@ -40,20 +40,20 @@ impl<Message> canvas::Program<Message> for VolumeTrackbarProgram<'_, Message> {
     ) -> Option<canvas::Action<Message>> {
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(pos) = cursor.position_in(bounds) {
-                    if pos.y >= TOOLTIP_RESERVE {
-                        *state = Interaction::Dragging;
-                        let progress = (pos.x / bounds.width).clamp(0.0, 1.0);
-                        return Some(canvas::Action::publish((self.on_seek)(progress)));
-                    }
+                if let Some(pos) = cursor.position_in(bounds)
+                    && pos.y >= TOOLTIP_RESERVE
+                {
+                    *state = Interaction::Dragging;
+                    let progress = (pos.x / bounds.width).clamp(0.0, 1.0);
+                    return Some(canvas::Action::publish((self.on_seek)(progress)));
                 }
             }
             canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if matches!(state, Interaction::Dragging) {
-                    if let Some(pos) = cursor.position_in(bounds) {
-                        let progress = (pos.x / bounds.width).clamp(0.0, 1.0);
-                        return Some(canvas::Action::publish((self.on_seek)(progress)));
-                    }
+                if matches!(state, Interaction::Dragging)
+                    && let Some(pos) = cursor.position_in(bounds)
+                {
+                    let progress = (pos.x / bounds.width).clamp(0.0, 1.0);
+                    return Some(canvas::Action::publish((self.on_seek)(progress)));
                 }
                 if cursor.is_over(bounds) {
                     return Some(canvas::Action::request_redraw());

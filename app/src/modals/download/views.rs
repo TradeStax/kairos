@@ -173,7 +173,6 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
     schema_idx: usize,
     start_date: chrono::NaiveDate,
     end_date: chrono::NaiveDate,
-    cost: f64,
     cache_status: Option<&CacheStatus>,
     on_cancel: Message,
     on_confirm: Message,
@@ -186,20 +185,17 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
         .unwrap_or(0);
     let uncached_days = (total_days as usize).saturating_sub(cached_days);
 
-    let cost_text = if cached_days == total_days as usize {
-        text("Cost: Free (all data cached)")
+    let status_text = if cached_days == total_days as usize {
+        text("All data already cached — no download needed")
             .size(tokens::text::TITLE)
             .style(|theme: &iced::Theme| iced::widget::text::Style {
                 color: Some(theme.extended_palette().success.base.color),
             })
-    } else if cost < 0.01 {
-        text("Cost: $0.00 (may be incorrect)")
+    } else if uncached_days > 0 {
+        text(format!("{} days will be downloaded", uncached_days))
             .size(tokens::text::TITLE)
-            .style(|theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(theme.extended_palette().danger.base.color),
-            })
     } else {
-        text(format!("Cost: ${:.4} USD", cost)).size(tokens::text::TITLE)
+        text(format!("{} days total", total_days)).size(tokens::text::TITLE)
     };
 
     let confirm_content = container(
@@ -221,7 +217,7 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
             ))
             .size(tokens::text::BODY),
             space::vertical().height(Length::Fixed(12.0)),
-            cost_text,
+            status_text,
             space::vertical().height(Length::Fixed(16.0)),
             row![
                 button(

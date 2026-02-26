@@ -1,7 +1,4 @@
 //! Trade marker output types for the Big Trades study.
-//!
-//! Contains marker data, individual trade markers, debug info,
-//! shape configuration, and render configuration.
 
 use data::SerializableColor;
 use serde::{Deserialize, Serialize};
@@ -46,10 +43,7 @@ pub struct TradeMarkerDebug {
 }
 
 /// Shape used for rendering trade markers.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MarkerShape {
     #[default]
     Circle,
@@ -58,10 +52,7 @@ pub enum MarkerShape {
 }
 
 impl std::fmt::Display for MarkerShape {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MarkerShape::Circle => write!(f, "Circle"),
             MarkerShape::Square => write!(f, "Square"),
@@ -103,9 +94,7 @@ impl Default for MarkerRenderConfig {
             max_opacity: 0.60,
             show_text: true,
             text_size: 10.0,
-            text_color: SerializableColor::new(
-                0.88, 0.88, 0.88, 0.9,
-            ),
+            text_color: SerializableColor::new(0.88, 0.88, 0.88, 0.9),
         }
     }
 }

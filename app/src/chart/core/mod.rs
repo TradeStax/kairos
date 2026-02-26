@@ -8,15 +8,13 @@
 //! - `PlotLimits` - Chart-specific scaling constants
 
 mod caches;
+mod definition;
 mod interaction;
 pub(crate) mod macros;
 pub mod tokens;
-mod definition;
 mod view_state;
 
 pub use caches::Caches;
-pub use interaction::{
-    ChartState, Interaction, base_mouse_interaction, canvas_interaction,
-};
 pub use definition::{Chart, PanelStudyInfo, PlotLimits, SidePanelStudyInfo};
-pub use view_state::{CrosshairState, ViewState, x_to_interval};
+pub use interaction::{ChartState, Interaction, base_mouse_interaction, canvas_interaction};
+pub use view_state::{ViewState, x_to_interval};

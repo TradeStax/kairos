@@ -1,8 +1,8 @@
-//! Footprint data structs: top-level data, per-candle, and per-level.
+//! Footprint data: top-level container, per-candle, and per-level structs.
 
 use data::SerializableColor;
 
-use super::enums::*;
+use super::render::*;
 use super::scaling::*;
 
 /// Top-level footprint data produced by

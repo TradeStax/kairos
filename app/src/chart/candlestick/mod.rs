@@ -5,14 +5,15 @@ mod studies;
 use crate::chart::{
     Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
+    scale::linear::PriceInfoLabel,
 };
-use data::state::pane::CandleStyle;
+use crate::screen::dashboard::pane::config::CandleStyle;
+use data::FuturesTickerInfo;
 use data::util::count_decimals;
 use data::{
     Autoscale, Candle, ChartBasis, ChartData, Price as DomainPrice, Side, Trade, ViewConfig,
 };
-use exchange::FuturesTickerInfo;
-use exchange::util::{Price, PriceStep};
+use data::{Price, PriceStep};
 use iced::Vector;
 use iced::widget::canvas::Cache;
 use study::{CandleRenderConfig, Study as _};
@@ -47,11 +48,12 @@ impl Chart for KlineChart {
 
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
-        let x_cells = self.candle_replace_config()
+        let x_cells = self
+            .candle_replace_config()
             .map(|c| c.autoscale_x_cells)
             .unwrap_or(8.0);
-        let x_translation =
-            0.5 * (chart.bounds.width / chart.scaling) - (x_cells * chart.cell_width / chart.scaling);
+        let x_translation = 0.5 * (chart.bounds.width / chart.scaling)
+            - (x_cells * chart.cell_width / chart.scaling);
         Vector::new(x_translation, chart.translation.y)
     }
 
@@ -66,21 +68,15 @@ impl Chart for KlineChart {
     fn plot_limits(&self) -> PlotLimits {
         let cr = self.candle_replace_config();
         PlotLimits {
-            max_cell_width: cr
-                .map(|c| c.max_cell_width)
-                .unwrap_or(100.0),
-            min_cell_width: cr
-                .map(|c| c.min_cell_width)
-                .unwrap_or(1.0),
+            max_cell_width: cr.map(|c| c.max_cell_width).unwrap_or(100.0),
+            min_cell_width: cr.map(|c| c.min_cell_width).unwrap_or(1.0),
             max_cell_height: if self.has_candle_replace() {
                 100.0
             } else {
                 200.0
             },
             min_cell_height: 0.1,
-            default_cell_width: cr
-                .map(|c| c.default_cell_width)
-                .unwrap_or(4.0),
+            default_cell_width: cr.map(|c| c.default_cell_width).unwrap_or(4.0),
         }
     }
 
@@ -107,6 +103,7 @@ pub(crate) enum StudiesDirtyReason {
     /// Data replaced, basis changed, or params changed — full recompute.
     FullRecompute,
     /// Only new trades appended — use incremental path.
+    #[allow(dead_code)]
     NewTradesAppended,
 }
 
@@ -247,10 +244,12 @@ impl KlineChart {
 
         // Recalculate price scales
         let step = PriceStep::from_f32(ticker_info.tick_size);
-        let initial_window = self.candle_replace_config()
+        let initial_window = self
+            .candle_replace_config()
             .map(|c| c.initial_candle_window)
             .unwrap_or(60);
-        let cell_height_ratio = self.candle_replace_config()
+        let cell_height_ratio = self
+            .candle_replace_config()
             .map(|c| c.cell_height_ratio)
             .unwrap_or(1.0);
 
@@ -336,7 +335,8 @@ impl KlineChart {
     }
 
     pub fn invalidate(&mut self) {
-        let x_cells = self.candle_replace_config()
+        let x_cells = self
+            .candle_replace_config()
             .map(|c| c.autoscale_x_cells)
             .unwrap_or(8.0);
         let chart = &mut self.chart;
@@ -451,14 +451,12 @@ impl KlineChart {
             if new_range != self.last_visible_range {
                 self.last_visible_range = new_range;
                 // Only mark dirty if studies depend on visible_range
-                let has_range_dependent =
-                    self.studies.iter().any(|s| {
-                        s.placement()
-                            == study::StudyPlacement::Background
-                    });
+                let has_range_dependent = self
+                    .studies
+                    .iter()
+                    .any(|s| s.placement() == study::StudyPlacement::Background);
                 if has_range_dependent {
-                    self.studies_dirty =
-                        Some(StudiesDirtyReason::FullRecompute);
+                    self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
                 }
             }
         }
@@ -554,14 +552,8 @@ impl ChartDrawingAccess for KlineChart {
         self.compute_vbp_drawings();
     }
 
-    fn candle_open_at_time(
-        &self,
-        time: u64,
-    ) -> Option<exchange::util::Price> {
-        let idx = self
-            .chart_data
-            .candles
-            .partition_point(|c| c.time.0 < time);
+    fn candle_open_at_time(&self, time: u64) -> Option<data::Price> {
+        let idx = self.chart_data.candles.partition_point(|c| c.time.0 < time);
         self.chart_data
             .candles
             .get(idx)
@@ -676,6 +668,11 @@ impl KlineChart {
             .map(|c| c.time.0)
             .unwrap_or(0);
 
+        // Update last price for the price axis label
+        self.chart.base_price_y = Price::from_units(trade.price.units());
+        self.chart.last_price =
+            Some(PriceInfoLabel::Neutral(Price::from_units(trade.price.units())));
+
         // Incrementally update studies with the new trade
         if !self.studies.is_empty() {
             let input = study::StudyInput {
@@ -691,10 +688,11 @@ impl KlineChart {
                     log::warn!("Study '{}' append error: {}", s.id(), e);
                 }
             }
-            self.chart.cache.clear_main();
         }
-    }
 
+        // Always invalidate the main cache so the chart redraws
+        self.chart.cache.clear_main();
+    }
 }
 
 /// Convert domain price to exchange price

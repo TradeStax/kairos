@@ -4,8 +4,10 @@ use crate::screen::dashboard::pane::Message;
 use crate::split_column;
 use crate::style::tokens;
 
-use data::config::theme::{hsva_to_rgba, rgba_to_hsva};
-use data::state::pane::{CandleColorField, CandleStyle, KlineConfig, VisualConfig};
+use crate::config::theme::{hsva_to_rgba, rgba_to_hsva};
+use crate::screen::dashboard::pane::config::{
+    CandleColorField, CandleStyle, KlineConfig, VisualConfig,
+};
 
 use iced::widget::pane_grid;
 use iced::{
@@ -15,10 +17,7 @@ use iced::{
 
 use super::super::common::{cfg_view_container, sync_all_button};
 
-pub fn kline_cfg_view<'a>(
-    cfg: KlineConfig,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub fn kline_cfg_view<'a>(cfg: KlineConfig, pane: pane_grid::Pane) -> Element<'a, Message> {
     let editing = cfg.editing_color;
     let style = cfg.candle_style.clone();
 
@@ -47,8 +46,7 @@ pub fn kline_cfg_view<'a>(
             pane,
             &cfg,
         );
-        column![title("Bullish"), bull_body, bull_wick, bull_border]
-            .spacing(tokens::spacing::SM)
+        column![title("Bullish"), bull_body, bull_wick, bull_border].spacing(tokens::spacing::SM)
     };
 
     let bear_section = {
@@ -76,8 +74,7 @@ pub fn kline_cfg_view<'a>(
             pane,
             &cfg,
         );
-        column![title("Bearish"), bear_body, bear_wick, bear_border]
-            .spacing(tokens::spacing::SM)
+        column![title("Bearish"), bear_body, bear_wick, bear_border].spacing(tokens::spacing::SM)
     };
 
     let has_any_custom = style.bull_body_color.is_some()
@@ -111,8 +108,7 @@ pub fn kline_cfg_view<'a>(
         column![
             title("Rendering"),
             volume_opacity_toggle,
-            text("Candle opacity scales with volume")
-                .size(11),
+            text("Candle opacity scales with volume").size(11),
         ]
         .spacing(tokens::spacing::SM)
     };
@@ -124,19 +120,14 @@ pub fn kline_cfg_view<'a>(
             .on_toggle(move |checked| {
                 let mut new_cfg = cfg_for_debug.clone();
                 new_cfg.show_debug_info = checked;
-                Message::VisualConfigChanged(
-                    pane,
-                    VisualConfig::Kline(new_cfg),
-                    false,
-                )
+                Message::VisualConfigChanged(pane, VisualConfig::Kline(new_cfg), false)
             })
             .size(14)
             .text_size(13);
         column![
             title("Debug"),
             debug_toggle,
-            text("FPS, frame time, visible candles, LOD level")
-                .size(11),
+            text("FPS, frame time, visible candles, LOD level").size(11),
         ]
         .spacing(tokens::spacing::SM)
     };
@@ -195,8 +186,7 @@ pub fn kline_cfg_view<'a>(
         };
 
         let popup = container(
-            column![text(label).size(tokens::text::LABEL), picker,]
-                .spacing(tokens::spacing::SM),
+            column![text(label).size(tokens::text::LABEL), picker,].spacing(tokens::spacing::SM),
         )
         .padding(tokens::spacing::LG)
         .style(crate::style::dropdown_container);

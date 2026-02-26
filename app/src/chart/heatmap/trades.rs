@@ -72,8 +72,7 @@ pub fn render_sparse_trades(
 
             // Filter by trade size
             if qty > trade_size_filter {
-                let y_position =
-                    chart.price_to_y(exchange::util::Price::from_units(price.units()));
+                let y_position = chart.price_to_y(data::Price::from_units(price.units()));
 
                 let color = if is_sell {
                     palette.danger.base.color
@@ -143,8 +142,7 @@ pub fn render_dense_trades(
                 continue;
             }
 
-            let y_position =
-                chart.price_to_y(exchange::util::Price::from_units(price.units()));
+            let y_position = chart.price_to_y(data::Price::from_units(price.units()));
 
             let color = if is_sell {
                 palette.danger.base.color

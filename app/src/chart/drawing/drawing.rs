@@ -4,8 +4,8 @@
 
 use super::point::DrawingPoint;
 use crate::chart::ViewState;
-use data::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
-use exchange::util::Price as ExchangePrice;
+use crate::drawing::{DrawingId, DrawingStyle, DrawingTool, SerializableDrawing};
+use data::Price as ExchangePrice;
 use iced::{Color, Point, Size};
 
 /// A drawing on the chart
@@ -26,8 +26,8 @@ pub struct Drawing {
     pub locked: bool,
     /// Optional user label
     pub label: Option<String>,
-    /// Embedded VBP study instance (only for VolumeProfile drawings).
-    pub(crate) vbp_study: Option<Box<study::orderflow::VbpStudy>>,
+    /// Embedded VBP study instance (for VolumeProfile/DeltaProfile drawings).
+    pub(crate) vbp_study: Option<Box<study::studies::orderflow::VbpStudy>>,
     /// Cached open prices at left/right edge candles (transient, not serialized).
     pub(crate) vbp_edge_opens: Option<(ExchangePrice, ExchangePrice)>,
 }
@@ -56,8 +56,7 @@ impl Clone for Drawing {
             } else {
                 (0, 0)
             };
-            let mut cloned =
-                study::orderflow::VbpStudy::for_range(start, end);
+            let mut cloned = study::studies::orderflow::VbpStudy::for_range(start, end);
             let exported = s.export_config();
             cloned.import_config(&exported);
             Box::new(cloned)
@@ -182,7 +181,7 @@ impl Drawing {
     /// For VBP drawings, handles appear on the left/right edges at the
     /// candle open price instead of at the corner anchor points.
     pub fn handle_positions(&self, state: &ViewState, bounds: Size) -> Vec<Point> {
-        if self.tool == DrawingTool::VolumeProfile
+        if self.tool.is_vbp()
             && let Some((left_open, right_open)) = self.vbp_edge_opens
             && self.points.len() >= 2
         {
@@ -239,7 +238,7 @@ impl Drawing {
         let mut style = self.style.clone();
         // Export VBP config from embedded study before serialization
         if let Some(ref study) = self.vbp_study {
-            style.vbp_config = Some(data::VbpDrawingConfig {
+            style.vbp_config = Some(crate::drawing::VbpDrawingConfig {
                 params: study.export_config(),
             });
         }
@@ -256,18 +255,15 @@ impl Drawing {
 
     /// Create from serializable format
     pub fn from_serializable(drawing: &SerializableDrawing) -> Self {
-        let points: Vec<DrawingPoint> =
-            drawing.points.iter().map(DrawingPoint::from).collect();
+        let points: Vec<DrawingPoint> = drawing.points.iter().map(DrawingPoint::from).collect();
         let confirmed_count = points.len();
 
-        // Reconstruct VBP study for VolumeProfile drawings
-        let vbp_study = if drawing.tool == DrawingTool::VolumeProfile
-            && points.len() >= 2
-        {
+        // Reconstruct VBP study for VolumeProfile/DeltaProfile drawings
+        let vbp_study = if drawing.tool.is_vbp() && points.len() >= 2 {
             let t1 = points[0].time;
             let t2 = points[1].time;
             let (start, end) = (t1.min(t2), t1.max(t2));
-            let mut study = study::orderflow::VbpStudy::for_range(start, end);
+            let mut study = study::studies::orderflow::VbpStudy::for_range(start, end);
             if let Some(ref cfg) = drawing.style.vbp_config {
                 study.import_config(&cfg.params);
             }

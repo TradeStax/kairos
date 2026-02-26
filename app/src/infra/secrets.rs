@@ -10,7 +10,7 @@
 //! 3. Environment variables (backward compatibility)
 //! 4. Not configured
 
-use data::config::secrets::{ApiKeyStatus, ApiProvider, SecretsError};
+use crate::config::secrets::{ApiKeyStatus, ApiProvider, SecretsError};
 use std::path::PathBuf;
 
 /// Manager for secure API key storage
@@ -40,10 +40,7 @@ impl SecretsManager {
     /// 2. File storage (fallback when keyring unavailable)
     /// 3. Environment variable (backward compatibility)
     /// 4. Returns NotConfigured
-    pub fn get_api_key(
-        &self,
-        provider: ApiProvider,
-    ) -> ApiKeyStatus {
+    pub fn get_api_key(&self, provider: ApiProvider) -> ApiKeyStatus {
         // First, try keyring
         if let Some(key) = self.get_from_keyring(provider)
             && !key.is_empty()
@@ -74,11 +71,7 @@ impl SecretsManager {
     }
 
     /// Store an API key in the OS keyring (with file fallback)
-    pub fn set_api_key(
-        &self,
-        provider: ApiProvider,
-        key: &str,
-    ) -> Result<(), SecretsError> {
+    pub fn set_api_key(&self, provider: ApiProvider, key: &str) -> Result<(), SecretsError> {
         // Basic validation
         if key.is_empty() {
             return Err(SecretsError::InvalidKey(
@@ -113,54 +106,12 @@ impl SecretsManager {
         }
 
         if keyring_result.is_ok() {
-            log::info!(
-                "Stored {} API key in OS keyring",
-                provider.display_name()
-            );
+            log::info!("Stored {} API key in OS keyring", provider.display_name());
         } else {
             log::info!(
                 "Stored {} API key in file storage (keyring unavailable)",
                 provider.display_name()
             );
-        }
-
-        Ok(())
-    }
-
-    /// Delete an API key from the OS keyring
-    pub fn delete_api_key(
-        &self,
-        provider: ApiProvider,
-    ) -> Result<(), SecretsError> {
-        let entry = keyring::Entry::new(
-            provider.keyring_service(),
-            provider.keyring_user(),
-        )
-        .map_err(|e| SecretsError::KeyringAccess(e.to_string()))?;
-
-        match entry.delete_credential() {
-            Ok(()) => {
-                log::info!(
-                    "Deleted {} API key from OS keyring",
-                    provider.display_name()
-                );
-            }
-            Err(keyring::Error::NoEntry) => {}
-            Err(e) => {
-                return Err(SecretsError::DeleteFailed(e.to_string()));
-            }
-        }
-
-        // Also delete the file-based fallback if it exists
-        if let Some(path) = Self::secrets_file_path(provider) {
-            if path.exists() {
-                let _ = std::fs::remove_file(&path);
-                log::debug!(
-                    "Deleted {} key file: {:?}",
-                    provider.display_name(),
-                    path
-                );
-            }
         }
 
         Ok(())
@@ -177,17 +128,19 @@ impl SecretsManager {
 
     fn feed_key_file_path(feed_id: &str) -> Option<std::path::PathBuf> {
         let data_dir = crate::infra::platform::data_path(None);
-        Some(data_dir.join("secrets").join(format!("feed-{}.key", feed_id)))
+        Some(
+            data_dir
+                .join("secrets")
+                .join(format!("feed-{}.key", feed_id)),
+        )
     }
 
     /// Store a password for a specific feed connection.
-    pub fn set_feed_password(
-        &self,
-        feed_id: &str,
-        password: &str,
-    ) -> Result<(), SecretsError> {
+    pub fn set_feed_password(&self, feed_id: &str, password: &str) -> Result<(), SecretsError> {
         if password.is_empty() {
-            return Err(SecretsError::InvalidKey("Password cannot be empty".to_string()));
+            return Err(SecretsError::InvalidKey(
+                "Password cannot be empty".to_string(),
+            ));
         }
 
         let keyring_result = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id)
@@ -221,25 +174,21 @@ impl SecretsManager {
     /// Retrieve the password for a specific feed connection.
     pub fn get_feed_password(&self, feed_id: &str) -> Option<String> {
         // Try keyring first
-        if let Ok(entry) = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id) {
-            if let Ok(pw) = entry.get_password()
-                && !pw.is_empty()
-            {
-                return Some(pw);
-            }
+        if let Ok(entry) = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id)
+            && let Ok(pw) = entry.get_password()
+            && !pw.is_empty()
+        {
+            return Some(pw);
         }
 
         // File fallback
         if let Some(path) = Self::feed_key_file_path(feed_id)
             && path.exists()
+            && let Ok(encoded) = std::fs::read_to_string(&path)
+            && let Some(pw) = base64_decode(&encoded)
+            && !pw.is_empty()
         {
-            if let Ok(encoded) = std::fs::read_to_string(&path) {
-                if let Some(pw) = base64_decode(&encoded)
-                    && !pw.is_empty()
-                {
-                    return Some(pw);
-                }
-            }
+            return Some(pw);
         }
 
         None
@@ -251,19 +200,12 @@ impl SecretsManager {
     }
 
     /// Save key to OS keyring
-    fn save_to_keyring(
-        &self,
-        provider: ApiProvider,
-        key: &str,
-    ) -> Result<(), SecretsError> {
-        let entry = keyring::Entry::new(
-            provider.keyring_service(),
-            provider.keyring_user(),
-        )
-        .map_err(|e| {
-            log::warn!("Failed to create keyring entry: {}", e);
-            SecretsError::KeyringAccess(e.to_string())
-        })?;
+    fn save_to_keyring(&self, provider: ApiProvider, key: &str) -> Result<(), SecretsError> {
+        let entry = keyring::Entry::new(provider.keyring_service(), provider.keyring_user())
+            .map_err(|e| {
+                log::warn!("Failed to create keyring entry: {}", e);
+                SecretsError::KeyringAccess(e.to_string())
+            })?;
 
         entry.set_password(key).map_err(|e| {
             log::warn!("Failed to set password in keyring: {}", e);
@@ -274,34 +216,20 @@ impl SecretsManager {
     }
 
     /// Save key to file storage (fallback)
-    fn save_to_file(
-        &self,
-        provider: ApiProvider,
-        key: &str,
-    ) -> Result<(), SecretsError> {
-        let file_path =
-            Self::secrets_file_path(provider).ok_or_else(|| {
-                SecretsError::StoreFailed(
-                    "Could not determine secrets directory".to_string(),
-                )
-            })?;
+    fn save_to_file(&self, provider: ApiProvider, key: &str) -> Result<(), SecretsError> {
+        let file_path = Self::secrets_file_path(provider).ok_or_else(|| {
+            SecretsError::StoreFailed("Could not determine secrets directory".to_string())
+        })?;
 
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                SecretsError::StoreFailed(format!(
-                    "Failed to create secrets dir: {}",
-                    e
-                ))
+                SecretsError::StoreFailed(format!("Failed to create secrets dir: {}", e))
             })?;
         }
 
         let encoded = base64_encode(key);
-        std::fs::write(&file_path, encoded).map_err(|e| {
-            SecretsError::StoreFailed(format!(
-                "Failed to write key file: {}",
-                e
-            ))
-        })?;
+        std::fs::write(&file_path, encoded)
+            .map_err(|e| SecretsError::StoreFailed(format!("Failed to write key file: {}", e)))?;
 
         log::debug!(
             "Saved {} key to file: {:?}",
@@ -329,10 +257,7 @@ impl SecretsManager {
     }
 
     /// Get the key from keyring only
-    fn get_from_keyring(
-        &self,
-        provider: ApiProvider,
-    ) -> Option<String> {
+    fn get_from_keyring(&self, provider: ApiProvider) -> Option<String> {
         log::debug!(
             "Reading {} key from keyring service='{}' user='{}'",
             provider.display_name(),
@@ -340,16 +265,10 @@ impl SecretsManager {
             provider.keyring_user()
         );
 
-        let entry = match keyring::Entry::new(
-            provider.keyring_service(),
-            provider.keyring_user(),
-        ) {
+        let entry = match keyring::Entry::new(provider.keyring_service(), provider.keyring_user()) {
             Ok(e) => e,
             Err(e) => {
-                log::warn!(
-                    "Failed to create keyring entry for read: {}",
-                    e
-                );
+                log::warn!("Failed to create keyring entry for read: {}", e);
                 return None;
             }
         };
@@ -364,10 +283,7 @@ impl SecretsManager {
                 Some(password)
             }
             Err(keyring::Error::NoEntry) => {
-                log::debug!(
-                    "No {} key found in keyring",
-                    provider.display_name()
-                );
+                log::debug!("No {} key found in keyring", provider.display_name());
                 None
             }
             Err(e) => {

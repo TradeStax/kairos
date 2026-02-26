@@ -1,11 +1,12 @@
 //! View methods for the drawing properties modal.
 
-use data::{DrawingTool, LineStyle, SerializableColor};
+use crate::drawing::{DrawingTool, LineStyle};
+use data::SerializableColor;
 use iced::{
     Alignment, Element, Length,
     widget::{
-        button, center, column, container, mouse_area, opaque, pick_list, row, space,
-        stack, text, text_input,
+        button, center, column, container, mouse_area, opaque, pick_list, row, space, stack, text,
+        text_input,
     },
 };
 
@@ -28,17 +29,14 @@ impl DrawingPropertiesModal {
         } else {
             Icon::Unlocked
         };
-        let header = ModalHeaderBuilder::new(format!(
-            "{} Properties",
-            self.tool
-        ))
-        .push_control(
-            icon_button(lock_icon)
-                .size(14.0)
-                .padding(tokens::spacing::XS)
-                .on_press(Message::LockedToggled(!self.locked)),
-        )
-        .on_close(Message::Close);
+        let header = ModalHeaderBuilder::new(format!("{} Properties", self.tool))
+            .push_control(
+                icon_button(lock_icon)
+                    .size(14.0)
+                    .padding(tokens::spacing::XS)
+                    .on_press(Message::LockedToggled(!self.locked)),
+            )
+            .on_close(Message::Close);
 
         let tabs = self.available_tabs();
         let tab_bar = self.tab_bar(&tabs);
@@ -49,17 +47,16 @@ impl DrawingPropertiesModal {
             .spacing(tokens::spacing::LG)
             .width(Length::Fill);
 
-        let body_scrollable =
-            iced::widget::scrollable::Scrollable::with_direction(
-                body,
-                iced::widget::scrollable::Direction::Vertical(
-                    iced::widget::scrollable::Scrollbar::new()
-                        .width(4)
-                        .scroller_width(4)
-                        .spacing(2),
-                ),
-            )
-            .style(style::scroll_bar);
+        let body_scrollable = iced::widget::scrollable::Scrollable::with_direction(
+            body,
+            iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4)
+                    .spacing(2),
+            ),
+        )
+        .style(style::scroll_bar);
 
         let inner = column![
             header,
@@ -93,10 +90,7 @@ impl DrawingPropertiesModal {
 
     /// Tab bar using ButtonGroupBuilder.
     fn tab_bar(&self, tabs: &[Tab]) -> Element<'_, Message> {
-        let selected_idx = tabs
-            .iter()
-            .position(|t| *t == self.active_tab)
-            .unwrap_or(0);
+        let selected_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
 
         let items: Vec<(String, Message)> = tabs
             .iter()
@@ -229,21 +223,17 @@ impl DrawingPropertiesModal {
 
     /// Unified stroke color row: swatch + hex + style dropdown.
     fn stroke_color_row(&self) -> Element<'_, Message> {
-        let stroke_iced: iced::Color =
-            crate::style::theme::rgba_to_iced_color(self.stroke_color);
+        let stroke_iced: iced::Color = crate::style::theme::rgba_to_iced_color(self.stroke_color);
         let hex_stroke = self
             .hex_input_stroke
             .as_deref()
-            .unwrap_or(
-                data::config::theme::rgba_to_hex_string(self.stroke_color)
-                    .as_str(),
-            )
+            .unwrap_or(crate::config::theme::rgba_to_hex_string(self.stroke_color).as_str())
             .to_string();
         let is_hex_valid = self.hex_input_stroke.is_none()
             || self
                 .hex_input_stroke
                 .as_deref()
-                .and_then(data::config::theme::hex_to_rgba_safe)
+                .and_then(crate::config::theme::hex_to_rgba_safe)
                 .is_some();
 
         row![
@@ -253,11 +243,7 @@ impl DrawingPropertiesModal {
                 self.active_picker == Some(PickerKind::LineColor),
                 Message::ToggleStrokePicker,
             ),
-            hex_text_input(
-                &hex_stroke,
-                is_hex_valid,
-                Message::StrokeHexInput,
-            ),
+            hex_text_input(&hex_stroke, is_hex_valid, Message::StrokeHexInput,),
             space::horizontal(),
             text("Style").size(tokens::text::LABEL),
             pick_list(
@@ -288,20 +274,17 @@ impl DrawingPropertiesModal {
             let fill_c = self
                 .fill_color
                 .unwrap_or(SerializableColor::new(0.3, 0.6, 1.0, 1.0));
-            let fill_iced: iced::Color =
-                crate::style::theme::rgba_to_iced_color(fill_c);
+            let fill_iced: iced::Color = crate::style::theme::rgba_to_iced_color(fill_c);
             let hex_fill = self
                 .hex_input_fill
                 .as_deref()
-                .unwrap_or(
-                    data::config::theme::rgba_to_hex_string(fill_c).as_str(),
-                )
+                .unwrap_or(crate::config::theme::rgba_to_hex_string(fill_c).as_str())
                 .to_string();
             let is_hex_valid = self.hex_input_fill.is_none()
                 || self
                     .hex_input_fill
                     .as_deref()
-                    .and_then(data::config::theme::hex_to_rgba_safe)
+                    .and_then(crate::config::theme::hex_to_rgba_safe)
                     .is_some();
 
             let fill_row: Element<'_, Message> = row![
@@ -314,11 +297,7 @@ impl DrawingPropertiesModal {
                     self.active_picker == Some(PickerKind::FillColor),
                     Message::ToggleFillPicker,
                 ),
-                hex_text_input(
-                    &hex_fill,
-                    is_hex_valid,
-                    Message::FillHexInput,
-                ),
+                hex_text_input(&hex_fill, is_hex_valid, Message::FillHexInput,),
             ]
             .spacing(tokens::spacing::MD)
             .align_y(Alignment::Center)
@@ -373,15 +352,13 @@ impl DrawingPropertiesModal {
         if self.has_labels() {
             section = section.push(option_row(
                 "Show Labels",
-                iced::widget::checkbox(self.show_labels)
-                    .on_toggle(Message::ShowLabelsToggled),
+                iced::widget::checkbox(self.show_labels).on_toggle(Message::ShowLabelsToggled),
             ));
         }
 
         section = section.push(option_row(
             "Visible",
-            iced::widget::checkbox(self.visible)
-                .on_toggle(Message::VisibleToggled),
+            iced::widget::checkbox(self.visible).on_toggle(Message::VisibleToggled),
         ));
 
         if self.has_label_input() {
@@ -438,9 +415,9 @@ impl DrawingPropertiesModal {
     }
 
     fn stroke_picker_popup(&self) -> Element<'_, Message> {
-        let hsva = self.editing_stroke_color.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(self.stroke_color)
-        });
+        let hsva = self
+            .editing_stroke_color
+            .unwrap_or_else(|| crate::config::theme::rgba_to_hsva(self.stroke_color));
         picker_popup(hsva, Message::StrokeColorChanged)
     }
 
@@ -448,33 +425,25 @@ impl DrawingPropertiesModal {
         let fill_c = self
             .fill_color
             .unwrap_or(SerializableColor::new(0.3, 0.6, 1.0, 1.0));
-        let hsva = self.editing_fill_color.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(fill_c)
-        });
+        let hsva = self
+            .editing_fill_color
+            .unwrap_or_else(|| crate::config::theme::rgba_to_hsva(fill_c));
         picker_popup(hsva, Message::FillColorChanged)
     }
 
     fn target_color_picker_popup(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
-        let hsva = self.editing_target_color.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(calc.target_color)
-        });
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
+        let hsva = self
+            .editing_target_color
+            .unwrap_or_else(|| crate::config::theme::rgba_to_hsva(calc.target_color));
         picker_popup(hsva, Message::CalcTargetColorChanged)
     }
 
     fn stop_color_picker_popup(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
-        let hsva = self.editing_stop_color.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(calc.stop_color)
-        });
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
+        let hsva = self
+            .editing_stop_color
+            .unwrap_or_else(|| crate::config::theme::rgba_to_hsva(calc.stop_color));
         picker_popup(hsva, Message::CalcStopColorChanged)
     }
 }
@@ -492,9 +461,7 @@ fn tab_label(tab: Tab) -> &'static str {
 }
 
 /// Default display label for a VBP `ParameterTab`.
-pub(super) fn vbp_tab_default_label(
-    tab: study::ParameterTab,
-) -> &'static str {
+pub(super) fn vbp_tab_default_label(tab: study::ParameterTab) -> &'static str {
     // VBP study provides custom labels via tab_labels(); these are
     // the fallback defaults matching the study's static LABELS.
     match tab {

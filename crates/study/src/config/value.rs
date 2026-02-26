@@ -1,7 +1,9 @@
+//! Concrete parameter value types and line style enum.
+
 use data::SerializableColor;
 use serde::{Deserialize, Serialize};
 
-/// A concrete parameter value.
+/// A concrete parameter value stored in [`super::StudyConfig`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ParameterValue {
     Integer(i64),

@@ -7,7 +7,7 @@
 use super::super::coord;
 use crate::chart::ViewState;
 use crate::style::tokens;
-use exchange::util::Price;
+use data::Price;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::StudyPlacement;
@@ -122,10 +122,7 @@ fn draw_zero_line(
         tokens::chart::histogram::ZERO_LINE,
     );
     frame.stroke(
-        &Path::line(
-            Point::new(0.0, y_zero),
-            Point::new(bounds.width, y_zero),
-        ),
+        &Path::line(Point::new(0.0, y_zero), Point::new(bounds.width, y_zero)),
         stroke,
     );
 }

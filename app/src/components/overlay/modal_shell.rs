@@ -8,8 +8,6 @@ use crate::style::tokens;
 /// Which container style the modal body receives.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum ModalKind {
-    /// Chart-context modal -- `style::chart_modal`.
-    Chart,
     /// Dashboard-level modal -- `style::dashboard_modal`.
     #[default]
     Dashboard,
@@ -58,15 +56,6 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
         self
     }
 
-    /// Add an extra control to the header bar (between title and close).
-    pub fn header_control(
-        mut self,
-        control: impl Into<Element<'a, Message>>,
-    ) -> Self {
-        self.header_controls.push(control.into());
-        self
-    }
-
     /// Provide a footer element rendered below the body (e.g. action
     /// buttons).
     pub fn footer(mut self, footer: impl Into<Element<'a, Message>>) -> Self {
@@ -92,16 +81,9 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
         self
     }
 
-    /// Override internal padding.
-    pub fn padding(mut self, padding: impl Into<Padding>) -> Self {
-        self.padding = padding.into();
-        self
-    }
-
     /// Render the modal on top of `base`.
     pub fn view(self, base: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
         let style_fn: fn(&iced::Theme) -> container::Style = match self.kind {
-            ModalKind::Chart => style::chart_modal,
             ModalKind::Dashboard => style::dashboard_modal,
             ModalKind::Confirm => style::confirm_modal,
         };
@@ -113,8 +95,7 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
 
         // Styled header bar when title is set
         if let Some(title) = self.title {
-            let mut header = ModalHeaderBuilder::new(title)
-                .on_close(self.on_close.clone());
+            let mut header = ModalHeaderBuilder::new(title).on_close(self.on_close.clone());
             for control in self.header_controls {
                 header = header.push_control(control);
             }
@@ -134,33 +115,28 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
         };
 
         // Scrollable body + optional footer inside padded container
-        let mut inner =
-            column![].spacing(tokens::spacing::LG).width(Length::Fill);
+        let mut inner = column![].spacing(tokens::spacing::LG).width(Length::Fill);
 
-        let body_scrollable =
-            scrollable::Scrollable::with_direction(
-                self.body,
-                scrollable::Direction::Vertical(
-                    scrollable::Scrollbar::new()
-                        .width(tokens::component::scrollbar::WIDTH)
-                        .scroller_width(tokens::component::scrollbar::SCROLLER_WIDTH)
-                        .spacing(tokens::component::scrollbar::SPACING),
-                ),
-            )
-            .style(style::scroll_bar);
+        let body_scrollable = scrollable::Scrollable::with_direction(
+            self.body,
+            scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new()
+                    .width(tokens::component::scrollbar::WIDTH)
+                    .scroller_width(tokens::component::scrollbar::SCROLLER_WIDTH)
+                    .spacing(tokens::component::scrollbar::SPACING),
+            ),
+        )
+        .style(style::scroll_bar);
         inner = inner.push(body_scrollable);
 
         if let Some(footer) = self.footer {
             inner = inner.push(footer);
         }
 
-        outer = outer.push(
-            container(inner).padding(body_padding).width(Length::Fill),
-        );
+        outer = outer.push(container(inner).padding(body_padding).width(Length::Fill));
 
         // -- Container --------------------------------------------------------
-        let mut modal_container =
-            container(outer).style(style_fn);
+        let mut modal_container = container(outer).style(style_fn);
 
         if let Some(mw) = self.max_width {
             modal_container = modal_container.max_width(mw);
@@ -192,22 +168,4 @@ impl<'a, Message: Clone + 'a> ModalShell<'a, Message> {
         ]
         .into()
     }
-}
-
-// ── Convenience constructors ──────────────────────────────────────────
-
-/// Shorthand for a chart-context modal.
-pub fn chart_modal<'a, Message: Clone + 'a>(
-    body: impl Into<Element<'a, Message>>,
-    on_close: Message,
-) -> ModalShell<'a, Message> {
-    ModalShell::new(body, on_close).kind(ModalKind::Chart)
-}
-
-/// Shorthand for a dashboard-level modal.
-pub fn dashboard_modal<'a, Message: Clone + 'a>(
-    body: impl Into<Element<'a, Message>>,
-    on_close: Message,
-) -> ModalShell<'a, Message> {
-    ModalShell::new(body, on_close).kind(ModalKind::Dashboard)
 }

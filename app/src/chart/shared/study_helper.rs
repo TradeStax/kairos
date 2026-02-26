@@ -3,8 +3,8 @@
 //! These free functions centralize the common patterns for adding, removing,
 //! and updating studies so that each chart type's `studies.rs` is a thin wrapper.
 
+use data::FuturesTickerInfo;
 use data::Price as DomainPrice;
-use exchange::FuturesTickerInfo;
 
 /// Compute a `StudyInput` from chart data fields common to all chart types.
 ///
@@ -29,10 +29,7 @@ pub(crate) fn build_study_input<'a>(
 ///
 /// Mutates `studies` in place.  Returns `true` if at least one panel study remains
 /// after removal (used by callers to decide whether to clear the splits vector).
-pub(crate) fn remove_study_by_id(
-    studies: &mut Vec<Box<dyn study::Study>>,
-    id: &str,
-) -> bool {
+pub(crate) fn remove_study_by_id(studies: &mut Vec<Box<dyn study::Study>>, id: &str) -> bool {
     studies.retain(|s| s.id() != id);
     studies
         .iter()

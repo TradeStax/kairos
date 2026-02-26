@@ -7,6 +7,4 @@ pub const LABEL: f32 = 13.0; // Form labels, section headers
 pub const TITLE: f32 = 14.0; // Dialog titles, prominent text
 pub const HEADING: f32 = 16.0; // Modal headings
 
-pub mod weight {
-    pub use iced::font::Weight::{Bold as BOLD, Normal as NORMAL};
-}
+pub mod weight {}

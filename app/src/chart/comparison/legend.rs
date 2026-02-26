@@ -1,14 +1,14 @@
 use super::types::SeriesLike;
 use super::types::domain;
 
-use exchange::TickerInfo;
+use data::FuturesTickerInfo;
 
 use iced::{Color, Point, Rectangle};
 
+use super::TEXT_SIZE;
 use super::line_widget::{
     CHAR_W, ICON_BOX, ICON_GAP_AFTER_TEXT, ICON_SPACING, LEGEND_LINE_H, LEGEND_PADDING,
 };
-use super::TEXT_SIZE;
 use super::scene::PlotContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +25,7 @@ pub(super) enum LegendMode {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LegendRowHit {
-    pub ticker: TickerInfo,
+    pub ticker: FuturesTickerInfo,
     pub cog: Rectangle,
     pub close: Rectangle,
     pub y_center: f32,
@@ -340,8 +340,9 @@ where
             let half_txt = TEXT_SIZE * 0.5;
             py_local = py_local.clamp(half_txt, plot_height - half_txt);
 
-            let is_color_dark =
-                data::config::theme::is_dark_rgba(crate::style::theme::iced_color_to_rgba(s.color()));
+            let is_color_dark = crate::config::theme::is_dark_rgba(
+                crate::style::theme::iced_color_to_rgba(s.color()),
+            );
             let text_color = if is_color_dark {
                 Color::WHITE
             } else {

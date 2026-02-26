@@ -79,7 +79,7 @@ pub struct LodCalculator {
     /// Current scaling factor (zoom level)
     scaling: f32,
     /// Cell width in viewport pixels
-    cell_width_pixels: f32,
+    _cell_width_pixels: f32,
     /// Number of visible items (trades, candles, etc.)
     visible_item_count: usize,
     /// Viewport width in pixels
@@ -97,7 +97,7 @@ impl LodCalculator {
         let cell_width_pixels = cell_width * scaling;
         Self {
             scaling,
-            cell_width_pixels,
+            _cell_width_pixels: cell_width_pixels,
             visible_item_count,
             viewport_width,
         }
@@ -137,29 +137,6 @@ impl LodCalculator {
         } else {
             LodLevel::High
         }
-    }
-
-    /// Calculate dynamic decimation factor based on item count and budget
-    ///
-    /// If item count exceeds budget, calculate how many items to skip
-    pub fn calculate_decimation(&self, render_budget: usize) -> usize {
-        if self.visible_item_count <= render_budget {
-            1 // No decimation needed
-        } else {
-            // Calculate factor to bring count under budget
-            let factor = (self.visible_item_count as f32 / render_budget as f32).ceil() as usize;
-            factor.max(1)
-        }
-    }
-
-    /// Get effective decimation combining LOD level and dynamic adjustment
-    pub fn effective_decimation(&self, render_budget: usize) -> usize {
-        let lod = self.calculate_lod();
-        let lod_factor = lod.decimation_factor();
-        let dynamic_factor = self.calculate_decimation(render_budget);
-
-        // Use the maximum (most aggressive) decimation
-        lod_factor.max(dynamic_factor)
     }
 }
 
@@ -233,13 +210,6 @@ mod tests {
     fn test_lod_calculation_zoomed_in() {
         let calc = LodCalculator::new(1.5, 10.0, 500, 800.0);
         assert_eq!(calc.calculate_lod(), LodLevel::High);
-    }
-
-    #[test]
-    fn test_dynamic_decimation() {
-        let calc = LodCalculator::new(1.0, 4.0, 20_000, 800.0);
-        let decimation = calc.calculate_decimation(10_000);
-        assert_eq!(decimation, 2); // 20k items / 10k budget = 2
     }
 
     #[test]

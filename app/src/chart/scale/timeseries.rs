@@ -1,11 +1,9 @@
 use crate::chart::TEXT_SIZE;
 use crate::chart::scale::AxisLabel;
 
+use crate::config::UserTimezone;
 use chrono::{DateTime, Datelike, Months, Offset};
-use data::{
-    UserTimezone,
-    util::{reset_to_start_of_month_utc, reset_to_start_of_year_utc},
-};
+use data::util::{reset_to_start_of_month_utc, reset_to_start_of_year_utc};
 use iced::theme::palette::Extended;
 use iced_core::Rectangle;
 
@@ -75,7 +73,7 @@ fn calc_time_step(
     earliest: u64,
     latest: u64,
     labels_can_fit: i32,
-    timeframe: exchange::Timeframe,
+    timeframe: data::Timeframe,
 ) -> (u64, u64) {
     let timeframe_in_min = timeframe.to_milliseconds() / 60_000;
 
@@ -123,7 +121,7 @@ fn is_drawable(x_pos: f64, width: f32) -> bool {
 }
 
 pub fn generate_time_labels(
-    timeframe: exchange::Timeframe,
+    timeframe: data::Timeframe,
     timezone: UserTimezone,
     axis_bounds: iced_core::Rectangle,
     x_min: u64,
@@ -360,26 +358,20 @@ fn sub_daily_labels_gen(
     x_max: u64,
     time_step: u64,
     initial_rounded_earliest: u64,
-    timeframe: exchange::Timeframe,
+    timeframe: data::Timeframe,
     calc_x_pos: impl Fn(u64, u64, u64, f32) -> f64,
     is_drawable: impl Fn(f64, f32) -> bool,
     palette: &Extended,
 ) {
+    // Phase 1: collect all label positions
+    let mut positions: Vec<(u64, f32)> = Vec::new();
     let mut current_time = initial_rounded_earliest;
 
     while current_time <= x_max {
         if current_time >= x_min {
             let x_position = calc_x_pos(current_time, x_min, x_max, axis_bounds.width);
-
             if is_drawable(x_position, axis_bounds.width) {
-                let label_text = timezone.format_timestamp((current_time / 1000) as i64, timeframe);
-                all_labels.push(AxisLabel::new_x(
-                    x_position as f32,
-                    label_text,
-                    axis_bounds,
-                    false,
-                    palette,
-                ));
+                positions.push((current_time, x_position as f32));
             }
         }
         let prev_current_time = current_time;
@@ -387,11 +379,54 @@ fn sub_daily_labels_gen(
         if current_time <= prev_current_time && time_step > 0 {
             break;
         }
-
         if current_time > x_max && prev_current_time < x_min {
             break;
         }
     }
+
+    // Phase 2: classify labels — date labels on day transitions
+    let mut prev_date: Option<(i32, u32, u32)> = None;
+    let mut date_labels: Vec<AxisLabel> = Vec::new();
+
+    for &(ts_ms, x_pos) in &positions {
+        let ts_secs = (ts_ms / 1000) as i64;
+        let current_date = timezone.date_components(ts_secs);
+
+        let is_date_label = match (current_date, prev_date) {
+            (Some(_), None) => true, // first label
+            (Some(cur), Some(prev)) => cur != prev, // day changed
+            _ => false,
+        };
+
+        if let Some(d) = current_date {
+            prev_date = Some(d);
+        }
+
+        if is_date_label {
+            let label_text = timezone.format_date_boundary(ts_secs);
+            date_labels.push(AxisLabel::new_x(
+                x_pos,
+                label_text,
+                axis_bounds,
+                false,
+                palette,
+            ));
+        } else {
+            let label_text =
+                timezone.format_timestamp(ts_secs, timeframe);
+            all_labels.push(AxisLabel::new_x(
+                x_pos,
+                label_text,
+                axis_bounds,
+                false,
+                palette,
+            ));
+        }
+    }
+
+    // Emit date labels after time labels so they have higher priority
+    // in filter_and_draw (later labels win collisions)
+    all_labels.extend(date_labels);
 }
 
 fn to_user_fixed_offset<Tz: chrono::TimeZone>(

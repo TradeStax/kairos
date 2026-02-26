@@ -232,8 +232,7 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
                 let bounds = state.bounds.size();
                 if bounds.width > f32::EPSILON {
                     let region = state.visible_region(bounds);
-                    let (interval, _) =
-                        state.snap_x_to_index(p.x, bounds, region);
+                    let (interval, _) = state.snap_x_to_index(p.x, bounds, region);
                     state.crosshair.interval.set(Some(interval));
                 }
                 chart.state().crosshair.y.set(Some(p.y));

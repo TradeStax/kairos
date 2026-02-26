@@ -1,9 +1,8 @@
 //! Labeled slider with value display.
 
-use iced::widget::{column, container, row, slider, space, text};
+use iced::widget::{container, row, slider, space, text};
 use iced::{
-    Alignment::{self, Center},
-    Element,
+    Center, Element,
     Length::{self, Fill},
 };
 
@@ -107,32 +106,6 @@ where
     fn from(builder: SliderFieldBuilder<'a, T, Message>) -> Self {
         builder.into_element()
     }
-}
-
-pub fn classic_slider_row<'a, Message>(
-    label: iced::widget::Text<'a>,
-    slider: Element<'a, Message>,
-    placeholder: Option<iced::widget::Text<'a>>,
-) -> Element<'a, Message>
-where
-    Message: Clone + 'a,
-{
-    let slider = if let Some(placeholder) = placeholder {
-        column![slider, placeholder]
-            .spacing(tokens::spacing::XXS)
-            .align_x(Alignment::Center)
-    } else {
-        column![slider]
-    };
-
-    container(
-        row![label, slider]
-            .align_y(Alignment::Center)
-            .spacing(tokens::spacing::MD)
-            .padding(tokens::spacing::MD),
-    )
-    .style(style::modal_container)
-    .into()
 }
 
 pub fn labeled_slider<'a, T, Message: Clone + 'static>(

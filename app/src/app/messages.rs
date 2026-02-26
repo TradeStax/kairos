@@ -1,11 +1,11 @@
 use crate::modals;
+use crate::persistence::WindowSpec;
 use crate::screen::dashboard;
 use data::FeedId;
-use data::state::WindowSpec;
 use std::collections::HashMap;
 
 use crate::app::update::menu_bar;
-use crate::infra::window;
+use crate::window;
 
 /// Messages for the backtest subsystem.
 #[derive(Debug, Clone)]
@@ -17,11 +17,11 @@ pub enum BacktestMessage {
     /// User interaction with the launch modal.
     LaunchModalInteraction(crate::screen::backtest::launch::Message),
     /// User interaction with the management modal.
-    ManagerInteraction(
-        crate::screen::backtest::manager::ManagerMessage,
-    ),
+    ManagerInteraction(crate::screen::backtest::manager::ManagerMessage),
     /// User clicked Run — triggers async engine run.
-    Run { config: backtest::BacktestConfig },
+    Run {
+        config: Box<backtest::BacktestConfig>,
+    },
     /// Streamed progress event from the engine.
     ProgressEvent(backtest::BacktestProgressEvent),
     /// Engine completed — Box to keep Message size bounded.
@@ -30,10 +30,7 @@ pub enum BacktestMessage {
         result: Box<backtest::BacktestResult>,
     },
     /// Engine failed.
-    Failed {
-        run_id: uuid::Uuid,
-        error: String,
-    },
+    Failed { run_id: uuid::Uuid, error: String },
     /// CSV export completed (or was cancelled).
     CsvExported(Option<Result<std::path::PathBuf, String>>),
 }
@@ -44,28 +41,15 @@ pub enum ChartMessage {
         layout_id: uuid::Uuid,
         pane_id: uuid::Uuid,
         config: data::ChartConfig,
-        ticker_info: exchange::FuturesTickerInfo,
+        ticker_info: data::FuturesTickerInfo,
     },
     ChartDataLoaded {
         layout_id: uuid::Uuid,
         pane_id: uuid::Uuid,
+        ticker_info: data::FuturesTickerInfo,
         result: Result<data::ChartData, String>,
     },
     UpdateLoadingStatus,
-    LoadingStatusesReady(std::collections::HashMap<String, data::LoadingStatus>),
-}
-
-#[cfg(feature = "options")]
-#[derive(Debug, Clone)]
-pub enum OptionsMessage {
-    OptionChainLoaded {
-        pane_id: uuid::Uuid,
-        result: Result<data::domain::OptionChain, String>,
-    },
-    GexProfileLoaded {
-        pane_id: uuid::Uuid,
-        result: Result<data::domain::GexProfile, String>,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -73,17 +57,17 @@ pub enum DownloadMessage {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     DataCostEstimated {
         pane_id: uuid::Uuid,
-        result: Result<data::DataRequestEstimate, String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
     },
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     DataDownloadProgress {
@@ -100,7 +84,7 @@ pub enum DownloadMessage {
     ApiKeySetup(modals::download::ApiKeySetupMessage),
     HistoricalDownload(modals::download::HistoricalDownloadMessage),
     HistoricalDownloadCostEstimated {
-        result: Result<data::DataRequestEstimate, String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
     },
     HistoricalDownloadComplete {
         ticker: data::FuturesTicker,
@@ -112,10 +96,10 @@ pub enum DownloadMessage {
 #[derive(Debug, Clone)]
 pub enum WindowMessage {
     TitleBarHover(bool),
-    Drag(crate::infra::window::Id),
-    Minimize(crate::infra::window::Id),
-    ToggleMaximize(crate::infra::window::Id),
-    Close(crate::infra::window::Id),
+    Drag(crate::window::Id),
+    Minimize(crate::window::Id),
+    ToggleMaximize(crate::window::Id),
+    Close(crate::window::Id),
 }
 
 #[derive(Debug, Clone)]
@@ -124,54 +108,48 @@ pub enum Message {
     Dashboard {
         /// If `None`, the active layout is used for the event.
         layout_id: Option<uuid::Uuid>,
-        event: dashboard::Message,
+        event: Box<dashboard::Message>,
     },
     ConnectionsMenu(modals::connections::ConnectionsMenuMessage),
     DataFeeds(modals::data_feeds::DataFeedsMessage),
-    DataFeedPreviewLoaded {
-        feed_id: data::FeedId,
-        result: Result<modals::data_feeds::PreviewData, String>,
-    },
     Chart(ChartMessage),
-    #[cfg(feature = "options")]
-    Options(OptionsMessage),
     Download(DownloadMessage),
     Tick(std::time::Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
     GoBack,
     DataFolderRequested,
-    ThemeSelected(data::Theme),
-    ScaleFactorChanged(data::ScaleFactor),
-    SetTimezone(data::UserTimezone),
     RemoveNotification(usize),
-    ToggleDialogModal(
-        Option<crate::components::overlay::confirm_dialog::ConfirmDialog<Message>>,
-    ),
+    ToggleDialogModal(Option<crate::components::overlay::confirm_dialog::ConfirmDialog<Message>>),
     ThemeEditor(modals::theme::Message),
-    Layouts(modals::layout::Message),
-    ReinitializeService(data::config::secrets::ApiProvider),
+    ReinitializeService(crate::config::secrets::ApiProvider),
     DataIndexRebuilt(Result<data::DataIndex, String>),
     RithmicConnected {
         feed_id: FeedId,
         result: Result<(), String>,
     },
     RithmicSystemNames {
-        server: data::feed::RithmicServer,
+        server: data::RithmicServer,
         result: Result<Vec<String>, String>,
     },
     RithmicProductCodes {
-        feed_id: FeedId,
+        _feed_id: FeedId,
         result: Result<Vec<String>, String>,
     },
-    RithmicStreamEvent(exchange::Event),
+    /// Events from the DataEngine (connection lifecycle, market data, download progress).
+    DataEvent(data::DataEvent),
     Replay(modals::replay::Message),
-    ReplayEvent(data::services::ReplayEvent),
+    ReplayEvent(crate::services::ReplayEvent),
     Backtest(BacktestMessage),
     MenuBar(menu_bar::Message),
     // Window control messages (custom title bar)
     Window(WindowMessage),
-    ServicesReady(super::init::services::AllServicesResult),
+    DataEngineReady(Result<super::init::services::DataEngineInit, String>),
+    CacheManagement(modals::cache_management::CacheManagementMessage),
     AiStreamEvent(super::core::globals::AiStreamEventClone),
     AiStreamComplete,
+    /// Persist application state to disk with the given live window specs.
+    /// Used by intermediate save paths (feed updates, downloads) that collect
+    /// window positions asynchronously before writing.
+    PersistState(HashMap<window::Id, WindowSpec>),
 }

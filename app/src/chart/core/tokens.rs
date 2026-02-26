@@ -27,8 +27,6 @@ pub mod overlay {
     pub const DOT_PATTERN: &[f32] = &[2.0, 4.0];
     /// Dash-dot pattern [dash, gap, dot, gap]
     pub const DASH_DOT_PATTERN: &[f32] = &[8.0, 4.0, 2.0, 4.0];
-    /// Alpha for last price line
-    pub const LAST_PRICE_ALPHA: f32 = 0.5;
 }
 
 /// Grid line constants
@@ -36,6 +34,12 @@ pub mod grid {
     /// Alpha for grid lines (subtle, behind content)
     pub const ALPHA: f32 = 0.15;
     /// Grid line width in pixels
+    pub const LINE_WIDTH: f32 = 1.0;
+}
+
+/// Date separator line constants (day boundaries on sub-daily charts)
+pub mod date_separator {
+    pub const ALPHA: f32 = 0.25;
     pub const LINE_WIDTH: f32 = 1.0;
 }
 
@@ -53,8 +57,6 @@ pub mod last_price {
 pub mod candle {
     /// Ratio of candle body width to cell width
     pub const WIDTH_RATIO: f32 = 0.8;
-    /// Ratio of wick width to candle body width
-    pub const WICK_WIDTH_RATIO: f32 = 0.25;
 }
 
 /// Ruler measurement tool constants
@@ -104,11 +106,10 @@ pub mod legend {
     pub const ICON_SPACING: f32 = 4.0;
     /// Gap between the end of the ticker name text and the icon cluster.
     pub const ICON_GAP_AFTER_TEXT: f32 = 8.0;
-    /// Body text size for legend labels (mirrors style::tokens::text::BODY).
-    pub const TEXT_SIZE: f32 = text::BODY;
 }
 
 /// Heatmap chart cell size limits
+#[cfg(feature = "heatmap")]
 pub mod heatmap {
     pub const MAX_CELL_WIDTH: f32 = 12.0;
     pub const MIN_CELL_WIDTH: f32 = 1.0;
@@ -119,8 +120,6 @@ pub mod heatmap {
 
 /// Float comparison epsilons
 pub mod epsilon {
-    /// General float comparison
-    pub const FLOAT_CMP: f32 = 1e-6;
     /// Line segment degenerate check
     pub const LINE_DEGENERATE: f32 = 0.0001;
     /// Ray direction minimum component

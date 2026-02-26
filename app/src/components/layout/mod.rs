@@ -1,4 +1,3 @@
-pub mod button_grid;
 pub mod button_group;
 pub mod card;
 pub mod collapsible;
@@ -10,7 +9,6 @@ pub mod multi_split;
 pub mod reorderable_list;
 pub mod section_header;
 pub mod split_section;
-pub mod toolbar;
 
 use iced::Element;
 use iced::widget::scrollable;

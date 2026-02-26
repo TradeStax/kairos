@@ -1,7 +1,7 @@
 use super::types::SeriesLike;
 use super::types::Zoom;
-use data::UserTimezone;
-use exchange::{TickerInfo, Timeframe};
+use crate::config::UserTimezone;
+use data::{FuturesTickerInfo, Timeframe};
 
 use iced::advanced::widget::tree::{self, Tree};
 use iced::advanced::{self, Clipboard, Layout, Shell, Widget, layout, renderer};
@@ -27,19 +27,19 @@ pub const MAX_ZOOM_POINTS: usize = 5000;
 
 // Legend constants live in `crate::chart::core::tokens::legend`.
 // Re-exported here for backward compatibility with sibling modules (legend.rs, render.rs, scene.rs).
-pub(super) use chart_tokens::legend::PADDING as LEGEND_PADDING;
-pub(super) use chart_tokens::legend::LINE_H as LEGEND_LINE_H;
 pub(super) use chart_tokens::legend::CHAR_W;
 pub(super) use chart_tokens::legend::ICON_BOX;
-pub(super) use chart_tokens::legend::ICON_SPACING;
 pub(super) use chart_tokens::legend::ICON_GAP_AFTER_TEXT;
+pub(super) use chart_tokens::legend::ICON_SPACING;
+pub(super) use chart_tokens::legend::LINE_H as LEGEND_LINE_H;
+pub(super) use chart_tokens::legend::PADDING as LEGEND_PADDING;
 
 #[derive(Debug, Clone)]
 pub enum LineComparisonEvent {
     ZoomChanged(Zoom),
     PanChanged(f32),
-    SeriesCog(TickerInfo),
-    SeriesRemove(TickerInfo),
+    SeriesCog(FuturesTickerInfo),
+    SeriesRemove(FuturesTickerInfo),
     XAxisDoubleClick,
 }
 
@@ -55,14 +55,16 @@ struct SceneCacheKey {
 
 impl SceneCacheKey {
     fn new(bounds: Rectangle, cursor: mouse::Cursor, version: u64) -> Self {
-        let cursor_pos = cursor.position().map(|p| {
-            [p.x.to_bits(), p.y.to_bits()]
-        });
-        Self { bounds, cursor_pos, version }
+        let cursor_pos = cursor.position().map(|p| [p.x.to_bits(), p.y.to_bits()]);
+        Self {
+            bounds,
+            cursor_pos,
+            version,
+        }
     }
 }
 
-struct State {
+pub(super) struct State {
     plot_cache: canvas::Cache,
     y_axis_cache: canvas::Cache,
     x_axis_cache: canvas::Cache,
@@ -280,10 +282,10 @@ where
         let key = SceneCacheKey::new(layout.bounds(), cursor, self.version);
         {
             let cache = state.cached_scene.borrow();
-            if let Some((cached_key, cached_scene)) = cache.as_ref() {
-                if cached_key == &key {
-                    return Some(cached_scene.clone());
-                }
+            if let Some((cached_key, cached_scene)) = cache.as_ref()
+                && cached_key == &key
+            {
+                return Some(cached_scene.clone());
             }
         }
         let scene = self.compute_scene(layout, cursor)?;

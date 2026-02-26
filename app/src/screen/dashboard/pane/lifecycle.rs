@@ -1,26 +1,60 @@
+use crate::screen::dashboard::pane::config::StudyInstanceConfig;
+
 use super::{Action, Content, State, TickAction};
-use crate::chart::{
-    candlestick::KlineChart, comparison::ComparisonChart, heatmap::HeatmapChart,
-    profile::ProfileChart,
-};
+#[cfg(feature = "heatmap")]
+use crate::chart::heatmap::HeatmapChart;
+use crate::chart::{candlestick::KlineChart, comparison::ComparisonChart, profile::ProfileChart};
 use crate::components::display::toast::Toast;
-use data::{
-    ChartBasis, ChartConfig, ChartData, ContentKind, DataSchema, DateRange, LoadingStatus,
-    Timeframe, VisualConfig,
-};
-use exchange::FuturesTickerInfo;
+use crate::screen::dashboard::pane::config::{ContentKind, VisualConfig};
+use data::FuturesTickerInfo;
+use data::{ChartBasis, ChartConfig, ChartData, DataSchema, DateRange, LoadingStatus, Timeframe};
 use std::time::Instant;
+
+/// Restore studies from saved pane settings, shared by Candlestick and
+/// Profile charts.
+fn restore_studies(
+    settings_studies: &[StudyInstanceConfig],
+    study_ids: &mut Vec<String>,
+    mut add_study: impl FnMut(Box<dyn study::Study>),
+) {
+    let registry = crate::app::init::services::create_unified_registry();
+    if !settings_studies.is_empty() {
+        for cfg in settings_studies {
+            if let Some(mut s) = registry.create(&cfg.study_id) {
+                for (key, json_val) in &cfg.parameters {
+                    if let Ok(pv) =
+                        serde_json::from_value::<study::ParameterValue>(json_val.clone())
+                        && let Err(e) = s.set_parameter(key, pv)
+                    {
+                        log::warn!("Failed to set study parameter: {}", e);
+                    }
+                }
+                add_study(s);
+            }
+        }
+        *study_ids = settings_studies
+            .iter()
+            .filter(|c| c.enabled)
+            .map(|c| c.study_id.clone())
+            .collect();
+    } else {
+        for sid in study_ids.iter() {
+            if let Some(s) = registry.create(sid) {
+                add_study(s);
+            }
+        }
+    }
+}
 
 impl State {
     /// Set chart data (called by dashboard after loading)
-    pub fn set_chart_data(&mut self, chart_data: ChartData) {
+    pub fn set_chart_data(
+        &mut self,
+        ticker_info: FuturesTickerInfo,
+        chart_data: ChartData,
+    ) {
         self.chart_data = Some(chart_data.clone());
         self.loading_status = LoadingStatus::Ready;
-
-        let ticker_info = match self.ticker_info {
-            Some(ti) => ti,
-            None => return,
-        };
 
         let basis = self
             .settings
@@ -33,12 +67,8 @@ impl State {
                 layout,
                 study_ids,
             } => {
-                let mut new_chart = KlineChart::from_chart_data(
-                    chart_data,
-                    basis,
-                    ticker_info,
-                    layout.clone(),
-                );
+                let mut new_chart =
+                    KlineChart::from_chart_data(chart_data, basis, ticker_info, layout.clone());
                 if !self.settings.drawings.is_empty() {
                     new_chart
                         .drawings_mut()
@@ -48,42 +78,12 @@ impl State {
                 if let Some(VisualConfig::Kline(ref kline_cfg)) = self.settings.visual_config {
                     new_chart.set_candle_style(kline_cfg.candle_style.clone());
                 }
-                // Restore active studies with saved parameters
-                let registry = crate::app::init::services::create_unified_registry();
-                if !self.settings.studies.is_empty() {
-                    for cfg in &self.settings.studies {
-                        if let Some(mut s) = registry.create(&cfg.study_id) {
-                            for (key, json_val) in &cfg.parameters {
-                                if let Ok(pv) = serde_json::from_value::<study::ParameterValue>(
-                                    json_val.clone(),
-                                ) {
-                                    if let Err(e) = s.set_parameter(key, pv) {
-                                        log::warn!(
-                                            "Failed to set study parameter: {}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                            new_chart.add_study(s);
-                        }
-                    }
-                    *study_ids = self
-                        .settings
-                        .studies
-                        .iter()
-                        .filter(|c| c.enabled)
-                        .map(|c| c.study_id.clone())
-                        .collect();
-                } else {
-                    for sid in study_ids.iter() {
-                        if let Some(s) = registry.create(sid) {
-                            new_chart.add_study(s);
-                        }
-                    }
-                }
-                *chart = Some(new_chart);
+                restore_studies(&self.settings.studies, study_ids, |s| {
+                    new_chart.add_study(s)
+                });
+                **chart = Some(new_chart);
             }
+            #[cfg(feature = "heatmap")]
             Content::Heatmap {
                 chart,
                 indicators,
@@ -93,9 +93,9 @@ impl State {
                 let chart_studies: Vec<crate::chart::heatmap::HeatmapStudy> = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
-                        }
+                        data::domain::chart::heatmap::heatmap::HeatmapStudy::VolumeProfile(
+                            kind,
+                        ) => crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind),
                     })
                     .collect();
                 let mut new_chart = HeatmapChart::from_chart_data(
@@ -166,48 +166,14 @@ impl State {
                         .drawings_mut()
                         .load_drawings(self.settings.drawings.clone());
                 }
-                // Restore active studies with saved parameters
-                let registry = crate::app::init::services::create_unified_registry();
-                if !self.settings.studies.is_empty() {
-                    for cfg in &self.settings.studies {
-                        if let Some(mut s) = registry.create(&cfg.study_id) {
-                            for (key, json_val) in &cfg.parameters {
-                                if let Ok(pv) =
-                                    serde_json::from_value::<study::ParameterValue>(
-                                        json_val.clone(),
-                                    )
-                                {
-                                    if let Err(e) = s.set_parameter(key, pv) {
-                                        log::warn!(
-                                            "Failed to set study parameter: {}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                            new_chart.add_study(s);
-                        }
-                    }
-                    *study_ids = self
-                        .settings
-                        .studies
-                        .iter()
-                        .filter(|c| c.enabled)
-                        .map(|c| c.study_id.clone())
-                        .collect();
-                } else {
-                    for sid in study_ids.iter() {
-                        if let Some(s) = registry.create(sid) {
-                            new_chart.add_study(s);
-                        }
-                    }
-                }
-                *chart = Some(new_chart);
+                restore_studies(&self.settings.studies, study_ids, |s| {
+                    new_chart.add_study(s)
+                });
+                **chart = Some(new_chart);
             }
-            Content::TimeAndSales(_panel) => {}
+            #[cfg(feature = "heatmap")]
             Content::Ladder(_panel) => {}
-            Content::Starter
-            | Content::AiAssistant(_) => {}
+            Content::Starter | Content::AiAssistant(_) => {}
         }
     }
 
@@ -248,8 +214,9 @@ impl State {
         }
     }
 
-    pub fn invalidate(&mut self, now: Instant) -> Option<TickAction> {
+    pub fn invalidate(&mut self, _now: Instant) -> Option<TickAction> {
         match &mut self.content {
+            #[cfg(feature = "heatmap")]
             Content::Heatmap { chart, .. } => {
                 if let Some(c) = chart.as_mut() {
                     c.invalidate(Some(now));
@@ -262,14 +229,12 @@ impl State {
                 }
                 None
             }
-            Content::TimeAndSales(panel) => panel
-                .as_mut()
-                .and_then(|p| p.invalidate(Some(now)).map(TickAction::Panel)),
+            #[cfg(feature = "heatmap")]
             Content::Ladder(panel) => panel
                 .as_mut()
                 .and_then(|p| p.invalidate(Some(now)).map(TickAction::Panel)),
             Content::Profile { chart, .. } => {
-                if let Some(c) = chart.as_mut() {
+                if let Some(c) = (**chart).as_mut() {
                     c.invalidate();
                 }
                 None
@@ -286,13 +251,17 @@ impl State {
         }
         // Clear the chart to build candles from scratch during replay
         let empty = ChartData::from_trades(vec![], vec![]);
-        self.set_chart_data(empty);
+        if let Some(ti) = self.ticker_info {
+            self.set_chart_data(ti, empty);
+        }
     }
 
     /// Exit replay mode: restore the backed-up chart data.
     pub fn exit_replay_mode(&mut self) {
         if let Some(backup) = self.replay_backup.take() {
-            self.set_chart_data(backup);
+            if let Some(ti) = self.ticker_info {
+                self.set_chart_data(ti, backup);
+            }
         }
     }
 
@@ -307,9 +276,10 @@ impl State {
             return Some(200);
         }
         match &self.content {
-            Content::Candlestick { .. }
-            | Content::Comparison(_)
-            | Content::Profile { .. } => Some(1000),
+            Content::Candlestick { .. } | Content::Comparison(_) | Content::Profile { .. } => {
+                Some(1000)
+            }
+            #[cfg(feature = "heatmap")]
             Content::Heatmap { chart, .. } => {
                 if let Some(chart) = chart {
                     chart.basis_interval()
@@ -317,9 +287,9 @@ impl State {
                     None
                 }
             }
-            Content::Ladder(_) | Content::TimeAndSales(_) => Some(100),
-            Content::Starter
-            | Content::AiAssistant(_) => None,
+            #[cfg(feature = "heatmap")]
+            Content::Ladder(_) => Some(100),
+            Content::Starter | Content::AiAssistant(_) => None,
         }
     }
 

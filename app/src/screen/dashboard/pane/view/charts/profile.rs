@@ -1,14 +1,12 @@
+use crate::config::UserTimezone;
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     chart,
     modals::{self, pane::Modal},
     screen::dashboard::pane::view::CompactControls,
 };
-use data::{ContentKind, UserTimezone};
-use exchange::{FuturesTicker, FuturesTickerInfo};
-use iced::{
-    Element,
-    widget::column,
-};
+use data::{FuturesTicker, FuturesTickerInfo};
+use iced::{Element, widget::column};
 use rustc_hash::FxHashMap;
 
 use super::super::super::{Event, Message, State};
@@ -32,13 +30,9 @@ impl State {
         let extra: Vec<Element<'a, Message>> = Vec::new();
 
         if let Some(chart) = chart_opt {
-            let base = chart::view(chart, timezone)
-                .map(move |message| {
-                    Message::PaneEvent(
-                        id,
-                        Event::ChartInteraction(message),
-                    )
-                });
+            let base = chart::view(chart, timezone).map(move |message| {
+                Message::PaneEvent(id, Box::new(Event::ChartInteraction(message)))
+            });
 
             // Pass empty closure — profile handles settings
             // separately via main_dialog_modal below.
@@ -53,36 +47,28 @@ impl State {
             );
 
             // Layer centered settings dialog when active
-            let body =
-                if matches!(self.modal, Some(Modal::Settings)) {
-                    let cfg = if let Some(
-                        data::VisualConfig::Profile(ref saved),
-                    ) = self.settings.visual_config
-                    {
-                        saved.clone()
-                    } else {
-                        chart.display_config().clone()
-                    };
-                    let content =
-                        modals::pane::settings::profile_cfg_view(
-                            cfg, id,
-                        );
-                    crate::modals::main_dialog_modal(
-                        body,
-                        content,
-                        Message::PaneEvent(
-                            id,
-                            Event::HideModal,
-                        ),
-                    )
+            let body = if matches!(self.modal, Some(Modal::Settings)) {
+                let cfg = if let Some(
+                    crate::screen::dashboard::pane::config::VisualConfig::Profile(ref saved),
+                ) = self.settings.visual_config
+                {
+                    (**saved).clone()
                 } else {
-                    body
+                    chart.display_config().clone()
                 };
+                let content = modals::pane::settings::profile_cfg_view(cfg, id);
+                crate::modals::main_dialog_modal(
+                    body,
+                    content,
+                    Message::PaneEvent(id, Box::new(Event::HideModal)),
+                )
+            } else {
+                body
+            };
 
             (body, extra)
         } else {
-            let base =
-                uninitialized_base(ContentKind::ProfileChart);
+            let base = uninitialized_base(ContentKind::ProfileChart);
             let body = self.compose_stack_view(
                 base,
                 id,

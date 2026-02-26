@@ -4,14 +4,16 @@ use crate::{
     style::tokens,
 };
 use data::ChartBasis;
-use data::domain::chart::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
+#[cfg(feature = "heatmap")]
+use data::domain::chart::heatmap::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
 use iced::{
     Element, padding,
-    widget::{button, checkbox, column, container, row, slider, space, text},
+    widget::{button, checkbox, column, container, row, space},
 };
 
 #[derive(Debug, Clone, Copy)]
 pub enum StudyMessage {
+    #[cfg(feature = "heatmap")]
     Heatmap(Message<HeatmapStudy>),
 }
 
@@ -25,6 +27,7 @@ pub trait Study: Sized + Copy + ToString + 'static {
     ) -> Element<'a, Message<Self>>;
 }
 
+#[cfg(feature = "heatmap")]
 impl Study for HeatmapStudy {
     fn is_same_type(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)

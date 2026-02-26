@@ -1,25 +1,25 @@
 //! Content body dispatch for the pane view.
 
+use crate::config::UserTimezone;
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     components::display::empty_state::EmptyStateBuilder,
     components::display::progress_bar::ProgressBarBuilder,
-    components::primitives::{label::*, Icon},
-    modals,
-    screen::dashboard::panel,
+    components::primitives::{Icon, label::*},
     style::{palette, tokens},
 };
-use data::{ContentKind, UserTimezone};
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
+use iced::widget::pane_grid;
 use iced::{
     Alignment, Element, Length,
     widget::{center, column, text},
 };
-use iced::widget::pane_grid;
 use rustc_hash::FxHashMap;
 
-use super::super::{Content, Event, Message, State};
+#[cfg(feature = "heatmap")]
+use crate::screen::dashboard::ladder;
+use super::super::{Content, Message, State};
 use super::assistant;
-use super::helpers;
 use super::modal_stack::CompactControls;
 use super::modals::stream::Modifier;
 
@@ -61,22 +61,21 @@ pub(super) fn uninitialized_base<'a>(
             _ => ("Loading\u{2026}".to_string(), None, None),
         };
 
-        let content: Element<'a, Message> = if let (Some(val), Some(max)) =
-            (progress_value, progress_max)
-        {
-            column![
-                text(status_text.clone()).size(tokens::text::SMALL),
-                ProgressBarBuilder::<Message>::new(val, max)
-                    .show_percentage(false)
-                    .into_element()
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::Fixed(240.0))
-            .align_x(Alignment::Center)
-            .into()
-        } else {
-            heading(status_text).into()
-        };
+        let content: Element<'a, Message> =
+            if let (Some(val), Some(max)) = (progress_value, progress_max) {
+                column![
+                    text(status_text.clone()).size(tokens::text::SMALL),
+                    ProgressBarBuilder::<Message>::new(val, max)
+                        .show_percentage(false)
+                        .into_element()
+                ]
+                .spacing(tokens::spacing::XS)
+                .width(Length::Fixed(240.0))
+                .align_x(Alignment::Center)
+                .into()
+            } else {
+                heading(status_text).into()
+            };
         center(content).into()
     } else if let data::LoadingStatus::Error { message } = loading_status {
         let content = column![
@@ -131,38 +130,7 @@ pub(super) fn dispatch_body<'a>(
             );
             (body, extras)
         }
-        Content::TimeAndSales(panel) => {
-            let body = if let Some(panel) = panel {
-                let base = panel::view(panel, timezone).map(move |message| {
-                    Message::PaneEvent(id, Event::PanelInteraction(message))
-                });
-
-                let settings_modal =
-                    || modals::pane::settings::timesales_cfg_view(panel.config.clone(), id);
-
-                state.compose_stack_view(
-                    base,
-                    id,
-                    compact_controls,
-                    settings_modal,
-                    None,
-                    tickers_info,
-                    ticker_ranges,
-                )
-            } else {
-                let base = uninitialized_base(ContentKind::TimeAndSales, &state.loading_status);
-                state.compose_stack_view(
-                    base,
-                    id,
-                    compact_controls,
-                    || column![].into(),
-                    None,
-                    tickers_info,
-                    ticker_ranges,
-                )
-            };
-            (body, vec![])
-        }
+        #[cfg(feature = "heatmap")]
         Content::Ladder(panel) => {
             if let Some(panel) = panel {
                 let basis = state
@@ -174,8 +142,8 @@ pub(super) fn dispatch_body<'a>(
                 let modifiers = helpers::basis_modifier(id, basis, modifier, kind);
                 let extra = vec![modifiers];
 
-                let base = panel::view(panel, timezone).map(move |message| {
-                    Message::PaneEvent(id, Event::PanelInteraction(message))
+                let base = ladder::view(panel, timezone).map(move |message| {
+                    Message::PaneEvent(id, Box::new(Event::PanelInteraction(message)))
                 });
 
                 let settings_modal =
@@ -205,6 +173,7 @@ pub(super) fn dispatch_body<'a>(
                 (body, vec![])
             }
         }
+        #[cfg(feature = "heatmap")]
         Content::Heatmap {
             chart,
             indicators,
@@ -251,11 +220,7 @@ pub(super) fn dispatch_body<'a>(
             (body, extras)
         }
         Content::AiAssistant(ai_state) => {
-            let base = assistant::view_assistant(
-                ai_state,
-                id,
-                state.link_group.is_some(),
-            );
+            let base = assistant::view_assistant(ai_state, id, state.link_group.is_some());
             let body = state.compose_stack_view(
                 base,
                 id,

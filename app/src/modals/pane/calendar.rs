@@ -44,13 +44,17 @@ pub enum CalendarMessage {
 
 impl DateRangeCalendar {
     pub fn new() -> Self {
-        let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
-        let start = yesterday - chrono::Duration::days(6);
+        let range = data::DateRange::last_week();
 
         Self {
-            viewing_month: NaiveDate::from_ymd_opt(yesterday.year(), yesterday.month(), 1).unwrap(),
-            start_date: start,
-            end_date: yesterday,
+            viewing_month: NaiveDate::from_ymd_opt(
+                range.start.year(),
+                range.start.month(),
+                1,
+            )
+            .unwrap(),
+            start_date: range.start,
+            end_date: range.end,
             selection_mode: SelectionMode::SelectingStart,
             cached_dates: None,
             selectable_dates: None,
@@ -62,13 +66,11 @@ impl DateRangeCalendar {
     pub fn update(&mut self, message: CalendarMessage) -> bool {
         match message {
             CalendarMessage::PrevMonth => {
-                let prev = self.viewing_month - chrono::Months::new(1);
-                self.viewing_month = NaiveDate::from_ymd_opt(prev.year(), prev.month(), 1).unwrap();
+                self.viewing_month = self.viewing_month - chrono::Months::new(1);
                 false
             }
             CalendarMessage::NextMonth => {
-                let next = self.viewing_month + chrono::Months::new(1);
-                self.viewing_month = NaiveDate::from_ymd_opt(next.year(), next.month(), 1).unwrap();
+                self.viewing_month = self.viewing_month + chrono::Months::new(1);
                 false
             }
             CalendarMessage::DayClicked(date) => {
@@ -159,7 +161,7 @@ impl DateRangeCalendar {
         &self,
         map_msg: impl Fn(CalendarMessage) -> M + 'static + Copy,
     ) -> Element<'_, M> {
-        let today = chrono::Utc::now().date_naive();
+        let today = data::DateRange::today_et();
         let month = self.viewing_month;
 
         let first_day = NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
@@ -225,7 +227,11 @@ impl DateRangeCalendar {
                 let day_button = button(day_text)
                     .width(Length::FillPortion(1))
                     .height(Length::Fixed(26.0))
-                    .style(calendar_day_style(base_text_color, is_in_range, is_highlighted))
+                    .style(calendar_day_style(
+                        base_text_color,
+                        is_in_range,
+                        is_highlighted,
+                    ))
                     .on_press_maybe(if is_clickable {
                         Some(map_msg(CalendarMessage::DayClicked(date)))
                     } else {

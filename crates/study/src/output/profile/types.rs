@@ -1,11 +1,9 @@
-//! Core profile types: levels, nodes, sides, and directions.
+//! Core profile primitives: levels, nodes, sides, and extend directions.
 
 use serde::{Deserialize, Serialize};
 
 /// Which side a volume profile renders on.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProfileSide {
     Left,
     Right,
@@ -25,10 +23,7 @@ pub struct ProfileLevel {
 
 /// Direction for extending horizontal lines beyond the profile
 /// bounds.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ExtendDirection {
     #[default]
     None,
@@ -38,10 +33,7 @@ pub enum ExtendDirection {
 }
 
 impl std::fmt::Display for ExtendDirection {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExtendDirection::None => write!(f, "None"),
             ExtendDirection::Left => write!(f, "Left"),
@@ -52,10 +44,7 @@ impl std::fmt::Display for ExtendDirection {
 }
 
 /// Method for detecting high/low volume nodes.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum NodeDetectionMethod {
     #[default]
     Percentile,
@@ -64,10 +53,7 @@ pub enum NodeDetectionMethod {
 }
 
 impl std::fmt::Display for NodeDetectionMethod {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NodeDetectionMethod::Percentile => {
                 write!(f, "Percentile")

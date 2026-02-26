@@ -1,5 +1,5 @@
 use crate::style::{self, tokens};
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element, Length, alignment, padding,
     widget::{button, column, container, row, rule, text, text_input},
@@ -109,7 +109,7 @@ struct TickerRowData {
 fn build_ticker_rows(
     tickers_info: &FxHashMap<FuturesTicker, FuturesTickerInfo>,
 ) -> Vec<TickerRowData> {
-    let venue = exchange::FuturesVenue::CMEGlobex;
+    let venue = data::FuturesVenue::CMEGlobex;
     let mut rows = Vec::new();
 
     for (symbol, product_name, _, _, _) in FUTURES_PRODUCTS {
@@ -252,9 +252,7 @@ where
     if let Some(bt) = base_ticker {
         let label = label_for(bt.ticker);
         let range = ticker_ranges.get(bt.ticker.as_str()).cloned();
-        col = col.push(mini_ticker_card(
-            label, None, None, range, on_select,
-        ));
+        col = col.push(mini_ticker_card(label, None, None, range, on_select));
     }
 
     for info in selected_list {

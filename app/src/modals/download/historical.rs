@@ -22,8 +22,6 @@ pub struct HistoricalDownloadModal {
     calendar: DateRangeCalendar,
 
     cache_status: Option<CacheStatus>,
-    actual_cost_usd: Option<f64>,
-    has_valid_selection: bool,
 
     download_progress: DownloadProgress,
     show_confirm: bool,
@@ -43,12 +41,12 @@ pub enum HistoricalDownloadMessage {
 pub enum Action {
     EstimateRequested {
         ticker: FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: DateRange,
     },
     DownloadRequested {
         ticker: FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: DateRange,
     },
     Closed,
@@ -61,8 +59,6 @@ impl HistoricalDownloadModal {
             selected_schema_idx: 0,
             calendar: DateRangeCalendar::new(),
             cache_status: None,
-            actual_cost_usd: None,
-            has_valid_selection: false,
             download_progress: DownloadProgress::Idle,
             show_confirm: false,
         }
@@ -73,13 +69,11 @@ impl HistoricalDownloadModal {
             HistoricalDownloadMessage::TickerSelected(idx) => {
                 self.selected_ticker_idx = idx;
                 self.cache_status = None;
-                self.actual_cost_usd = None;
                 return self.trigger_viewing_month_check();
             }
             HistoricalDownloadMessage::SchemaSelected(idx) => {
                 self.selected_schema_idx = idx;
                 self.cache_status = None;
-                self.actual_cost_usd = None;
                 return self.trigger_viewing_month_check();
             }
             HistoricalDownloadMessage::Calendar(cal_msg) => {
@@ -89,7 +83,6 @@ impl HistoricalDownloadModal {
                 );
                 let selection_complete = self.calendar.update(cal_msg);
                 self.cache_status = None;
-                self.actual_cost_usd = None;
 
                 if is_month_nav {
                     return self.trigger_viewing_month_check();
@@ -98,9 +91,7 @@ impl HistoricalDownloadModal {
                 }
             }
             HistoricalDownloadMessage::ShowConfirm => {
-                if self.actual_cost_usd.is_some() {
-                    self.show_confirm = true;
-                }
+                self.show_confirm = true;
             }
             HistoricalDownloadMessage::ConfirmDownload => {
                 self.show_confirm = false;
@@ -115,7 +106,8 @@ impl HistoricalDownloadModal {
                 };
                 let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
                 let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
-                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
+                let date_range =
+                    DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
                 return Some(Action::DownloadRequested {
                     ticker,
                     schema,
@@ -160,12 +152,10 @@ impl HistoricalDownloadModal {
     pub fn set_cache_status(&mut self, status: CacheStatus, cached_dates: Vec<chrono::NaiveDate>) {
         self.cache_status = Some(status);
         self.calendar.cached_dates = Some(cached_dates.into_iter().collect());
-    }
-
-    pub fn set_actual_cost(&mut self, cost_usd: f64) {
-        self.actual_cost_usd = Some(cost_usd);
-        self.download_progress = DownloadProgress::Idle;
-        self.has_valid_selection = true;
+        // Reset from CheckingCost now that estimation is complete
+        if matches!(self.download_progress, DownloadProgress::CheckingCost) {
+            self.download_progress = DownloadProgress::Idle;
+        }
     }
 
     pub fn set_download_progress(&mut self, progress: DownloadProgress) {
@@ -228,7 +218,7 @@ impl HistoricalDownloadModal {
 
         // Action buttons
         let is_downloading = matches!(self.download_progress, DownloadProgress::Downloading { .. });
-        let can_download = self.has_valid_selection
+        let can_download = self.cache_status.is_some()
             && !is_downloading
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
@@ -289,11 +279,9 @@ impl HistoricalDownloadModal {
             left: tokens::spacing::XXL,
         });
 
-        let base_modal = container(
-            column![header, body].width(Length::Fill),
-        )
-        .width(Length::Fixed(tokens::layout::MODAL_WIDTH_LG))
-        .style(style::dashboard_modal);
+        let base_modal = container(column![header, body].width(Length::Fill))
+            .width(Length::Fixed(tokens::layout::MODAL_WIDTH_LG))
+            .style(style::dashboard_modal);
 
         if self.show_confirm {
             views::download_confirm_overlay(
@@ -302,7 +290,6 @@ impl HistoricalDownloadModal {
                 self.selected_schema_idx,
                 self.calendar.start_date,
                 self.calendar.end_date,
-                self.actual_cost_usd.unwrap_or(0.0),
                 self.cache_status.as_ref(),
                 HistoricalDownloadMessage::CancelDownload,
                 HistoricalDownloadMessage::ConfirmDownload,

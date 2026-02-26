@@ -37,10 +37,7 @@ impl ManagerTab {
 }
 
 impl std::fmt::Display for ManagerTab {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ManagerTab::Overview => write!(f, "Overview"),
             ManagerTab::Trades => write!(f, "Trades"),
@@ -136,19 +133,11 @@ impl BacktestManager {
     }
 
     /// Programmatically select a backtest (used by app-level handlers).
-    pub fn select(
-        &mut self,
-        id: uuid::Uuid,
-        history: &BacktestHistory,
-    ) {
+    pub fn select(&mut self, id: uuid::Uuid, history: &BacktestHistory) {
         self.update(ManagerMessage::SelectBacktest(id), history);
     }
 
-    pub fn update(
-        &mut self,
-        message: ManagerMessage,
-        history: &BacktestHistory,
-    ) -> ManagerAction {
+    pub fn update(&mut self, message: ManagerMessage, history: &BacktestHistory) -> ManagerAction {
         match message {
             ManagerMessage::SelectBacktest(id) => {
                 self.selected_id = Some(id);
@@ -159,16 +148,10 @@ impl BacktestManager {
                 if let Some(entry) = history.get(id) {
                     if entry.status == BacktestStatus::Completed {
                         if let Some(ref result) = entry.result {
-                            self.analytics = Some(
-                                computed::ComputedAnalytics::from_result(
-                                    result,
-                                ),
-                            );
+                            self.analytics = Some(computed::ComputedAnalytics::from_result(result));
                             let n = result.trades.len();
-                            self.sorted_indices =
-                                (0..n).collect();
-                            self.sort_column =
-                                TradeListSortColumn::Index;
+                            self.sorted_indices = (0..n).collect();
+                            self.sort_column = TradeListSortColumn::Index;
                             self.sort_ascending = true;
                         }
                     } else {
@@ -207,12 +190,8 @@ impl BacktestManager {
                 self.prop_firm_chart_cache.clear();
                 ManagerAction::None
             }
-            ManagerMessage::NewBacktest => {
-                ManagerAction::OpenLaunchModal
-            }
-            ManagerMessage::DeleteBacktest(id) => {
-                ManagerAction::DeleteBacktest(id)
-            }
+            ManagerMessage::NewBacktest => ManagerAction::OpenLaunchModal,
+            ManagerMessage::DeleteBacktest(id) => ManagerAction::DeleteBacktest(id),
             ManagerMessage::ExportCsv => {
                 if let Some(id) = self.selected_id {
                     ManagerAction::ExportCsv(id)
@@ -239,36 +218,25 @@ impl BacktestManager {
 
         self.sorted_indices.sort_by(|&a, &b| {
             let cmp = match self.sort_column {
-                TradeListSortColumn::Index => {
-                    trades[a].index.cmp(&trades[b].index)
-                }
-                TradeListSortColumn::EntryTime => {
-                    trades[a].entry_time.cmp(&trades[b].entry_time)
-                }
-                TradeListSortColumn::ExitTime => {
-                    trades[a].exit_time.cmp(&trades[b].exit_time)
-                }
+                TradeListSortColumn::Index => trades[a].index.cmp(&trades[b].index),
+                TradeListSortColumn::EntryTime => trades[a].entry_time.cmp(&trades[b].entry_time),
+                TradeListSortColumn::ExitTime => trades[a].exit_time.cmp(&trades[b].exit_time),
                 TradeListSortColumn::Side => {
-                    format!("{:?}", trades[a].side)
-                        .cmp(&format!("{:?}", trades[b].side))
+                    format!("{:?}", trades[a].side).cmp(&format!("{:?}", trades[b].side))
                 }
                 TradeListSortColumn::PnlUsd => trades[a]
                     .pnl_net_usd
                     .partial_cmp(&trades[b].pnl_net_usd)
                     .unwrap_or(std::cmp::Ordering::Equal),
-                TradeListSortColumn::PnlTicks => {
-                    trades[a].pnl_ticks.cmp(&trades[b].pnl_ticks)
-                }
+                TradeListSortColumn::PnlTicks => trades[a].pnl_ticks.cmp(&trades[b].pnl_ticks),
                 TradeListSortColumn::RrRatio => trades[a]
                     .rr_ratio
                     .partial_cmp(&trades[b].rr_ratio)
                     .unwrap_or(std::cmp::Ordering::Equal),
-                TradeListSortColumn::ExitReason => {
-                    trades[a]
-                        .exit_reason
-                        .to_string()
-                        .cmp(&trades[b].exit_reason.to_string())
-                }
+                TradeListSortColumn::ExitReason => trades[a]
+                    .exit_reason
+                    .to_string()
+                    .cmp(&trades[b].exit_reason.to_string()),
             };
             if ascending { cmp } else { cmp.reverse() }
         });
@@ -287,30 +255,20 @@ impl BacktestManager {
 
     /// Whether the currently selected backtest is completed with
     /// a result available.
-    fn selected_is_completed(
-        &self,
-        history: &BacktestHistory,
-    ) -> bool {
+    fn selected_is_completed(&self, history: &BacktestHistory) -> bool {
         self.selected_id
             .and_then(|id| history.get(id))
-            .map(|e| {
-                e.status == BacktestStatus::Completed
-                    && e.result.is_some()
-            })
+            .map(|e| e.status == BacktestStatus::Completed && e.result.is_some())
             .unwrap_or(false)
     }
 
-    pub fn view<'a>(
-        &'a self,
-        history: &'a BacktestHistory,
-    ) -> Element<'a, ManagerMessage> {
+    pub fn view<'a>(&'a self, history: &'a BacktestHistory) -> Element<'a, ManagerMessage> {
         let header = ModalHeaderBuilder::new("Backtest Manager")
             .on_close(ManagerMessage::Close)
             .into_element();
 
         // ── Sidebar ─────────────────────────────────────────────
-        let sidebar_content =
-            sidebar::view_sidebar(self, history);
+        let sidebar_content = sidebar::view_sidebar(self, history);
         let sidebar_col = container(sidebar_content)
             .width(Length::Fixed(210.0))
             .height(Length::Fill);
@@ -347,10 +305,7 @@ impl BacktestManager {
             .into()
     }
 
-    fn view_main_area<'a>(
-        &'a self,
-        history: &'a BacktestHistory,
-    ) -> Element<'a, ManagerMessage> {
+    fn view_main_area<'a>(&'a self, history: &'a BacktestHistory) -> Element<'a, ManagerMessage> {
         let Some(id) = self.selected_id else {
             return Self::view_empty_state();
         };
@@ -358,9 +313,7 @@ impl BacktestManager {
             return Self::view_empty_state();
         };
 
-        if entry.status != BacktestStatus::Completed
-            || entry.result.is_none()
-        {
+        if entry.status != BacktestStatus::Completed || entry.result.is_none() {
             return Self::view_pending_state(entry);
         }
 
@@ -369,15 +322,9 @@ impl BacktestManager {
 
         // Tab content
         let tab_content = match self.active_tab {
-            ManagerTab::Overview => {
-                overview::view_overview(self, history)
-            }
-            ManagerTab::Trades => {
-                trades::view(self, history)
-            }
-            ManagerTab::Analytics => {
-                analytics::view(self, history)
-            }
+            ManagerTab::Overview => overview::view_overview(self, history),
+            ManagerTab::Trades => trades::view(self, history),
+            ManagerTab::Analytics => analytics::view(self, history),
         };
 
         column![tab_bar, tab_content]
@@ -388,27 +335,20 @@ impl BacktestManager {
     }
 
     fn view_tab_bar(&self) -> Element<'_, ManagerMessage> {
-        let mut tab_row = row![]
-            .spacing(tokens::spacing::XS);
+        let mut tab_row = row![].spacing(tokens::spacing::XS);
 
         for &tab in ManagerTab::ALL {
             let is_active = self.active_tab == tab;
-            let label = text(tab.to_string())
-                .size(tokens::text::LABEL);
+            let label = text(tab.to_string()).size(tokens::text::LABEL);
 
             let btn = button(label)
-                .padding([
-                    tokens::spacing::SM,
-                    tokens::spacing::LG,
-                ])
+                .padding([tokens::spacing::SM, tokens::spacing::LG])
                 .on_press(ManagerMessage::ChangeTab(tab))
                 .style(move |theme, status| {
                     if is_active {
                         style::button::tab_active(theme, status)
                     } else {
-                        style::button::tab_inactive(
-                            theme, status,
-                        )
+                        style::button::tab_inactive(theme, status)
                     }
                 });
 
@@ -433,18 +373,12 @@ impl BacktestManager {
             .size(tokens::text::BODY)
             .tooltip("Delete")
             .on_press(ManagerMessage::DeleteBacktest(id))
-            .style(|theme, status| {
-                style::button::danger(theme, status)
-            });
+            .style(style::button::danger);
 
-        let export_btn = button(
-            text("Export CSV").size(tokens::text::BODY),
-        )
-        .padding(footer_padding)
-        .on_press(ManagerMessage::ExportCsv)
-        .style(|theme, status| {
-            style::button::secondary(theme, status)
-        });
+        let export_btn = button(text("Export CSV").size(tokens::text::BODY))
+            .padding(footer_padding)
+            .on_press(ManagerMessage::ExportCsv)
+            .style(style::button::secondary);
 
         let footer_row = row![
             iced::widget::Space::new().width(Length::Fill),
@@ -455,10 +389,7 @@ impl BacktestManager {
         .padding(tokens::spacing::LG)
         .align_y(iced::Alignment::Center);
 
-        let footer = column![
-            rule::horizontal(1),
-            footer_row,
-        ];
+        let footer = column![rule::horizontal(1), footer_row,];
 
         Some(footer.into())
     }
@@ -466,9 +397,7 @@ impl BacktestManager {
     fn view_empty_state<'a>() -> Element<'a, ManagerMessage> {
         let msg = text("Select a backtest from the sidebar")
             .size(tokens::text::LABEL)
-            .color(iced::Color::from_rgba(
-                1.0, 1.0, 1.0, 0.4,
-            ));
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.4));
 
         container(msg)
             .width(Length::Fill)
@@ -484,28 +413,18 @@ impl BacktestManager {
         let status_text = match entry.status {
             BacktestStatus::Running => {
                 let pct = (entry.progress * 100.0) as u32;
-                format!(
-                    "Running... {}% - {}",
-                    pct, entry.progress_message,
-                )
+                format!("Running... {}% - {}", pct, entry.progress_message,)
             }
             BacktestStatus::Failed => {
-                let err = entry
-                    .error
-                    .as_deref()
-                    .unwrap_or("Unknown error");
+                let err = entry.error.as_deref().unwrap_or("Unknown error");
                 format!("Failed: {}", err)
             }
-            BacktestStatus::Completed => {
-                "Completed (no result data)".to_string()
-            }
+            BacktestStatus::Completed => "Completed (no result data)".to_string(),
         };
 
         let label = text(status_text)
             .size(tokens::text::LABEL)
-            .color(iced::Color::from_rgba(
-                1.0, 1.0, 1.0, 0.5,
-            ));
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.5));
 
         container(label)
             .width(Length::Fill)

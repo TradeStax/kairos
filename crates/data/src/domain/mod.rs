@@ -1,38 +1,48 @@
-//! Domain Model - Core Business Logic
+//! Domain model — pure types with no I/O and no async.
 //!
-//! This module contains the pure domain model with:
-//! - Value objects (Price, Volume, Timestamp, etc.)
-//! - Entities (Trade, Candle, DepthSnapshot)
-//! - Aggregation logic (single source of truth)
-//! - Chart domain models
-//!
-//! NO infrastructure dependencies - pure business logic only.
+//! - [`core`] — `Price` (fixed-point i64), `Timestamp`, `Side`, `Volume`, `DateRange`, color, errors
+//! - [`market`] — `Trade`, `Candle`, `Depth`, `MarketData`
+//! - [`instrument`] — `FuturesTicker`, `FuturesTickerInfo`, `Timeframe`, `ContractType`
+//! - [`chart`] — `ChartConfig`, `ChartData`, `ChartBasis`, `LoadingStatus`
+//! - [`data`] — `DataIndex`, `DownloadedTickersRegistry`
+//! - [`replay`] — `ReplayState`, `PlaybackStatus`, `SpeedPreset`, `ReplayData`
+//! - [`assistant`] — AI chat messages, chart snapshots, token usage
 
-pub mod aggregation;
 pub mod assistant;
 pub mod chart;
-pub mod data_index;
-pub mod entities;
-pub mod error;
-pub mod futures;
-pub mod gex;
-pub mod options;
-pub mod panel;
-pub mod types;
+pub mod core;
+pub mod data;
+pub mod instrument;
+pub mod market;
+pub mod replay;
 
-// Re-export commonly used types
-pub use aggregation::{AggregationError, aggregate_trades_to_candles, aggregate_trades_to_ticks};
+// Re-export submodule paths so consumers can use short paths
+// e.g. `crate::domain::types::FeedId` instead of `crate::domain::core::types::FeedId`
+pub use self::core::error;
+pub use self::core::price;
+pub use self::core::types;
+pub use self::data::index;
+pub use self::instrument::futures;
+pub use self::market::entities;
+
+// Re-export commonly used types for backward compatibility
+#[cfg(feature = "heatmap")]
+pub use chart::HeatmapIndicator;
 pub use chart::{
     Autoscale, ChartBasis, ChartConfig, ChartData, ChartType, DataGap, DataGapKind, DataSchema,
-    DataSegment, HeatmapIndicator, KlineDataPoint, KlineTrades, LoadingStatus, MergeResult, NPoc,
-    PointOfControl, ViewConfig,
+    DataSegment, KlineDataPoint, KlineTrades, LoadingStatus, MergeResult, NPoc, PointOfControl,
+    ViewConfig,
 };
-pub use entities::{Candle, DepthSnapshot, MarketData, Trade};
-pub use futures::{
+pub use core::{
+    color::{Rgba, SerializableColor, hex_to_rgba, rgba_to_hex},
+    error::{AppError, ErrorSeverity},
+    price::{ContractSize, MinQtySize, MinTicksize, Power10, PriceExt, PriceStep, ms_to_datetime},
+    types::{DateRange, FeedId, Price, Quantity, Side, TimeRange, Timestamp, Volume},
+};
+pub use data::{DataIndex, DataKey, DownloadedTickersRegistry, FeedContribution};
+pub use instrument::{
     ContractSpec, ContractType, FuturesTicker, FuturesTickerInfo, FuturesVenue, TickerStats,
     Timeframe,
 };
-pub use gex::{GammaExposure, GexLevel, GexLevelType, GexProfile};
-pub use options::{ExerciseStyle, Greek, OptionChain, OptionContract, OptionSnapshot, OptionType};
-pub use data_index::{DataIndex, DataKey, FeedContribution};
-pub use types::{DateRange, Price, Quantity, Side, TimeRange, Timestamp, Volume};
+pub use market::{Candle, Depth, MarketData, Trade};
+pub use replay::{PlaybackStatus, ReplayData, ReplayState, SpeedPreset};

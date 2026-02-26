@@ -8,11 +8,6 @@ pub fn divider<'a, Message: 'a>() -> Element<'a, Message, Theme, Renderer> {
     rule::horizontal(1).style(crate::style::split_ruler).into()
 }
 
-/// Thick horizontal divider (2px) styled with `split_ruler`.
-pub fn thick_divider<'a, Message: 'a>() -> Element<'a, Message, Theme, Renderer> {
-    rule::horizontal(2).style(crate::style::split_ruler).into()
-}
-
 /// Thin vertical divider (1px) styled with `split_ruler`.
 pub fn vertical_divider<'a, Message: 'a>() -> Element<'a, Message, Theme, Renderer> {
     rule::vertical(1).style(crate::style::split_ruler).into()

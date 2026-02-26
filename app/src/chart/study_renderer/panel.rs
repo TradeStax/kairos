@@ -74,21 +74,17 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                         let pos = cursor_position?;
                         let state = self.state;
                         let msg = Message::Translated(
-                            panning.translation
-                                + (pos - panning.start)
-                                    * (1.0 / state.scaling),
+                            panning.translation + (pos - panning.start) * (1.0 / state.scaling),
                         );
-                        return Some(
-                            canvas::Action::publish(msg).and_capture(),
-                        );
+                        return Some(canvas::Action::publish(msg).and_capture());
                     }
 
                     // Crosshair: emit CrosshairMoved so main chart
                     // invalidates the crosshair cache
                     if cursor_position.is_some() {
-                        return Some(canvas::Action::publish(
-                            Message::CrosshairMoved(cursor_position),
-                        ));
+                        return Some(canvas::Action::publish(Message::CrosshairMoved(
+                            cursor_position,
+                        )));
                     }
 
                     None
@@ -101,53 +97,33 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                         | mouse::ScrollDelta::Pixels { y, .. } => y,
                     };
 
-                    let cursor_to_center = cursor_position.map(|p| {
-                        Point::new(
-                            p.x - bounds.width / 2.0,
-                            p.y - bounds.height / 2.0,
-                        )
-                    })?;
+                    let cursor_to_center = cursor_position
+                        .map(|p| Point::new(p.x - bounds.width / 2.0, p.y - bounds.height / 2.0))?;
 
-                    let is_wheel_scroll = !matches!(
-                        self.state.layout.autoscale,
-                        Some(data::Autoscale::FitAll)
-                    );
+                    let is_wheel_scroll =
+                        !matches!(self.state.layout.autoscale, Some(data::Autoscale::FitAll));
 
                     let message = if panel_state.shift_held {
-                        Message::YScaling(
-                            y / 2.0,
-                            cursor_to_center.y,
-                            is_wheel_scroll,
-                        )
+                        Message::YScaling(y / 2.0, cursor_to_center.y, is_wheel_scroll)
                     } else {
-                        Message::XScaling(
-                            y / 2.0,
-                            cursor_to_center.x,
-                            is_wheel_scroll,
-                        )
+                        Message::XScaling(y / 2.0, cursor_to_center.x, is_wheel_scroll)
                     };
 
                     Some(canvas::Action::publish(message).and_capture())
                 }
-                mouse::Event::CursorLeft => Some(
-                    canvas::Action::publish(Message::CursorLeft),
-                ),
+                mouse::Event::CursorLeft => Some(canvas::Action::publish(Message::CursorLeft)),
                 _ => None,
             },
             Event::Keyboard(key_event) => match key_event {
                 iced::keyboard::Event::KeyPressed {
-                    key: iced::keyboard::Key::Named(
-                        iced::keyboard::key::Named::Shift,
-                    ),
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Shift),
                     ..
                 } => {
                     panel_state.shift_held = true;
                     None
                 }
                 iced::keyboard::Event::KeyReleased {
-                    key: iced::keyboard::Key::Named(
-                        iced::keyboard::key::Named::Shift,
-                    ),
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Shift),
                     ..
                 } => {
                     panel_state.shift_held = false;
@@ -227,27 +203,26 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
         });
 
         // Crosshair layer — vertical line synced with the main chart.
-        let crosshair_geo =
-            self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
-                let dashed_line = style::dashed_line(theme);
+        let crosshair_geo = self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
+            let dashed_line = style::dashed_line(theme);
 
-                let interval = self
-                    .state
-                    .crosshair
-                    .interval
-                    .get()
-                    .or(self.state.crosshair.remote);
+            let interval = self
+                .state
+                .crosshair
+                .interval
+                .get()
+                .or(self.state.crosshair.remote);
 
-                if let Some(interval) = interval {
-                    draw_panel_remote_crosshair(
-                        self.state,
-                        frame,
-                        chart_size, // use chart_width for X positioning
-                        interval,
-                        dashed_line,
-                    );
-                }
-            });
+            if let Some(interval) = interval {
+                draw_panel_remote_crosshair(
+                    self.state,
+                    frame,
+                    chart_size, // use chart_width for X positioning
+                    interval,
+                    dashed_line,
+                );
+            }
+        });
 
         vec![geo, crosshair_geo]
     }
@@ -313,11 +288,7 @@ fn draw_panel_remote_crosshair(
 // ── Coordinate helpers ───────────────────────────────────────────────
 
 /// Convert chart interval to screen X pixel.
-fn interval_to_screen_x(
-    state: &ViewState,
-    interval: u64,
-    canvas_width: f32,
-) -> f32 {
+fn interval_to_screen_x(state: &ViewState, interval: u64, canvas_width: f32) -> f32 {
     let chart_x = state.interval_to_x(interval);
     (chart_x + state.translation.x) * state.scaling + canvas_width / 2.0
 }
@@ -330,23 +301,14 @@ fn interval_to_screen_x(
 pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
     match output {
         StudyOutput::Lines(lines) => {
-            coord::value_range(
-                lines
-                    .iter()
-                    .flat_map(|s| s.points.iter().map(|(_, v)| *v)),
-            )
+            coord::value_range(lines.iter().flat_map(|s| s.points.iter().map(|(_, v)| *v)))
         }
         StudyOutput::Bars(bars) => {
-            coord::value_range(
-                bars.iter()
-                    .flat_map(|s| s.points.iter().map(|p| p.value)),
-            )
-            .map(|(lo, hi)| (lo.min(0.0), hi))
+            coord::value_range(bars.iter().flat_map(|s| s.points.iter().map(|p| p.value)))
+                .map(|(lo, hi)| (lo.min(0.0), hi))
         }
-        StudyOutput::Histogram(bars) => {
-            coord::value_range(bars.iter().map(|b| b.value))
-                .map(|(lo, hi)| (lo.min(0.0), hi.max(0.0)))
-        }
+        StudyOutput::Histogram(bars) => coord::value_range(bars.iter().map(|b| b.value))
+            .map(|(lo, hi)| (lo.min(0.0), hi.max(0.0))),
         StudyOutput::Band {
             upper,
             middle,
@@ -379,15 +341,8 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
 
 /// Map a study value to a Y pixel inside a panel.
 #[inline]
-fn value_to_y(
-    value: f32,
-    min: f32,
-    max: f32,
-    panel_height: f32,
-    y_offset: f32,
-) -> f32 {
-    y_offset
-        + coord::value_to_panel_y(value, min, max, panel_height)
+fn value_to_y(value: f32, min: f32, max: f32, panel_height: f32, y_offset: f32) -> f32 {
+    y_offset + coord::value_to_panel_y(value, min, max, panel_height)
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────
@@ -428,17 +383,11 @@ fn render_panel_content(
                 .points
                 .iter()
                 .chain(lower.points.iter())
-                .chain(
-                    middle
-                        .iter()
-                        .flat_map(|m| m.points.iter()),
-                )
+                .chain(middle.iter().flat_map(|m| m.points.iter()))
                 .map(|(_, v)| *v);
             if let Some(range) = coord::value_range(all_values) {
                 for series in all {
-                    render_line_with_range(
-                        frame, series, state, w, y_off, h, range,
-                    );
+                    render_line_with_range(frame, series, state, w, y_off, h, range);
                 }
             }
         }
@@ -451,17 +400,11 @@ fn render_panel_content(
                 match sub {
                     StudyOutput::Lines(lines) => {
                         for series in lines {
-                            render_line_with_range(
-                                frame, series, state, w, y_off,
-                                h, range,
-                            );
+                            render_line_with_range(frame, series, state, w, y_off, h, range);
                         }
                     }
                     StudyOutput::Histogram(bars) => {
-                        draw_histogram_bars(
-                            frame, bars, state, w, y_off, h,
-                            range,
-                        );
+                        draw_histogram_bars(frame, bars, state, w, y_off, h, range);
                     }
                     _ => {}
                 }
@@ -485,8 +428,7 @@ fn render_panel_lines(
         return;
     }
 
-    let all_values =
-        lines.iter().flat_map(|s| s.points.iter().map(|(_, v)| *v));
+    let all_values = lines.iter().flat_map(|s| s.points.iter().map(|(_, v)| *v));
     let range = match coord::value_range(all_values) {
         Some(r) => r,
         None => return,
@@ -518,8 +460,7 @@ fn render_line_with_range(
         return;
     }
 
-    let color: Color =
-        crate::style::theme::rgba_to_iced_color(series.color);
+    let color: Color = crate::style::theme::rgba_to_iced_color(series.color);
     let stroke = Stroke::with_color(
         Stroke {
             width: series.width,
@@ -532,8 +473,7 @@ fn render_line_with_range(
     let mut prev: Option<Point> = None;
     for &(x_val, y_val) in &series.points {
         let sx = interval_to_screen_x(state, x_val, canvas_width);
-        let sy =
-            value_to_y(y_val, range.0, range.1, panel_height, y_offset);
+        let sy = value_to_y(y_val, range.0, range.1, panel_height, y_offset);
         let pt = Point::new(sx, sy);
         if let Some(p) = prev {
             frame.stroke(&Path::line(p, pt), stroke);
@@ -556,8 +496,7 @@ fn render_panel_bars(
         return;
     }
 
-    let all_values =
-        bars.iter().flat_map(|s| s.points.iter().map(|p| p.value));
+    let all_values = bars.iter().flat_map(|s| s.points.iter().map(|p| p.value));
     let range = match coord::value_range(all_values) {
         Some(r) => (r.0.min(0.0), r.1),
         None => return,
@@ -567,21 +506,11 @@ fn render_panel_bars(
 
     for series in bars {
         for point in &series.points {
-            let sx =
-                interval_to_screen_x(state, point.x, canvas_width);
+            let sx = interval_to_screen_x(state, point.x, canvas_width);
             let left = sx - bar_w / 2.0;
-            let color: Color =
-                crate::style::theme::rgba_to_iced_color(
-                    point.color,
-                );
+            let color: Color = crate::style::theme::rgba_to_iced_color(point.color);
 
-            let y_val = value_to_y(
-                point.value,
-                range.0,
-                range.1,
-                panel_height,
-                y_offset,
-            );
+            let y_val = value_to_y(point.value, range.0, range.1, panel_height, y_offset);
             let y_base = value_to_y(
                 0.0_f32.clamp(range.0, range.1),
                 range.0,
@@ -597,19 +526,13 @@ fn render_panel_bars(
             };
 
             if height > 0.0 && bar_w > 0.0 {
-                frame.fill_rectangle(
-                    Point::new(left, top),
-                    Size::new(bar_w, height),
-                    color,
-                );
+                frame.fill_rectangle(Point::new(left, top), Size::new(bar_w, height), color);
             }
 
             // Delta overlay
             if let Some(overlay_val) = point.overlay {
                 let ov_abs = overlay_val.abs();
-                let y_ov = value_to_y(
-                    ov_abs, range.0, range.1, panel_height, y_offset,
-                );
+                let y_ov = value_to_y(ov_abs, range.0, range.1, panel_height, y_offset);
                 let h = (y_base - y_ov).abs();
                 if h > 0.0 {
                     let top = y_ov.min(y_base);
@@ -644,7 +567,12 @@ fn render_panel_histogram(
     };
 
     draw_histogram_bars(
-        frame, bars, state, canvas_width, y_offset, panel_height,
+        frame,
+        bars,
+        state,
+        canvas_width,
+        y_offset,
+        panel_height,
         range,
     );
 }
@@ -663,19 +591,10 @@ fn draw_histogram_bars(
     for bar in bars {
         let sx = interval_to_screen_x(state, bar.x, canvas_width);
         let left = sx - bar_w / 2.0;
-        let color: Color =
-            crate::style::theme::rgba_to_iced_color(bar.color);
+        let color: Color = crate::style::theme::rgba_to_iced_color(bar.color);
 
-        let y_val = value_to_y(
-            bar.value,
-            range.0,
-            range.1,
-            panel_height,
-            y_offset,
-        );
-        let y_zero = value_to_y(
-            0.0, range.0, range.1, panel_height, y_offset,
-        );
+        let y_val = value_to_y(bar.value, range.0, range.1, panel_height, y_offset);
+        let y_zero = value_to_y(0.0, range.0, range.1, panel_height, y_offset);
 
         let (top, height) = if bar.value >= 0.0 {
             (y_val, y_zero - y_val)
@@ -684,11 +603,7 @@ fn draw_histogram_bars(
         };
 
         if height > 0.0 && bar_w > 0.0 {
-            frame.fill_rectangle(
-                Point::new(left, top),
-                Size::new(bar_w, height),
-                color,
-            );
+            frame.fill_rectangle(Point::new(left, top), Size::new(bar_w, height), color);
         }
     }
 }
@@ -749,9 +664,7 @@ impl canvas::Program<Message> for PanelAxisLabelsY<'_> {
                     );
                 }
 
-                let Some((lowest, highest)) =
-                    panel_value_range(panel.output)
-                else {
+                let Some((lowest, highest)) = panel_value_range(panel.output) else {
                     continue;
                 };
 
@@ -764,12 +677,7 @@ impl canvas::Program<Message> for PanelAxisLabelsY<'_> {
                 };
 
                 let labels = linear::generate_labels(
-                    sub_bounds,
-                    lowest,
-                    highest,
-                    text_size,
-                    text_color,
-                    None,
+                    sub_bounds, lowest, highest, text_size, text_color, None,
                 );
 
                 // Offset labels into the panel's vertical slice

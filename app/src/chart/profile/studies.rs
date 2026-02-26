@@ -44,10 +44,10 @@ impl ProfileChart {
         key: &str,
         value: study::ParameterValue,
     ) {
-        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id) {
-            if let Err(e) = s.set_parameter(key, value) {
-                log::warn!("Failed to set study parameter: {}", e);
-            }
+        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id)
+            && let Err(e) = s.set_parameter(key, value)
+        {
+            log::warn!("Failed to set study parameter: {}", e);
         }
         self.recompute_studies();
         self.invalidate();

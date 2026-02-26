@@ -25,25 +25,28 @@ pub fn collapsible<'a, Message: Clone + 'a>(
     let header_str: String = header_text.into();
     let on_toggle_clone = on_toggle.clone();
 
-    let animated_header: Element<'a, Message> =
-        AnimationBuilder::new(target, move |progress| {
-            let arrow = if progress > 0.5 { "\u{25BC}" } else { "\u{25B6}" };
+    let animated_header: Element<'a, Message> = AnimationBuilder::new(target, move |progress| {
+        let arrow = if progress > 0.5 {
+            "\u{25BC}"
+        } else {
+            "\u{25B6}"
+        };
 
-            button(
-                row![
-                    text(arrow).size(tokens::text::SMALL),
-                    text(header_str.clone()).size(tokens::text::LABEL),
-                ]
-                .spacing(tokens::spacing::SM)
-                .align_y(Alignment::Center),
-            )
-            .padding(tokens::spacing::XS)
-            .on_press(on_toggle_clone.clone())
-            .style(|theme, status| style::button::transparent(theme, status, false))
-            .into()
-        })
-        .animation(animation::spring::EXPAND)
-        .into();
+        button(
+            row![
+                text(arrow).size(tokens::text::SMALL),
+                text(header_str.clone()).size(tokens::text::LABEL),
+            ]
+            .spacing(tokens::spacing::SM)
+            .align_y(Alignment::Center),
+        )
+        .padding(tokens::spacing::XS)
+        .on_press(on_toggle_clone.clone())
+        .style(|theme, status| style::button::transparent(theme, status, false))
+        .into()
+    })
+    .animation(animation::spring::EXPAND)
+    .into();
 
     if is_expanded {
         column![animated_header, body]

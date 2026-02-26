@@ -7,7 +7,7 @@ use crate::{
     screen::dashboard::pane::types::AiContextBubbleEvent,
     style::{self, tokens},
 };
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element, Length, padding,
     widget::{column, container, mouse_area, opaque, pane_grid, stack},
@@ -32,7 +32,7 @@ fn context_menu_items(
                     "Indicators".into(),
                     Some(Message::PaneEvent(
                         pane,
-                        Event::ContextMenuAction(ContextMenuAction::OpenIndicators),
+                        Box::new(Event::ContextMenuAction(ContextMenuAction::OpenIndicators)),
                     )),
                 ));
             }
@@ -41,7 +41,7 @@ fn context_menu_items(
                 "Center Last Price".into(),
                 Some(Message::PaneEvent(
                     pane,
-                    Event::ContextMenuAction(ContextMenuAction::CenterLastPrice),
+                    Box::new(Event::ContextMenuAction(ContextMenuAction::CenterLastPrice)),
                 )),
             ));
 
@@ -49,7 +49,7 @@ fn context_menu_items(
                 "Rebuild Chart".into(),
                 Some(Message::PaneEvent(
                     pane,
-                    Event::ContextMenuAction(ContextMenuAction::RebuildChart),
+                    Box::new(Event::ContextMenuAction(ContextMenuAction::RebuildChart)),
                 )),
             ));
 
@@ -61,9 +61,9 @@ fn context_menu_items(
                 "Properties".into(),
                 Some(Message::PaneEvent(
                     pane,
-                    Event::ContextMenuAction(
+                    Box::new(Event::ContextMenuAction(
                         ContextMenuAction::OpenStudyProperties(idx),
-                    ),
+                    )),
                 )),
             )]
         }
@@ -74,8 +74,8 @@ fn context_menu_items(
                     "Properties".into(),
                     Some(Message::PaneEvent(
                         pane,
-                        Event::ContextMenuAction(ContextMenuAction::OpenDrawingProperties(
-                            id,
+                        Box::new(Event::ContextMenuAction(
+                            ContextMenuAction::OpenDrawingProperties(id),
                         )),
                     )),
                 ),
@@ -83,21 +83,27 @@ fn context_menu_items(
                     if *locked { "Unlock" } else { "Lock" }.into(),
                     Some(Message::PaneEvent(
                         pane,
-                        Event::ContextMenuAction(ContextMenuAction::ToggleLockDrawing(id)),
+                        Box::new(Event::ContextMenuAction(
+                            ContextMenuAction::ToggleLockDrawing(id),
+                        )),
                     )),
                 ),
                 (
                     "Clone".into(),
                     Some(Message::PaneEvent(
                         pane,
-                        Event::ContextMenuAction(ContextMenuAction::CloneDrawing(id)),
+                        Box::new(Event::ContextMenuAction(ContextMenuAction::CloneDrawing(
+                            id,
+                        ))),
                     )),
                 ),
                 (
                     "Delete".into(),
                     Some(Message::PaneEvent(
                         pane,
-                        Event::ContextMenuAction(ContextMenuAction::DeleteDrawing(id)),
+                        Box::new(Event::ContextMenuAction(ContextMenuAction::DeleteDrawing(
+                            id,
+                        ))),
                     )),
                 ),
             ]
@@ -108,9 +114,9 @@ fn context_menu_items(
                 "Copy".into(),
                 Some(Message::PaneEvent(
                     pane,
-                    Event::ContextMenuAction(
+                    Box::new(Event::ContextMenuAction(
                         ContextMenuAction::CopyAiMessageText(idx),
-                    ),
+                    )),
                 )),
             )]
         }
@@ -134,11 +140,11 @@ impl State {
         use modals::pane::stack_modal;
 
         let base = toast::Manager::new(base, &self.notifications, Alignment::End, move |msg| {
-            Message::PaneEvent(pane, Event::DeleteNotification(msg))
+            Message::PaneEvent(pane, Box::new(Event::DeleteNotification(msg)))
         })
         .into();
 
-        let on_blur = Message::PaneEvent(pane, Event::HideModal);
+        let on_blur = Message::PaneEvent(pane, Box::new(Event::HideModal));
 
         let base = match &self.modal {
             Some(Modal::LinkGroup) => {
@@ -155,9 +161,9 @@ impl State {
             Some(Modal::StreamModifier(modifier)) => stack_modal(
                 base,
                 modifier.view(self.ticker_info).map(move |message| {
-                    Message::PaneEvent(pane, Event::StreamModifierChanged(message))
+                    Message::PaneEvent(pane, Box::new(Event::StreamModifierChanged(message)))
                 }),
-                Message::PaneEvent(pane, Event::HideModal),
+                Message::PaneEvent(pane, Box::new(Event::HideModal)),
                 padding::right(tokens::spacing::LG).left(48),
                 Alignment::Start,
             ),
@@ -170,7 +176,7 @@ impl State {
                         ticker_ranges,
                     )
                     .map(move |msg| {
-                        Message::PaneEvent(pane, Event::MiniTickersListInteraction(msg))
+                        Message::PaneEvent(pane, Box::new(Event::MiniTickersListInteraction(msg)))
                     });
 
                 let content: Element<_> = container(mini_list)
@@ -189,7 +195,7 @@ impl State {
                 stack_modal(
                     base,
                     content,
-                    Message::PaneEvent(pane, Event::HideModal),
+                    Message::PaneEvent(pane, Box::new(Event::HideModal)),
                     padding::left(tokens::spacing::LG),
                     Alignment::Start,
                 )
@@ -203,19 +209,16 @@ impl State {
             ),
             Some(Modal::IndicatorManager(manager)) => {
                 let content = manager.view().map(move |msg| {
-                    Message::PaneEvent(
-                        pane,
-                        Event::IndicatorManagerInteraction(msg),
-                    )
+                    Message::PaneEvent(pane, Box::new(Event::IndicatorManagerInteraction(msg)))
                 });
                 crate::modals::main_dialog_modal(
                     base,
                     content,
                     Message::PaneEvent(
                         pane,
-                        Event::IndicatorManagerInteraction(
+                        Box::new(Event::IndicatorManagerInteraction(
                             crate::modals::pane::indicator::Message::Close,
-                        ),
+                        )),
                     ),
                 )
             }
@@ -235,7 +238,7 @@ impl State {
                 stack_modal(
                     base,
                     panel.view().map(move |msg| {
-                        Message::PaneEvent(pane_id, Event::DataManagementInteraction(msg))
+                        Message::PaneEvent(pane_id, Box::new(Event::DataManagementInteraction(msg)))
                     }),
                     on_blur,
                     padding::all(tokens::spacing::LG),
@@ -243,17 +246,17 @@ impl State {
                 )
             }
             Some(Modal::DrawingProperties(props)) => {
-                let content = props
-                    .view()
-                    .map(move |msg| Message::PaneEvent(pane, Event::DrawingPropertiesChanged(msg)));
+                let content = props.view().map(move |msg| {
+                    Message::PaneEvent(pane, Box::new(Event::DrawingPropertiesChanged(msg)))
+                });
                 crate::modals::main_dialog_modal(
                     base,
                     content,
                     Message::PaneEvent(
                         pane,
-                        Event::DrawingPropertiesChanged(
+                        Box::new(Event::DrawingPropertiesChanged(
                             crate::modals::drawing::properties::Message::Close,
-                        ),
+                        )),
                     ),
                 )
             }
@@ -263,17 +266,23 @@ impl State {
         // AI context bubble overlay (between modals and context menu)
         let base = if let Some(ref bubble) = self.ai_context_bubble {
             let panel = ai_context_bubble::view(bubble, pane);
+            let bubble_width = 340.0_f32;
+            let left = (bubble.anchor.x - bubble_width / 2.0).max(0.0);
+            let top = bubble.anchor.y + 8.0;
             let overlay = container(opaque(panel))
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .align_x(Alignment::End)
-                .align_y(Alignment::End)
-                .padding(tokens::spacing::LG);
+                .padding(iced::Padding {
+                    top,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left,
+                });
             stack![
                 base,
                 mouse_area(overlay).on_press(Message::PaneEvent(
                     pane,
-                    Event::AiContextBubble(AiContextBubbleEvent::Dismiss),
+                    Box::new(Event::AiContextBubble(AiContextBubbleEvent::Dismiss),)
                 ))
             ]
             .into()
@@ -283,16 +292,12 @@ impl State {
 
         // Context menu overlay on top of everything
         if let Some(ref ctx_menu) = self.context_menu {
-            let items = context_menu_items(
-                ctx_menu,
-                pane,
-                self.content.has_indicators(),
-            );
+            let items = context_menu_items(ctx_menu, pane, self.content.has_indicators());
             let position = ctx_menu.position();
             let overlay = context_menu(
                 items,
                 position,
-                Message::PaneEvent(pane, Event::DismissContextMenu),
+                Message::PaneEvent(pane, Box::new(Event::DismissContextMenu)),
             );
             stack![base, overlay].into()
         } else {

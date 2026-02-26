@@ -1,12 +1,12 @@
 //! Line-based drawing rendering: Line, Ray, ExtendedLine, Arrow,
 //! HorizontalLine, VerticalLine.
 
-use super::{DrawContext, draw_drawing_label, draw_label, extend_to_bounds};
 use super::super::Drawing;
+use super::{DrawContext, draw_drawing_label, draw_label, extend_to_bounds};
 use crate::chart::core::tokens;
-use data::DrawingTool;
-use iced::widget::canvas::{Frame, Path};
+use crate::drawing::DrawingTool;
 use iced::Point;
+use iced::widget::canvas::{Frame, Path};
 
 pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     match drawing.tool {
@@ -20,83 +20,93 @@ pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[
     }
 }
 
-fn draw_horizontal(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_horizontal(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     let Some(p) = pts.first() else { return };
     let start = Point::new(0.0, p.y);
     let end = Point::new(ctx.bounds.width, p.y);
     frame.stroke(&Path::line(start, end), ctx.stroke);
-    draw_drawing_label(frame, drawing, &[start, end], ctx.bounds, ctx.stroke_color, false);
+    draw_drawing_label(
+        frame,
+        drawing,
+        &[start, end],
+        ctx.bounds,
+        ctx.stroke_color,
+        false,
+    );
 }
 
-fn draw_vertical(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_vertical(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     let Some(p) = pts.first() else { return };
     let start = Point::new(p.x, 0.0);
     let end = Point::new(p.x, ctx.bounds.height);
     frame.stroke(&Path::line(start, end), ctx.stroke);
-    draw_drawing_label(frame, drawing, &[start, end], ctx.bounds, ctx.stroke_color, true);
+    draw_drawing_label(
+        frame,
+        drawing,
+        &[start, end],
+        ctx.bounds,
+        ctx.stroke_color,
+        true,
+    );
 }
 
-fn draw_line(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_line(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() >= 2 {
         frame.stroke(&Path::line(pts[0], pts[1]), ctx.stroke);
-        draw_drawing_label(frame, drawing, &pts[..2], ctx.bounds, ctx.stroke_color, false);
+        draw_drawing_label(
+            frame,
+            drawing,
+            &pts[..2],
+            ctx.bounds,
+            ctx.stroke_color,
+            false,
+        );
     }
 }
 
-fn draw_ray(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_ray(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() >= 2 {
         let forward = extend_to_bounds(pts[0], pts[1], ctx.bounds);
         frame.stroke(&Path::line(pts[0], forward), ctx.stroke);
-        draw_drawing_label(frame, drawing, &[pts[0], forward], ctx.bounds, ctx.stroke_color, false);
+        draw_drawing_label(
+            frame,
+            drawing,
+            &[pts[0], forward],
+            ctx.bounds,
+            ctx.stroke_color,
+            false,
+        );
     } else if let Some(p) = pts.first() {
         let end = Point::new(ctx.bounds.width, p.y);
         frame.stroke(&Path::line(*p, end), ctx.stroke);
-        draw_drawing_label(frame, drawing, &[*p, end], ctx.bounds, ctx.stroke_color, false);
+        draw_drawing_label(
+            frame,
+            drawing,
+            &[*p, end],
+            ctx.bounds,
+            ctx.stroke_color,
+            false,
+        );
     }
 }
 
-fn draw_extended(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_extended(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() >= 2 {
         let back = extend_to_bounds(pts[1], pts[0], ctx.bounds);
         let forward = extend_to_bounds(pts[0], pts[1], ctx.bounds);
         frame.stroke(&Path::line(back, forward), ctx.stroke);
         draw_drawing_label(
-            frame, drawing, &[back, forward], ctx.bounds, ctx.stroke_color, false,
+            frame,
+            drawing,
+            &[back, forward],
+            ctx.bounds,
+            ctx.stroke_color,
+            false,
         );
     }
 }
 
-fn draw_arrow(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_arrow(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 2 {
         return;
     }
@@ -156,13 +166,20 @@ fn draw_arrow(
     }
 
     // Inline text label at midpoint (from style.text)
-    if let Some(ref text) = drawing.style.text {
-        if !text.is_empty() {
-            let mid = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
-            draw_label(frame, text, mid, ctx.stroke_color);
-        }
+    if let Some(ref text) = drawing.style.text
+        && !text.is_empty()
+    {
+        let mid = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+        draw_label(frame, text, mid, ctx.stroke_color);
     }
 
     // Named label (from drawing.label, with alignment control)
-    draw_drawing_label(frame, drawing, &[start, end], ctx.bounds, ctx.stroke_color, false);
+    draw_drawing_label(
+        frame,
+        drawing,
+        &[start, end],
+        ctx.bounds,
+        ctx.stroke_color,
+        false,
+    );
 }

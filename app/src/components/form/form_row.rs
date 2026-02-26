@@ -27,10 +27,7 @@ pub struct FormRow<'a, Message> {
 }
 
 impl<'a, Message: 'a> FormRow<'a, Message> {
-    pub fn new(
-        label: impl Into<String>,
-        control: impl Into<Element<'a, Message>>,
-    ) -> Self {
+    pub fn new(label: impl Into<String>, control: impl Into<Element<'a, Message>>) -> Self {
         Self {
             label: label.into(),
             control: control.into(),

@@ -1,7 +1,8 @@
+//! Study classification enums: category and placement.
+
 /// Study category for grouping in menus and search.
 #[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash,
-    serde::Serialize, serde::Deserialize,
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
 pub enum StudyCategory {
     Trend,
@@ -27,10 +28,7 @@ impl std::fmt::Display for StudyCategory {
 }
 
 /// Where a study renders relative to the price chart.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash,
-    serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum StudyPlacement {
     /// Drawn on the price chart (SMA, Bollinger, VWAP)
     Overlay,

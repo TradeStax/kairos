@@ -6,9 +6,8 @@ use crate::components::input::slider_field::labeled_slider;
 use crate::screen::dashboard::pane::Message;
 use crate::style::tokens;
 
-use data::state::pane::{
-    ProfileConfig, ProfileLineStyle, ProfileNodeDetectionMethod,
-    VisualConfig,
+use crate::screen::dashboard::pane::config::{
+    ProfileConfig, ProfileLineStyle, ProfileNodeDetectionMethod, VisualConfig,
 };
 
 use iced::{
@@ -16,15 +15,8 @@ use iced::{
     widget::{column, pane_grid, pick_list},
 };
 
-fn cfg_msg(
-    pane: pane_grid::Pane,
-    cfg: ProfileConfig,
-) -> Message {
-    Message::VisualConfigChanged(
-        pane,
-        VisualConfig::Profile(cfg),
-        false,
-    )
+fn cfg_msg(pane: pane_grid::Pane, cfg: ProfileConfig) -> Message {
+    Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(cfg)), false)
 }
 
 pub(super) fn peak_valley_tab<'a>(
@@ -59,21 +51,17 @@ pub(super) fn peak_valley_tab<'a>(
     );
 
     let c = cfg.clone();
-    let show_hvn_zones = CheckboxFieldBuilder::new(
-        "Show HVN zones",
-        cfg.show_hvn_zones,
-        move |value| {
+    let show_hvn_zones =
+        CheckboxFieldBuilder::new("Show HVN zones", cfg.show_hvn_zones, move |value| {
             let mut new = c.clone();
             new.show_hvn_zones = value;
             cfg_msg(pane, new)
-        },
-    );
+        });
 
-    let mut hvn_section =
-        FormSectionBuilder::new("High Volume Nodes")
-            .push(hvn_method)
-            .push(hvn_threshold)
-            .push(show_hvn_zones);
+    let mut hvn_section = FormSectionBuilder::new("High Volume Nodes")
+        .push(hvn_method)
+        .push(hvn_threshold)
+        .push(show_hvn_zones);
 
     if cfg.show_hvn_zones {
         let c = cfg.clone();
@@ -94,18 +82,13 @@ pub(super) fn peak_valley_tab<'a>(
 
     // Peak line
     let c = cfg.clone();
-    let show_peak = CheckboxFieldBuilder::new(
-        "Show peak line",
-        cfg.show_peak_line,
-        move |value| {
-            let mut new = c.clone();
-            new.show_peak_line = value;
-            cfg_msg(pane, new)
-        },
-    );
+    let show_peak = CheckboxFieldBuilder::new("Show peak line", cfg.show_peak_line, move |value| {
+        let mut new = c.clone();
+        new.show_peak_line = value;
+        cfg_msg(pane, new)
+    });
 
-    let mut peak_section =
-        FormSectionBuilder::new("Peak Line").push(show_peak);
+    let mut peak_section = FormSectionBuilder::new("Peak Line").push(show_peak);
 
     if cfg.show_peak_line {
         let c = cfg.clone();
@@ -135,15 +118,12 @@ pub(super) fn peak_valley_tab<'a>(
         .width(Length::Fixed(120.0));
 
         let c = cfg.clone();
-        let peak_label = CheckboxFieldBuilder::new(
-            "Show price label",
-            cfg.show_peak_label,
-            move |value| {
+        let peak_label =
+            CheckboxFieldBuilder::new("Show price label", cfg.show_peak_label, move |value| {
                 let mut new = c.clone();
                 new.show_peak_label = value;
                 cfg_msg(pane, new)
-            },
-        );
+            });
 
         peak_section = peak_section
             .push(peak_width)
@@ -179,21 +159,17 @@ pub(super) fn peak_valley_tab<'a>(
     );
 
     let c = cfg.clone();
-    let show_lvn_zones = CheckboxFieldBuilder::new(
-        "Show LVN zones",
-        cfg.show_lvn_zones,
-        move |value| {
+    let show_lvn_zones =
+        CheckboxFieldBuilder::new("Show LVN zones", cfg.show_lvn_zones, move |value| {
             let mut new = c.clone();
             new.show_lvn_zones = value;
             cfg_msg(pane, new)
-        },
-    );
+        });
 
-    let mut lvn_section =
-        FormSectionBuilder::new("Low Volume Nodes")
-            .push(lvn_method)
-            .push(lvn_threshold)
-            .push(show_lvn_zones);
+    let mut lvn_section = FormSectionBuilder::new("Low Volume Nodes")
+        .push(lvn_method)
+        .push(lvn_threshold)
+        .push(show_lvn_zones);
 
     if cfg.show_lvn_zones {
         let c = cfg.clone();
@@ -214,18 +190,14 @@ pub(super) fn peak_valley_tab<'a>(
 
     // Valley line
     let c = cfg.clone();
-    let show_valley = CheckboxFieldBuilder::new(
-        "Show valley line",
-        cfg.show_valley_line,
-        move |value| {
+    let show_valley =
+        CheckboxFieldBuilder::new("Show valley line", cfg.show_valley_line, move |value| {
             let mut new = c.clone();
             new.show_valley_line = value;
             cfg_msg(pane, new)
-        },
-    );
+        });
 
-    let mut valley_section =
-        FormSectionBuilder::new("Valley Line").push(show_valley);
+    let mut valley_section = FormSectionBuilder::new("Valley Line").push(show_valley);
 
     if cfg.show_valley_line {
         let c = cfg.clone();
@@ -255,15 +227,12 @@ pub(super) fn peak_valley_tab<'a>(
         .width(Length::Fixed(120.0));
 
         let c = cfg.clone();
-        let valley_label = CheckboxFieldBuilder::new(
-            "Show price label",
-            cfg.show_valley_label,
-            move |value| {
+        let valley_label =
+            CheckboxFieldBuilder::new("Show price label", cfg.show_valley_label, move |value| {
                 let mut new = c.clone();
                 new.show_valley_label = value;
                 cfg_msg(pane, new)
-            },
-        );
+            });
 
         valley_section = valley_section
             .push(valley_width)
@@ -271,12 +240,7 @@ pub(super) fn peak_valley_tab<'a>(
             .push(valley_label);
     }
 
-    column![
-        hvn_section,
-        peak_section,
-        lvn_section,
-        valley_section,
-    ]
-    .spacing(tokens::spacing::XL)
-    .into()
+    column![hvn_section, peak_section, lvn_section, valley_section,]
+        .spacing(tokens::spacing::XL)
+        .into()
 }

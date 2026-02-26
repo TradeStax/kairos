@@ -1,11 +1,10 @@
 //! MonteCarloChart canvas program.
 
-use super::{
-    ChartHoverState, draw_crosshair_lines, draw_tooltip_box,
-    format_currency, grid_lines, handle_cursor_event,
-    position_tooltip, tooltip_size,
-};
 use super::super::ManagerMessage;
+use super::{
+    ChartHoverState, draw_crosshair_lines, draw_tooltip_box, format_currency, grid_lines,
+    handle_cursor_event, position_tooltip, tooltip_size,
+};
 use crate::style::tokens;
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke, Text};
@@ -99,13 +98,18 @@ impl<'a> MonteCarloChart<'a> {
         let pad_max = g_max + val_range * 0.05;
         let pad_range = val_range * 1.1;
 
-        Some(McParams { pad, w, h, n, pad_max, pad_range })
+        Some(McParams {
+            pad,
+            w,
+            h,
+            n,
+            pad_max,
+            pad_range,
+        })
     }
 
     fn step_to_x(p: &McParams, step: usize) -> f32 {
-        p.pad
-            + (step as f64 / (p.n - 1) as f64
-                * (p.w - p.pad * 2.0) as f64) as f32
+        p.pad + (step as f64 / (p.n - 1) as f64 * (p.w - p.pad * 2.0) as f64) as f32
     }
 
     fn val_to_y(p: &McParams, v: f64) -> f32 {
@@ -132,9 +136,7 @@ impl<'a> MonteCarloChart<'a> {
                     Self::step_to_x(&p, 0),
                     Self::val_to_y(&p, mc_path[0]),
                 ));
-                for (i, &val) in
-                    mc_path[1..len].iter().enumerate()
-                {
+                for (i, &val) in mc_path[1..len].iter().enumerate() {
                     b.line_to(Point::new(
                         Self::step_to_x(&p, i + 1),
                         Self::val_to_y(&p, val),
@@ -200,10 +202,7 @@ impl<'a> MonteCarloChart<'a> {
                 } else {
                     *self.p50.last().unwrap_or(&0.0)
                 };
-                b.line_to(Point::new(
-                    Self::step_to_x(&p, i),
-                    Self::val_to_y(&p, v),
-                ));
+                b.line_to(Point::new(Self::step_to_x(&p, i), Self::val_to_y(&p, v)));
             }
         });
         frame.stroke(
@@ -276,12 +275,7 @@ impl<'a> MonteCarloChart<'a> {
         }
     }
 
-    fn draw_overlay(
-        &self,
-        frame: &mut Frame,
-        cursor: Point,
-        bounds: Rectangle,
-    ) {
+    fn draw_overlay(&self, frame: &mut Frame, cursor: Point, bounds: Rectangle) {
         let Some(p) = self.mc_params(bounds) else {
             return;
         };
@@ -300,21 +294,12 @@ impl<'a> MonteCarloChart<'a> {
 
         let snap_x = Self::step_to_x(&p, best_step);
 
-        draw_crosshair_lines(
-            frame,
-            Point::new(snap_x, cursor.y),
-            bounds.size(),
-            p.pad,
-        );
+        draw_crosshair_lines(frame, Point::new(snap_x, cursor.y), bounds.size(), p.pad);
 
         let p5_val = self.p5.get(best_step).copied().unwrap_or(0.0);
         let p50_val = self.p50.get(best_step).copied().unwrap_or(0.0);
         let p95_val = self.p95.get(best_step).copied().unwrap_or(0.0);
-        let orig_val = self
-            .original_equity
-            .get(best_step)
-            .copied()
-            .unwrap_or(0.0);
+        let orig_val = self.original_equity.get(best_step).copied().unwrap_or(0.0);
 
         let lines = vec![
             format!("Step {}/{}", best_step, n - 1),

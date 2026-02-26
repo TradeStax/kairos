@@ -1,8 +1,8 @@
 //! Fibonacci drawing rendering: FibRetracement, FibExtension.
 
-use super::{DrawContext, create_stroke, draw_label};
 use super::super::Drawing;
-use data::{DrawingTool, FibonacciConfig, LineStyle};
+use super::{DrawContext, create_stroke, draw_label};
+use crate::drawing::{DrawingTool, FibonacciConfig, LineStyle};
 use iced::widget::canvas::{Frame, Path};
 use iced::{Color, Point, Size};
 
@@ -14,12 +14,7 @@ pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[
     }
 }
 
-fn draw_retracement(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_retracement(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 2 {
         return;
     }
@@ -29,15 +24,18 @@ fn draw_retracement(
         .as_ref()
         .cloned()
         .unwrap_or_default();
-    draw_fib_levels(frame, &pts[0], &pts[1], &config, ctx.stroke_width, drawing.style.line_style, ctx.bounds);
+    draw_fib_levels(
+        frame,
+        &pts[0],
+        &pts[1],
+        &config,
+        ctx.stroke_width,
+        drawing.style.line_style,
+        ctx.bounds,
+    );
 }
 
-fn draw_extension(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_extension(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 3 {
         return;
     }
@@ -57,10 +55,8 @@ fn draw_extension(
             continue;
         }
         let level_y = pts[2].y + y_range * level.ratio as f32;
-        let level_color: Color =
-            crate::style::theme::rgba_to_iced_color(level.color);
-        let level_stroke =
-            create_stroke(level_color, ctx.stroke_width, drawing.style.line_style);
+        let level_color: Color = crate::style::theme::rgba_to_iced_color(level.color);
+        let level_stroke = create_stroke(level_color, ctx.stroke_width, drawing.style.line_style);
 
         let (lx, rx) = if config.extend_lines {
             (0.0, ctx.bounds.width)
@@ -82,8 +78,7 @@ fn draw_extension(
     }
 
     // Draw anchor lines
-    let anchor_stroke =
-        create_stroke(ctx.stroke_color.scale_alpha(0.4), 1.0, LineStyle::Dashed);
+    let anchor_stroke = create_stroke(ctx.stroke_color.scale_alpha(0.4), 1.0, LineStyle::Dashed);
     frame.stroke(&Path::line(pts[0], pts[1]), anchor_stroke);
     frame.stroke(&Path::line(pts[1], pts[2]), anchor_stroke);
 }
@@ -108,8 +103,7 @@ fn draw_fib_levels(
         }
 
         let level_y = p1.y + y_range * level.ratio as f32;
-        let level_color: Color =
-            crate::style::theme::rgba_to_iced_color(level.color);
+        let level_color: Color = crate::style::theme::rgba_to_iced_color(level.color);
         let level_stroke = create_stroke(level_color, stroke_width, line_style);
 
         let (lx, rx) = if config.extend_lines {

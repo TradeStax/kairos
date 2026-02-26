@@ -7,15 +7,15 @@ use crate::components::display::tooltip::button_with_tooltip;
 use crate::components::form::form_field::FormFieldBuilder;
 use crate::components::form::form_section::FormSectionBuilder;
 use crate::components::primitives::{Icon, icon_text};
+use crate::config::sidebar;
+use crate::config::{ScaleFactor, Theme, UserTimezone};
 use crate::style;
 use crate::style::tokens;
-use data::sidebar;
 
 use iced::{
     Alignment, Element,
     widget::{
-        button, column, container, pick_list, row, text,
-        tooltip::Position as TooltipPosition,
+        button, column, container, pick_list, row, text, tooltip::Position as TooltipPosition,
     },
 };
 
@@ -43,31 +43,33 @@ pub enum Message {
     CloseModal,
     SaveModal,
     // Draft mutations
-    SetTimezone(data::UserTimezone),
+    SetTimezone(UserTimezone),
     SetDateRangePreset(sidebar::DateRangePreset),
-    SetTheme(data::Theme),
-    ScaleFactorChanged(data::ScaleFactor),
+    SetTheme(Theme),
+    ScaleFactorChanged(ScaleFactor),
     // Immediate actions
     OpenThemeEditor,
     OpenDataFolder,
+    OpenDataManagement,
 }
 
 #[derive(Debug, Clone)]
 pub enum Action {
-    FlyoutToggled(bool),
+    FlyoutToggled,
     OpenModal(SettingsPage),
     CloseModal,
     SaveSettings(SettingsDraft),
     OpenThemeEditor,
     OpenDataFolder,
+    OpenDataManagement,
 }
 
 #[derive(Debug, Clone)]
 pub struct SettingsDraft {
-    pub timezone: data::UserTimezone,
+    pub timezone: UserTimezone,
     pub date_range_preset: sidebar::DateRangePreset,
-    pub theme: data::Theme,
-    pub scale_factor: data::ScaleFactor,
+    pub theme: Theme,
+    pub scale_factor: ScaleFactor,
     /// Snapshot of the custom iced theme for pick_list display.
     pub custom_iced_theme: Option<iced::Theme>,
 }
@@ -88,10 +90,10 @@ impl SettingsPanel {
     }
 
     pub fn create_draft(
-        timezone: data::UserTimezone,
+        timezone: UserTimezone,
         date_range_preset: sidebar::DateRangePreset,
-        theme: data::Theme,
-        scale_factor: data::ScaleFactor,
+        theme: Theme,
+        scale_factor: ScaleFactor,
         custom_iced_theme: Option<iced::Theme>,
     ) -> SettingsDraft {
         SettingsDraft {
@@ -109,7 +111,7 @@ impl SettingsPanel {
         match msg {
             Message::ToggleFlyout(expanded) => {
                 self.flyout_expanded = expanded;
-                Some(Action::FlyoutToggled(expanded))
+                Some(Action::FlyoutToggled)
             }
             Message::OpenPage(page) => {
                 self.flyout_expanded = false;
@@ -154,16 +156,17 @@ impl SettingsPanel {
             // Immediate actions
             Message::OpenThemeEditor => Some(Action::OpenThemeEditor),
             Message::OpenDataFolder => Some(Action::OpenDataFolder),
+            Message::OpenDataManagement => {
+                self.flyout_expanded = false;
+                Some(Action::OpenDataManagement)
+            }
         }
     }
 
     // ── Views ────────────────────────────────────────────────────────
 
     /// Flyout listing settings pages as square icon buttons with tooltips.
-    pub fn view_flyout(
-        &self,
-        tooltip_position: TooltipPosition,
-    ) -> Option<Element<'_, Message>> {
+    pub fn view_flyout(&self, tooltip_position: TooltipPosition) -> Option<Element<'_, Message>> {
         if !self.flyout_expanded {
             return None;
         }
@@ -171,28 +174,37 @@ impl SettingsPanel {
         let general_btn = button_with_tooltip(
             icon_text(Icon::Cog, 14)
                 .width(24)
+                .height(24)
                 .align_x(Alignment::Center),
             Message::OpenPage(SettingsPage::General),
             Some("General"),
             tooltip_position,
-            |theme, status| {
-                style::button::transparent(theme, status, false)
-            },
+            |theme, status| style::button::transparent(theme, status, false),
         );
 
         let appearance_btn = button_with_tooltip(
             icon_text(Icon::Edit, 14)
                 .width(24)
+                .height(24)
                 .align_x(Alignment::Center),
             Message::OpenPage(SettingsPage::Appearance),
             Some("Appearance"),
             tooltip_position,
-            |theme, status| {
-                style::button::transparent(theme, status, false)
-            },
+            |theme, status| style::button::transparent(theme, status, false),
         );
 
-        let col = column![general_btn, appearance_btn]
+        let data_btn = button_with_tooltip(
+            icon_text(Icon::Folder, 14)
+                .width(24)
+                .height(24)
+                .align_x(Alignment::Center),
+            Message::OpenDataManagement,
+            Some("Data"),
+            tooltip_position,
+            |theme, status| style::button::transparent(theme, status, false),
+        );
+
+        let col = column![general_btn, appearance_btn, data_btn]
             .spacing(tokens::spacing::XS)
             .width(tokens::layout::SIDEBAR_WIDTH)
             .align_x(Alignment::Center);
@@ -205,15 +217,11 @@ impl SettingsPanel {
     }
 
     /// Body content for the active modal page (if any).
-    pub fn view_modal_body(
-        &self,
-    ) -> Option<(SettingsPage, Element<'_, Message>)> {
+    pub fn view_modal_body(&self) -> Option<(SettingsPage, Element<'_, Message>)> {
         let (page, draft) = self.active_modal.as_ref()?;
         let body = match page {
             SettingsPage::General => Self::view_general_page(draft),
-            SettingsPage::Appearance => {
-                Self::view_appearance_page(draft)
-            }
+            SettingsPage::Appearance => Self::view_appearance_page(draft),
         };
         Some((*page, body))
     }
@@ -229,32 +237,25 @@ impl SettingsPanel {
         );
 
         let open_folder_btn = button(
-            row![
-                icon_text(Icon::Folder, 14),
-                text("Open data folder"),
-            ]
-            .spacing(tokens::spacing::SM)
-            .align_y(Alignment::Center),
+            row![icon_text(Icon::Folder, 14), text("Open data folder"),]
+                .spacing(tokens::spacing::SM)
+                .align_y(Alignment::Center),
         )
         .on_press(Message::OpenDataFolder)
-        .style(|theme, status| {
-            style::button::transparent(theme, status, false)
-        });
+        .style(|theme, status| style::button::transparent(theme, status, false));
 
-        FormSectionBuilder::new("General")
+        FormSectionBuilder::new("")
             .push(date_range_field)
             .push(open_folder_btn)
             .into_element()
     }
 
-    fn view_appearance_page(
-        draft: &SettingsDraft,
-    ) -> Element<'_, Message> {
+    fn view_appearance_page(draft: &SettingsDraft) -> Element<'_, Message> {
         // Timezone
         let timezone_field = FormFieldBuilder::new(
             "Time zone",
             pick_list(
-                [data::UserTimezone::Utc, data::UserTimezone::Local],
+                [UserTimezone::Utc, UserTimezone::Local],
                 Some(draft.timezone),
                 Message::SetTimezone,
             ),
@@ -262,25 +263,17 @@ impl SettingsPanel {
 
         // Theme
         let theme_field = {
-            let mut themes: Vec<iced::Theme> =
-                iced_core::Theme::ALL.to_vec();
-            themes.push(
-                crate::style::theme::default_iced_theme(),
-            );
+            let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
+            themes.push(crate::style::theme::default_iced_theme());
             if let Some(custom) = &draft.custom_iced_theme {
                 themes.push(custom.clone());
             }
-            let current_iced =
-                crate::style::theme::theme_to_iced(&draft.theme);
+            let current_iced = crate::style::theme::theme_to_iced(&draft.theme);
 
             FormFieldBuilder::new(
                 "Theme",
                 pick_list(themes, Some(current_iced), |theme| {
-                    Message::SetTheme(
-                        crate::style::theme::iced_theme_to_data(
-                            theme,
-                        ),
-                    )
+                    Message::SetTheme(crate::style::theme::iced_theme_to_data(theme))
                 }),
             )
         };
@@ -289,18 +282,14 @@ impl SettingsPanel {
         let scale_field = {
             let v: f32 = draft.scale_factor.into();
 
-            let dec = if v > data::config::MIN_SCALE {
-                button(text("-")).on_press(
-                    Message::ScaleFactorChanged((v - 0.1).into()),
-                )
+            let dec = if v > crate::config::scale_factor::MIN_SCALE {
+                button(text("-")).on_press(Message::ScaleFactorChanged((v - 0.1).into()))
             } else {
                 button(text("-"))
             };
 
-            let inc = if v < data::config::MAX_SCALE {
-                button(text("+")).on_press(
-                    Message::ScaleFactorChanged((v + 0.1).into()),
-                )
+            let inc = if v < crate::config::scale_factor::MAX_SCALE {
+                button(text("+")).on_press(Message::ScaleFactorChanged((v + 0.1).into()))
             } else {
                 button(text("+"))
             };
@@ -308,8 +297,7 @@ impl SettingsPanel {
             let scale_control = container(
                 row![
                     dec,
-                    text(format!("{:.0}%", v * 100.0))
-                        .size(tokens::text::TITLE),
+                    text(format!("{:.0}%", v * 100.0)).size(tokens::text::TITLE),
                     inc,
                 ]
                 .align_y(Alignment::Center)
@@ -324,11 +312,9 @@ impl SettingsPanel {
         // Theme editor button (immediate action)
         let theme_editor_btn = button(text("Theme editor"))
             .on_press(Message::OpenThemeEditor)
-            .style(|theme, status| {
-                style::button::transparent(theme, status, false)
-            });
+            .style(|theme, status| style::button::transparent(theme, status, false));
 
-        FormSectionBuilder::new("Appearance")
+        FormSectionBuilder::new("")
             .push(timezone_field)
             .push(theme_field)
             .push(scale_field)

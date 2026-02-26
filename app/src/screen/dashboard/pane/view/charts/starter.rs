@@ -1,9 +1,9 @@
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     components, components::primitives::label::*, screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
-use data::ContentKind;
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Element,
     widget::{center, column, pick_list},
@@ -23,7 +23,7 @@ impl State {
     ) -> Element<'a, Message> {
         let content_picklist =
             pick_list(ContentKind::ALL, Some(ContentKind::Starter), move |kind| {
-                Message::PaneEvent(id, Event::ContentSelected(kind))
+                Message::PaneEvent(id, Box::new(Event::ContentSelected(kind)))
             });
 
         let base: Element<_> = components::display::toast::Manager::new(
@@ -34,7 +34,7 @@ impl State {
             ),
             &self.notifications,
             Alignment::End,
-            move |msg| Message::PaneEvent(id, Event::DeleteNotification(msg)),
+            move |msg| Message::PaneEvent(id, Box::new(Event::DeleteNotification(msg))),
         )
         .into();
 

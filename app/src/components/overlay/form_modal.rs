@@ -38,18 +38,6 @@ impl<'a, Message: Clone + 'a> FormModalBuilder<'a, Message> {
         }
     }
 
-    /// Override the save button label (default "Save").
-    pub fn save_text(mut self, label: impl Into<String>) -> Self {
-        self.save_text = label.into();
-        self
-    }
-
-    /// Override the cancel button label (default "Cancel").
-    pub fn cancel_text(mut self, label: impl Into<String>) -> Self {
-        self.cancel_text = label.into();
-        self
-    }
-
     /// Override the maximum width of the modal panel.
     pub fn max_width(mut self, max_width: f32) -> Self {
         self.max_width = max_width;
@@ -60,7 +48,7 @@ impl<'a, Message: Clone + 'a> FormModalBuilder<'a, Message> {
     pub fn view(self, base: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
         let save_btn = button(text(self.save_text))
             .on_press(self.on_save)
-            .style(|theme, status| style::button::primary(theme, status));
+            .style(style::button::primary);
 
         let cancel_btn = button(text(self.cancel_text))
             .on_press(self.on_cancel.clone())

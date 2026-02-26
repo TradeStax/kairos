@@ -6,25 +6,18 @@ use crate::components::input::slider_field::labeled_slider;
 use crate::screen::dashboard::pane::Message;
 use crate::style::tokens;
 
-use data::state::pane::{ProfileConfig, VisualConfig};
+use crate::screen::dashboard::pane::config::{ProfileConfig, VisualConfig};
 
-use iced::{Element, widget::{column, pane_grid}};
+use iced::{
+    Element,
+    widget::{column, pane_grid},
+};
 
-fn cfg_msg(
-    pane: pane_grid::Pane,
-    cfg: ProfileConfig,
-) -> Message {
-    Message::VisualConfigChanged(
-        pane,
-        VisualConfig::Profile(cfg),
-        false,
-    )
+fn cfg_msg(pane: pane_grid::Pane, cfg: ProfileConfig) -> Message {
+    Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(cfg)), false)
 }
 
-pub(super) fn style_tab<'a>(
-    cfg: ProfileConfig,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub(super) fn style_tab<'a>(cfg: ProfileConfig, pane: pane_grid::Pane) -> Element<'a, Message> {
     let c = cfg.clone();
     let opacity_slider = labeled_slider(
         "Opacity",
@@ -39,8 +32,7 @@ pub(super) fn style_tab<'a>(
         Some(0.05),
     );
 
-    let section = FormSectionBuilder::new("Appearance")
-        .push(opacity_slider);
+    let section = FormSectionBuilder::new("").push(opacity_slider);
 
     let c = cfg.clone();
     let va_highlight = CheckboxFieldBuilder::new(

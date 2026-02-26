@@ -1,3 +1,3 @@
 pub mod lod;
 
-pub use lod::{LodCalculator, LodIteratorExt, LodLevel};
+pub use lod::{LodCalculator, LodIteratorExt};

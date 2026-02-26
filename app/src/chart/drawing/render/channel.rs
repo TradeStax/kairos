@@ -1,10 +1,10 @@
 //! Parallel channel drawing rendering.
 
-use super::{DrawContext, create_stroke};
 use super::super::Drawing;
-use data::LineStyle;
-use iced::widget::canvas::{Frame, Path};
+use super::{DrawContext, create_stroke};
+use crate::drawing::LineStyle;
 use iced::Point;
+use iced::widget::canvas::{Frame, Path};
 
 pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 3 {
@@ -21,16 +21,9 @@ pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[
     frame.stroke(&Path::line(pts[2], p2_end), ctx.stroke);
 
     // Center line (dashed)
-    let center_start = Point::new(
-        (pts[0].x + pts[2].x) / 2.0,
-        (pts[0].y + pts[2].y) / 2.0,
-    );
-    let center_end = Point::new(
-        (pts[1].x + p2_end.x) / 2.0,
-        (pts[1].y + p2_end.y) / 2.0,
-    );
-    let center_stroke =
-        create_stroke(ctx.stroke_color.scale_alpha(0.5), 1.0, LineStyle::Dashed);
+    let center_start = Point::new((pts[0].x + pts[2].x) / 2.0, (pts[0].y + pts[2].y) / 2.0);
+    let center_end = Point::new((pts[1].x + p2_end.x) / 2.0, (pts[1].y + p2_end.y) / 2.0);
+    let center_stroke = create_stroke(ctx.stroke_color.scale_alpha(0.5), 1.0, LineStyle::Dashed);
     frame.stroke(&Path::line(center_start, center_end), center_stroke);
 
     // Optional fill between channels

@@ -9,8 +9,8 @@ mod ruler;
 use super::Chart;
 use crate::chart::Message;
 use crate::components::layout::multi_split::DRAG_SIZE;
+use crate::drawing::{DrawingId, DrawingTool};
 use crate::style::animation;
-use data::{DrawingId, DrawingTool};
 use iced::{Point, Rectangle, Vector, keyboard, mouse, widget::canvas};
 
 /// Canvas program state for main chart types (KlineChart, HeatmapChart).
@@ -161,13 +161,11 @@ pub fn base_mouse_interaction(
                 mouse::Interaction::default()
             })
         }
-        Interaction::EditingDrawing { .. } => {
-            Some(if cursor.is_over(bounds) {
-                mouse::Interaction::Grabbing
-            } else {
-                mouse::Interaction::default()
-            })
-        }
+        Interaction::EditingDrawing { .. } => Some(if cursor.is_over(bounds) {
+            mouse::Interaction::Grabbing
+        } else {
+            mouse::Interaction::default()
+        }),
         _ => None,
     }
 }
@@ -187,10 +185,10 @@ pub fn canvas_interaction<T: Chart>(
 
     // Sync interaction with tool state: if user deactivated the tool via UI,
     // reset the canvas interaction so we can reach selection/panning code paths.
-    if let Interaction::Drawing { .. } = interaction {
-        if chart.active_drawing_tool() == DrawingTool::None {
-            *interaction = Interaction::None;
-        }
+    if let Interaction::Drawing { .. } = interaction
+        && chart.active_drawing_tool() == DrawingTool::None
+    {
+        *interaction = Interaction::None;
     }
 
     // Sync clone placement state: enter/exit PlacingClone based on DrawingManager
@@ -265,7 +263,9 @@ pub fn canvas_interaction<T: Chart>(
             chart_state.interaction = Interaction::None;
         }
 
-        return Some(canvas::Action::publish(Message::Translated(new_translation)));
+        return Some(canvas::Action::publish(Message::Translated(
+            new_translation,
+        )));
     }
 
     let interaction = &mut chart_state.interaction;
@@ -299,15 +299,11 @@ pub fn canvas_interaction<T: Chart>(
                         }
 
                         // Hit test study overlay first
-                        if let Some(idx) =
-                            chart.hit_test_study_overlay(canvas_pos)
-                        {
+                        if let Some(idx) = chart.hit_test_study_overlay(canvas_pos) {
                             return Some(
-                                canvas::Action::publish(
-                                    Message::StudyOverlayContextMenu(
-                                        canvas_pos, idx,
-                                    ),
-                                )
+                                canvas::Action::publish(Message::StudyOverlayContextMenu(
+                                    canvas_pos, idx,
+                                ))
                                 .and_capture(),
                             );
                         }
@@ -352,17 +348,14 @@ pub fn canvas_interaction<T: Chart>(
                             | Interaction::Zoomin { .. }
                             | Interaction::Decelerating { .. } => {
                                 // Hit-test study overlay labels
-                                if let Some(idx) =
-                                    chart.hit_test_study_overlay(canvas_pos)
-                                {
+                                if let Some(idx) = chart.hit_test_study_overlay(canvas_pos) {
                                     use std::time::Instant;
                                     let now = Instant::now();
                                     let is_double = chart_state
                                         .last_study_overlay_click
                                         .is_some_and(|(t, prev_idx)| {
                                             prev_idx == idx
-                                                && now.duration_since(t).as_millis()
-                                                    < 400
+                                                && now.duration_since(t).as_millis() < 400
                                         });
 
                                     if is_double {
@@ -375,14 +368,11 @@ pub fn canvas_interaction<T: Chart>(
                                         );
                                     }
 
-                                    chart_state.last_study_overlay_click =
-                                        Some((now, idx));
+                                    chart_state.last_study_overlay_click = Some((now, idx));
                                     chart_state.selected_study_overlay = Some(idx);
                                     return Some(
-                                        canvas::Action::publish(
-                                            Message::StudyOverlaySelect(idx),
-                                        )
-                                        .and_capture(),
+                                        canvas::Action::publish(Message::StudyOverlaySelect(idx))
+                                            .and_capture(),
                                     );
                                 }
 
@@ -429,16 +419,10 @@ pub fn canvas_interaction<T: Chart>(
                     Some(canvas::Action::request_redraw().and_capture())
                 }
                 mouse::Event::CursorMoved { .. } => match *interaction {
-                    Interaction::PlacingClone => {
-                        if let Some(cursor_pos) = canvas_cursor {
-                            Some(
-                                canvas::Action::publish(Message::ClonePlacementMove(cursor_pos))
-                                    .and_capture(),
-                            )
-                        } else {
-                            None
-                        }
-                    }
+                    Interaction::PlacingClone => canvas_cursor.map(|cursor_pos| {
+                        canvas::Action::publish(Message::ClonePlacementMove(cursor_pos))
+                            .and_capture()
+                    }),
                     Interaction::Panning { translation, start } => {
                         let cursor_in_bounds = cursor_position?;
 
@@ -477,9 +461,9 @@ pub fn canvas_interaction<T: Chart>(
                         let cursor_in_bounds = match cursor_position {
                             Some(p) => p,
                             None => {
-                                return Some(canvas::Action::publish(
-                                    Message::CrosshairMoved(cursor_position),
-                                ))
+                                return Some(canvas::Action::publish(Message::CrosshairMoved(
+                                    cursor_position,
+                                )));
                             }
                         };
                         chart_state.prev_pan_cursor = Some(cursor_in_bounds);
@@ -496,11 +480,9 @@ pub fn canvas_interaction<T: Chart>(
                             cursor_in_bounds,
                         )
                     }
-                    Interaction::None | Interaction::Ruler { .. } => {
-                        Some(canvas::Action::publish(
-                            Message::CrosshairMoved(cursor_position),
-                        ))
-                    }
+                    Interaction::None | Interaction::Ruler { .. } => Some(canvas::Action::publish(
+                        Message::CrosshairMoved(cursor_position),
+                    )),
                     _ => None,
                 },
                 mouse::Event::WheelScrolled { delta } => {

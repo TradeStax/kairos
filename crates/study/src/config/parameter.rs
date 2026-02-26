@@ -1,10 +1,13 @@
+//! Parameter definitions: kinds, tabs, sections, and validation.
+
 use super::display::{DisplayFormat, Visibility};
 use super::value::ParameterValue;
 use serde::{Deserialize, Serialize};
 
-/// Which settings tab a parameter appears in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Settings tab that a parameter belongs to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ParameterTab {
+    #[default]
     Parameters,
     Style,
     Display,
@@ -12,12 +15,6 @@ pub enum ParameterTab {
     ValueArea,
     Nodes,
     Vwap,
-}
-
-impl Default for ParameterTab {
-    fn default() -> Self {
-        Self::Parameters
-    }
 }
 
 impl std::fmt::Display for ParameterTab {
@@ -34,39 +31,33 @@ impl std::fmt::Display for ParameterTab {
     }
 }
 
-/// Grouping section within a settings tab.
+/// Named section within a settings tab for grouping related parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParameterSection {
     pub label: &'static str,
     pub order: u16,
 }
 
-/// Definition of a configurable parameter for a study.
+/// Full definition of a configurable study parameter.
+///
+/// Drives the settings UI: widget type, validation, tab placement, and
+/// conditional visibility are all derived from this definition.
 #[derive(Debug, Clone)]
 pub struct ParameterDef {
-    /// Unique key for this parameter
     pub key: String,
-    /// Display label in the UI
     pub label: String,
-    /// Tooltip description
     pub description: String,
-    /// The kind of parameter (determines UI widget)
     pub kind: ParameterKind,
-    /// Default value
     pub default: ParameterValue,
-    /// Which settings tab this parameter belongs to
     pub tab: ParameterTab,
-    /// Optional grouping section within the tab
     pub section: Option<ParameterSection>,
-    /// Sort order within the section/tab (lower = higher)
+    /// Sort order within the section/tab (lower = higher).
     pub order: u16,
-    /// How to format the value for display
     pub format: DisplayFormat,
-    /// Conditional visibility based on other parameter values
     pub visible_when: Visibility,
 }
 
-/// The kind of a parameter, defining its constraints and UI representation.
+/// The kind of a parameter — determines the UI widget and value constraints.
 #[derive(Debug, Clone)]
 pub enum ParameterKind {
     Integer { min: i64, max: i64 },
@@ -101,10 +92,7 @@ impl ParameterDef {
             (ParameterKind::Boolean, ParameterValue::Boolean(_)) => {}
             (ParameterKind::Choice { options }, ParameterValue::Choice(s)) => {
                 if !options.contains(&s.as_str()) {
-                    return Err(format!(
-                        "invalid {}: {}",
-                        self.label, s
-                    ));
+                    return Err(format!("invalid {}: {}", self.label, s));
                 }
             }
             (ParameterKind::LineStyle, ParameterValue::LineStyle(_)) => {}

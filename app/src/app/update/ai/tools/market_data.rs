@@ -76,6 +76,7 @@ pub fn exec_get_chart_info(snap: &ChartSnapshot) -> ToolExecResult {
         "active_studies": snap.active_studies,
         "date_range": snap.date_range_display,
         "is_live": snap.is_live,
+        "is_tick_basis": snap.is_tick_basis,
         "tick_size": snap.tick_size,
         "contract_size": snap.contract_size,
         "drawing_count": snap.drawing_snapshots.len(),
@@ -94,29 +95,23 @@ pub fn exec_get_chart_info(snap: &ChartSnapshot) -> ToolExecResult {
     }
 }
 
-pub fn exec_get_candles(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
-    let count = args["count"]
-        .as_u64()
-        .unwrap_or(50)
-        .min(200) as usize;
+pub fn exec_get_candles(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+    let count = args["count"].as_u64().unwrap_or(50).min(200) as usize;
     let (start_ns, end_ns) = parse_time_range(args);
 
     let filtered: Vec<&data::domain::entities::Candle> = snap
         .candles
         .iter()
         .filter(|c| {
-            if let Some(s) = start_ns {
-                if c.time.0 < s {
-                    return false;
-                }
+            if let Some(s) = start_ns
+                && c.time.0 < s
+            {
+                return false;
             }
-            if let Some(e) = end_ns {
-                if c.time.0 > e {
-                    return false;
-                }
+            if let Some(e) = end_ns
+                && c.time.0 > e
+            {
+                return false;
             }
             true
         })
@@ -151,14 +146,11 @@ pub fn exec_get_candles(
     }
 }
 
-pub fn exec_get_market_state(
-    snap: &ChartSnapshot,
-) -> ToolExecResult {
+pub fn exec_get_market_state(snap: &ChartSnapshot) -> ToolExecResult {
     let candles = &snap.candles;
     if candles.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No candle data" })
-                .to_string(),
+            content_json: json!({ "error": "No candle data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
@@ -173,8 +165,7 @@ pub fn exec_get_market_state(
         .iter()
         .map(|c| c.low.to_f64())
         .fold(f64::INFINITY, f64::min);
-    let cum_volume: f64 =
-        candles.iter().map(|c| c.volume() as f64).sum();
+    let cum_volume: f64 = candles.iter().map(|c| c.volume() as f64).sum();
     let cum_delta: f64 = candles
         .iter()
         .map(|c| c.buy_volume.0 - c.sell_volume.0)

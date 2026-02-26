@@ -1,11 +1,17 @@
+//! The [`Study`] trait — the central abstraction of this crate.
+
 use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
 use crate::error::StudyError;
 use crate::output::{CandleRenderConfig, StudyOutput};
+use data::Trade;
 
 use super::input::StudyInput;
 use super::metadata::{StudyCategory, StudyPlacement};
 
 /// Core trait for all technical studies and indicators.
+///
+/// Implementors provide a `compute()` method that transforms [`StudyInput`]
+/// into a [`StudyOutput`], plus configuration, metadata, and lifecycle methods.
 pub trait Study: Send + Sync {
     /// Unique identifier (e.g. "sma", "rsi", "volume_profile")
     fn id(&self) -> &str;
@@ -37,27 +43,23 @@ pub trait Study: Send + Sync {
     /// Default implementation validates against `parameters()` definitions
     /// and sets the value. Override only if custom cross-field validation
     /// is needed.
-    fn set_parameter(
-        &mut self,
-        key: &str,
-        value: ParameterValue,
-    ) -> Result<(), StudyError> {
+    fn set_parameter(&mut self, key: &str, value: ParameterValue) -> Result<(), StudyError> {
         // Borrow parameters slice before mutable borrow of config
         let params = self.parameters();
-        let def = params
-            .iter()
-            .find(|p| p.key == key)
-            .ok_or_else(|| StudyError::InvalidParameter {
-                key: key.to_string(),
-                reason: "unknown parameter".to_string(),
-            })?;
+        let def =
+            params
+                .iter()
+                .find(|p| p.key == key)
+                .ok_or_else(|| StudyError::InvalidParameter {
+                    key: key.to_string(),
+                    reason: "unknown parameter".to_string(),
+                })?;
 
-        def.validate(&value).map_err(|reason| {
-            StudyError::InvalidParameter {
+        def.validate(&value)
+            .map_err(|reason| StudyError::InvalidParameter {
                 key: key.to_string(),
                 reason,
-            }
-        })?;
+            })?;
 
         self.config_mut().set(key, value);
         Ok(())
@@ -83,7 +85,7 @@ pub trait Study: Send + Sync {
     /// `input` contains the full up-to-date candle + trade slice.
     fn append_trades(
         &mut self,
-        _new_trades: &[data::Trade],
+        _new_trades: &[Trade],
         input: &StudyInput,
     ) -> Result<(), StudyError> {
         self.compute(input)

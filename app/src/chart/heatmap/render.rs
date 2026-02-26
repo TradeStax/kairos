@@ -11,9 +11,7 @@ use super::trades::{
 use super::{HeatmapChart, VisualConfig};
 use crate::chart::drawing;
 use crate::chart::perf::{LodCalculator, LodLevel};
-use crate::chart::{
-    Chart, ChartState, Interaction, Message, ViewState, base_mouse_interaction,
-};
+use crate::chart::{Chart, ChartState, Interaction, Message, ViewState, base_mouse_interaction};
 use crate::components::primitives::AZERET_MONO;
 use data::util::abbr_large_numbers;
 use data::{ChartBasis, HeatmapIndicator, Price as DataPrice};
@@ -22,7 +20,7 @@ use iced::widget::canvas::{self, Event, Geometry};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 // Re-export HeatmapStudy and ProfileKind from data module
-pub use data::domain::chart::heatmap::{HeatmapStudy, ProfileKind};
+pub use data::domain::chart::heatmap::heatmap::{HeatmapStudy, ProfileKind};
 
 /// Base font size in pixels for chart labels, scaled by 1/chart.scaling.
 const CHART_LABEL_BASE_PX: f32 = 9.0;
@@ -76,11 +74,12 @@ impl canvas::Program<Message> for HeatmapChart {
             // Draw grid lines behind all content
             crate::chart::overlay::draw_price_grid(chart, frame, palette, &region);
             crate::chart::overlay::draw_time_grid(chart, frame, palette, &region);
+            crate::chart::overlay::draw_date_separators(chart, frame, palette, &region);
 
             let (earliest, latest) = chart.interval_range(&region);
             let (highest_exch, lowest_exch) = chart.price_range(&region);
 
-            // Convert exchange::util::Price to data::Price
+            // Convert data::Price to data::Price
             let highest = DataPrice::from_units(highest_exch.units());
             let lowest = DataPrice::from_units(lowest_exch.units());
 
@@ -184,11 +183,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     volume_profile_params(&region, profile_kind, chart, self.basis)
                 {
                     self.get_or_compute_volume_profile(
-                        time_range,
-                        first_tick,
-                        last_tick,
-                        step_units,
-                        num_ticks,
+                        time_range, first_tick, last_tick, step_units, num_ticks,
                     );
                     let cache = self.volume_profile_cache.borrow();
                     if let Some((_, ref profile)) = *cache {
@@ -295,9 +290,7 @@ impl canvas::Program<Message> for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if let Some(i) =
-            base_mouse_interaction(&state.interaction, bounds, cursor)
-        {
+        if let Some(i) = base_mouse_interaction(&state.interaction, bounds, cursor) {
             return i;
         }
         if let Some(cursor_position) = cursor.position_in(bounds) {
@@ -357,7 +350,7 @@ fn draw_depth_heatmap(
         }
 
         let price = DataPrice::from_units(*price_units);
-        let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
+        let y_position = chart.price_to_y(data::Price::from_units(price.units()));
 
         for run in runs.iter() {
             if run.qty <= order_size_filter {
@@ -414,7 +407,7 @@ fn draw_latest_orderbook(
     if !max_qty.is_infinite() && max_qty > 0.0 {
         // Draw bars
         for (price, run) in latest_runs {
-            let y_position = chart.price_to_y(exchange::util::Price::from_units(price.units()));
+            let y_position = chart.price_to_y(data::Price::from_units(price.units()));
             let bar_width = (run.qty() / max_qty) * 50.0;
 
             frame.fill_rectangle(
@@ -470,9 +463,7 @@ fn draw_trade_markers(
     let effective_mode = match visual_config.trade_rendering_mode {
         TradeRenderingMode::Sparse => {
             // Even in sparse mode, switch to dense if LOD is low
-            if matches!(lod_level, LodLevel::Low)
-                && visible_trade_count > SPARSE_MODE_THRESHOLD
-            {
+            if matches!(lod_level, LodLevel::Low) && visible_trade_count > SPARSE_MODE_THRESHOLD {
                 TradeRenderingMode::Dense
             } else {
                 TradeRenderingMode::Sparse
@@ -480,9 +471,7 @@ fn draw_trade_markers(
         }
         TradeRenderingMode::Dense => TradeRenderingMode::Dense,
         TradeRenderingMode::Auto => {
-            if visible_trade_count > SPARSE_MODE_THRESHOLD
-                || matches!(lod_level, LodLevel::Low)
-            {
+            if visible_trade_count > SPARSE_MODE_THRESHOLD || matches!(lod_level, LodLevel::Low) {
                 TradeRenderingMode::Dense
             } else {
                 TradeRenderingMode::Sparse
@@ -630,8 +619,7 @@ fn volume_profile_params(
             let latest = chart
                 .latest_x
                 .min(chart.x_to_interval(region.x + region.width));
-            let earliest =
-                latest.saturating_sub((*datapoints as u64) * basis_interval);
+            let earliest = latest.saturating_sub((*datapoints as u64) * basis_interval);
 
             earliest..=latest
         }
@@ -643,9 +631,9 @@ fn volume_profile_params(
     let first_tick = lowest.round_to_side_step(false, step_as_price);
     let last_tick = highest.round_to_side_step(true, step_as_price);
 
-    let num_ticks = exchange::util::Price::steps_between_inclusive(
-        exchange::util::Price::from_units(first_tick.units()),
-        exchange::util::Price::from_units(last_tick.units()),
+    let num_ticks = data::Price::steps_between_inclusive(
+        data::Price::from_units(first_tick.units()),
+        data::Price::from_units(last_tick.units()),
         step.into(),
     )?;
 
@@ -671,15 +659,13 @@ pub fn render_volume_profile(
 
     // Draw background gradient
     let min_segment_width = 2.0;
-    let segments =
-        ((area_width / min_segment_width).floor() as usize).clamp(10, 40);
+    let segments = ((area_width / min_segment_width).floor() as usize).clamp(10, 40);
 
     for i in 0..segments {
         let segment_width = area_width / segments as f32;
         let segment_x = region.x + (i as f32 * segment_width);
 
-        let alpha =
-            0.95 - (0.85 * (i as f32 / (segments - 1) as f32).powf(2.0));
+        let alpha = 0.95 - (0.85 * (i as f32 / (segments - 1) as f32).powf(2.0));
 
         frame.fill_rectangle(
             Point::new(segment_x, region.y),
@@ -698,13 +684,10 @@ pub fn render_volume_profile(
         .for_each(|(index, (buy_v, sell_v))| {
             if *buy_v > 0.0 || *sell_v > 0.0 {
                 let price = first_tick.add_steps(index as i64, step_as_price);
-                let y_position = chart
-                    .price_to_y(exchange::util::Price::from_units(price.units()));
+                let y_position = chart.price_to_y(data::Price::from_units(price.units()));
 
                 let next_price = price.add_steps(1, step_as_price);
-                let next_y_position = chart.price_to_y(
-                    exchange::util::Price::from_units(next_price.units()),
-                );
+                let next_y_position = chart.price_to_y(data::Price::from_units(next_price.units()));
                 let bar_height = (next_y_position - y_position).abs();
 
                 let spec = crate::chart::study_renderer::VolumeBarSpec {
@@ -716,13 +699,7 @@ pub fn render_volume_profile(
                     alpha: 1.0,
                 };
                 crate::chart::study_renderer::draw_volume_bar(
-                    frame,
-                    region.x,
-                    y_position,
-                    &spec,
-                    area_width,
-                    bar_height,
-                    true,
+                    frame, region.x, y_position, &spec, area_width, bar_height, true,
                 );
             }
         });

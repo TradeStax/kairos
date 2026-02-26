@@ -5,7 +5,7 @@
 
 use super::super::coord;
 use crate::chart::ViewState;
-use exchange::util::Price;
+use data::Price;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::StudyPlacement;
@@ -186,9 +186,7 @@ fn to_y(
         StudyPlacement::Overlay
         | StudyPlacement::Background
         | StudyPlacement::CandleReplace
-        | StudyPlacement::SidePanel => {
-            state.price_to_y(Price::from_f32(value))
-        }
+        | StudyPlacement::SidePanel => state.price_to_y(Price::from_f32(value)),
         StudyPlacement::Panel => {
             if let Some((min, max)) = panel_range {
                 coord::value_to_panel_y(value, min, max, bounds.height)

@@ -6,7 +6,7 @@ use super::ViewState;
 use super::tokens;
 use crate::chart::Message;
 use crate::chart::drawing::DrawingManager;
-use data::DrawingId;
+use crate::drawing::DrawingId;
 use iced::widget::canvas::{self, Cache};
 use iced::{Point, Size, Vector};
 
@@ -18,7 +18,6 @@ pub struct PanelStudyInfo<'a> {
 
 /// Info about a single side-panel study for rendering to the right of the chart.
 pub struct SidePanelStudyInfo<'a> {
-    pub name: &'a str,
     pub output: &'a study::StudyOutput,
 }
 
@@ -77,10 +76,10 @@ pub trait Chart: canvas::Program<Message> {
     // ── Drawing methods (default impls via drawings() accessor) ───
 
     /// Get the active drawing tool from the chart's DrawingManager.
-    fn active_drawing_tool(&self) -> data::DrawingTool {
+    fn active_drawing_tool(&self) -> crate::drawing::DrawingTool {
         self.drawings()
             .map(|d| d.active_tool())
-            .unwrap_or(data::DrawingTool::None)
+            .unwrap_or(crate::drawing::DrawingTool::None)
     }
 
     /// Check if there is a pending (in-progress) drawing.
@@ -90,11 +89,7 @@ pub trait Chart: canvas::Program<Message> {
 
     /// Hit test all drawings at a screen point, returning the
     /// topmost hit.
-    fn hit_test_drawing(
-        &self,
-        screen_point: Point,
-        bounds: Size,
-    ) -> Option<DrawingId> {
+    fn hit_test_drawing(&self, screen_point: Point, bounds: Size) -> Option<DrawingId> {
         self.drawings().and_then(|d| {
             d.hit_test(
                 screen_point,
@@ -164,12 +159,8 @@ pub trait Chart: canvas::Program<Message> {
     fn panel_studies(&self) -> Vec<PanelStudyInfo<'_>> {
         self.studies()
             .iter()
-            .filter(|s| {
-                s.placement() == study::StudyPlacement::Panel
-            })
-            .filter(|s| {
-                !matches!(s.output(), study::StudyOutput::Empty)
-            })
+            .filter(|s| s.placement() == study::StudyPlacement::Panel)
+            .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
             .map(|s| PanelStudyInfo {
                 name: s.name(),
                 output: s.output(),
@@ -201,10 +192,7 @@ pub trait Chart: canvas::Program<Message> {
             .iter()
             .filter(|s| s.placement() == study::StudyPlacement::SidePanel)
             .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
-            .map(|s| SidePanelStudyInfo {
-                name: s.name(),
-                output: s.output(),
-            })
+            .map(|s| SidePanelStudyInfo { output: s.output() })
             .collect()
     }
 

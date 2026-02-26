@@ -3,18 +3,12 @@
 //! Shows KPI metrics cards, equity curve canvas, drawdown chart,
 //! monthly returns grid, and P&L histogram.
 
-use super::charts::{
-    DrawdownChart, EquityChart, HistogramChart, ReturnsGrid,
-};
+use super::charts::{DrawdownChart, EquityChart, HistogramChart, ReturnsGrid};
 use super::computed::ComputedAnalytics;
 use super::{BacktestManager, ManagerMessage};
-use crate::app::backtest_history::{
-    BacktestHistory, BacktestStatus,
-};
+use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
 use crate::style::{palette, tokens};
-use iced::widget::{
-    canvas, center, column, container, row, rule, scrollable, text,
-};
+use iced::widget::{canvas, center, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};
 use std::sync::Arc;
 
@@ -24,9 +18,7 @@ pub fn view_overview<'a>(
     history: &'a BacktestHistory,
 ) -> Element<'a, ManagerMessage> {
     // Resolve selected backtest entry
-    let entry = manager
-        .selected_id
-        .and_then(|id| history.get(id));
+    let entry = manager.selected_id.and_then(|id| history.get(id));
 
     let Some(entry) = entry else {
         return empty_state("Select a backtest to view results");
@@ -48,48 +40,22 @@ pub fn view_overview<'a>(
     let pnl_positive = metrics.net_pnl_usd >= 0.0;
 
     let kpi_row_1 = row![
-        metric_card_colored(
-            "Net P&L",
-            pnl_value,
-            Some(pnl_positive),
-        ),
-        metric_card(
-            "Trades",
-            metrics.total_trades.to_string(),
-        ),
-        metric_card(
-            "Win Rate",
-            format!("{:.1}%", metrics.win_rate * 100.0),
-        ),
-        metric_card(
-            "Profit Factor",
-            format_ratio(metrics.profit_factor),
-        ),
+        metric_card_colored("Net P&L", pnl_value, Some(pnl_positive),),
+        metric_card("Trades", metrics.total_trades.to_string(),),
+        metric_card("Win Rate", format!("{:.1}%", metrics.win_rate * 100.0),),
+        metric_card("Profit Factor", format_ratio(metrics.profit_factor),),
     ]
     .spacing(tokens::spacing::MD);
 
     let kpi_row_2 = row![
-        metric_card(
-            "Sharpe",
-            format_ratio(metrics.sharpe_ratio),
-        ),
-        metric_card(
-            "Max DD",
-            format!("{:.1}%", metrics.max_drawdown_pct),
-        ),
-        metric_card(
-            "Sortino",
-            format_ratio(metrics.sortino_ratio),
-        ),
-        metric_card(
-            "Return %",
-            format!("{:.2}%", metrics.total_return_pct),
-        ),
+        metric_card("Sharpe", format_ratio(metrics.sharpe_ratio),),
+        metric_card("Max DD", format!("{:.1}%", metrics.max_drawdown_pct),),
+        metric_card("Sortino", format_ratio(metrics.sortino_ratio),),
+        metric_card("Return %", format!("{:.2}%", metrics.total_return_pct),),
     ]
     .spacing(tokens::spacing::MD);
 
-    let kpi_section = column![kpi_row_1, kpi_row_2]
-        .spacing(tokens::spacing::MD);
+    let kpi_section = column![kpi_row_1, kpi_row_2].spacing(tokens::spacing::MD);
 
     // ── Section 2: Equity Curve ────────────────────────────────────
     let equity_chart = canvas(EquityChart {
@@ -101,13 +67,12 @@ pub fn view_overview<'a>(
     .height(Length::Fixed(220.0));
 
     // ── Section 3: Drawdown Chart ──────────────────────────────────
-    let drawdown_chart =
-        canvas(DrawdownChart {
-            result: Arc::clone(result),
-            cache: &manager.drawdown_cache,
-        })
-        .width(Length::Fill)
-        .height(Length::Fixed(120.0));
+    let drawdown_chart = canvas(DrawdownChart {
+        result: Arc::clone(result),
+        cache: &manager.drawdown_cache,
+    })
+    .width(Length::Fill)
+    .height(Length::Fixed(120.0));
 
     // ── Section 4: Monthly Returns + P&L Histogram ─────────────────
     let bottom_row = build_bottom_row(manager, analytics);
@@ -138,8 +103,7 @@ fn build_bottom_row<'a>(
     analytics: Option<&'a ComputedAnalytics>,
 ) -> Element<'a, ManagerMessage> {
     let monthly_col = {
-        let header = text("Monthly Returns")
-            .size(tokens::text::LABEL);
+        let header = text("Monthly Returns").size(tokens::text::LABEL);
 
         let grid: Element<'a, ManagerMessage> = match analytics {
             Some(a) => canvas(ReturnsGrid {
@@ -158,8 +122,7 @@ fn build_bottom_row<'a>(
     };
 
     let histogram_col = {
-        let header = text("P&L Distribution")
-            .size(tokens::text::LABEL);
+        let header = text("P&L Distribution").size(tokens::text::LABEL);
 
         let chart: Element<'a, ManagerMessage> = match analytics {
             Some(a) => canvas(HistogramChart {
@@ -184,10 +147,7 @@ fn build_bottom_row<'a>(
 
 // ── Metric Cards ────────────────────────────────────────────────────
 
-fn metric_card<'a>(
-    label: &'static str,
-    value: String,
-) -> Element<'a, ManagerMessage> {
+fn metric_card<'a>(label: &'static str, value: String) -> Element<'a, ManagerMessage> {
     container(
         column![
             text(label)
@@ -209,16 +169,12 @@ fn metric_card_colored<'a>(
     positive: Option<bool>,
 ) -> Element<'a, ManagerMessage> {
     let value_text = match positive {
-        Some(true) => {
-            text(value).size(tokens::text::LABEL).style(
-                palette::success_text,
-            )
-        }
-        Some(false) => {
-            text(value).size(tokens::text::LABEL).style(
-                palette::error_text,
-            )
-        }
+        Some(true) => text(value)
+            .size(tokens::text::LABEL)
+            .style(palette::success_text),
+        Some(false) => text(value)
+            .size(tokens::text::LABEL)
+            .style(palette::error_text),
         None => text(value).size(tokens::text::LABEL),
     };
 
@@ -252,9 +208,7 @@ fn card_background(theme: &iced::Theme) -> container::Style {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-fn empty_state<'a>(
-    msg: &'static str,
-) -> Element<'a, ManagerMessage> {
+fn empty_state<'a>(msg: &'static str) -> Element<'a, ManagerMessage> {
     center(
         text(msg)
             .size(tokens::text::BODY)

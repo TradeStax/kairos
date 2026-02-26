@@ -5,17 +5,15 @@
 //! renderers (line, band, bar, histogram, panel) do not duplicate them.
 
 use crate::chart::ViewState;
-use iced::widget::canvas::LineDash;
 use iced::Color;
+use iced::widget::canvas::LineDash;
 use study::config::LineStyleValue;
 
 /// Compute min/max for a set of f32 values with 5 % padding.
 ///
 /// Returns `None` when the iterator is empty. When the range is zero
 /// (all values equal), a fixed pad of 1.0 is used.
-pub fn value_range(
-    values: impl Iterator<Item = f32>,
-) -> Option<(f32, f32)> {
+pub fn value_range(values: impl Iterator<Item = f32>) -> Option<(f32, f32)> {
     let mut min = f32::MAX;
     let mut max = f32::MIN;
     let mut count = 0u32;
@@ -44,12 +42,7 @@ pub fn value_range(
 ///
 /// `min`/`max` define the value range; `height` is the pixel height.
 /// Returns 0 at max, `height` at min (screen Y increases downward).
-pub fn value_to_panel_y(
-    value: f32,
-    min: f32,
-    max: f32,
-    height: f32,
-) -> f32 {
+pub fn value_to_panel_y(value: f32, min: f32, max: f32, height: f32) -> f32 {
     if max <= min {
         height
     } else {
@@ -69,9 +62,7 @@ pub fn effective_line_width(width: f32, scaling: f32) -> f32 {
 }
 
 /// Convert a `LineStyleValue` to an iced `LineDash`.
-pub fn line_dash_for_style(
-    style: &LineStyleValue,
-) -> LineDash<'static> {
+pub fn line_dash_for_style(style: &LineStyleValue) -> LineDash<'static> {
     match style {
         LineStyleValue::Solid => LineDash::default(),
         LineStyleValue::Dashed => LineDash {
@@ -99,17 +90,13 @@ pub(crate) fn compute_dynamic_quantum(
     tick_units: i64,
 ) -> i64 {
     let pixel_per_tick = state.cell_height * state.scaling;
-    let base_ticks =
-        (min_row_px / pixel_per_tick).ceil() as i64;
+    let base_ticks = (min_row_px / pixel_per_tick).ceil() as i64;
     (base_ticks * factor).max(1) * tick_units
 }
 
 /// Convert a `SerializableColor` to an iced `Color`, applying
 /// an opacity multiplier to the alpha channel.
-pub(crate) fn to_iced_color(
-    sc: data::SerializableColor,
-    opacity: f32,
-) -> Color {
+pub(crate) fn to_iced_color(sc: data::SerializableColor, opacity: f32) -> Color {
     Color {
         r: sc.r,
         g: sc.g,

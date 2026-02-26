@@ -38,12 +38,13 @@ use crate::modals::pane::settings::study_config as study;
 
 use data::{HeatmapData, QtyScale, VolumeProfile, VolumeProfileKey};
 
+use ::data::FuturesTickerInfo;
+use ::data::PriceStep;
 use ::data::util::count_decimals;
 use ::data::{
-    ChartBasis, ChartData, DepthSnapshot, HeatmapIndicator, Price as DataPrice,
+    ChartBasis, ChartData, Depth as DepthSnapshot, HeatmapIndicator, Price as DataPrice,
     Trade as DomainTrade, ViewConfig,
 };
-use exchange::FuturesTickerInfo;
 
 use iced::Vector;
 
@@ -88,8 +89,7 @@ impl Chart for HeatmapChart {
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
         Vector::new(
-            0.5 * (chart.bounds.width / chart.scaling)
-                - (90.0 / chart.scaling),
+            0.5 * (chart.bounds.width / chart.scaling) - (90.0 / chart.scaling),
             chart.translation.y,
         )
     }
@@ -205,7 +205,7 @@ impl HeatmapChart {
         studies: Vec<HeatmapStudy>,
     ) -> Self {
         let tick_size = DataPrice::from_f32(ticker_info.tick_size);
-        let tick_step = exchange::util::PriceStep::from_f32(ticker_info.tick_size);
+        let tick_step = PriceStep::from_f32(ticker_info.tick_size);
 
         // Initialize indicator map
         let mut indicators_map = EnumMap::default();
@@ -272,10 +272,7 @@ impl HeatmapChart {
 
         // Calculate latest X coordinate
         let latest_x = if let Some(depth_snapshots) = &chart_data.depth_snapshots {
-            depth_snapshots
-                .last()
-                .map(|s| s.time.to_millis())
-                .unwrap_or(0)
+            depth_snapshots.last().map(|s| s.time).unwrap_or(0)
         } else {
             chart_data
                 .trades
@@ -316,9 +313,9 @@ impl HeatmapChart {
         };
 
         // Set initial price and position
-        chart.chart.base_price_y = exchange::util::Price::from_units(base_price.units());
+        chart.chart.base_price_y = DataPrice::from_units(base_price.units());
         chart.chart.latest_x = latest_x;
-        chart.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(
+        chart.chart.last_price = Some(PriceInfoLabel::Neutral(DataPrice::from_units(
             base_price.units(),
         )));
 
@@ -337,13 +334,13 @@ impl HeatmapChart {
         }
 
         if let Some(mid_price) = depth.mid_price() {
-            self.chart.base_price_y = exchange::util::Price::from_units(mid_price.units());
-            self.chart.last_price = Some(PriceInfoLabel::Neutral(
-                exchange::util::Price::from_units(mid_price.units()),
-            ));
+            self.chart.base_price_y = DataPrice::from_units(mid_price.units());
+            self.chart.last_price = Some(PriceInfoLabel::Neutral(DataPrice::from_units(
+                mid_price.units(),
+            )));
         }
 
-        self.chart.latest_x = depth.time.to_millis();
+        self.chart.latest_x = depth.time;
         self.invalidate(Some(Instant::now()));
     }
 
@@ -365,10 +362,10 @@ impl HeatmapChart {
         // Update latest X and base price from last trade
         if let Some(last) = trades.last() {
             self.chart.latest_x = last.time.to_millis();
-            self.chart.base_price_y = exchange::util::Price::from_units(last.price.units());
-            self.chart.last_price = Some(PriceInfoLabel::Neutral(
-                exchange::util::Price::from_units(last.price.units()),
-            ));
+            self.chart.base_price_y = DataPrice::from_units(last.price.units());
+            self.chart.last_price = Some(PriceInfoLabel::Neutral(DataPrice::from_units(
+                last.price.units(),
+            )));
         }
 
         self.invalidate(Some(Instant::now()));
@@ -386,10 +383,12 @@ impl HeatmapChart {
 
         // Update latest X and base price
         self.chart.latest_x = trade.time.to_millis();
-        self.chart.base_price_y = exchange::util::Price::from_units(trade.price.units());
-        self.chart.last_price = Some(PriceInfoLabel::Neutral(exchange::util::Price::from_units(
+        self.chart.base_price_y = DataPrice::from_units(trade.price.units());
+        self.chart.last_price = Some(PriceInfoLabel::Neutral(DataPrice::from_units(
             trade.price.units(),
         )));
+
+        self.chart.cache.clear_main();
     }
 
     /// Get current visual configuration
@@ -449,7 +448,7 @@ impl HeatmapChart {
     pub fn change_tick_size(&mut self, new_tick_size: f32) {
         let chart_state = self.mut_state();
 
-        let step = exchange::util::PriceStep::from_f32(new_tick_size);
+        let step = PriceStep::from_f32(new_tick_size);
 
         chart_state.cell_height = 4.0;
         chart_state.tick_size = step;
@@ -599,13 +598,9 @@ impl HeatmapChart {
             .map_or(true, |(cached_key, _)| *cached_key != key);
 
         if needs_recompute {
-            let profile = self.heatmap_data.compute_volume_profile(
-                time_range,
-                first_tick,
-                last_tick,
-                step_units,
-                num_ticks,
-            );
+            let profile = self
+                .heatmap_data
+                .compute_volume_profile(time_range, first_tick, last_tick, step_units, num_ticks);
             *self.volume_profile_cache.borrow_mut() = Some((key, profile));
         }
     }

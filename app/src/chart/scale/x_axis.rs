@@ -1,8 +1,8 @@
 use super::label::{AxisLabel, REGULAR_LABEL_WIDTH};
 use super::{Interaction, Message, timeseries};
 use crate::chart::core::x_to_interval as x_to_interval_fn;
-use data::ChartBasis;
 use data::Autoscale;
+use data::ChartBasis;
 use iced::{
     Point, Rectangle, Renderer, Size, Theme, mouse,
     widget::canvas::{self, Cache, Geometry},
@@ -16,7 +16,7 @@ pub struct AxisLabelsX<'a> {
     pub translation_x: f32,
     pub basis: ChartBasis,
     pub cell_width: f32,
-    pub timezone: data::UserTimezone,
+    pub timezone: crate::config::UserTimezone,
     pub chart_bounds: Rectangle,
     pub interval_keys: Option<Vec<u64>>,
     pub autoscaling: Option<Autoscale>,
@@ -64,18 +64,14 @@ impl AxisLabelsX<'_> {
                 let array_index = last_index - offset;
                 let timestamp = interval_keys.get(array_index)?;
 
-                let label_text = self.timezone.format_crosshair_label(
-                    *timestamp as i64,
-                    agg.into(),
-                );
-                Some(AxisLabel::new_x(
-                    snap_x, label_text, bounds, true, palette,
-                ))
+                let label_text = self
+                    .timezone
+                    .format_crosshair_label(*timestamp as i64, agg.into());
+                Some(AxisLabel::new_x(snap_x, label_text, bounds, true, palette))
             }
             ChartBasis::Time(timeframe) => {
                 let x_min = self.x_to_interval(region.x) as f64;
-                let x_max =
-                    self.x_to_interval(region.x + region.width) as f64;
+                let x_max = self.x_to_interval(region.x + region.width) as f64;
                 let range = x_max - x_min;
                 if range.abs() < f64::EPSILON {
                     return None;
@@ -83,18 +79,12 @@ impl AxisLabelsX<'_> {
 
                 let snap_ratio = (interval as f64 - x_min) / range;
                 let snap_x = snap_ratio * f64::from(bounds.width);
-                if snap_x.is_nan()
-                    || snap_x < 0.0
-                    || snap_x > f64::from(bounds.width)
-                {
+                if snap_x.is_nan() || snap_x < 0.0 || snap_x > f64::from(bounds.width) {
                     return None;
                 }
 
                 let tf_ms = timeframe.to_milliseconds();
-                let label_text = self.timezone.format_crosshair_label(
-                    interval as i64,
-                    tf_ms,
-                );
+                let label_text = self.timezone.format_crosshair_label(interval as i64, tf_ms);
                 Some(AxisLabel::new_x(
                     snap_x as f32,
                     label_text,
@@ -150,59 +140,41 @@ impl AxisLabelsX<'_> {
                 let array_index = last_index - offset;
 
                 if let Some(timestamp) = interval_keys.get(array_index) {
-                    let label_text = self.timezone.format_crosshair_label(
-                        *timestamp as i64,
-                        interval.into(),
-                    );
+                    let label_text = self
+                        .timezone
+                        .format_crosshair_label(*timestamp as i64, interval.into());
 
-                    return Some(AxisLabel::new_x(
-                        snap_x, label_text, bounds, true, palette,
-                    ));
+                    return Some(AxisLabel::new_x(snap_x, label_text, bounds, true, palette));
                 }
             }
             ChartBasis::Time(timeframe) => {
-                let (_, crosshair_ratio, _) =
-                    self.calc_crosshair_pos(cursor_pos, region);
+                let (_, crosshair_ratio, _) = self.calc_crosshair_pos(cursor_pos, region);
 
                 let x_min = self.x_to_interval(region.x);
-                let x_max =
-                    self.x_to_interval(region.x + region.width);
+                let x_max = self.x_to_interval(region.x + region.width);
 
-                let crosshair_millis = x_min as f64
-                    + f64::from(crosshair_ratio)
-                        * (x_max as f64 - x_min as f64);
+                let crosshair_millis =
+                    x_min as f64 + f64::from(crosshair_ratio) * (x_max as f64 - x_min as f64);
 
                 let interval = timeframe.to_milliseconds();
 
                 let crosshair_time =
-                    chrono::DateTime::from_timestamp_millis(
-                        crosshair_millis as i64,
-                    )?;
-                let rounded_timestamp = (crosshair_time
-                    .timestamp_millis()
-                    as f64
-                    / (interval as f64))
-                    .round() as u64
-                    * interval;
+                    chrono::DateTime::from_timestamp_millis(crosshair_millis as i64)?;
+                let rounded_timestamp =
+                    (crosshair_time.timestamp_millis() as f64 / (interval as f64)).round() as u64
+                        * interval;
 
-                let snap_ratio = (rounded_timestamp as f64
-                    - x_min as f64)
-                    / (x_max as f64 - x_min as f64);
+                let snap_ratio =
+                    (rounded_timestamp as f64 - x_min as f64) / (x_max as f64 - x_min as f64);
 
                 let snap_x = snap_ratio * f64::from(bounds.width);
-                if snap_x.is_nan()
-                    || snap_x < 0.0
-                    || snap_x > f64::from(bounds.width)
-                {
+                if snap_x.is_nan() || snap_x < 0.0 || snap_x > f64::from(bounds.width) {
                     return None;
                 }
 
                 let label_text = self
                     .timezone
-                    .format_crosshair_label(
-                        rounded_timestamp as i64,
-                        interval,
-                    );
+                    .format_crosshair_label(rounded_timestamp as i64, interval);
 
                 return Some(AxisLabel::new_x(
                     snap_x as f32,
@@ -348,6 +320,9 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                     if let Some(interval_keys) = &self.interval_keys {
                         let last_idx = interval_keys.len() - 1;
                         let mut last_x: Option<f32> = None;
+                        let mut prev_date: Option<(i32, u32, u32)> = None;
+                        let mut date_labels: Vec<AxisLabel> = Vec::new();
+
                         for (i, timestamp) in interval_keys.iter().enumerate() {
                             let cell_index = -(last_idx as i32) + i as i32;
                             let x_position = cell_index as f32 * self.cell_width;
@@ -362,16 +337,49 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                             let snap_x = snap_ratio * chart_w;
 
                             if last_x.is_none_or(|lx| (snap_x - lx).abs() >= target_spacing) {
-                                let label_text = self.timezone.format_timestamp(
-                                    (*timestamp / 1000) as i64,
-                                    data::Timeframe::M1s,
-                                );
-                                labels.push(AxisLabel::new_x(
-                                    snap_x, label_text, chart_axis_bounds, false, palette,
-                                ));
+                                let ts_secs = (*timestamp / 1000) as i64;
+                                let current_date = self.timezone.date_components(ts_secs);
+
+                                let is_date_label = match (current_date, prev_date) {
+                                    (Some(_), None) => true,
+                                    (Some(cur), Some(prev)) => cur != prev,
+                                    _ => false,
+                                };
+
+                                if let Some(d) = current_date {
+                                    prev_date = Some(d);
+                                }
+
+                                if is_date_label {
+                                    let label_text =
+                                        self.timezone.format_date_boundary(ts_secs);
+                                    date_labels.push(AxisLabel::new_x(
+                                        snap_x,
+                                        label_text,
+                                        chart_axis_bounds,
+                                        false,
+                                        palette,
+                                    ));
+                                } else {
+                                    let label_text = self.timezone.format_timestamp(
+                                        ts_secs,
+                                        data::Timeframe::M1s,
+                                    );
+                                    labels.push(AxisLabel::new_x(
+                                        snap_x,
+                                        label_text,
+                                        chart_axis_bounds,
+                                        false,
+                                        palette,
+                                    ));
+                                }
+
                                 last_x = Some(snap_x);
                             }
                         }
+
+                        // Date labels after time labels for collision priority
+                        labels.extend(date_labels);
                     }
                 }
                 ChartBasis::Time(timeframe) => {

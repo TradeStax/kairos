@@ -16,14 +16,16 @@ where
 
     let icon = text(label)
         .font(AZERET_MONO)
-        .align_x(Alignment::Start)
+        .size(tokens::text::SMALL)
+        .align_x(Alignment::Center)
         .align_y(Alignment::Center);
 
     button(icon)
         .style(move |theme: &Theme, status| {
-            style::button::bordered_toggle(theme, status, is_active)
+            style::button::modifier(theme, status, is_active)
         })
         .on_press(on_press)
         .width(tokens::component::button::LINK_GROUP_WIDTH)
+        .padding([4, 6])
         .into()
 }

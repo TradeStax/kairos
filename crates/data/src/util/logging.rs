@@ -1,7 +1,4 @@
 //! Logging Configuration and Utilities
-//!
-//! Log file path is determined by the application (GUI crate) and passed in;
-//! this module does not perform platform I/O.
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;

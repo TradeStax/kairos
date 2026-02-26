@@ -4,32 +4,26 @@
 //! AiContext drawing. Shows a summary of the selected chart range and
 //! a text input for the user's question.
 
-use crate::components::primitives::{
-    Icon, icon_text, small, tiny,
-    separator::divider,
-};
+use crate::components::primitives::{Icon, icon_text, separator::divider, small, tiny};
 use crate::screen::dashboard::pane::types::{
     AiContextBubble, AiContextBubbleEvent, Event, Message,
 };
 use crate::style::{self, tokens};
+use iced::widget::pane_grid;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, text_input},
 };
-use iced::widget::pane_grid;
 
 /// Render the floating AI context bubble.
-pub(crate) fn view<'a>(
-    bubble: &'a AiContextBubble,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub(crate) fn view<'a>(bubble: &'a AiContextBubble, pane: pane_grid::Pane) -> Element<'a, Message> {
     let summary = &bubble.range_summary;
 
     // Header row: icon + title + close button
     let close_btn = button(icon_text(Icon::Close, 12))
         .on_press(Message::PaneEvent(
             pane,
-            Event::AiContextBubble(AiContextBubbleEvent::Dismiss),
+            Box::new(Event::AiContextBubble(AiContextBubbleEvent::Dismiss)),
         ))
         .style(|theme, status| style::button::transparent(theme, status, false))
         .padding(2);
@@ -57,7 +51,8 @@ pub(crate) fn view<'a>(
 
     let info_line3 = row![
         tiny(format!(
-            "{}\u{2013}{}", summary.price_low, summary.price_high
+            "{}\u{2013}{}",
+            summary.price_low, summary.price_high
         )),
         tiny(format!("V: {}", summary.total_volume)),
         tiny(format!("\u{0394}: {}", summary.net_delta)),
@@ -71,12 +66,14 @@ pub(crate) fn view<'a>(
         .on_input(move |s| {
             Message::PaneEvent(
                 pane,
-                Event::AiContextBubble(AiContextBubbleEvent::InputChanged(s)),
+                Box::new(Event::AiContextBubble(AiContextBubbleEvent::InputChanged(
+                    s,
+                ))),
             )
         })
         .on_submit(Message::PaneEvent(
             pane,
-            Event::AiContextBubble(AiContextBubbleEvent::Submit),
+            Box::new(Event::AiContextBubble(AiContextBubbleEvent::Submit)),
         ))
         .size(tokens::text::SMALL)
         .width(Length::Fill);
@@ -85,7 +82,7 @@ pub(crate) fn view<'a>(
         .on_press_maybe(can_send.then(|| {
             Message::PaneEvent(
                 pane,
-                Event::AiContextBubble(AiContextBubbleEvent::Submit),
+                Box::new(Event::AiContextBubble(AiContextBubbleEvent::Submit)),
             )
         }))
         .style(move |theme, status| {

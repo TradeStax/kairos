@@ -4,7 +4,7 @@
 //! tool category. The main entry point is [`hit_test_tool`], which dispatches
 //! to the appropriate function based on `DrawingTool`.
 
-use data::{DrawingStyle, DrawingTool};
+use crate::drawing::{DrawingStyle, DrawingTool};
 use iced::{Point, Size};
 
 /// Test whether `cursor` is within `tolerance` of a drawing defined by
@@ -25,9 +25,7 @@ pub fn hit_test_tool(
             hit_test_line_segment(screen_points, cursor, tolerance)
         }
         DrawingTool::Ray => hit_test_ray(screen_points, cursor, tolerance),
-        DrawingTool::ExtendedLine => {
-            hit_test_extended_line(screen_points, cursor, tolerance)
-        }
+        DrawingTool::ExtendedLine => hit_test_extended_line(screen_points, cursor, tolerance),
         DrawingTool::Rectangle => hit_test_rect(screen_points, cursor, tolerance, style),
         DrawingTool::Ellipse => hit_test_ellipse(screen_points, cursor, tolerance, style),
         DrawingTool::FibRetracement => {
@@ -36,16 +34,14 @@ pub fn hit_test_tool(
         DrawingTool::FibExtension => {
             hit_test_fib_extension(screen_points, cursor, tolerance, style)
         }
-        DrawingTool::ParallelChannel => {
-            hit_test_channel(screen_points, cursor, tolerance)
-        }
+        DrawingTool::ParallelChannel => hit_test_channel(screen_points, cursor, tolerance),
         DrawingTool::TextLabel | DrawingTool::PriceLabel => {
             hit_test_text(screen_points, cursor, style)
         }
         DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
             hit_test_calculator(screen_points, cursor, tolerance)
         }
-        DrawingTool::VolumeProfile => {
+        DrawingTool::VolumeProfile | DrawingTool::DeltaProfile => {
             hit_test_rect_outline_only(screen_points, cursor, tolerance)
         }
         DrawingTool::AiContext => hit_test_rect(screen_points, cursor, tolerance, style),
@@ -55,13 +51,11 @@ pub fn hit_test_tool(
 // ── Lines ────────────────────────────────────────────────────────────────
 
 fn hit_test_horizontal(pts: &[Point], cursor: Point, tol: f32) -> bool {
-    pts.first()
-        .map_or(false, |p| (cursor.y - p.y).abs() <= tol)
+    pts.first().is_some_and(|p| (cursor.y - p.y).abs() <= tol)
 }
 
 fn hit_test_vertical(pts: &[Point], cursor: Point, tol: f32) -> bool {
-    pts.first()
-        .map_or(false, |p| (cursor.x - p.x).abs() <= tol)
+    pts.first().is_some_and(|p| (cursor.x - p.x).abs() <= tol)
 }
 
 fn hit_test_line_segment(pts: &[Point], cursor: Point, tol: f32) -> bool {
@@ -104,8 +98,7 @@ fn hit_test_extended_line(pts: &[Point], cursor: Point, tol: f32) -> bool {
         if len < 0.0001 {
             return false;
         }
-        let dist =
-            ((cursor.x - pts[0].x) * dy - (cursor.y - pts[0].y) * dx).abs() / len;
+        let dist = ((cursor.x - pts[0].x) * dy - (cursor.y - pts[0].y) * dx).abs() / len;
         dist <= tol
     } else {
         false
@@ -126,24 +119,15 @@ fn hit_test_rect_outline_only(pts: &[Point], cursor: Point, tol: f32) -> bool {
     let min_y = pts[0].y.min(pts[1].y);
     let max_y = pts[0].y.max(pts[1].y);
 
-    let near_left =
-        (cursor.x - min_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
-    let near_right =
-        (cursor.x - max_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
-    let near_top =
-        (cursor.y - min_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
-    let near_bottom =
-        (cursor.y - max_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+    let near_left = (cursor.x - min_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_right = (cursor.x - max_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_top = (cursor.y - min_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+    let near_bottom = (cursor.y - max_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
 
     near_left || near_right || near_top || near_bottom
 }
 
-fn hit_test_rect(
-    pts: &[Point],
-    cursor: Point,
-    tol: f32,
-    style: &DrawingStyle,
-) -> bool {
+fn hit_test_rect(pts: &[Point], cursor: Point, tol: f32, style: &DrawingStyle) -> bool {
     if pts.len() < 2 {
         return false;
     }
@@ -154,35 +138,25 @@ fn hit_test_rect(
     let max_y = pts[0].y.max(pts[1].y);
 
     // If the rectangle has a fill, clicking inside selects it
-    if style.fill_color.is_some() {
-        if cursor.x >= min_x - tol
-            && cursor.x <= max_x + tol
-            && cursor.y >= min_y - tol
-            && cursor.y <= max_y + tol
-        {
-            return true;
-        }
+    if style.fill_color.is_some()
+        && cursor.x >= min_x - tol
+        && cursor.x <= max_x + tol
+        && cursor.y >= min_y - tol
+        && cursor.y <= max_y + tol
+    {
+        return true;
     }
 
     // Check if near any edge
-    let near_left =
-        (cursor.x - min_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
-    let near_right =
-        (cursor.x - max_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
-    let near_top =
-        (cursor.y - min_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
-    let near_bottom =
-        (cursor.y - max_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+    let near_left = (cursor.x - min_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_right = (cursor.x - max_x).abs() <= tol && cursor.y >= min_y && cursor.y <= max_y;
+    let near_top = (cursor.y - min_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
+    let near_bottom = (cursor.y - max_y).abs() <= tol && cursor.x >= min_x && cursor.x <= max_x;
 
     near_left || near_right || near_top || near_bottom
 }
 
-fn hit_test_ellipse(
-    pts: &[Point],
-    cursor: Point,
-    tol: f32,
-    style: &DrawingStyle,
-) -> bool {
+fn hit_test_ellipse(pts: &[Point], cursor: Point, tol: f32, style: &DrawingStyle) -> bool {
     if pts.len() < 2 {
         return false;
     }
@@ -225,10 +199,7 @@ fn hit_test_fib_retracement(
     let (min_x, max_x) = if config.extend_lines {
         (-tol, bounds.width + tol)
     } else {
-        (
-            pts[0].x.min(pts[1].x) - tol,
-            pts[0].x.max(pts[1].x) + tol,
-        )
+        (pts[0].x.min(pts[1].x) - tol, pts[0].x.max(pts[1].x) + tol)
     };
 
     if cursor.x < min_x || cursor.x > max_x {
@@ -249,12 +220,7 @@ fn hit_test_fib_retracement(
     false
 }
 
-fn hit_test_fib_extension(
-    pts: &[Point],
-    cursor: Point,
-    tol: f32,
-    style: &DrawingStyle,
-) -> bool {
+fn hit_test_fib_extension(pts: &[Point], cursor: Point, tol: f32, style: &DrawingStyle) -> bool {
     if pts.len() < 3 {
         return false;
     }
@@ -302,10 +268,7 @@ fn hit_test_channel(pts: &[Point], cursor: Point, tol: f32) -> bool {
     }
 
     // Center line
-    let center_start = Point::new(
-        (pts[0].x + pts[2].x) / 2.0,
-        (pts[0].y + pts[2].y) / 2.0,
-    );
+    let center_start = Point::new((pts[0].x + pts[2].x) / 2.0, (pts[0].y + pts[2].y) / 2.0);
     let center_end = Point::new(
         (pts[1].x + pts[2].x + dx) / 2.0,
         (pts[1].y + pts[2].y + dy) / 2.0,
@@ -316,7 +279,7 @@ fn hit_test_channel(pts: &[Point], cursor: Point, tol: f32) -> bool {
 // ── Annotations ──────────────────────────────────────────────────────────
 
 fn hit_test_text(pts: &[Point], cursor: Point, style: &DrawingStyle) -> bool {
-    pts.first().map_or(false, |p| {
+    pts.first().is_some_and(|p| {
         let font_size = style.text_font_size.max(8.0);
         let text_len = style
             .text
@@ -328,10 +291,7 @@ fn hit_test_text(pts: &[Point], cursor: Point, style: &DrawingStyle) -> bool {
         let box_w = (text_len as f32 * char_width).max(20.0) + 8.0;
         let box_h = font_size * 1.3 + 4.0;
         // Box is drawn to the right of and below p
-        cursor.x >= p.x
-            && cursor.x <= p.x + box_w
-            && cursor.y >= p.y
-            && cursor.y <= p.y + box_h
+        cursor.x >= p.x && cursor.x <= p.x + box_w && cursor.y >= p.y && cursor.y <= p.y + box_h
     })
 }
 
@@ -387,11 +347,7 @@ fn hit_test_calculator(pts: &[Point], cursor: Point, tol: f32) -> bool {
 // ── Shared helpers ───────────────────────────────────────────────────────
 
 /// Calculate distance from a point to a line segment.
-pub fn point_to_line_distance(
-    point: Point,
-    line_start: Point,
-    line_end: Point,
-) -> f32 {
+pub fn point_to_line_distance(point: Point, line_start: Point, line_end: Point) -> f32 {
     let dx = line_end.x - line_start.x;
     let dy = line_end.y - line_start.y;
     let len_sq = dx * dx + dy * dy;

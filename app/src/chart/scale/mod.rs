@@ -1,6 +1,6 @@
+mod label;
 pub mod linear;
 pub mod timeseries;
-mod label;
 mod x_axis;
 mod y_axis;
 

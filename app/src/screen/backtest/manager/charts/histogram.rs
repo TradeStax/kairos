@@ -1,11 +1,10 @@
 //! HistogramChart canvas program.
 
-use super::{
-    ChartHoverState, draw_crosshair_lines, draw_tooltip_box,
-    format_currency, grid_lines, handle_cursor_event,
-    position_tooltip, tooltip_size,
-};
 use super::super::ManagerMessage;
+use super::{
+    ChartHoverState, draw_crosshair_lines, draw_tooltip_box, format_currency, grid_lines,
+    handle_cursor_event, position_tooltip, tooltip_size,
+};
 use crate::style::tokens;
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke};
@@ -81,13 +80,7 @@ impl<'a> HistogramChart<'a> {
         let usable_h = bounds.height - pad * 2.0;
         let bar_w = (usable_w / n as f32).max(2.0);
 
-        let max_count = self
-            .bins
-            .iter()
-            .map(|(_, c)| *c)
-            .max()
-            .unwrap_or(1)
-            .max(1);
+        let max_count = self.bins.iter().map(|(_, c)| *c).max().unwrap_or(1).max(1);
 
         let min_center = self
             .bins
@@ -113,16 +106,10 @@ impl<'a> HistogramChart<'a> {
     }
 
     fn center_to_x(p: &HistParams, c: f64) -> f32 {
-        p.pad
-            + ((c - p.min_center) / p.center_range
-                * (p.usable_w - p.bar_w) as f64) as f32
+        p.pad + ((c - p.min_center) / p.center_range * (p.usable_w - p.bar_w) as f64) as f32
     }
 
-    fn hovered_bar(
-        &self,
-        state: &ChartHoverState,
-        bounds: Rectangle,
-    ) -> Option<usize> {
+    fn hovered_bar(&self, state: &ChartHoverState, bounds: Rectangle) -> Option<usize> {
         let cursor = state.cursor?;
         let p = self.hist_params(bounds);
         for (i, &(center, _)) in self.bins.iter().enumerate() {
@@ -139,8 +126,7 @@ impl<'a> HistogramChart<'a> {
         grid_lines(frame, bounds, p.pad, 3);
 
         for &(center, count) in &self.bins {
-            let bar_h_frac =
-                count as f32 / p.max_count as f32 * p.usable_h;
+            let bar_h_frac = count as f32 / p.max_count as f32 * p.usable_h;
             let x = Self::center_to_x(&p, center);
             let y = p.pad + p.usable_h - bar_h_frac;
 
@@ -163,8 +149,7 @@ impl<'a> HistogramChart<'a> {
         let min_center = p.min_center;
         let max_center = min_center + p.center_range;
         if min_center < 0.0 && max_center > 0.0 {
-            let zero_x =
-                Self::center_to_x(&p, 0.0) + p.bar_w * 0.5;
+            let zero_x = Self::center_to_x(&p, 0.0) + p.bar_w * 0.5;
             let zero_line = Path::line(
                 Point::new(zero_x, p.pad),
                 Point::new(zero_x, bounds.height - p.pad),
@@ -172,8 +157,7 @@ impl<'a> HistogramChart<'a> {
             frame.stroke(
                 &zero_line,
                 Stroke {
-                    style: Color::from_rgba(1.0, 1.0, 1.0, 0.4)
-                        .into(),
+                    style: Color::from_rgba(1.0, 1.0, 1.0, 0.4).into(),
                     width: 1.5,
                     ..Default::default()
                 },
@@ -181,12 +165,7 @@ impl<'a> HistogramChart<'a> {
         }
     }
 
-    fn draw_overlay(
-        &self,
-        frame: &mut Frame,
-        cursor: Point,
-        bounds: Rectangle,
-    ) {
+    fn draw_overlay(&self, frame: &mut Frame, cursor: Point, bounds: Rectangle) {
         let p = self.hist_params(bounds);
 
         let mut hovered_idx = None;
@@ -201,8 +180,7 @@ impl<'a> HistogramChart<'a> {
         if let Some(idx) = hovered_idx {
             let (center, count) = self.bins[idx];
             let x = Self::center_to_x(&p, center);
-            let bar_h_frac =
-                count as f32 / p.max_count as f32 * p.usable_h;
+            let bar_h_frac = count as f32 / p.max_count as f32 * p.usable_h;
             let y = p.pad + p.usable_h - bar_h_frac;
 
             frame.fill_rectangle(
@@ -219,16 +197,10 @@ impl<'a> HistogramChart<'a> {
                 format!("Count: {}", count),
             ];
             let (tw, th) = tooltip_size(&lines);
-            let pos =
-                position_tooltip(cursor, tw, th, bounds.size());
+            let pos = position_tooltip(cursor, tw, th, bounds.size());
             draw_tooltip_box(frame, pos, &lines);
         } else {
-            draw_crosshair_lines(
-                frame,
-                cursor,
-                bounds.size(),
-                p.pad,
-            );
+            draw_crosshair_lines(frame, cursor, bounds.size(), p.pad);
         }
     }
 }

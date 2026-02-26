@@ -9,9 +9,8 @@ impl KlineChart {
 
         // Enforce: only one CandleReplace study at a time
         if study.placement() == study::StudyPlacement::CandleReplace {
-            self.studies.retain(|s| {
-                s.placement() != study::StudyPlacement::CandleReplace
-            });
+            self.studies
+                .retain(|s| s.placement() != study::StudyPlacement::CandleReplace);
         }
         self.studies.push(study);
 
@@ -20,8 +19,7 @@ impl KlineChart {
             self.chart.layout.splits.push(0.75);
         }
 
-        self.studies_dirty =
-            Some(StudiesDirtyReason::FullRecompute);
+        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 
@@ -38,8 +36,7 @@ impl KlineChart {
 
     /// Mark studies as needing recomputation (e.g. after parameter changes).
     pub fn mark_studies_dirty(&mut self) {
-        self.studies_dirty =
-            Some(StudiesDirtyReason::FullRecompute);
+        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
     }
 
     pub fn studies(&self) -> &[Box<dyn study::Study>] {
@@ -52,19 +49,16 @@ impl KlineChart {
         key: &str,
         value: study::ParameterValue,
     ) {
-        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id) {
-            if let Err(e) = s.set_parameter(key, value) {
-                log::warn!("Failed to set study parameter: {}", e);
-            }
+        if let Some(s) = self.studies.iter_mut().find(|s| s.id() == study_id)
+            && let Err(e) = s.set_parameter(key, value)
+        {
+            log::warn!("Failed to set study parameter: {}", e);
         }
         self.recompute_studies(StudiesDirtyReason::FullRecompute);
         self.invalidate();
     }
 
-    pub(super) fn recompute_studies(
-        &mut self,
-        reason: StudiesDirtyReason,
-    ) {
+    pub(super) fn recompute_studies(&mut self, reason: StudiesDirtyReason) {
         if self.studies.is_empty() {
             return;
         }

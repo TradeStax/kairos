@@ -17,26 +17,23 @@ impl Kairos {
                 return self.replay_load_data();
             }
             replay::Message::Play => {
-                return self
-                    .replay_engine_action(|engine| Box::pin(engine.play()));
+                return self.replay_engine_action(|engine| Box::pin(engine.play()));
             }
             replay::Message::Pause => {
-                return self
-                    .replay_engine_action(|engine| Box::pin(engine.pause()));
+                return self.replay_engine_action(|engine| Box::pin(engine.pause()));
             }
             replay::Message::EndReplay => {
                 // Stop replay, restore chart data, hide controller
                 self.modals.replay_manager.data_loaded = false;
                 self.modals.replay_manager.progress = 0.0;
                 self.modals.replay_manager.position = 0;
-                self.modals.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
+                self.modals.replay_manager.playback_status = data::PlaybackStatus::Stopped;
                 self.modals.replay_manager.controller_visible = false;
                 self.modals.replay_manager.volume_buckets.clear();
 
                 self.exit_replay_on_all_panes();
 
-                return self
-                    .replay_engine_action(|engine| Box::pin(engine.stop()));
+                return self.replay_engine_action(|engine| Box::pin(engine.stop()));
             }
             replay::Message::CloseController => {
                 // Hide controller but keep replay playing
@@ -47,20 +44,16 @@ impl Kairos {
             }
             replay::Message::SetSpeed(speed) => {
                 self.modals.replay_manager.speed = speed;
-                return self.replay_engine_action(move |engine| {
-                    Box::pin(engine.set_speed(speed))
-                });
+                return self.replay_engine_action(move |engine| Box::pin(engine.set_speed(speed)));
             }
             replay::Message::Seek(progress) => {
                 return self.replay_seek(progress);
             }
             replay::Message::JumpForward => {
-                return self
-                    .replay_engine_action(|engine| Box::pin(engine.jump(30_000)));
+                return self.replay_engine_action(|engine| Box::pin(engine.jump(30_000)));
             }
             replay::Message::JumpBackward => {
-                return self
-                    .replay_engine_action(|engine| Box::pin(engine.jump(-30_000)));
+                return self.replay_engine_action(|engine| Box::pin(engine.jump(-30_000)));
             }
             other => {
                 // UI-only messages (SelectStream, SelectDate, etc.)
@@ -72,10 +65,10 @@ impl Kairos {
 
     pub(crate) fn handle_replay_event(
         &mut self,
-        event: data::services::ReplayEvent,
+        event: crate::services::ReplayEvent,
     ) -> Task<Message> {
         match event {
-            data::services::ReplayEvent::MarketData {
+            crate::services::ReplayEvent::MarketData {
                 timestamp: _,
                 trades,
                 depth: _,
@@ -85,7 +78,8 @@ impl Kairos {
                 }
 
                 let ticker_info = self
-                    .modals.replay_manager
+                    .modals
+                    .replay_manager
                     .selected_stream
                     .as_ref()
                     .map(|s| s.ticker_info);
@@ -97,20 +91,20 @@ impl Kairos {
                 // Send ALL trades directly to pane Content (not ChartState)
                 return Task::done(Message::Dashboard {
                     layout_id: None,
-                    event: dashboard::Message::ReplayTrades(info, trades),
+                    event: Box::new(dashboard::Message::ReplayTrades(info, trades)),
                 });
             }
-            data::services::ReplayEvent::PositionUpdate {
+            crate::services::ReplayEvent::PositionUpdate {
                 timestamp,
                 progress,
             } => {
                 self.modals.replay_manager.position = timestamp;
                 self.modals.replay_manager.progress = progress;
             }
-            data::services::ReplayEvent::StatusChanged(status) => {
+            crate::services::ReplayEvent::StatusChanged(status) => {
                 self.modals.replay_manager.playback_status = status;
             }
-            data::services::ReplayEvent::DataLoaded {
+            crate::services::ReplayEvent::DataLoaded {
                 ticker: _,
                 trade_count,
                 depth_count,
@@ -132,29 +126,30 @@ impl Kairos {
                 // Spawn task to compute volume histogram
                 return self.compute_volume_histogram();
             }
-            data::services::ReplayEvent::LoadingProgress { progress, message } => {
+            crate::services::ReplayEvent::LoadingProgress { progress, message } => {
                 self.modals.replay_manager.loading_progress = Some((progress, message));
             }
-            data::services::ReplayEvent::Error(msg) => {
+            crate::services::ReplayEvent::Error(msg) => {
                 self.modals.replay_manager.error = Some(msg.clone());
                 self.modals.replay_manager.loading_progress = None;
-                self.ui.notifications
-                    .push(Toast::error(format!("Replay: {}", msg)));
+                self.ui
+                    .push_notification(Toast::error(format!("Replay: {}", msg)));
             }
-            data::services::ReplayEvent::PlaybackComplete => {
-                self.modals.replay_manager.playback_status = data::state::replay::PlaybackStatus::Stopped;
+            crate::services::ReplayEvent::PlaybackComplete => {
+                self.modals.replay_manager.playback_status = data::PlaybackStatus::Stopped;
                 self.modals.replay_manager.progress = 1.0;
             }
-            data::services::ReplayEvent::SeekCompleted {
+            crate::services::ReplayEvent::SeekCompleted {
                 timestamp,
                 progress,
             } => {
                 self.modals.replay_manager.position = timestamp;
                 self.modals.replay_manager.progress = progress;
             }
-            data::services::ReplayEvent::ChartRebuild { trades } => {
+            crate::services::ReplayEvent::ChartRebuild { trades } => {
                 let ticker_info = self
-                    .modals.replay_manager
+                    .modals
+                    .replay_manager
                     .selected_stream
                     .as_ref()
                     .map(|s| s.ticker_info);
@@ -162,7 +157,7 @@ impl Kairos {
                 if let Some(info) = ticker_info {
                     return Task::done(Message::Dashboard {
                         layout_id: None,
-                        event: dashboard::Message::ReplayRebuild(info, trades),
+                        event: Box::new(dashboard::Message::ReplayRebuild(info, trades)),
                     });
                 }
             }
@@ -175,11 +170,10 @@ impl Kairos {
     fn replay_engine_action<F>(&self, action: F) -> Task<Message>
     where
         F: for<'a> FnOnce(
-                &'a mut data::services::ReplayEngine,
-            )
-                -> std::pin::Pin<
-                    Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>,
-                > + Send
+                &'a mut crate::services::ReplayEngine,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>,
+            > + Send
             + 'static,
     {
         let Some(engine) = self.services.replay_engine.clone() else {
@@ -193,7 +187,7 @@ impl Kairos {
             },
             |result| match result {
                 Ok(()) => Message::Tick(std::time::Instant::now()),
-                Err(e) => Message::ReplayEvent(data::services::ReplayEvent::Error(e)),
+                Err(e) => Message::ReplayEvent(crate::services::ReplayEvent::Error(e)),
             },
         )
     }
@@ -245,8 +239,8 @@ impl Kairos {
                 Ok::<(), String>(())
             },
             |result| match result {
-                Ok(()) => Message::ReplayEvent(data::services::ReplayEvent::PlaybackStarted),
-                Err(e) => Message::ReplayEvent(data::services::ReplayEvent::Error(e)),
+                Ok(()) => Message::ReplayEvent(crate::services::ReplayEvent::PlaybackStarted),
+                Err(e) => Message::ReplayEvent(crate::services::ReplayEvent::Error(e)),
             },
         )
     }
@@ -300,18 +294,18 @@ impl Kairos {
             return;
         };
         for (_, state) in dashboard.panes.iter_mut() {
-            if let Some(ti) = state.ticker_info {
-                if ti.ticker == ticker {
-                    state.enter_replay_mode();
-                }
+            if let Some(ti) = state.ticker_info
+                && ti.ticker == ticker
+            {
+                state.enter_replay_mode();
             }
         }
         for (_, (popout_panes, _)) in dashboard.popout.iter_mut() {
             for (_, state) in popout_panes.iter_mut() {
-                if let Some(ti) = state.ticker_info {
-                    if ti.ticker == ticker {
-                        state.enter_replay_mode();
-                    }
+                if let Some(ti) = state.ticker_info
+                    && ti.ticker == ticker
+                {
+                    state.enter_replay_mode();
                 }
             }
         }

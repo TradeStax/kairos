@@ -1,9 +1,9 @@
 use super::*;
 
 use super::volume_trackbar::volume_trackbar;
+use crate::components::primitives::Icon;
 use crate::components::primitives::icon_button::toolbar_icon;
 use crate::components::primitives::label::{mono, small};
-use crate::components::primitives::Icon;
 use crate::style::{self, tokens};
 use iced::mouse;
 use iced::widget::{button, column, container, mouse_area, pick_list, row, space, text};
@@ -76,16 +76,15 @@ impl ReplayManager {
                 .into(),
         };
 
-        let jump_fwd: Element<'_, Message> =
-            toolbar_icon(Icon::SkipForward, Message::JumpForward)
-                .size(10.0)
-                .style(|theme, status| {
-                    let mut s = style::button::transparent(theme, status, false);
-                    s.border.radius = tokens::radius::ROUND.into();
-                    s
-                })
-                .tooltip("+30s")
-                .into();
+        let jump_fwd: Element<'_, Message> = toolbar_icon(Icon::SkipForward, Message::JumpForward)
+            .size(10.0)
+            .style(|theme, status| {
+                let mut s = style::button::transparent(theme, status, false);
+                s.border.radius = tokens::radius::ROUND.into();
+                s
+            })
+            .tooltip("+30s")
+            .into();
 
         let trackbar = volume_trackbar(
             &self.volume_buckets,

@@ -7,6 +7,7 @@ pub mod candlestick;
 pub mod comparison;
 pub mod core;
 pub mod drawing;
+#[cfg(feature = "heatmap")]
 pub mod heatmap;
 pub mod overlay;
 pub mod perf;
@@ -20,8 +21,8 @@ mod update;
 
 // Re-export core types for public API
 pub use core::{
-    Chart, ChartState, Interaction, PlotLimits, ViewState,
-    base_mouse_interaction, canvas_interaction,
+    Chart, ChartState, Interaction, PlotLimits, ViewState, base_mouse_interaction,
+    canvas_interaction,
 };
 
 use crate::components::layout::multi_split::MultiSplit;
@@ -89,7 +90,7 @@ pub enum Message {
     DrawingCancel,
     DrawingDelete,
     // Drawing selection and editing
-    DrawingSelect(data::DrawingId),
+    DrawingSelect(crate::drawing::DrawingId),
     DrawingDeselect,
     DrawingDrag(Point, bool),
     DrawingHandleDrag(Point, usize, bool),
@@ -99,9 +100,9 @@ pub enum Message {
     ClonePlacementConfirm(Point),
     ClonePlacementCancel,
     // Context menu
-    ContextMenu(Point, Option<data::DrawingId>),
+    ContextMenu(Point, Option<crate::drawing::DrawingId>),
     // Double-click on a selected drawing
-    DrawingDoubleClick(data::DrawingId),
+    DrawingDoubleClick(crate::drawing::DrawingId),
     // Study overlay interactions (index into chart.studies())
     StudyOverlaySelect(usize),
     StudyOverlayDoubleClick(usize),
@@ -110,7 +111,7 @@ pub enum Message {
 
 /// Chart action for side effects
 pub enum Action {
-    ErrorOccurred(crate::infra::error::InternalError),
+    ErrorOccurred(crate::services::error::InternalError),
 }
 
 /// Update chart state based on message.
@@ -122,7 +123,7 @@ pub use update::update;
 /// Render chart view
 pub fn view<'a, T: Chart>(
     chart: &'a T,
-    timezone: data::UserTimezone,
+    timezone: crate::config::UserTimezone,
 ) -> Element<'a, Message> {
     if chart.is_empty() {
         return center(text("Waiting for data...").size(16)).into();
@@ -186,12 +187,12 @@ pub fn view<'a, T: Chart>(
     let has_side_panel = !chart.side_panel_studies().is_empty() && sp_cache.is_some();
 
     // Effective side splits — default to [0.80] until user drags to resize.
-    let effective_side_splits: &Vec<f32> =
-        if has_side_panel && state.layout.side_splits.is_empty() {
-            default_side_splits()
-        } else {
-            &state.layout.side_splits
-        };
+    let effective_side_splits: &Vec<f32> = if has_side_panel && state.layout.side_splits.is_empty()
+    {
+        default_side_splits()
+    } else {
+        &state.layout.side_splits
+    };
 
     // Compute fill-portion integers (×1000) for panel/axis alignment rows.
     let (main_fill, side_fill): (u16, u16) = if has_side_panel {
@@ -292,8 +293,7 @@ pub fn view<'a, T: Chart>(
     // with both the main chart canvas and the ATR panel below.
     let x_axis_row = row![
         container(
-            mouse_area(axis_labels_x)
-                .on_double_click(Message::DoubleClick(AxisScaleClicked::X)),
+            mouse_area(axis_labels_x).on_double_click(Message::DoubleClick(AxisScaleClicked::X)),
         )
         .padding(iced::padding::right(1))
         .width(Length::FillPortion(10))
@@ -308,18 +308,17 @@ pub fn view<'a, T: Chart>(
     let chart_body: Element<'_, Message> = if has_panels {
         let cache = panel_cache.unwrap();
 
-        let panel_y_axis: Element<'_, Message> =
-            if let Some(labels_cache) = panel_labels_cache {
-                Canvas::new(PanelAxisLabelsY {
-                    panels: chart.panel_studies(),
-                    cache: labels_cache,
-                })
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-            } else {
-                column![].into()
-            };
+        let panel_y_axis: Element<'_, Message> = if let Some(labels_cache) = panel_labels_cache {
+            Canvas::new(PanelAxisLabelsY {
+                panels: chart.panel_studies(),
+                cache: labels_cache,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            column![].into()
+        };
 
         let panel_crosshair_cache = chart.panel_crosshair_cache();
         let crosshair_cache_ref = panel_crosshair_cache.unwrap_or(cache);
@@ -338,10 +337,8 @@ pub fn view<'a, T: Chart>(
         // Keeping full width prevents the panel from appearing cut off under the
         // side panel area and keeps the time axis aligned.
         let panel_row: Element<'_, Message> = row![
-            container(
-                mouse_area(panel_canvas).on_exit(Message::CursorLeft),
-            )
-            .width(Length::FillPortion(10)),
+            container(mouse_area(panel_canvas).on_exit(Message::CursorLeft),)
+                .width(Length::FillPortion(10)),
             rule::vertical(1).style(style::split_ruler),
             container(panel_y_axis).width(y_labels_width),
         ]
@@ -350,13 +347,14 @@ pub fn view<'a, T: Chart>(
         // Always use MultiSplit — never the column fallback.  The fallback
         // splits Fill height 50/50 which squishes or covers the bottom panel.
         let splits = &state.layout.splits;
-        let effective_splits =
-            if splits.is_empty() { default_panel_splits() } else { splits };
-        MultiSplit::new(
-            vec![content, panel_row],
-            effective_splits,
-            |idx, pos| Message::SplitDragged(idx, pos),
-        )
+        let effective_splits = if splits.is_empty() {
+            default_panel_splits()
+        } else {
+            splits
+        };
+        MultiSplit::new(vec![content, panel_row], effective_splits, |idx, pos| {
+            Message::SplitDragged(idx, pos)
+        })
         .into()
     } else {
         content
@@ -370,4 +368,3 @@ pub fn view<'a, T: Chart>(
         .padding(iced::padding::left(1).right(1).bottom(1))
         .into()
 }
-

@@ -210,8 +210,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
                     self.tick_size,
                 );
-                let y_position =
-                    bounds.height - ((rounded_price - lowest) / range * bounds.height);
+                let y_position = bounds.height - ((rounded_price - lowest) / range * bounds.height);
 
                 let label = LabelContent {
                     content: format!("{:.*}", self.decimals, rounded_price),
@@ -231,8 +230,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     lowest + (range * (bounds.height - side_y) / bounds.height),
                     self.tick_size,
                 );
-                let y_position =
-                    bounds.height - ((rounded_price - lowest) / range * bounds.height);
+                let y_position = bounds.height - ((rounded_price - lowest) / range * bounds.height);
 
                 let label = LabelContent {
                     content: format!("{:.*}", self.decimals, rounded_price),

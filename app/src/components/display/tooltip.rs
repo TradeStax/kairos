@@ -9,9 +9,6 @@ use crate::style::tokens;
 /// Position alias for tooltip placement.
 pub type TooltipPosition = iced::widget::tooltip::Position;
 
-/// Default delay before showing tooltips.
-pub const DEFAULT_TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
-
 /// Tooltip with themed styling and no delay.
 pub fn tooltip<'a, Message: 'a>(
     content: impl Into<Element<'a, Message>>,
@@ -50,7 +47,7 @@ pub fn button_with_tooltip<'a, M: Clone + 'a>(
     tooltip_pos: TooltipPosition,
     style_fn: impl Fn(&Theme, button::Status) -> button::Style + 'static,
 ) -> Element<'a, M> {
-    let btn = button(content).style(style_fn).on_press(message);
+    let btn = button(content).style(style_fn).on_press(message).padding(4);
 
     if let Some(text) = tooltip_text {
         tooltip(btn, Some(text), tooltip_pos)

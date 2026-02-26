@@ -1,5 +1,5 @@
-use data::{ChartConfig, DateRange, DrawingTool, FuturesTicker};
-use exchange::FuturesTickerInfo;
+use crate::drawing::DrawingTool;
+use data::{ChartConfig, DateRange, FuturesTicker, FuturesTickerInfo};
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -11,18 +11,20 @@ pub enum Action {
     FocusWidget(iced::widget::Id),
     EstimateDataCost {
         ticker: FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: DateRange,
     },
     DownloadData {
         ticker: FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: DateRange,
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)
     DrawingToolChanged(DrawingTool),
     /// Crosshair position changed in a linked pane
-    CrosshairSync { timestamp: Option<u64> },
+    CrosshairSync {
+        timestamp: Option<u64>,
+    },
     /// AI assistant wants to send a message
     AiRequest {
         pane_id: uuid::Uuid,

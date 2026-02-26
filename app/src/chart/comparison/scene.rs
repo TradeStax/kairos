@@ -4,8 +4,8 @@ use super::types::domain;
 use iced::advanced::Layout;
 use iced::{Point, Rectangle, mouse};
 
-use super::legend::{EndLabel, IconKind, LegendLayout, LegendMode, resolve_label_overlaps};
 use super::TEXT_SIZE;
+use super::legend::{EndLabel, IconKind, LegendLayout, LegendMode, resolve_label_overlaps};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum HitZone {

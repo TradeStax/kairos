@@ -1,14 +1,15 @@
+//! Volume profile output and VBP configuration types.
+//!
+//! - [`types`] — Core profile primitives: levels, sides, nodes, directions.
+//! - [`vbp`] — VBP-specific configuration: POC, Value Area, HVN/LVN, VWAP.
+
 pub mod types;
 pub mod vbp;
 
-pub use types::{
-    ExtendDirection, NodeDetectionMethod, ProfileLevel,
-    ProfileSide, VolumeNode,
-};
+pub use types::{ExtendDirection, NodeDetectionMethod, ProfileLevel, ProfileSide, VolumeNode};
 pub use vbp::{
-    VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig,
-    VbpResolvedCache, VbpSplitPeriod, VbpType,
-    VbpValueAreaConfig, VbpVwapConfig,
+    VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpResolvedCache, VbpSplitPeriod,
+    VbpType, VbpValueAreaConfig, VbpVwapConfig,
 };
 
 use data::SerializableColor;
@@ -38,8 +39,7 @@ pub struct ProfileOutput {
     pub grouping_mode: VbpGroupingMode,
     /// Renderer-side cache for resolved (merged) levels.
     /// Populated lazily by the renderer; avoids per-frame merging.
-    pub resolved_cache:
-        std::sync::Arc<std::sync::Mutex<Option<VbpResolvedCache>>>,
+    pub resolved_cache: std::sync::Arc<std::sync::Mutex<Option<VbpResolvedCache>>>,
 }
 
 impl Clone for ProfileOutput {
@@ -54,22 +54,14 @@ impl Clone for ProfileOutput {
             lvn_zones: self.lvn_zones.clone(),
             peak_node: self.peak_node.clone(),
             valley_node: self.valley_node.clone(),
-            developing_poc_points: self
-                .developing_poc_points
-                .clone(),
-            developing_peak_points: self
-                .developing_peak_points
-                .clone(),
-            developing_valley_points: self
-                .developing_valley_points
-                .clone(),
+            developing_poc_points: self.developing_poc_points.clone(),
+            developing_peak_points: self.developing_peak_points.clone(),
+            developing_valley_points: self.developing_valley_points.clone(),
             vwap_points: self.vwap_points.clone(),
             vwap_upper_points: self.vwap_upper_points.clone(),
             vwap_lower_points: self.vwap_lower_points.clone(),
             grouping_mode: self.grouping_mode,
-            resolved_cache: std::sync::Arc::clone(
-                &self.resolved_cache,
-            ),
+            resolved_cache: std::sync::Arc::clone(&self.resolved_cache),
         }
     }
 }
@@ -93,9 +85,7 @@ impl ProfileOutput {
             vwap_upper_points: Vec::new(),
             vwap_lower_points: Vec::new(),
             grouping_mode: VbpGroupingMode::Manual,
-            resolved_cache: std::sync::Arc::new(
-                std::sync::Mutex::new(None),
-            ),
+            resolved_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }

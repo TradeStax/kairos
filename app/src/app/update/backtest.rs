@@ -8,17 +8,16 @@ use std::sync::Arc;
 use super::super::{Kairos, Message};
 
 impl Kairos {
-    pub(crate) fn handle_backtest_message(
-        &mut self,
-        msg: BacktestMessage,
-    ) -> Task<Message> {
+    pub(crate) fn handle_backtest_message(&mut self, msg: BacktestMessage) -> Task<Message> {
         match msg {
             BacktestMessage::OpenLaunchModal => {
                 log::info!("Opening backtest launch modal");
+                let cm = data::lock_or_recover(&self.connections.connection_manager);
                 let idx = data::lock_or_recover(&self.persistence.data_index);
                 self.modals.backtest.backtest_launch_modal =
                     crate::screen::backtest::launch::BacktestLaunchModal::new(
                         &self.modals.backtest.strategy_registry,
+                        &cm,
                         &idx,
                     );
                 self.modals.backtest.show_backtest_modal = true;
@@ -31,14 +30,11 @@ impl Kairos {
             }
 
             BacktestMessage::LaunchModalInteraction(modal_msg) => {
-                match self.modals.backtest.backtest_launch_modal.update(modal_msg)
-                {
+                match self.modals.backtest.backtest_launch_modal.update(modal_msg) {
                     Some(BacktestLaunchAction::RunRequested(config)) => {
                         self.modals.backtest.show_backtest_modal = false;
                         self.modals.backtest.backtest_launch_modal.set_running(true);
-                        Task::done(Message::Backtest(
-                            BacktestMessage::Run { config },
-                        ))
+                        Task::done(Message::Backtest(BacktestMessage::Run { config }))
                     }
                     Some(BacktestLaunchAction::Closed) => {
                         self.modals.backtest.show_backtest_modal = false;
@@ -49,8 +45,8 @@ impl Kairos {
             }
 
             BacktestMessage::Run { config } => {
-                let Some(trade_repo) =
-                    self.modals.backtest.backtest_trade_repo.clone()
+                let config = *config;
+                let Some(trade_provider) = self.modals.backtest.backtest_trade_provider.clone()
                 else {
                     log::warn!(
                         "Backtest requires a Databento API key \
@@ -62,7 +58,9 @@ impl Kairos {
                 let run_id = uuid::Uuid::new_v4();
                 let strategy_name = {
                     let sid = &config.strategy_id;
-                    self.modals.backtest.strategy_registry
+                    self.modals
+                        .backtest
+                        .strategy_registry
                         .list()
                         .iter()
                         .find(|i| i.id == *sid)
@@ -80,25 +78,19 @@ impl Kairos {
 
                 // Auto-open manager and select running backtest
                 self.modals.backtest.show_backtest_manager = true;
-                self.modals.backtest.backtest_manager.select(
-                    run_id,
-                    &self.modals.backtest.backtest_history,
-                );
+                self.modals
+                    .backtest
+                    .backtest_manager
+                    .select(run_id, &self.modals.backtest.backtest_history);
 
                 let strategy_registry = self.modals.backtest.strategy_registry.clone();
-                let backtest_sender =
-                    super::super::core::globals::get_backtest_sender();
+                let backtest_sender = super::super::core::globals::get_backtest_sender();
 
                 Task::perform(
                     async move {
                         let mut strategy = strategy_registry
                             .create(&config.strategy_id)
-                            .ok_or_else(|| {
-                                format!(
-                                    "Unknown strategy: {}",
-                                    config.strategy_id
-                                )
-                            })?;
+                            .ok_or_else(|| format!("Unknown strategy: {}", config.strategy_id))?;
 
                         for (key, value) in &config.strategy_params {
                             strategy
@@ -106,32 +98,18 @@ impl Kairos {
                                 .map_err(|e| format!("{key}: {e}"))?;
                         }
 
-                        let runner =
-                            backtest::BacktestRunner::new(trade_repo);
+                        let runner = backtest::BacktestRunner::new(trade_provider);
                         runner
-                            .run_with_progress(
-                                config,
-                                strategy,
-                                run_id,
-                                backtest_sender,
-                            )
+                            .run_with_progress(config, strategy, run_id, backtest_sender)
                             .await
                             .map(Box::new)
                             .map_err(|e| e.to_string())
                     },
                     move |result| match result {
-                        Ok(r) => Message::Backtest(
-                            BacktestMessage::Completed {
-                                run_id,
-                                result: r,
-                            },
-                        ),
-                        Err(e) => Message::Backtest(
-                            BacktestMessage::Failed {
-                                run_id,
-                                error: e,
-                            },
-                        ),
+                        Ok(r) => {
+                            Message::Backtest(BacktestMessage::Completed { run_id, result: r })
+                        }
+                        Err(e) => Message::Backtest(BacktestMessage::Failed { run_id, error: e }),
                     },
                 )
             }
@@ -139,46 +117,45 @@ impl Kairos {
             BacktestMessage::ProgressEvent(event) => {
                 use backtest::BacktestProgressEvent;
                 match event {
-                    BacktestProgressEvent::TradeCompleted {
-                        run_id,
-                        trade,
-                    } => {
-                        self.modals.backtest.backtest_history
-                            .append_live_trade(run_id, trade);
+                    BacktestProgressEvent::TradeCompleted { run_id, trade } => {
+                        self.modals
+                            .backtest
+                            .backtest_history
+                            .append_live_trade(run_id, *trade);
                     }
                     BacktestProgressEvent::SessionProcessed {
                         run_id,
                         index,
                         total_estimated,
                     } => {
-                        let pct = index as f32
-                            / total_estimated.max(1) as f32;
+                        let pct = index as f32 / total_estimated.max(1) as f32;
                         self.modals.backtest.backtest_history.update_progress(
                             run_id,
                             pct,
-                            format!(
-                                "Session {}/{}",
-                                index, total_estimated
-                            ),
+                            format!("Session {}/{}", index, total_estimated),
                         );
                     }
-                    BacktestProgressEvent::EquityUpdate {
-                        run_id,
-                        point,
-                    } => {
-                        self.modals.backtest.backtest_history
+                    BacktestProgressEvent::EquityUpdate { run_id, point } => {
+                        self.modals
+                            .backtest
+                            .backtest_history
                             .append_live_equity(run_id, point);
                     }
+                    // New engine events — log only
+                    _ => {}
                 }
                 Task::none()
             }
 
             BacktestMessage::Completed { run_id, result } => {
-                self.modals.backtest.backtest_launch_modal.set_running(false);
-                self.modals.backtest.backtest_history.mark_completed(
-                    run_id,
-                    Arc::new(*result.clone()),
-                );
+                self.modals
+                    .backtest
+                    .backtest_launch_modal
+                    .set_running(false);
+                self.modals
+                    .backtest
+                    .backtest_history
+                    .mark_completed(run_id, Arc::new(*result.clone()));
                 log::info!(
                     "Backtest complete: {} trades, net PnL ${:.2}",
                     result.trades.len(),
@@ -186,16 +163,21 @@ impl Kairos {
                 );
                 // Auto-open manager and select the completed backtest
                 self.modals.backtest.show_backtest_manager = true;
-                self.modals.backtest.backtest_manager.select(
-                    run_id,
-                    &self.modals.backtest.backtest_history,
-                );
+                self.modals
+                    .backtest
+                    .backtest_manager
+                    .select(run_id, &self.modals.backtest.backtest_history);
                 Task::none()
             }
 
             BacktestMessage::Failed { run_id, error } => {
-                self.modals.backtest.backtest_launch_modal.set_running(false);
-                self.modals.backtest.backtest_history
+                self.modals
+                    .backtest
+                    .backtest_launch_modal
+                    .set_running(false);
+                self.modals
+                    .backtest
+                    .backtest_history
                     .mark_failed(run_id, error.clone());
                 self.modals.backtest.backtest_launch_modal.validation_error =
                     Some(format!("Run failed: {}", error));
@@ -207,17 +189,14 @@ impl Kairos {
             BacktestMessage::CsvExported(outcome) => {
                 match outcome {
                     Some(Ok(path)) => {
-                        self.ui.notifications.push(Toast::success(
-                            format!(
-                                "CSV exported to {}",
-                                path.display()
-                            ),
-                        ));
+                        self.ui.push_notification(Toast::success(format!(
+                            "CSV exported to {}",
+                            path.display()
+                        )));
                     }
                     Some(Err(e)) => {
-                        self.ui.notifications.push(Toast::error(
-                            format!("CSV export failed: {e}"),
-                        ));
+                        self.ui
+                            .push_notification(Toast::error(format!("CSV export failed: {e}")));
                     }
                     None => {}
                 }
@@ -225,32 +204,27 @@ impl Kairos {
             }
 
             BacktestMessage::ManagerInteraction(manager_msg) => {
-                let action = self.modals.backtest.backtest_manager.update(
-                    manager_msg,
-                    &self.modals.backtest.backtest_history,
-                );
+                let action = self
+                    .modals
+                    .backtest
+                    .backtest_manager
+                    .update(manager_msg, &self.modals.backtest.backtest_history);
                 match action {
                     ManagerAction::None => Task::none(),
                     ManagerAction::OpenLaunchModal => {
                         self.modals.backtest.show_backtest_manager = false;
-                        Task::done(Message::Backtest(
-                            BacktestMessage::OpenLaunchModal,
-                        ))
+                        Task::done(Message::Backtest(BacktestMessage::OpenLaunchModal))
                     }
                     ManagerAction::DeleteBacktest(id) => {
                         self.modals.backtest.backtest_history.remove(id);
                         // If we deleted the selected one, deselect
-                        if self.modals.backtest.backtest_manager.selected_id
-                            == Some(id)
-                        {
+                        if self.modals.backtest.backtest_manager.selected_id == Some(id) {
                             self.modals.backtest.backtest_manager.selected_id = None;
                             self.modals.backtest.backtest_manager.analytics = None;
                         }
                         Task::none()
                     }
-                    ManagerAction::ExportCsv(id) => {
-                        self.export_backtest_csv(id)
-                    }
+                    ManagerAction::ExportCsv(id) => self.export_backtest_csv(id),
                     ManagerAction::Close => {
                         self.modals.backtest.show_backtest_manager = false;
                         Task::none()
@@ -261,10 +235,7 @@ impl Kairos {
     }
 
     /// Export a backtest's trade list to CSV via a native save dialog.
-    fn export_backtest_csv(
-        &self,
-        backtest_id: uuid::Uuid,
-    ) -> Task<Message> {
+    fn export_backtest_csv(&self, backtest_id: uuid::Uuid) -> Task<Message> {
         let Some(entry) = self.modals.backtest.backtest_history.get(backtest_id) else {
             return Task::none();
         };
@@ -296,10 +267,7 @@ impl Kairos {
             ));
         }
 
-        let default_name = format!(
-            "backtest_{}.csv",
-            entry.strategy_name.replace(' ', "_"),
-        );
+        let default_name = format!("backtest_{}.csv", entry.strategy_name.replace(' ', "_"),);
 
         Task::perform(
             async move {
@@ -310,32 +278,19 @@ impl Kairos {
                     .save_file()
                     .await;
 
-                let Some(handle) = handle else {
-                    return None;
-                };
-
-                let path = handle.path().to_path_buf();
+                let path = handle?.path().to_path_buf();
                 match tokio::fs::write(&path, csv).await {
                     Ok(()) => {
-                        log::info!(
-                            "CSV exported to {}",
-                            path.display()
-                        );
+                        log::info!("CSV exported to {}", path.display());
                         Some(Ok(path))
                     }
                     Err(e) => {
-                        log::error!(
-                            "Failed to write CSV: {e}"
-                        );
+                        log::error!("Failed to write CSV: {e}");
                         Some(Err(e.to_string()))
                     }
                 }
             },
-            |outcome| {
-                Message::Backtest(BacktestMessage::CsvExported(
-                    outcome,
-                ))
-            },
+            |outcome| Message::Backtest(BacktestMessage::CsvExported(outcome)),
         )
     }
 }

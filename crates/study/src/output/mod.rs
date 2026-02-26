@@ -1,40 +1,30 @@
-//! Abstract render primitives output by studies.
+//! Abstract render primitives produced by studies.
 //!
-//! The chart rendering layer converts these into canvas draw calls.
-//! Types are split into focused submodules:
+//! The chart rendering layer converts these into canvas draw calls. Each study
+//! returns a [`StudyOutput`] variant matching its visualization type.
 //!
-//! - [`series`] -- line, bar, histogram, and price level types
-//! - [`markers`] -- trade marker types for the Big Trades study
-//! - [`footprint`] -- footprint chart candle and rendering types
-//! - [`profile`] -- volume profile and VBP configuration types
+//! - [`series`] — Line, bar, histogram, and price level primitives.
+//! - [`markers`] — Trade marker bubbles (Big Trades study).
+//! - [`footprint`] — Per-candle trade-level data and configuration enums.
+//! - [`profile`] — Volume profile output and VBP sub-feature configs.
 
 pub mod footprint;
 mod markers;
 pub mod profile;
 mod series;
 
-// Re-export all public types so external callers keep working
-// with `crate::output::TypeName` paths.
 pub use footprint::{
-    BackgroundColorMode, CandleRenderConfig, FootprintCandle,
-    FootprintCandlePosition, FootprintData, FootprintDataType,
-    FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
+    BackgroundColorMode, CandleRenderConfig, FootprintCandle, FootprintCandlePosition,
+    FootprintData, FootprintDataType, FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
     FootprintScaling, OutsideBarStyle, TextFormat,
 };
-pub use markers::{
-    MarkerData, MarkerRenderConfig, MarkerShape, TradeMarker,
-    TradeMarkerDebug,
-};
+pub use markers::{MarkerData, MarkerRenderConfig, MarkerShape, TradeMarker, TradeMarkerDebug};
 pub use profile::{
-    ExtendDirection, NodeDetectionMethod, ProfileLevel,
-    ProfileOutput, ProfileRenderConfig, ProfileSide,
-    VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig,
-    VbpResolvedCache, VbpSplitPeriod, VbpType,
-    VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
+    ExtendDirection, NodeDetectionMethod, ProfileLevel, ProfileOutput, ProfileRenderConfig,
+    ProfileSide, VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpResolvedCache,
+    VbpSplitPeriod, VbpType, VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
 };
-pub use series::{
-    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel,
-};
+pub use series::{BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel};
 
 /// Top-level enum of all study output variants.
 #[derive(Debug, Clone, Default)]

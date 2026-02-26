@@ -11,7 +11,7 @@ pub enum Modal {
     StreamModifier(super::stream::Modifier),
     MiniTickersList(tickers::MiniPanel),
     DataManagement(super::download::data_management::DataManagementPanel),
-    DrawingProperties(super::drawing::properties::DrawingPropertiesModal),
+    DrawingProperties(Box<super::drawing::properties::DrawingPropertiesModal>),
     IndicatorManager(indicator::IndicatorManagerModal),
     Settings,
     LinkGroup,

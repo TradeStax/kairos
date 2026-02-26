@@ -1,17 +1,12 @@
 //! Position calculator drawing rendering: BuyCalculator, SellCalculator.
 
-use super::{DrawContext, create_stroke, draw_calc_label};
 use super::super::Drawing;
-use data::{DrawingTool, LineStyle};
+use super::{DrawContext, create_stroke, draw_calc_label};
+use crate::drawing::{DrawingTool, LineStyle};
 use iced::widget::canvas::{Frame, Path};
 use iced::{Point, Size};
 
-pub fn draw(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 2 {
         return;
     }
@@ -76,10 +71,8 @@ pub fn draw(
     };
 
     // Colors
-    let target_color =
-        crate::style::theme::rgba_to_iced_color(config.target_color);
-    let stop_color =
-        crate::style::theme::rgba_to_iced_color(config.stop_color);
+    let target_color = crate::style::theme::rgba_to_iced_color(config.target_color);
+    let stop_color = crate::style::theme::rgba_to_iced_color(config.stop_color);
 
     let is_preview = pts.len() < 3;
     let zone_alpha = if is_preview {
@@ -177,8 +170,7 @@ pub fn draw(
 
     if config.show_entry_label {
         let side_str = if is_buy { "BUY" } else { "SELL" };
-        let entry_text =
-            format!("{} {} | R:R {}", side_str, config.quantity, rr_str);
+        let entry_text = format!("{} {} | R:R {}", side_str, config.quantity, rr_str);
         draw_calc_label(
             frame,
             &entry_text,

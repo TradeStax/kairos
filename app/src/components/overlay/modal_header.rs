@@ -48,10 +48,7 @@ impl<'a, Message: Clone + 'a> ModalHeaderBuilder<'a, Message> {
     }
 
     /// Add an inline control between the title and the close button.
-    pub fn push_control(
-        mut self,
-        control: impl Into<Element<'a, Message>>,
-    ) -> Self {
+    pub fn push_control(mut self, control: impl Into<Element<'a, Message>>) -> Self {
         self.controls.push(control.into());
         self
     }
@@ -82,7 +79,7 @@ impl<'a, Message: Clone + 'a> ModalHeaderBuilder<'a, Message> {
                 top: 0.0,
                 right: tokens::spacing::SM,
                 bottom: 0.0,
-                left: tokens::spacing::XL,
+                left: tokens::spacing::LG,
             })
             .height(tokens::layout::TITLE_BAR_HEIGHT)
             .width(Length::Fill)
@@ -92,9 +89,7 @@ impl<'a, Message: Clone + 'a> ModalHeaderBuilder<'a, Message> {
     }
 }
 
-impl<'a, Message: Clone + 'a> From<ModalHeaderBuilder<'a, Message>>
-    for Element<'a, Message>
-{
+impl<'a, Message: Clone + 'a> From<ModalHeaderBuilder<'a, Message>> for Element<'a, Message> {
     fn from(builder: ModalHeaderBuilder<'a, Message>) -> Self {
         builder.into_element()
     }

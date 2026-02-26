@@ -22,17 +22,16 @@ pub fn data_path(path_name: Option<&str>) -> PathBuf {
 }
 
 /// Open data folder in system file browser
-pub fn open_data_folder() -> Result<(), data::DataError> {
+pub fn open_data_folder() -> Result<(), data::Error> {
     let pathbuf = data_path(None);
 
     if pathbuf.exists() {
-        open::that(&pathbuf).map_err(|e| {
-            data::DataError::State(format!("Failed to open folder: {}", e))
-        })?;
+        open::that(&pathbuf)
+            .map_err(|e| data::Error::Io(format!("Failed to open folder: {}", e)))?;
         log::info!("Opened data folder: {:?}", pathbuf);
         Ok(())
     } else {
-        Err(data::DataError::State(format!(
+        Err(data::Error::Io(format!(
             "Data folder does not exist: {:?}",
             pathbuf
         )))

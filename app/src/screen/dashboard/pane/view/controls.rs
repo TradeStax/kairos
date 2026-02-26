@@ -35,13 +35,12 @@ impl State {
         };
 
         let treat_as_starter =
-            matches!(&self.content, Content::Starter)
-                || !self.content.initialized();
+            matches!(&self.content, Content::Starter) || !self.content.initialized();
 
         let tooltip_pos = tooltip::Position::Bottom;
         let mut buttons = row![];
 
-        let show_modal = |modal: Modal| Message::PaneEvent(pane, Event::ShowModal(modal));
+        let show_modal = |modal: Modal| Message::PaneEvent(pane, Box::new(Event::ShowModal(modal)));
 
         if !treat_as_starter {
             // AI pane: gear toggles the in-panel settings overlay; trash clears history
@@ -51,7 +50,7 @@ impl State {
                     icon_text(Icon::Cog, 12),
                     Message::PaneEvent(
                         pane,
-                        Event::AiAssistant(AiAssistantEvent::ToggleSettings),
+                        Box::new(Event::AiAssistant(AiAssistantEvent::ToggleSettings)),
                     ),
                     Some("Settings"),
                     tooltip_pos,
@@ -63,7 +62,7 @@ impl State {
                     icon_text(Icon::TrashBin, 12),
                     Message::PaneEvent(
                         pane,
-                        Event::AiAssistant(AiAssistantEvent::ClearHistory),
+                        Box::new(Event::AiAssistant(AiAssistantEvent::ClearHistory)),
                     ),
                     Some("Clear History"),
                     tooltip_pos,
@@ -79,15 +78,13 @@ impl State {
                 ));
             }
         }
-        if !treat_as_starter
-            && matches!(
-                &self.content,
-                Content::Heatmap { .. } | Content::Candlestick { .. }
-            )
-        {
+        let show_indicators = matches!(&self.content, Content::Candlestick { .. });
+        #[cfg(feature = "heatmap")]
+        let show_indicators = show_indicators || matches!(&self.content, Content::Heatmap { .. });
+        if !treat_as_starter && show_indicators {
             buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::ChartOutline, 12),
-                Message::PaneEvent(pane, Event::OpenIndicatorManager),
+                Message::PaneEvent(pane, Box::new(Event::OpenIndicatorManager)),
                 Some("Indicators"),
                 tooltip_pos,
                 {

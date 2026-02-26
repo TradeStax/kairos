@@ -1,4 +1,4 @@
-use exchange::FuturesVenue;
+use data::FuturesVenue;
 
 use iced::font::{Family, Stretch, Weight};
 use iced::widget::Text;
@@ -7,7 +7,8 @@ use iced::{Font, Renderer, Theme};
 pub const ICONS_BYTES: &[u8] = include_bytes!("../../../../assets/fonts/icons.ttf");
 pub const ICONS_FONT: Font = Font::with_name("icons");
 
-pub const AZERET_MONO_BYTES: &[u8] = include_bytes!("../../../../assets/fonts/AzeretMono-Regular.ttf");
+pub const AZERET_MONO_BYTES: &[u8] =
+    include_bytes!("../../../../assets/fonts/AzeretMono-Regular.ttf");
 pub const AZERET_MONO: Font = Font {
     family: Family::Name("Azeret Mono"),
     weight: Weight::Normal,
@@ -69,7 +70,8 @@ pub enum Icon {
     DrawArrow,          // arrow-up-right
     DrawBuyCalc,        // buy calculator (trending-up)
     DrawSellCalc,       // sell calculator (trending-down)
-    DrawVolumeProfile,  // align-left
+    DrawVolumeProfile,  // align-right (mirrored)
+    DrawDeltaProfile,   // align-left
     // ── UI chrome ────────────────────────────────────────────────
     ExpandRight, // chevron-right
     SnapOn,      // zap
@@ -144,7 +146,8 @@ impl From<Icon> for char {
             Icon::DrawArrow => '\u{E82E}',          // arrow-up-right
             Icon::DrawBuyCalc => '\u{E826}',        // trending-up
             Icon::DrawSellCalc => '\u{E835}',       // trending-down
-            Icon::DrawVolumeProfile => '\u{E836}',  // align-left
+            Icon::DrawVolumeProfile => '\u{E83B}',  // align-right (mirrored)
+            Icon::DrawDeltaProfile => '\u{E836}',   // align-left
             // ── UI chrome ────────────────────────────────────────
             Icon::ExpandRight => '\u{E831}', // chevron-right
             Icon::SnapOn => '\u{E833}',      // zap

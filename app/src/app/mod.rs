@@ -29,15 +29,13 @@ pub(crate) mod state;
 mod update;
 mod view;
 
-pub(crate) use messages::{ChartMessage, DownloadMessage, Message, WindowMessage};
-#[cfg(feature = "options")]
-pub(crate) use messages::OptionsMessage;
 pub(crate) use init::ticker_registry::{FUTURES_PRODUCTS, build_tickers_info};
+pub(crate) use messages::{ChartMessage, DownloadMessage, Message, WindowMessage};
 
 use crate::infra::secrets::SecretsManager;
 use crate::modals::ThemeEditor;
 use crate::screen::dashboard;
-use crate::infra::window;
+use crate::window;
 
 use iced::{Subscription, Task};
 use rustc_hash::FxHashMap;
@@ -48,7 +46,7 @@ pub struct Kairos {
     pub(crate) main_window: window::Window,
     pub(crate) menu_bar: crate::app::update::menu_bar::MenuBar,
     pub(crate) ui: state::UiState,
-    pub(crate) services: state::ServiceState,
+    pub(crate) services: state::DataEngineState,
     pub(crate) connections: state::ConnectionState,
     pub(crate) persistence: state::PersistenceState,
     pub(crate) modals: state::ModalState,
@@ -63,8 +61,7 @@ impl Kairos {
 
     pub fn new() -> (Self, Task<Message>) {
         // Load saved state (no I/O beyond disk reads for config, no repo init)
-        let saved_state_temp =
-            crate::layout::load_saved_state_without_registry(None);
+        let saved_state_temp = crate::persistence::load_saved_state_without_registry();
 
         // Create THE SINGLE shared Arc<Mutex<>> with loaded registry data
         let downloaded_tickers = std::sync::Arc::new(std::sync::Mutex::new(
@@ -72,8 +69,7 @@ impl Kairos {
         ));
 
         // Create the shared DataIndex and seed from persisted registry
-        let data_index =
-            std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
+        let data_index = std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
         Self::seed_data_index_from_registry(
             &data::lock_or_recover(&downloaded_tickers),
             &data_index,
@@ -81,19 +77,19 @@ impl Kairos {
 
         // Re-create layout manager with the shared Arc (no service yet — services load async)
         let layout_manager = if saved_state_temp.layout_manager.layouts.is_empty() {
-            crate::modals::LayoutManager::new(None, data_index.clone())
+            crate::modals::LayoutManager::new(data_index.clone())
         } else {
             let mut lm = saved_state_temp.layout_manager;
-            lm.update_shared_state(None, data_index.clone());
+            lm.update_shared_state(data_index.clone());
             lm
         };
 
-        // Create shared data feed manager
-        let data_feed_manager =
+        // Create shared connection manager
+        let connection_manager =
             std::sync::Arc::new(std::sync::Mutex::new(saved_state_temp.data_feeds.clone()));
 
         // Create final SavedState with shared Arc in layout_manager
-        let saved_state = crate::layout::SavedState {
+        let saved_state = crate::persistence::SavedState {
             theme: saved_state_temp.theme,
             custom_theme: saved_state_temp.custom_theme,
             layout_manager,
@@ -126,6 +122,7 @@ impl Kairos {
         let strategy_registry = ::backtest::StrategyRegistry::with_built_ins();
         let backtest_launch_modal = crate::screen::backtest::launch::BacktestLaunchModal::new(
             &::backtest::StrategyRegistry::with_built_ins(),
+            &data::lock_or_recover(&connection_manager),
             &data::lock_or_recover(&data_index),
         );
 
@@ -145,8 +142,8 @@ impl Kairos {
                 notifications: vec![],
                 confirm_dialog: None,
             },
-            services: state::ServiceState::new(),
-            connections: state::ConnectionState::new(data_feed_manager),
+            services: state::DataEngineState::new(),
+            connections: state::ConnectionState::new(connection_manager),
             persistence: state::PersistenceState {
                 layout_manager: saved_state.layout_manager,
                 downloaded_tickers: downloaded_tickers.clone(),
@@ -163,11 +160,12 @@ impl Kairos {
                 historical_download_modal: None,
                 historical_download_id: None,
                 replay_manager: crate::modals::replay::ReplayManager::new(),
+                cache_management: crate::modals::cache_management::CacheManagementModal::new(),
                 backtest: state::modals::BacktestState {
                     strategy_registry,
                     backtest_launch_modal,
                     show_backtest_modal: false,
-                    backtest_trade_repo: None,
+                    backtest_trade_provider: None,
                     backtest_history: backtest_history::BacktestHistory::new(),
                     backtest_manager: crate::screen::backtest::manager::BacktestManager::new(),
                     show_backtest_manager: false,
@@ -176,10 +174,10 @@ impl Kairos {
             secrets: SecretsManager::new(),
         };
 
-        // Kick off async service init; the UI is responsive in the meantime.
+        // Kick off async DataEngine init; the UI is responsive in the meantime.
         let init_services = Task::perform(
-            init::services::initialize_all_services(),
-            Message::ServicesReady,
+            init::services::initialize_data_engine(),
+            Message::DataEngineReady,
         );
 
         let open_window = open_main_window.discard();

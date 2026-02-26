@@ -15,8 +15,9 @@ pub use series::TickerSeriesEditor;
 use line_widget::{DEFAULT_ZOOM_POINTS, LineComparison, LineComparisonEvent};
 use types::{Series, Zoom};
 
-use data::{ChartBasis, ChartData, ComparisonConfig, Timeframe};
-use exchange::{FuturesTickerInfo, TickerInfo};
+use crate::screen::dashboard::pane::config::ComparisonConfig;
+use data::FuturesTickerInfo;
+use data::{ChartBasis, ChartData, Timeframe};
 
 use rustc_hash::FxHashMap;
 use std::time::Instant;
@@ -207,7 +208,7 @@ impl ComparisonChart {
     }
 
     /// Render the chart
-    pub fn view(&self, timezone: data::UserTimezone) -> iced::Element<'_, Message> {
+    pub fn view(&self, timezone: crate::config::UserTimezone) -> iced::Element<'_, Message> {
         if self.series.iter().all(|s| s.points.is_empty()) {
             return iced::widget::center(iced::widget::text("Waiting for data...").size(16)).into();
         }
@@ -388,7 +389,10 @@ impl ComparisonChart {
             let futures_info = old_format_to_ticker_info(&s.ticker_info);
             let ticker_str = futures_info.ticker.as_str().to_string();
 
-            colors.push((ticker_str.clone(), crate::style::theme::iced_color_to_rgba(s.color)));
+            colors.push((
+                ticker_str.clone(),
+                crate::style::theme::iced_color_to_rgba(s.color),
+            ));
             if let Some(name) = &s.name {
                 names.push((ticker_str, name.clone()));
             }
@@ -415,10 +419,9 @@ impl ComparisonChart {
         self.series_editor.show_config_for = Some(ticker_info);
 
         if let Some(idx) = self.series_index.get(&ticker_info) {
-            self.series_editor.editing_color =
-                Some(data::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(
-                    self.series[*idx].color,
-                )));
+            self.series_editor.editing_color = Some(crate::config::theme::rgba_to_hsva(
+                crate::style::theme::iced_color_to_rgba(self.series[*idx].color),
+            ));
             self.series_editor.editing_name = self.series[*idx].name.clone();
         } else {
             self.series_editor.editing_color = None;
@@ -515,28 +518,20 @@ fn default_color_for(ticker: &FuturesTickerInfo) -> iced::Color {
     let s = 0.60 + (((seed >> 8) & 0xFF) as f32 / 255.0) * 0.25; // 0.60..=0.85
     let v = 0.85 + (((seed >> 16) & 0x7F) as f32 / 127.0) * 0.10; // 0.85..=0.95
 
-    crate::style::theme::rgba_to_iced_color(
-        data::config::theme::from_hsv_degrees_rgba(hue, s.min(1.0), v.min(1.0)),
-    )
+    crate::style::theme::rgba_to_iced_color(crate::config::theme::from_hsv_degrees_rgba(
+        hue,
+        s.min(1.0),
+        v.min(1.0),
+    ))
 }
 
 // ── Compatibility Layer (Temporary Bridge) ────────────────────────────
-// TODO: Remove once TickerInfo is fully migrated to FuturesTickerInfo
+// These are now identity functions since Series.ticker_info is FuturesTickerInfo.
 
-pub(crate) fn ticker_info_to_old_format(info: FuturesTickerInfo) -> TickerInfo {
-    TickerInfo::new(
-        info.ticker,
-        info.tick_size,
-        info.min_qty,
-        info.contract_size,
-    )
+pub(crate) fn ticker_info_to_old_format(info: FuturesTickerInfo) -> FuturesTickerInfo {
+    info
 }
 
-pub(crate) fn old_format_to_ticker_info(info: &TickerInfo) -> FuturesTickerInfo {
-    FuturesTickerInfo::new(
-        info.ticker,
-        info.min_ticksize.to_f32_lossy(),
-        info.min_qty,
-        info.contract_size,
-    )
+pub(crate) fn old_format_to_ticker_info(info: &FuturesTickerInfo) -> FuturesTickerInfo {
+    *info
 }

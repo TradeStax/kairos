@@ -26,7 +26,7 @@ pub use scatter::ScatterChart;
 
 use super::ManagerMessage;
 use crate::style::tokens;
-use iced::widget::canvas::{Frame, Geometry, Path, Stroke, Text};
+use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Rectangle, Size};
 
 // ── Shared Hover State ─────────────────────────────────────────────
@@ -47,17 +47,11 @@ pub(super) const TOOLTIP_BORDER: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.15);
 
 // ── Shared Helpers ─────────────────────────────────────────────────
 
-pub(super) fn grid_lines(
-    frame: &mut Frame,
-    bounds: Rectangle,
-    padding: f32,
-    n_lines: usize,
-) {
+pub(super) fn grid_lines(frame: &mut Frame, bounds: Rectangle, padding: f32, n_lines: usize) {
     let color = tokens::backtest::GRID_LINE;
     let usable_h = bounds.height - padding * 2.0;
     for i in 1..=n_lines {
-        let y =
-            padding + usable_h * (i as f32 / (n_lines + 1) as f32);
+        let y = padding + usable_h * (i as f32 / (n_lines + 1) as f32);
         let line = Path::line(
             Point::new(padding, y),
             Point::new(bounds.width - padding, y),
@@ -118,11 +112,7 @@ pub(super) fn position_tooltip(
 }
 
 /// Draw a tooltip box with multiple text lines.
-pub(super) fn draw_tooltip_box(
-    frame: &mut Frame,
-    position: Point,
-    lines: &[String],
-) {
+pub(super) fn draw_tooltip_box(frame: &mut Frame, position: Point, lines: &[String]) {
     use iced::widget::canvas::Fill;
 
     if lines.is_empty() {
@@ -131,8 +121,7 @@ pub(super) fn draw_tooltip_box(
 
     let max_chars = lines.iter().map(|l| l.len()).max().unwrap_or(0);
     let w = max_chars as f32 * 6.0 + TOOLTIP_PADDING * 2.0;
-    let h =
-        lines.len() as f32 * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING * 2.0;
+    let h = lines.len() as f32 * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING * 2.0;
 
     // Background
     let bg = Path::rectangle(position, Size::new(w, h));
@@ -159,9 +148,7 @@ pub(super) fn draw_tooltip_box(
             content: line.clone(),
             position: Point::new(
                 position.x + TOOLTIP_PADDING,
-                position.y
-                    + TOOLTIP_PADDING
-                    + i as f32 * TOOLTIP_LINE_HEIGHT,
+                position.y + TOOLTIP_PADDING + i as f32 * TOOLTIP_LINE_HEIGHT,
             ),
             color: Color::from_rgba(1.0, 1.0, 1.0, 0.85),
             size: iced::Pixels(TOOLTIP_FONT_SIZE),
@@ -172,12 +159,7 @@ pub(super) fn draw_tooltip_box(
 }
 
 /// Draw dashed crosshair lines (horizontal + vertical).
-pub(super) fn draw_crosshair_lines(
-    frame: &mut Frame,
-    cursor: Point,
-    bounds: Size,
-    pad: f32,
-) {
+pub(super) fn draw_crosshair_lines(frame: &mut Frame, cursor: Point, bounds: Size, pad: f32) {
     let color = tokens::backtest::CROSSHAIR_LINE;
     let dash_len = 4.0_f32;
     let gap_len = 3.0_f32;
@@ -186,10 +168,7 @@ pub(super) fn draw_crosshair_lines(
     let mut y = pad;
     while y < bounds.height - pad {
         let end = (y + dash_len).min(bounds.height - pad);
-        let seg = Path::line(
-            Point::new(cursor.x, y),
-            Point::new(cursor.x, end),
-        );
+        let seg = Path::line(Point::new(cursor.x, y), Point::new(cursor.x, end));
         frame.stroke(
             &seg,
             Stroke {
@@ -205,10 +184,7 @@ pub(super) fn draw_crosshair_lines(
     let mut x = pad;
     while x < bounds.width - pad {
         let end = (x + dash_len).min(bounds.width - pad);
-        let seg = Path::line(
-            Point::new(x, cursor.y),
-            Point::new(end, cursor.y),
-        );
+        let seg = Path::line(Point::new(x, cursor.y), Point::new(end, cursor.y));
         frame.stroke(
             &seg,
             Stroke {
@@ -268,8 +244,7 @@ pub(super) fn handle_cursor_event(
 pub(super) fn tooltip_size(lines: &[String]) -> (f32, f32) {
     let max_chars = lines.iter().map(|l| l.len()).max().unwrap_or(0);
     let w = max_chars as f32 * 6.0 + TOOLTIP_PADDING * 2.0;
-    let h =
-        lines.len() as f32 * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING * 2.0;
+    let h = lines.len() as f32 * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING * 2.0;
     (w, h)
 }
 

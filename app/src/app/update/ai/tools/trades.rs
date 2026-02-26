@@ -133,12 +133,8 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
 }
 
-pub fn exec_get_trades(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
-    let max_levels =
-        args["count"].as_u64().unwrap_or(100).min(100) as usize;
+pub fn exec_get_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+    let max_levels = args["count"].as_u64().unwrap_or(100).min(100) as usize;
     let price_min = args["price_min"].as_f64();
     let price_max = args["price_max"].as_f64();
     let (start_ms, end_ms) = parse_time_range(args);
@@ -148,15 +144,15 @@ pub fn exec_get_trades(
     let tick_mult = tick_multiplier(snap.tick_size);
 
     for trade in &snap.trades {
-        if let Some(s) = start_ms {
-            if trade.time.0 < s {
-                continue;
-            }
+        if let Some(s) = start_ms
+            && trade.time.0 < s
+        {
+            continue;
         }
-        if let Some(e) = end_ms {
-            if trade.time.0 > e {
-                continue;
-            }
+        if let Some(e) = end_ms
+            && trade.time.0 > e
+        {
+            continue;
         }
         let price_f64 = trade.price.to_f64();
         if price_min.is_some_and(|min| price_f64 < min) {
@@ -208,15 +204,11 @@ pub fn exec_get_trades(
     }
 }
 
-pub fn exec_get_volume_profile(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_volume_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     let candles = &snap.candles;
     if candles.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No candle data" })
-                .to_string(),
+            content_json: json!({ "error": "No candle data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
@@ -225,22 +217,21 @@ pub fn exec_get_volume_profile(
     let (start_ms, end_ms) = parse_time_range(args);
     let tick_mult = tick_multiplier(snap.tick_size);
 
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
-        std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
 
     let filtered_trades: Vec<&data::Trade> = snap
         .trades
         .iter()
         .filter(|t| {
-            if let Some(s) = start_ms {
-                if t.time.0 < s {
-                    return false;
-                }
+            if let Some(s) = start_ms
+                && t.time.0 < s
+            {
+                return false;
             }
-            if let Some(e) = end_ms {
-                if t.time.0 > e {
-                    return false;
-                }
+            if let Some(e) = end_ms
+                && t.time.0 > e
+            {
+                return false;
             }
             true
         })
@@ -248,9 +239,7 @@ pub fn exec_get_volume_profile(
 
     if !filtered_trades.is_empty() {
         for trade in &filtered_trades {
-            let key =
-                (trade.price.to_f64() * tick_mult as f64).round()
-                    as i64;
+            let key = (trade.price.to_f64() * tick_mult as f64).round() as i64;
             let entry = levels.entry(key).or_insert((0.0, 0.0));
             let qty = trade.quantity.0;
             if trade.is_buy() {
@@ -263,45 +252,41 @@ pub fn exec_get_volume_profile(
         let filtered_candles: Vec<_> = candles
             .iter()
             .filter(|c| {
-                if let Some(s) = start_ms {
-                    if c.time.0 < s {
-                        return false;
-                    }
+                if let Some(s) = start_ms
+                    && c.time.0 < s
+                {
+                    return false;
                 }
-                if let Some(e) = end_ms {
-                    if c.time.0 > e {
-                        return false;
-                    }
+                if let Some(e) = end_ms
+                    && c.time.0 > e
+                {
+                    return false;
                 }
                 true
             })
             .collect();
 
         for c in &filtered_candles {
-            let low_key =
-                (c.low.to_f64() * tick_mult as f64).round() as i64;
-            let high_key =
-                (c.high.to_f64() * tick_mult as f64).round() as i64;
+            let low_key = (c.low.to_f64() * tick_mult as f64).round() as i64;
+            let high_key = (c.high.to_f64() * tick_mult as f64).round() as i64;
             let num_levels = (high_key - low_key).max(1) as f64;
             let buy_per = c.buy_volume.0 / num_levels;
             let sell_per = c.sell_volume.0 / num_levels;
             for key in low_key..=high_key {
-                let entry =
-                    levels.entry(key).or_insert((0.0, 0.0));
+                let entry = levels.entry(key).or_insert((0.0, 0.0));
                 entry.0 += buy_per;
                 entry.1 += sell_per;
             }
         }
     }
 
-    let total_volume: f64 =
-        levels.values().map(|(b, s)| b + s).sum();
+    let total_volume: f64 = levels.values().map(|(b, s)| b + s).sum();
 
     let poc_key = levels
         .iter()
         .max_by(|a, b| {
-            let va = a.1 .0 + a.1 .1;
-            let vb = b.1 .0 + b.1 .1;
+            let va = a.1.0 + a.1.1;
+            let vb = b.1.0 + b.1.1;
             va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|(k, _)| *k)
@@ -309,13 +294,8 @@ pub fn exec_get_volume_profile(
 
     // Value area: 68.2% of volume around POC (1-sigma)
     let va_target = total_volume * 0.682;
-    let mut sorted_by_vol: Vec<(i64, f64)> = levels
-        .iter()
-        .map(|(k, (b, s))| (*k, b + s))
-        .collect();
-    sorted_by_vol.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let mut sorted_by_vol: Vec<(i64, f64)> = levels.iter().map(|(k, (b, s))| (*k, b + s)).collect();
+    sorted_by_vol.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut va_volume = 0.0;
     let mut va_prices: Vec<i64> = Vec::new();
@@ -330,8 +310,7 @@ pub fn exec_get_volume_profile(
     let va_low = va_prices.iter().min().copied().unwrap_or(poc_key);
 
     sorted_by_vol.truncate(50);
-    let mut output_keys: Vec<i64> =
-        sorted_by_vol.iter().map(|(k, _)| *k).collect();
+    let mut output_keys: Vec<i64> = sorted_by_vol.iter().map(|(k, _)| *k).collect();
     output_keys.sort();
 
     let rows: Vec<Value> = output_keys
@@ -377,37 +356,32 @@ pub fn exec_get_volume_profile(
     }
 }
 
-pub fn exec_get_delta_profile(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_delta_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     let price_min = args["price_min"].as_f64();
     let price_max = args["price_max"].as_f64();
     let (start_ms, end_ms) = parse_time_range(args);
 
     if snap.trades.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No trade data" })
-                .to_string(),
+            content_json: json!({ "error": "No trade data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
     }
 
     let tick_mult = tick_multiplier(snap.tick_size);
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
-        std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
 
     for trade in &snap.trades {
-        if let Some(s) = start_ms {
-            if trade.time.0 < s {
-                continue;
-            }
+        if let Some(s) = start_ms
+            && trade.time.0 < s
+        {
+            continue;
         }
-        if let Some(e) = end_ms {
-            if trade.time.0 > e {
-                continue;
-            }
+        if let Some(e) = end_ms
+            && trade.time.0 > e
+        {
+            continue;
         }
         let price_f64 = trade.price.to_f64();
         if price_min.is_some_and(|min| price_f64 < min) {
@@ -481,22 +455,17 @@ pub fn exec_get_delta_profile(
     }
 }
 
-pub fn exec_get_aggregated_trades(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_aggregated_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     let bucket_secs = args["bucket_seconds"]
         .as_u64()
         .unwrap_or(60)
         .clamp(10, 3600);
-    let max_buckets =
-        args["count"].as_u64().unwrap_or(100).min(200) as usize;
+    let max_buckets = args["count"].as_u64().unwrap_or(100).min(200) as usize;
     let (start_ms, end_ms) = parse_time_range(args);
 
     if snap.trades.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No trade data" })
-                .to_string(),
+            content_json: json!({ "error": "No trade data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
@@ -506,25 +475,22 @@ pub fn exec_get_aggregated_trades(
 
     // Accumulate into buckets: (buy_vol, sell_vol, count,
     //   price*qty sum, qty sum for vwap)
-    let mut buckets: std::collections::BTreeMap<
-        u64,
-        (f64, f64, u32, f64, f64),
-    > = std::collections::BTreeMap::new();
+    let mut buckets: std::collections::BTreeMap<u64, (f64, f64, u32, f64, f64)> =
+        std::collections::BTreeMap::new();
 
     for trade in &snap.trades {
-        if let Some(s) = start_ms {
-            if trade.time.0 < s {
-                continue;
-            }
+        if let Some(s) = start_ms
+            && trade.time.0 < s
+        {
+            continue;
         }
-        if let Some(e) = end_ms {
-            if trade.time.0 > e {
-                continue;
-            }
+        if let Some(e) = end_ms
+            && trade.time.0 > e
+        {
+            continue;
         }
         let bucket_key = (trade.time.0 / bucket_ms) * bucket_ms;
-        let entry =
-            buckets.entry(bucket_key).or_insert((0.0, 0.0, 0, 0.0, 0.0));
+        let entry = buckets.entry(bucket_key).or_insert((0.0, 0.0, 0, 0.0, 0.0));
         let qty = trade.quantity.0;
         let price = trade.price.to_f64();
         if trade.is_buy() {
@@ -546,11 +512,7 @@ pub fn exec_get_aggregated_trades(
         .skip(skip)
         .map(|(key, (buy, sell, count, pq_sum, q_sum))| {
             let time_secs = key / 1_000;
-            let vwap = if *q_sum > 0.0 {
-                pq_sum / q_sum
-            } else {
-                0.0
-            };
+            let vwap = if *q_sum > 0.0 { pq_sum / q_sum } else { 0.0 };
             json!({
                 "time": time_secs,
                 "buy_vol": buy,
@@ -564,11 +526,7 @@ pub fn exec_get_aggregated_trades(
 
     ToolExecResult {
         content_json: json!({ "buckets": rows }).to_string(),
-        display_summary: format!(
-            "{} buckets ({}s each)",
-            rows.len(),
-            bucket_secs
-        ),
+        display_summary: format!("{} buckets ({}s each)", rows.len(), bucket_secs),
         is_error: false,
     }
 }

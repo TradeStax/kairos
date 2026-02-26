@@ -1,50 +1,42 @@
 //! Profile settings modal — tab dispatcher.
 
 mod data_tab;
-mod style_tab;
-mod poc_tab;
-mod value_area_tab;
 mod peak_valley_tab;
+mod poc_tab;
+mod style_tab;
+mod value_area_tab;
 
 use data_tab::data_tab;
-use style_tab::style_tab;
-use poc_tab::poc_tab;
-use value_area_tab::value_area_tab;
 use peak_valley_tab::peak_valley_tab;
+use poc_tab::poc_tab;
+use style_tab::style_tab;
+use value_area_tab::value_area_tab;
 
 use crate::components::layout::button_group::ButtonGroupBuilder;
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
+use crate::screen::dashboard::pane::Event;
 use crate::screen::dashboard::pane::Message;
 use crate::style::{self, tokens};
 
-use data::state::pane::{ProfileConfig, VisualConfig};
+use crate::screen::dashboard::pane::config::{ProfileConfig, VisualConfig};
 
+use iced::widget::scrollable::{Direction, Scrollbar};
 use iced::{
     Alignment, Element, Length,
     widget::{column, container, pane_grid, row, scrollable, space},
 };
-use iced::widget::scrollable::{Direction, Scrollbar};
 
 use super::super::common::sync_all_button;
 
 /// Five settings tabs.
-const TAB_LABELS: &[&str] =
-    &["Data", "Style", "POC", "Value Area", "Peak & Valley"];
+const TAB_LABELS: &[&str] = &["Data", "Style", "POC", "Value Area", "Peak & Valley"];
 
-pub fn profile_cfg_view<'a>(
-    cfg: ProfileConfig,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub fn profile_cfg_view<'a>(cfg: ProfileConfig, pane: pane_grid::Pane) -> Element<'a, Message> {
     let active_tab = cfg.settings_tab.min(4) as usize;
 
     // ── Header ───────────────────────────────────────────────────
-    let header =
-        ModalHeaderBuilder::new("Profile Settings").on_close(
-            Message::PaneEvent(
-                pane,
-                crate::screen::dashboard::pane::Event::HideModal,
-            ),
-        );
+    let header = ModalHeaderBuilder::new("Profile Settings")
+        .on_close(Message::PaneEvent(pane, Box::new(Event::HideModal)));
 
     // ── Tab bar ──────────────────────────────────────────────────
     let tab_items: Vec<(String, Message)> = TAB_LABELS
@@ -55,11 +47,7 @@ pub fn profile_cfg_view<'a>(
             c.settings_tab = i as u8;
             (
                 label.to_string(),
-                Message::VisualConfigChanged(
-                    pane,
-                    VisualConfig::Profile(c),
-                    false,
-                ),
+                Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(c)), false),
             )
         })
         .collect();
@@ -90,7 +78,7 @@ pub fn profile_cfg_view<'a>(
     // ── Footer ───────────────────────────────────────────────────
     let footer = row![
         space::horizontal(),
-        sync_all_button(pane, VisualConfig::Profile(cfg)),
+        sync_all_button(pane, VisualConfig::Profile(Box::new(cfg))),
     ]
     .spacing(tokens::spacing::SM)
     .align_y(Alignment::Center);
@@ -100,14 +88,11 @@ pub fn profile_cfg_view<'a>(
         .spacing(tokens::spacing::LG)
         .width(Length::Fill);
 
-    let body_scrollable =
-        scrollable::Scrollable::with_direction(
-            body,
-            Direction::Vertical(
-                Scrollbar::new().width(4).scroller_width(4).spacing(2),
-            ),
-        )
-        .style(style::scroll_bar);
+    let body_scrollable = scrollable::Scrollable::with_direction(
+        body,
+        Direction::Vertical(Scrollbar::new().width(4).scroller_width(4).spacing(2)),
+    )
+    .style(style::scroll_bar);
 
     let inner = column![
         header,

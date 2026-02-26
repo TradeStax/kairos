@@ -8,9 +8,7 @@ use super::{BacktestManager, ManagerMessage};
 use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
 use crate::components::primitives::{Icon, icon_text};
 use crate::style::{self, palette, tokens};
-use iced::widget::{
-    button, column, container, row, rule, scrollable, text,
-};
+use iced::widget::{button, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};
 
 /// Build the sidebar panel for the management modal.
@@ -30,9 +28,7 @@ pub fn view_sidebar<'a>(
         .on_press(ManagerMessage::NewBacktest)
         .width(Length::Fill)
         .padding([tokens::spacing::SM, tokens::spacing::MD])
-        .style(|theme, status| {
-            style::button::transparent(theme, status, false)
-        });
+        .style(|theme, status| style::button::transparent(theme, status, false));
 
     // ── History list ─────────────────────────────────────────────
     let entries = history.all_sorted();
@@ -47,12 +43,10 @@ pub fn view_sidebar<'a>(
             .align_x(iced::Alignment::Center)
             .into()
     } else {
-        let mut col =
-            column![].spacing(tokens::spacing::XXS);
+        let mut col = column![].spacing(tokens::spacing::XXS);
 
         for entry in &entries {
-            let is_selected =
-                manager.selected_id == Some(entry.id);
+            let is_selected = manager.selected_id == Some(entry.id);
             col = col.push(entry_row(entry, is_selected));
         }
 
@@ -64,10 +58,7 @@ pub fn view_sidebar<'a>(
 
     // ── Compose sidebar ──────────────────────────────────────────
     column![
-        container(new_btn).padding([
-            tokens::spacing::SM,
-            tokens::spacing::SM,
-        ]),
+        container(new_btn).padding([tokens::spacing::SM, tokens::spacing::SM,]),
         rule::horizontal(1),
         list,
     ]
@@ -83,12 +74,8 @@ fn entry_row<'a>(
     is_selected: bool,
 ) -> Element<'a, ManagerMessage> {
     // Line 1: "Strategy | Ticker"
-    let header_label = format!(
-        "{} | {}",
-        entry.strategy_name, entry.ticker,
-    );
-    let line1 = text(header_label)
-        .size(tokens::text::BODY);
+    let header_label = format!("{} | {}", entry.strategy_name, entry.ticker,);
+    let line1 = text(header_label).size(tokens::text::BODY);
 
     // Line 2: status-dependent
     let line2: Element<'a, ManagerMessage> = match entry.status {
@@ -99,14 +86,9 @@ fn entry_row<'a>(
                 .style(palette::warning_text)
                 .into()
         }
-        BacktestStatus::Completed => {
-            view_completed_line(entry)
-        }
+        BacktestStatus::Completed => view_completed_line(entry),
         BacktestStatus::Failed => {
-            let snippet = entry
-                .error
-                .as_deref()
-                .unwrap_or("Unknown error");
+            let snippet = entry.error.as_deref().unwrap_or("Unknown error");
             let truncated = if snippet.len() > 28 {
                 format!("{}...", &snippet[..25])
             } else {
@@ -128,9 +110,7 @@ fn entry_row<'a>(
         .on_press(ManagerMessage::SelectBacktest(id))
         .width(Length::Fill)
         .padding([tokens::spacing::SM, tokens::spacing::MD])
-        .style(move |theme, status| {
-            sidebar_entry_style(theme, status, is_selected)
-        })
+        .style(move |theme, status| sidebar_entry_style(theme, status, is_selected))
         .into()
 }
 
@@ -207,8 +187,8 @@ fn sidebar_entry_style(
     status: iced::widget::button::Status,
     is_selected: bool,
 ) -> iced::widget::button::Style {
-    use iced::widget::button::Status;
     use iced::Border;
+    use iced::widget::button::Status;
 
     let palette = theme.extended_palette();
     let accent = palette.primary.base.color;
@@ -223,12 +203,8 @@ fn sidebar_entry_style(
     iced::widget::button::Style {
         text_color: palette.background.base.text,
         background: match status {
-            Status::Hovered => {
-                Some(palette.background.weak.color.into())
-            }
-            Status::Pressed => {
-                Some(palette.background.strong.color.into())
-            }
+            Status::Hovered => Some(palette.background.weak.color.into()),
+            Status::Pressed => Some(palette.background.strong.color.into()),
             Status::Active | Status::Disabled => {
                 if is_selected {
                     Some(selected_bg)

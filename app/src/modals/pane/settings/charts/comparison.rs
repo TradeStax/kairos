@@ -18,7 +18,9 @@ pub fn comparison_cfg_view<'a>(
     let content = column![series_editor.view(series).map(move |msg| {
         Message::PaneEvent(
             pane,
-            Event::ComparisonChartInteraction(crate::chart::comparison::Message::Editor(msg)),
+            Box::new(Event::ComparisonChartInteraction(
+                crate::chart::comparison::Message::Editor(msg),
+            )),
         )
     })];
 

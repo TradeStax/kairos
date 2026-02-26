@@ -9,11 +9,11 @@ mod helpers;
 mod vbp_view;
 mod view;
 
-use data::{
-    CalcMode, DrawingId, DrawingStyle, DrawingTool, FibonacciConfig, FuturesTickerInfo,
-    LabelAlignment, LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing,
-    VbpDrawingConfig,
+use crate::drawing::{
+    CalcMode, DrawingId, DrawingStyle, DrawingTool, FibonacciConfig, LabelAlignment, LineStyle,
+    PositionCalcConfig, SerializableDrawing, VbpDrawingConfig,
 };
+use data::{FuturesTickerInfo, SerializableColor};
 use palette::Hsva;
 use study::Study as _;
 
@@ -32,9 +32,9 @@ pub enum PickerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Style,
-    Levels,       // Fibonacci only
-    Position,     // Calculator only
-    Labels,       // Calculator only
+    Levels,   // Fibonacci only
+    Position, // Calculator only
+    Labels,   // Calculator only
     Display,
     Vbp(study::ParameterTab), // Dynamic VBP tab
 }
@@ -54,14 +54,24 @@ pub(super) struct VbpState {
 }
 
 impl VbpState {
-    pub fn new(config: study::StudyConfig, params: Vec<study::ParameterDef>, tabs: Vec<study::ParameterTab>) -> Self {
-        Self { config, params, tabs, editing_color_key: None, editing_color_hsva: None }
+    pub fn new(
+        config: study::StudyConfig,
+        params: Vec<study::ParameterDef>,
+        tabs: Vec<study::ParameterTab>,
+    ) -> Self {
+        Self {
+            config,
+            params,
+            tabs,
+            editing_color_key: None,
+            editing_color_hsva: None,
+        }
     }
 
     /// Update config and ALWAYS refresh derived params/tabs.
     pub fn set_config(&mut self, config: study::StudyConfig) {
         let exported = serde_json::to_value(&config).unwrap_or_default();
-        let mut tmp = study::orderflow::VbpStudy::new();
+        let mut tmp = study::studies::orderflow::VbpStudy::new();
         tmp.import_config(&exported);
         let params = tmp.parameters().to_vec();
         let tabs = vbp_tabs_from_study(&tmp, &params);
@@ -95,7 +105,7 @@ impl Clone for VbpState {
 ///
 /// # VBP State Sync Pattern
 ///
-/// For VolumeProfile drawings, this modal holds `vbp: Option<VbpState>`
+/// For VolumeProfile/DeltaProfile drawings, this modal holds `vbp: Option<VbpState>`
 /// which encapsulates config + derived params/tabs + color picker state.
 /// Use `vbp.set_config()` after every mutation so derived fields stay
 /// in sync.
@@ -172,25 +182,25 @@ impl DrawingPropertiesModal {
         // Initialize VBP state from saved params.
         // Uses the study's tab_labels() for tab ordering
         // rather than re-discovering from parameter metadata.
-        let vbp = if tool == DrawingTool::VolumeProfile {
-                let mut tmp = study::orderflow::VbpStudy::new();
-                if let Some(ref cfg) = style.vbp_config {
-                    tmp.import_config(&cfg.params);
-                }
-                let params = tmp.parameters().to_vec();
-                let config = tmp.config().clone();
-                let tabs = vbp_tabs_from_study(&tmp, &params);
-                Some(VbpState::new(config, params, tabs))
-            } else {
-                None
-            };
+        let vbp = if tool.is_vbp() {
+            let mut tmp = study::studies::orderflow::VbpStudy::new();
+            if let Some(ref cfg) = style.vbp_config {
+                tmp.import_config(&cfg.params);
+            }
+            let params = tmp.parameters().to_vec();
+            let config = tmp.config().clone();
+            let tabs = vbp_tabs_from_study(&tmp, &params);
+            Some(VbpState::new(config, params, tabs))
+        } else {
+            None
+        };
 
         let initial_tab = if matches!(
             tool,
             DrawingTool::BuyCalculator | DrawingTool::SellCalculator
         ) {
             Tab::Position
-        } else if tool == DrawingTool::VolumeProfile {
+        } else if tool.is_vbp() {
             vbp.as_ref()
                 .and_then(|v| v.tabs.first())
                 .map(|t| Tab::Vbp(*t))
@@ -247,10 +257,8 @@ impl DrawingPropertiesModal {
 
     /// Build the `DrawingUpdate` from current modal state.
     pub fn build_update(&self) -> DrawingUpdate {
-        let vbp_config = self.vbp.as_ref().map(|vbp| {
-            VbpDrawingConfig {
-                params: serde_json::to_value(&vbp.config).unwrap_or_default(),
-            }
+        let vbp_config = self.vbp.as_ref().map(|vbp| VbpDrawingConfig {
+            params: serde_json::to_value(&vbp.config).unwrap_or_default(),
         });
         DrawingUpdate {
             style: DrawingStyle {
@@ -322,8 +330,9 @@ impl DrawingPropertiesModal {
     }
 
     pub(super) fn available_tabs(&self) -> Vec<Tab> {
-        if self.tool == DrawingTool::VolumeProfile {
-            let mut tabs: Vec<Tab> = self.vbp
+        if self.tool.is_vbp() {
+            let mut tabs: Vec<Tab> = self
+                .vbp
                 .as_ref()
                 .map(|v| v.tabs.iter().map(|t| Tab::Vbp(*t)).collect())
                 .unwrap_or_default();
@@ -347,12 +356,12 @@ impl DrawingPropertiesModal {
             Message::StrokeColorChanged(hsva) => {
                 self.hex_input_stroke = None;
                 self.editing_stroke_color = Some(hsva);
-                self.stroke_color = data::config::theme::hsva_to_rgba(hsva);
+                self.stroke_color = crate::config::theme::hsva_to_rgba(hsva);
             }
             Message::StrokeHexInput(input) => {
-                if let Some(rgba) = data::config::theme::hex_to_rgba_safe(&input) {
+                if let Some(rgba) = crate::config::theme::hex_to_rgba_safe(&input) {
                     self.stroke_color = rgba;
-                    self.editing_stroke_color = Some(data::config::theme::rgba_to_hsva(rgba));
+                    self.editing_stroke_color = Some(crate::config::theme::rgba_to_hsva(rgba));
                 }
                 self.hex_input_stroke = Some(input);
             }
@@ -365,12 +374,8 @@ impl DrawingPropertiesModal {
             Message::FillEnabled(enabled) => {
                 if enabled && self.fill_color.is_none() {
                     let default_color = match self.tool {
-                        DrawingTool::TextLabel => {
-                            SerializableColor::new(0.08, 0.08, 0.12, 0.85)
-                        }
-                        DrawingTool::PriceLabel => {
-                            SerializableColor::new(0.1, 0.1, 0.18, 0.9)
-                        }
+                        DrawingTool::TextLabel => SerializableColor::new(0.08, 0.08, 0.12, 0.85),
+                        DrawingTool::PriceLabel => SerializableColor::new(0.1, 0.1, 0.18, 0.9),
                         _ => SerializableColor::new(0.3, 0.6, 1.0, 1.0),
                     };
                     self.fill_color = Some(default_color);
@@ -381,12 +386,12 @@ impl DrawingPropertiesModal {
             Message::FillColorChanged(hsva) => {
                 self.hex_input_fill = None;
                 self.editing_fill_color = Some(hsva);
-                self.fill_color = Some(data::config::theme::hsva_to_rgba(hsva));
+                self.fill_color = Some(crate::config::theme::hsva_to_rgba(hsva));
             }
             Message::FillHexInput(input) => {
-                if let Some(rgba) = data::config::theme::hex_to_rgba_safe(&input) {
+                if let Some(rgba) = crate::config::theme::hex_to_rgba_safe(&input) {
                     self.fill_color = Some(rgba);
-                    self.editing_fill_color = Some(data::config::theme::rgba_to_hsva(rgba));
+                    self.editing_fill_color = Some(crate::config::theme::rgba_to_hsva(rgba));
                 }
                 self.hex_input_fill = Some(input);
             }
@@ -436,17 +441,17 @@ impl DrawingPropertiesModal {
                 }
             }
             Message::FibLevelVisibilityToggled(idx, v) => {
-                if let Some(ref mut fib) = self.fibonacci {
-                    if let Some(level) = fib.levels.get_mut(idx) {
-                        level.visible = v;
-                    }
+                if let Some(ref mut fib) = self.fibonacci
+                    && let Some(level) = fib.levels.get_mut(idx)
+                {
+                    level.visible = v;
                 }
             }
             Message::FibLevelColorChanged(idx, hsva) => {
-                if let Some(ref mut fib) = self.fibonacci {
-                    if let Some(level) = fib.levels.get_mut(idx) {
-                        level.color = data::config::theme::hsva_to_rgba(hsva);
-                    }
+                if let Some(ref mut fib) = self.fibonacci
+                    && let Some(level) = fib.levels.get_mut(idx)
+                {
+                    level.color = crate::config::theme::hsva_to_rgba(hsva);
                 }
             }
             Message::CalcQuantityChanged(q) => {
@@ -458,14 +463,14 @@ impl DrawingPropertiesModal {
                 self.hex_input_target = None;
                 self.editing_target_color = Some(hsva);
                 if let Some(ref mut calc) = self.position_calc {
-                    calc.target_color = data::config::theme::hsva_to_rgba(hsva);
+                    calc.target_color = crate::config::theme::hsva_to_rgba(hsva);
                 }
             }
             Message::CalcStopColorChanged(hsva) => {
                 self.hex_input_stop = None;
                 self.editing_stop_color = Some(hsva);
                 if let Some(ref mut calc) = self.position_calc {
-                    calc.stop_color = data::config::theme::hsva_to_rgba(hsva);
+                    calc.stop_color = crate::config::theme::hsva_to_rgba(hsva);
                 }
             }
             Message::CalcTargetOpacityChanged(o) => {
@@ -548,23 +553,19 @@ impl DrawingPropertiesModal {
             }
             Message::CalcTargetHexInput(input) => {
                 if let Some(ref mut calc) = self.position_calc
-                    && let Some(rgba) =
-                        data::config::theme::hex_to_rgba_safe(&input)
+                    && let Some(rgba) = crate::config::theme::hex_to_rgba_safe(&input)
                 {
                     calc.target_color = rgba;
-                    self.editing_target_color =
-                        Some(data::config::theme::rgba_to_hsva(rgba));
+                    self.editing_target_color = Some(crate::config::theme::rgba_to_hsva(rgba));
                 }
                 self.hex_input_target = Some(input);
             }
             Message::CalcStopHexInput(input) => {
                 if let Some(ref mut calc) = self.position_calc
-                    && let Some(rgba) =
-                        data::config::theme::hex_to_rgba_safe(&input)
+                    && let Some(rgba) = crate::config::theme::hex_to_rgba_safe(&input)
                 {
                     calc.stop_color = rgba;
-                    self.editing_stop_color =
-                        Some(data::config::theme::rgba_to_hsva(rgba));
+                    self.editing_stop_color = Some(crate::config::theme::rgba_to_hsva(rgba));
                 }
                 self.hex_input_stop = Some(input);
             }
@@ -619,12 +620,9 @@ impl DrawingPropertiesModal {
             Message::VbpColorChanged(key, hsva) => {
                 if let Some(ref mut vbp) = self.vbp {
                     vbp.editing_color_hsva = Some(hsva);
-                    let rgba = data::config::theme::hsva_to_rgba(hsva);
+                    let rgba = crate::config::theme::hsva_to_rgba(hsva);
                     let mut new_config = vbp.config.clone();
-                    new_config.set(
-                        key,
-                        study::ParameterValue::Color(rgba),
-                    );
+                    new_config.set(key, study::ParameterValue::Color(rgba));
                     vbp.set_config(new_config);
                 }
             }
@@ -642,10 +640,7 @@ impl DrawingPropertiesModal {
             Message::VbpLineStyleChanged(key, value) => {
                 if let Some(ref mut vbp) = self.vbp {
                     let mut new_config = vbp.config.clone();
-                    new_config.set(
-                        key,
-                        study::ParameterValue::LineStyle(value),
-                    );
+                    new_config.set(key, study::ParameterValue::LineStyle(value));
                     vbp.set_config(new_config);
                 }
             }
@@ -765,14 +760,11 @@ fn vbp_tabs_from_study(
     params: &[study::ParameterDef],
 ) -> Vec<study::ParameterTab> {
     // Collect tabs that have at least one non-hidden parameter
-    let has_visible_param =
-        |tab: study::ParameterTab| -> bool {
-            params.iter().any(|p| {
-                p.tab == tab
-                    && !HIDDEN_KEYS
-                        .contains(&p.key.as_str())
-            })
-        };
+    let has_visible_param = |tab: study::ParameterTab| -> bool {
+        params
+            .iter()
+            .any(|p| p.tab == tab && !HIDDEN_KEYS.contains(&p.key.as_str()))
+    };
 
     // Prefer study-defined tab order when available
     if let Some(labels) = study.tab_labels() {

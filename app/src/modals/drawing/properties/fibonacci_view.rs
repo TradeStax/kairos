@@ -46,32 +46,28 @@ impl DrawingPropertiesModal {
         let mut right_col = column![].spacing(tokens::spacing::XS);
 
         for (idx, level) in levels.iter().enumerate() {
-            let level_color: iced::Color =
-                crate::style::theme::rgba_to_iced_color(level.color);
+            let level_color: iced::Color = crate::style::theme::rgba_to_iced_color(level.color);
             let level_label = level.label.clone();
             let level_visible = level.visible;
 
             let level_row: Element<'_, Message> = row![
-                iced::widget::checkbox(level_visible).on_toggle(move |v| {
-                    Message::FibLevelVisibilityToggled(idx, v)
-                }),
+                iced::widget::checkbox(level_visible)
+                    .on_toggle(move |v| { Message::FibLevelVisibilityToggled(idx, v) }),
                 text(level_label).size(tokens::text::BODY).width(50),
-                container(
-                    iced::widget::Space::new().width(14).height(14)
-                )
-                .style(move |_theme: &iced::Theme| {
-                    container::Style {
-                        background: Some(level_color.into()),
-                        border: iced::Border {
-                            radius: tokens::radius::SM.into(),
-                            width: tokens::border::THIN,
-                            color: iced::Color::WHITE.scale_alpha(0.2),
-                        },
-                        ..container::Style::default()
-                    }
-                })
-                .width(14)
-                .height(14),
+                container(iced::widget::Space::new().width(14).height(14))
+                    .style(move |_theme: &iced::Theme| {
+                        container::Style {
+                            background: Some(level_color.into()),
+                            border: iced::Border {
+                                radius: tokens::radius::SM.into(),
+                                width: tokens::border::THIN,
+                                color: iced::Color::WHITE.scale_alpha(0.2),
+                            },
+                            ..container::Style::default()
+                        }
+                    })
+                    .width(14)
+                    .height(14),
             ]
             .spacing(tokens::spacing::SM)
             .align_y(Alignment::Center)

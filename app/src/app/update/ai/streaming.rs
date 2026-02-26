@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use futures::StreamExt as _;
 use serde_json::{Value, json};
 
-use crate::app::core::globals::{AiStreamEventClone, ToolRoundSync};
-use data::domain::assistant::{ApiMessage, ChatRole, ChartSnapshot};
 use super::tools::{self, ToolContext};
+use crate::app::core::globals::{AiStreamEventClone, ToolRoundSync};
+use data::domain::assistant::{ApiMessage, ChartSnapshot, ChatRole};
 
 const MAX_TOOL_ROUNDS: usize = 10;
 
@@ -46,10 +46,7 @@ impl ToolCallAccumulator {
 
             if let Some(id) = tc["id"].as_str() {
                 // New tool call
-                let name = tc["function"]["name"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
+                let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
                 self.pending.insert(
                     idx,
                     PendingToolCall {
@@ -193,17 +190,13 @@ pub(crate) async fn stream_openrouter_agentic(
                     return;
                 }
                 Some(Ok(chunk)) => {
-                    line_buf
-                        .push_str(&String::from_utf8_lossy(&chunk));
+                    line_buf.push_str(&String::from_utf8_lossy(&chunk));
 
                     while let Some(nl) = line_buf.find('\n') {
-                        let line = line_buf[..nl]
-                            .trim_end_matches('\r')
-                            .to_owned();
+                        let line = line_buf[..nl].trim_end_matches('\r').to_owned();
                         line_buf = line_buf[nl + 1..].to_owned();
 
-                        let Some(data) = line.strip_prefix("data: ")
-                        else {
+                        let Some(data) = line.strip_prefix("data: ") else {
                             continue;
                         };
 
@@ -211,17 +204,14 @@ pub(crate) async fn stream_openrouter_agentic(
                             break 'stream;
                         }
 
-                        let Ok(json) =
-                            serde_json::from_str::<Value>(data)
-                        else {
+                        let Ok(json) = serde_json::from_str::<Value>(data) else {
                             continue;
                         };
 
                         // Text delta
-                        if let Some(text) =
-                            json["choices"][0]["delta"]["content"]
-                                .as_str()
-                                .filter(|t| !t.is_empty())
+                        if let Some(text) = json["choices"][0]["delta"]["content"]
+                            .as_str()
+                            .filter(|t| !t.is_empty())
                         {
                             text_buf.push_str(text);
                             let _ = sender.send(Ev::Delta {
@@ -231,34 +221,21 @@ pub(crate) async fn stream_openrouter_agentic(
                         }
 
                         // Tool call deltas
-                        if let Some(tcs) =
-                            json["choices"][0]["delta"]
-                                .get("tool_calls")
-                        {
+                        if let Some(tcs) = json["choices"][0]["delta"].get("tool_calls") {
                             accumulator.process_delta(tcs);
                         }
 
                         // Finish reason
-                        if let Some(fr) =
-                            json["choices"][0]["finish_reason"].as_str()
-                        {
+                        if let Some(fr) = json["choices"][0]["finish_reason"].as_str() {
                             finish_reason = Some(fr.to_string());
                         }
 
                         // Usage
-                        if let Some(usage) =
-                            json.get("usage").filter(|u| !u.is_null())
-                        {
-                            total_prompt_tokens = usage
-                                ["prompt_tokens"]
-                                .as_u64()
-                                .unwrap_or(0)
-                                as u32;
-                            total_completion_tokens = usage
-                                ["completion_tokens"]
-                                .as_u64()
-                                .unwrap_or(0)
-                                as u32;
+                        if let Some(usage) = json.get("usage").filter(|u| !u.is_null()) {
+                            total_prompt_tokens =
+                                usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+                            total_completion_tokens =
+                                usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
                         }
                     }
                 }
@@ -325,9 +302,7 @@ pub(crate) async fn stream_openrouter_agentic(
                         sender,
                         conversation_id,
                     };
-                    let result = tools::execute_tool(
-                        name, args, &tool_ctx,
-                    );
+                    let result = tools::execute_tool(name, args, &tool_ctx);
 
                     let _ = sender.send(Ev::ToolCallResult {
                         conversation_id,
@@ -391,8 +366,7 @@ pub(crate) async fn stream_openrouter_agentic(
 
 /// Build a brief display summary for a tool call.
 fn tool_call_summary(name: &str, args: &str) -> String {
-    let parsed: Value =
-        serde_json::from_str(args).unwrap_or(json!({}));
+    let parsed: Value = serde_json::from_str(args).unwrap_or(json!({}));
 
     match name {
         // Query tools
@@ -403,25 +377,20 @@ fn tool_call_summary(name: &str, args: &str) -> String {
         }
         "get_market_state" => "Checking market state".to_string(),
         "get_trades" => {
-            if let (Some(lo), Some(hi)) = (
-                parsed["price_min"].as_f64(),
-                parsed["price_max"].as_f64(),
-            ) {
+            if let (Some(lo), Some(hi)) =
+                (parsed["price_min"].as_f64(), parsed["price_max"].as_f64())
+            {
                 format!("Trades at {:.2}-{:.2}", lo, hi)
             } else {
                 "Analyzing trade data".to_string()
             }
         }
-        "get_volume_profile" => {
-            "Building volume profile".to_string()
-        }
+        "get_volume_profile" => "Building volume profile".to_string(),
         "get_study_values" => {
             let count = parsed["count"].as_u64().unwrap_or(10);
             format!("Reading {} study values", count)
         }
-        "get_delta_profile" => {
-            "Analyzing delta profile".to_string()
-        }
+        "get_delta_profile" => "Analyzing delta profile".to_string(),
         "get_big_trades" => {
             let count = parsed["count"].as_u64().unwrap_or(50);
             format!("Fetching {} big trades", count)
@@ -430,25 +399,17 @@ fn tool_call_summary(name: &str, args: &str) -> String {
             let count = parsed["count"].as_u64().unwrap_or(20);
             format!("Reading {} footprint candles", count)
         }
-        "get_profile_data" => {
-            "Loading VBP profile data".to_string()
-        }
+        "get_profile_data" => "Loading VBP profile data".to_string(),
         "get_aggregated_trades" => {
-            let bucket =
-                parsed["bucket_seconds"].as_u64().unwrap_or(60);
+            let bucket = parsed["bucket_seconds"].as_u64().unwrap_or(60);
             format!("Aggregating trades ({}s buckets)", bucket)
         }
         "get_drawings" => "Listing chart drawings".to_string(),
         "get_session_stats" => {
-            let session = parsed["session"]
-                .as_str()
-                .unwrap_or("rth")
-                .to_uppercase();
+            let session = parsed["session"].as_str().unwrap_or("rth").to_uppercase();
             format!("{} session stats", session)
         }
-        "identify_levels" => {
-            "Identifying support/resistance".to_string()
-        }
+        "identify_levels" => "Identifying support/resistance".to_string(),
         // Drawing tools
         "add_horizontal_line" => {
             if let Some(p) = parsed["price"].as_f64() {
@@ -457,9 +418,13 @@ fn tool_call_summary(name: &str, args: &str) -> String {
                 "Drawing horizontal line".to_string()
             }
         }
-        "add_text_annotation" => {
-            "Adding text annotation".to_string()
+        "add_vertical_line" => {
+            parsed["label"]
+                .as_str()
+                .map(|l| format!("V-Line: {}", l))
+                .unwrap_or_else(|| "Drawing vertical line".to_string())
         }
+        "add_text_annotation" => "Adding text annotation".to_string(),
         "add_price_level" => {
             if let Some(p) = parsed["price"].as_f64() {
                 format!("Marking level at {:.2}", p)
@@ -467,9 +432,29 @@ fn tool_call_summary(name: &str, args: &str) -> String {
                 "Adding price level".to_string()
             }
         }
+        "add_price_label" => {
+            if let Some(p) = parsed["price"].as_f64() {
+                format!("Price label at {:.2}", p)
+            } else {
+                "Adding price label".to_string()
+            }
+        }
+        "add_line" => "Drawing line segment".to_string(),
+        "add_extended_line" => "Drawing extended line".to_string(),
         "add_rectangle" => "Drawing rectangle zone".to_string(),
+        "add_ellipse" => "Drawing ellipse".to_string(),
         "add_arrow" => "Drawing arrow".to_string(),
+        "add_fib_retracement" => {
+            if let (Some(hi), Some(lo)) =
+                (parsed["high_price"].as_f64(), parsed["low_price"].as_f64())
+            {
+                format!("Fib {:.2}-{:.2}", lo, hi)
+            } else {
+                "Drawing fib retracement".to_string()
+            }
+        }
         "remove_drawing" => "Removing drawing".to_string(),
+        "remove_all_drawings" => "Clearing all drawings".to_string(),
         other => format!("Calling {}", other),
     }
 }
@@ -566,4 +551,3 @@ pub(crate) fn build_api_messages(
 
     out
 }
-

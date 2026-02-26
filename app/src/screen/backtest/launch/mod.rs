@@ -8,10 +8,8 @@ mod catalog_view;
 mod settings_view;
 
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
-use backtest::{
-    BacktestConfig, SlippageModel, StrategyCategory, StrategyRegistry,
-};
 use backtest::config::risk::{PositionSizeMode, RiskConfig};
+use backtest::{BacktestConfig, SlippageModel, StrategyCategory, StrategyRegistry};
 use chrono::{Datelike, NaiveDate};
 use data::Timeframe;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -41,30 +39,17 @@ impl CategoryFilter {
     pub(super) fn matches(self, category: StrategyCategory) -> bool {
         match self {
             CategoryFilter::All => true,
-            CategoryFilter::BreakoutMomentum => {
-                category == StrategyCategory::BreakoutMomentum
-            }
-            CategoryFilter::MeanReversion => {
-                category == StrategyCategory::MeanReversion
-            }
-            CategoryFilter::TrendFollowing => {
-                category == StrategyCategory::TrendFollowing
-            }
-            CategoryFilter::OrderFlow => {
-                category == StrategyCategory::OrderFlow
-            }
-            CategoryFilter::Custom => {
-                category == StrategyCategory::Custom
-            }
+            CategoryFilter::BreakoutMomentum => category == StrategyCategory::BreakoutMomentum,
+            CategoryFilter::MeanReversion => category == StrategyCategory::MeanReversion,
+            CategoryFilter::TrendFollowing => category == StrategyCategory::TrendFollowing,
+            CategoryFilter::OrderFlow => category == StrategyCategory::OrderFlow,
+            CategoryFilter::Custom => category == StrategyCategory::Custom,
         }
     }
 }
 
 impl std::fmt::Display for CategoryFilter {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CategoryFilter::All => write!(f, "All"),
             CategoryFilter::BreakoutMomentum => write!(f, "Breakout"),
@@ -94,10 +79,7 @@ impl SettingsTab {
 }
 
 impl std::fmt::Display for SettingsTab {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SettingsTab::Parameters => write!(f, "Parameters"),
             SettingsTab::Dataset => write!(f, "Dataset"),
@@ -116,10 +98,7 @@ pub enum SlippageMode {
 }
 
 impl std::fmt::Display for SlippageMode {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::None => write!(f, "None"),
             Self::FixedTick => write!(f, "Fixed Ticks"),
@@ -138,15 +117,43 @@ pub enum PositionSizeModeUI {
 }
 
 impl std::fmt::Display for PositionSizeModeUI {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Fixed => write!(f, "Fixed Contracts"),
             Self::RiskPercent => write!(f, "Risk % of Equity"),
             Self::RiskDollars => write!(f, "Risk $ per Trade"),
         }
+    }
+}
+
+// ── Calendar Mode ────────────────────────────────────────────────────
+
+/// Controls calendar behavior based on connection type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CalendarMode {
+    /// Databento: only cached dates are selectable
+    CachedOnly,
+    /// Rithmic: any date is selectable, data auto-downloads
+    AnyDate,
+}
+
+// ── Connection Snapshot ──────────────────────────────────────────────
+
+/// Pre-computed snapshot of a connection's data availability.
+#[derive(Debug, Clone)]
+pub(super) struct ConnectionSnapshot {
+    #[allow(dead_code)]
+    pub id: data::FeedId,
+    pub name: String,
+    pub provider: data::ConnectionProvider,
+    pub tickers: Vec<(String, String)>,
+    pub ticker_dates: HashMap<String, BTreeSet<NaiveDate>>,
+    pub calendar_mode: CalendarMode,
+}
+
+impl std::fmt::Display for ConnectionSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.name, self.provider)
     }
 }
 
@@ -163,6 +170,7 @@ pub enum Message {
         key: String,
         value: study::ParameterValue,
     },
+    ConnectionSelected(usize),
     TickerSelected(String),
     TimeframeSelected(Timeframe),
     Calendar(CalendarMessage),
@@ -184,7 +192,7 @@ pub enum Message {
 // ── Actions ──────────────────────────────────────────────────────────
 
 pub enum Action {
-    RunRequested(BacktestConfig),
+    RunRequested(Box<BacktestConfig>),
     Closed,
 }
 
@@ -197,20 +205,21 @@ pub struct BacktestLaunchModal {
     pub(super) selected_strategy_id: Option<String>,
 
     // Strategy snapshots (created once from registry)
-    pub(super) strategy_snapshots:
-        Vec<(String, Box<dyn backtest::BacktestStrategy>)>,
+    pub(super) strategy_snapshots: Vec<(String, Box<dyn backtest::Strategy>)>,
 
     // Right panel
     pub(super) settings_tab: SettingsTab,
 
-    // Dataset tab — data-driven from DataIndex
-    pub(super) available_tickers: Vec<(String, String)>,
-    pub(super) ticker_dates: HashMap<String, BTreeSet<NaiveDate>>,
+    // Dataset tab — connection-based selection
+    pub(super) connections: Vec<ConnectionSnapshot>,
+    pub(super) selected_connection_idx: Option<usize>,
+    pub(super) connection_tickers: Vec<(String, String)>,
     pub(super) selected_ticker: Option<String>,
-    pub(super) selected_timeframe: Timeframe,
+    pub(super) calendar_mode: CalendarMode,
     pub(super) calendar: DateRangeCalendar,
 
-    // Execution tab
+    // Execution tab (timeframe moved here from Dataset)
+    pub(super) selected_timeframe: Timeframe,
     pub(super) initial_capital_str: String,
     pub(super) commission_str: String,
     pub(super) slippage_mode: SlippageMode,
@@ -231,20 +240,14 @@ pub struct BacktestLaunchModal {
 }
 
 impl std::fmt::Debug for BacktestLaunchModal {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BacktestLaunchModal")
             .field("search_query", &self.search_query)
             .field("category_filter", &self.category_filter)
             .field("selected_strategy_id", &self.selected_strategy_id)
             .field("settings_tab", &self.settings_tab)
             .field("selected_ticker", &self.selected_ticker)
-            .field(
-                "available_tickers_count",
-                &self.available_tickers.len(),
-            )
+            .field("connections_count", &self.connections.len())
             .field("is_running", &self.is_running)
             .finish()
     }
@@ -262,19 +265,19 @@ impl Clone for BacktestLaunchModal {
                 .map(|(id, s)| (id.clone(), s.clone_strategy()))
                 .collect(),
             settings_tab: self.settings_tab,
-            available_tickers: self.available_tickers.clone(),
-            ticker_dates: self.ticker_dates.clone(),
+            connections: self.connections.clone(),
+            selected_connection_idx: self.selected_connection_idx,
+            connection_tickers: self.connection_tickers.clone(),
             selected_ticker: self.selected_ticker.clone(),
-            selected_timeframe: self.selected_timeframe,
+            calendar_mode: self.calendar_mode,
             calendar: self.calendar.clone(),
+            selected_timeframe: self.selected_timeframe,
             initial_capital_str: self.initial_capital_str.clone(),
             commission_str: self.commission_str.clone(),
             slippage_mode: self.slippage_mode,
             slippage_ticks_str: self.slippage_ticks_str.clone(),
             position_size_mode: self.position_size_mode,
-            position_size_value_str: self
-                .position_size_value_str
-                .clone(),
+            position_size_value_str: self.position_size_value_str.clone(),
             max_concurrent_str: self.max_concurrent_str.clone(),
             max_drawdown_enabled: self.max_drawdown_enabled,
             max_drawdown_pct_str: self.max_drawdown_pct_str.clone(),
@@ -291,68 +294,122 @@ impl Clone for BacktestLaunchModal {
 impl BacktestLaunchModal {
     pub fn new(
         registry: &StrategyRegistry,
+        connection_manager: &data::ConnectionManager,
         data_index: &data::DataIndex,
     ) -> Self {
         let strategy_list = registry.list();
-        let strategy_snapshots: Vec<(
-            String,
-            Box<dyn backtest::BacktestStrategy>,
-        )> = strategy_list
+        let strategy_snapshots: Vec<(String, Box<dyn backtest::Strategy>)> = strategy_list
             .iter()
-            .filter_map(|info| {
-                registry
-                    .create(&info.id)
-                    .map(|s| (info.id.clone(), s))
-            })
+            .filter_map(|info| registry.create(&info.id).map(|s| (info.id.clone(), s)))
             .collect();
 
-        let first_id =
-            strategy_snapshots.first().map(|(id, _)| id.clone());
+        let first_id = strategy_snapshots.first().map(|(id, _)| id.clone());
 
         // Build product name lookup from ticker registry
-        let products =
-            crate::app::init::ticker_registry::FUTURES_PRODUCTS;
+        let products = crate::app::init::ticker_registry::FUTURES_PRODUCTS;
         let product_names: HashMap<&str, &str> = products
             .iter()
             .map(|(sym, name, _, _, _)| (*sym, *name))
             .collect();
 
-        // Build available tickers from DataIndex
-        let mut raw_tickers = data_index.available_tickers();
-        raw_tickers.sort();
+        // Build ConnectionSnapshot list from enabled connections
+        let connections: Vec<ConnectionSnapshot> = connection_manager
+            .enabled_connections()
+            .into_iter()
+            .map(|conn| {
+                let calendar_mode = match conn.provider {
+                    data::ConnectionProvider::Databento => CalendarMode::CachedOnly,
+                    data::ConnectionProvider::Rithmic => CalendarMode::AnyDate,
+                };
 
-        let available_tickers: Vec<(String, String)> = raw_tickers
-            .iter()
-            .map(|sym| {
-                let name = product_names
-                    .get(sym.as_str())
-                    .copied()
-                    .unwrap_or(sym.as_str());
-                (sym.clone(), name.to_string())
+                // Resolve tickers for this connection
+                let mut raw_tickers: Vec<String> = match &conn.kind {
+                    data::ConnectionKind::Historical(info) => {
+                        vec![info.ticker.clone()]
+                    }
+                    data::ConnectionKind::Realtime => {
+                        let mut tickers =
+                            data_index.tickers_for_feed(conn.id);
+                        // For Rithmic, subscribed_tickers are bare product
+                        // names ("NQ"), but tickers_for_feed returns
+                        // continuous contract format ("NQ.c.0"). Resolve
+                        // bare names to .c.0 before merging.
+                        if let Some(cfg) = conn.rithmic_config() {
+                            for bare in &cfg.subscribed_tickers {
+                                let resolved = format!("{}.c.0", bare);
+                                if !tickers.contains(&resolved) {
+                                    tickers.push(resolved);
+                                }
+                            }
+                        }
+                        tickers
+                    }
+                };
+                raw_tickers.sort();
+                raw_tickers.dedup();
+
+                // Map to display names
+                let tickers: Vec<(String, String)> = raw_tickers
+                    .iter()
+                    .map(|sym| {
+                        let name = product_names
+                            .get(sym.as_str())
+                            .copied()
+                            .unwrap_or(sym.as_str());
+                        (sym.clone(), name.to_string())
+                    })
+                    .collect();
+
+                // Pre-compute per-ticker dates for this feed
+                let ticker_dates: HashMap<String, BTreeSet<NaiveDate>> = raw_tickers
+                    .iter()
+                    .map(|sym| {
+                        (
+                            sym.clone(),
+                            data_index.available_dates_for_feed(sym, conn.id),
+                        )
+                    })
+                    .collect();
+
+                ConnectionSnapshot {
+                    id: conn.id,
+                    name: conn.name.clone(),
+                    provider: conn.provider,
+                    tickers,
+                    ticker_dates,
+                    calendar_mode,
+                }
             })
             .collect();
 
-        // Pre-compute per-ticker dates
-        let ticker_dates: HashMap<String, BTreeSet<NaiveDate>> =
-            raw_tickers
-                .iter()
-                .map(|sym| {
-                    (sym.clone(), data_index.available_dates(sym))
-                })
-                .collect();
+        // Auto-select first connection with tickers
+        let auto_conn_idx = connections
+            .iter()
+            .position(|c| !c.tickers.is_empty());
 
-        // Auto-select first ticker and configure calendar
-        let selected_ticker =
-            available_tickers.first().map(|(sym, _)| sym.clone());
-
-        let mut calendar = DateRangeCalendar::new();
-        if let Some(ref sym) = selected_ticker {
-            Self::configure_calendar_for_ticker(
-                &mut calendar,
-                &ticker_dates,
-                sym,
-            );
-        }
+        let (connection_tickers, selected_ticker, calendar_mode, calendar) =
+            if let Some(idx) = auto_conn_idx {
+                let snap = &connections[idx];
+                let tickers = snap.tickers.clone();
+                let first_ticker = tickers.first().map(|(sym, _)| sym.clone());
+                let mode = snap.calendar_mode;
+                let mut cal = DateRangeCalendar::new();
+                if let Some(ref sym) = first_ticker {
+                    Self::configure_calendar(
+                        &mut cal,
+                        mode,
+                        snap.ticker_dates.get(sym),
+                    );
+                }
+                (tickers, first_ticker, mode, cal)
+            } else {
+                (
+                    Vec::new(),
+                    None,
+                    CalendarMode::CachedOnly,
+                    DateRangeCalendar::new(),
+                )
+            };
 
         Self {
             search_query: String::new(),
@@ -360,11 +417,13 @@ impl BacktestLaunchModal {
             selected_strategy_id: first_id,
             strategy_snapshots,
             settings_tab: SettingsTab::Parameters,
-            available_tickers,
-            ticker_dates,
+            connections,
+            selected_connection_idx: auto_conn_idx,
+            connection_tickers,
             selected_ticker,
-            selected_timeframe: Timeframe::M30,
+            calendar_mode,
             calendar,
+            selected_timeframe: Timeframe::M30,
             initial_capital_str: "100000".to_string(),
             commission_str: "2.50".to_string(),
             slippage_mode: SlippageMode::None,
@@ -383,36 +442,77 @@ impl BacktestLaunchModal {
         }
     }
 
-    /// Whether any data is available for backtesting.
-    pub fn has_data(&self) -> bool {
-        !self.available_tickers.is_empty()
+    /// Configure calendar based on mode and available dates.
+    fn configure_calendar(
+        calendar: &mut DateRangeCalendar,
+        mode: CalendarMode,
+        dates: Option<&BTreeSet<NaiveDate>>,
+    ) {
+        match mode {
+            CalendarMode::CachedOnly => {
+                if let Some(dates) = dates {
+                    calendar.selectable_dates =
+                        Some(dates.iter().copied().collect::<HashSet<_>>());
+                    if let (Some(&first), Some(&last)) =
+                        (dates.iter().next(), dates.iter().next_back())
+                    {
+                        calendar.start_date = first;
+                        calendar.end_date = last;
+                        calendar.viewing_month =
+                            NaiveDate::from_ymd_opt(first.year(), first.month(), 1)
+                                .unwrap();
+                    }
+                } else {
+                    calendar.selectable_dates = Some(HashSet::new());
+                }
+            }
+            CalendarMode::AnyDate => {
+                // All dates selectable, default to last week
+                calendar.selectable_dates = None;
+                if let Some(dates) = dates
+                    && let (Some(&first), Some(&last)) =
+                        (dates.iter().next(), dates.iter().next_back())
+                {
+                    calendar.start_date = first;
+                    calendar.end_date = last;
+                    calendar.viewing_month =
+                        NaiveDate::from_ymd_opt(first.year(), first.month(), 1)
+                            .unwrap();
+                } else {
+                    let range = data::DateRange::last_week();
+                    calendar.start_date = range.start;
+                    calendar.end_date = range.end;
+                    calendar.viewing_month =
+                        NaiveDate::from_ymd_opt(
+                            range.start.year(),
+                            range.start.month(),
+                            1,
+                        )
+                        .unwrap();
+                }
+            }
+        }
     }
 
-    /// Configure calendar selectable dates and range for a ticker.
-    fn configure_calendar_for_ticker(
-        calendar: &mut DateRangeCalendar,
-        ticker_dates: &HashMap<String, BTreeSet<NaiveDate>>,
-        symbol: &str,
-    ) {
-        if let Some(dates) = ticker_dates.get(symbol) {
-            calendar.selectable_dates =
-                Some(dates.iter().copied().collect::<HashSet<_>>());
-            if let (Some(&first), Some(&last)) =
-                (dates.iter().next(), dates.iter().next_back())
-            {
-                calendar.start_date = first;
-                calendar.end_date = last;
-                calendar.viewing_month =
-                    NaiveDate::from_ymd_opt(
-                        first.year(),
-                        first.month(),
-                        1,
-                    )
-                    .unwrap();
-            }
-        } else {
-            calendar.selectable_dates = Some(HashSet::new());
-        }
+    /// Apply a connection selection, updating tickers and calendar.
+    fn apply_connection_selection(&mut self, idx: usize) {
+        self.selected_connection_idx = Some(idx);
+        let snap = &self.connections[idx];
+        self.connection_tickers = snap.tickers.clone();
+        self.calendar_mode = snap.calendar_mode;
+
+        // Auto-select first ticker
+        self.selected_ticker =
+            self.connection_tickers.first().map(|(sym, _)| sym.clone());
+
+        // Configure calendar
+        let dates = self
+            .selected_ticker
+            .as_ref()
+            .and_then(|sym| snap.ticker_dates.get(sym));
+        Self::configure_calendar(&mut self.calendar, self.calendar_mode, dates);
+        self.calendar.selection_mode =
+            crate::modals::pane::calendar::SelectionMode::SelectingStart;
     }
 
     pub fn set_running(&mut self, running: bool) {
@@ -422,20 +522,20 @@ impl BacktestLaunchModal {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_progress(&mut self, pct: f32, message: String) {
         self.run_progress = pct;
         self.run_progress_message = message;
     }
 
-    /// Pre-select a strategy by ID (from File → New Backtest menu).
+    /// Pre-select a strategy by ID (from File -> New Backtest menu).
     pub fn pre_select_strategy(&mut self, strategy_id: &str) {
         if self
             .strategy_snapshots
             .iter()
             .any(|(id, _)| id == strategy_id)
         {
-            self.selected_strategy_id =
-                Some(strategy_id.to_string());
+            self.selected_strategy_id = Some(strategy_id.to_string());
             self.settings_tab = SettingsTab::Parameters;
         }
     }
@@ -464,24 +564,29 @@ impl BacktestLaunchModal {
                     .strategy_snapshots
                     .iter_mut()
                     .find(|(id, _)| id == &strategy_id)
+                    && let Err(e) = snapshot.set_parameter(&key, value)
                 {
-                    if let Err(e) =
-                        snapshot.set_parameter(&key, value)
-                    {
-                        log::warn!(
-                            "Failed to set backtest param: {}",
-                            e
-                        );
-                    }
+                    log::warn!("Failed to set backtest param: {}", e);
+                }
+            }
+            Message::ConnectionSelected(idx) => {
+                if idx < self.connections.len() {
+                    self.apply_connection_selection(idx);
                 }
             }
             Message::TickerSelected(symbol) => {
                 self.selected_ticker = Some(symbol.clone());
-                Self::configure_calendar_for_ticker(
-                    &mut self.calendar,
-                    &self.ticker_dates,
-                    &symbol,
-                );
+                // Reconfigure calendar for the new ticker
+                if let Some(idx) = self.selected_connection_idx {
+                    let dates = self.connections[idx]
+                        .ticker_dates
+                        .get(&symbol);
+                    Self::configure_calendar(
+                        &mut self.calendar,
+                        self.calendar_mode,
+                        dates,
+                    );
+                }
                 self.calendar.selection_mode =
                     crate::modals::pane::calendar::SelectionMode::SelectingStart;
             }
@@ -535,16 +640,11 @@ impl BacktestLaunchModal {
     }
 
     fn build_and_validate_config(&mut self) -> Option<Action> {
-        let initial_capital: f64 = match self
-            .initial_capital_str
-            .parse()
-        {
+        let initial_capital: f64 = match self.initial_capital_str.parse() {
             Ok(v) if v > 0.0 && f64::is_finite(v) => v,
             _ => {
-                self.validation_error = Some(
-                    "Initial capital must be a positive number"
-                        .to_string(),
-                );
+                self.validation_error =
+                    Some("Initial capital must be a positive number".to_string());
                 return None;
             }
         };
@@ -552,68 +652,46 @@ impl BacktestLaunchModal {
         let commission: f64 = match self.commission_str.parse() {
             Ok(v) if v >= 0.0 && f64::is_finite(v) => v,
             _ => {
-                self.validation_error = Some(
-                    "Commission must be a non-negative number"
-                        .to_string(),
-                );
+                self.validation_error =
+                    Some("Commission must be a non-negative number".to_string());
                 return None;
             }
         };
 
-        let Some(strategy_id) =
-            self.selected_strategy_id.clone()
-        else {
-            self.validation_error =
-                Some("No strategy selected".to_string());
+        let Some(strategy_id) = self.selected_strategy_id.clone() else {
+            self.validation_error = Some("No strategy selected".to_string());
             return None;
         };
 
+        if self.selected_connection_idx.is_none() {
+            self.validation_error = Some("No data source selected".to_string());
+            return None;
+        }
+
         // Resolve ticker
         let Some(ref ticker_symbol) = self.selected_ticker else {
-            self.validation_error =
-                Some("No ticker selected".to_string());
+            self.validation_error = Some("No ticker selected".to_string());
             return None;
         };
-        let ticker = data::FuturesTicker::new(
-            ticker_symbol,
-            data::FuturesVenue::CMEGlobex,
-        );
+        let ticker = data::FuturesTicker::new(ticker_symbol, data::FuturesVenue::CMEGlobex);
 
         let slippage = match self.slippage_mode {
             SlippageMode::None => SlippageModel::None,
             SlippageMode::FixedTick => {
-                let ticks = self
-                    .slippage_ticks_str
-                    .parse::<i64>()
-                    .unwrap_or(0);
+                let ticks = self.slippage_ticks_str.parse::<i64>().unwrap_or(0);
                 SlippageModel::FixedTick(ticks)
             }
-            SlippageMode::Percentage => {
-                SlippageModel::Percentage(0.0001)
-            }
+            SlippageMode::Percentage => SlippageModel::Percentage(0.0001),
         };
 
-        let pos_val: f64 = self
-            .position_size_value_str
-            .parse()
-            .unwrap_or(1.0);
+        let pos_val: f64 = self.position_size_value_str.parse().unwrap_or(1.0);
         let position_size_mode = match self.position_size_mode {
-            PositionSizeModeUI::Fixed => {
-                PositionSizeMode::Fixed(pos_val)
-            }
-            PositionSizeModeUI::RiskPercent => {
-                PositionSizeMode::RiskPercent(pos_val / 100.0)
-            }
-            PositionSizeModeUI::RiskDollars => {
-                PositionSizeMode::RiskDollars(pos_val)
-            }
+            PositionSizeModeUI::Fixed => PositionSizeMode::Fixed(pos_val),
+            PositionSizeModeUI::RiskPercent => PositionSizeMode::RiskPercent(pos_val / 100.0),
+            PositionSizeModeUI::RiskDollars => PositionSizeMode::RiskDollars(pos_val),
         };
 
-        let max_concurrent: usize = self
-            .max_concurrent_str
-            .parse()
-            .unwrap_or(1)
-            .max(1);
+        let max_concurrent: usize = self.max_concurrent_str.parse().unwrap_or(1).max(1);
 
         let max_drawdown_pct = if self.max_drawdown_enabled {
             self.max_drawdown_pct_str
@@ -625,10 +703,8 @@ impl BacktestLaunchModal {
             None
         };
 
-        let rth_open: u32 =
-            self.rth_open_str.parse().unwrap_or(930);
-        let rth_close: u32 =
-            self.rth_close_str.parse().unwrap_or(1600);
+        let rth_open: u32 = self.rth_open_str.parse().unwrap_or(930);
+        let rth_close: u32 = self.rth_close_str.parse().unwrap_or(1600);
 
         let date_range = data::DateRange {
             start: self.calendar.start_date,
@@ -636,18 +712,18 @@ impl BacktestLaunchModal {
         };
 
         // Collect strategy params from snapshot
-        let strategy_params: HashMap<String, study::ParameterValue> =
-            self.strategy_snapshots
-                .iter()
-                .find(|(id, _)| id == &strategy_id)
-                .map(|(_, s)| {
-                    s.config()
-                        .values
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
+        let strategy_params: HashMap<String, study::ParameterValue> = self
+            .strategy_snapshots
+            .iter()
+            .find(|(id, _)| id == &strategy_id)
+            .map(|(_, s)| {
+                s.config()
+                    .values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         self.validation_error = None;
 
@@ -669,8 +745,14 @@ impl BacktestLaunchModal {
             rth_close_hhmm: rth_close,
             strategy_id,
             strategy_params,
+            additional_instruments: Vec::new(),
+            additional_timeframes: Vec::new(),
+            warm_up_periods: 0,
+            use_depth_data: false,
+            margin: Default::default(),
+            simulated_latency_ms: 0,
         };
 
-        Some(Action::RunRequested(config))
+        Some(Action::RunRequested(Box::new(config)))
     }
 }

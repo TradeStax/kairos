@@ -11,11 +11,11 @@ mod messages;
 
 use crate::screen::dashboard::pane::types::{AiAssistantEvent, AiAssistantState, Event, Message};
 use crate::style::{self, tokens};
+use iced::widget::pane_grid;
 use iced::{
     Alignment, Element, Length,
     widget::{column, container, mouse_area, opaque, stack},
 };
-use iced::widget::pane_grid;
 
 use messages::divider;
 
@@ -38,7 +38,7 @@ pub fn view_assistant<'a>(
 
     let close_settings_msg = Message::PaneEvent(
         id,
-        Event::AiAssistant(AiAssistantEvent::ToggleSettings),
+        Box::new(Event::AiAssistant(AiAssistantEvent::ToggleSettings)),
     );
 
     // Settings dropdown overlay
@@ -54,11 +54,7 @@ pub fn view_assistant<'a>(
             .align_x(Alignment::End)
             .align_y(Alignment::Start);
 
-        stack![
-            body,
-            mouse_area(overlay).on_press(close_settings_msg),
-        ]
-        .into()
+        stack![body, mouse_area(overlay).on_press(close_settings_msg),].into()
     } else {
         body
     };

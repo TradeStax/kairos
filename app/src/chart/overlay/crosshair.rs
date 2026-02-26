@@ -87,20 +87,15 @@ pub fn draw_crosshair(
             rounded_timestamp
         }
         ChartBasis::Tick(aggregation) => {
-            let (chart_x_min, chart_x_max) =
-                (region.x, region.x + region.width);
-            let crosshair_pos = chart_x_min
-                + (cursor_position.x / bounds.width) * region.width;
+            let (chart_x_min, chart_x_max) = (region.x, region.x + region.width);
+            let crosshair_pos = chart_x_min + (cursor_position.x / bounds.width) * region.width;
 
-            let cell_index =
-                (crosshair_pos / state.cell_width).round();
+            let cell_index = (crosshair_pos / state.cell_width).round();
 
             let snapped_crosshair = cell_index * state.cell_width;
-            let snap_ratio = (snapped_crosshair - chart_x_min)
-                / (chart_x_max - chart_x_min);
+            let snap_ratio = (snapped_crosshair - chart_x_min) / (chart_x_max - chart_x_min);
 
-            let rounded_tick =
-                (-cell_index as u64) * (u64::from(aggregation));
+            let rounded_tick = (-cell_index as u64) * (u64::from(aggregation));
 
             let snapped_x = snap_ratio * bounds.width;
 
@@ -148,8 +143,7 @@ pub fn draw_remote_crosshair(
                 return;
             }
 
-            let screen_x =
-                ((chart_x - x_min) / range) * bounds.width;
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
 
             if screen_x < 0.0 || screen_x > bounds.width {
                 return;
@@ -179,8 +173,7 @@ pub fn draw_remote_crosshair(
                 return;
             }
 
-            let screen_x =
-                ((chart_x - x_min) / range) * bounds.width;
+            let screen_x = ((chart_x - x_min) / range) * bounds.width;
 
             if screen_x < 0.0 || screen_x > bounds.width {
                 return;

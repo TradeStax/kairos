@@ -8,7 +8,7 @@
 
 use super::point::DrawingPoint;
 use crate::chart::ViewState;
-use data::DrawingTool;
+use crate::drawing::DrawingTool;
 use iced::{Point, Size};
 
 /// Snap angle to nearest 45 degree increment relative to anchor point.
@@ -74,9 +74,7 @@ pub fn constrain_creation(tool: DrawingTool, anchor: Point, cursor: Point) -> Po
         DrawingTool::Ellipse => constrain_circle(anchor, cursor),
 
         // Entry handle: lock to H or V axis
-        DrawingTool::BuyCalculator | DrawingTool::SellCalculator => {
-            constrain_axis(anchor, cursor)
-        }
+        DrawingTool::BuyCalculator | DrawingTool::SellCalculator => constrain_axis(anchor, cursor),
 
         _ => cursor,
     }
@@ -93,7 +91,7 @@ pub fn constrain_handle(
     cursor: Point,
 ) -> Point {
     // VBP handles only change time; no square/angle constraint applies
-    if tool == DrawingTool::VolumeProfile {
+    if tool.is_vbp() {
         return cursor;
     }
 

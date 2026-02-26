@@ -1,5 +1,5 @@
 use chrono::{TimeZone, Utc};
-use exchange::TickerInfo;
+use data::FuturesTickerInfo;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Zoom(pub usize);
@@ -19,14 +19,14 @@ impl Zoom {
 
 #[derive(Debug, Clone)]
 pub struct Series {
-    pub ticker_info: TickerInfo,
+    pub ticker_info: FuturesTickerInfo,
     pub name: Option<String>,
     pub points: Vec<(u64, f32)>,
     pub color: iced::Color,
 }
 
 impl Series {
-    pub fn new(ticker_info: TickerInfo, color: iced::Color, name: Option<String>) -> Self {
+    pub fn new(ticker_info: FuturesTickerInfo, color: iced::Color, name: Option<String>) -> Self {
         Self {
             ticker_info,
             name,
@@ -40,7 +40,7 @@ pub trait SeriesLike {
     fn name(&self) -> String;
     fn points(&self) -> &[(u64, f32)];
     fn color(&self) -> iced::Color;
-    fn ticker_info(&self) -> &TickerInfo;
+    fn ticker_info(&self) -> &FuturesTickerInfo;
 }
 
 impl SeriesLike for Series {
@@ -60,7 +60,7 @@ impl SeriesLike for Series {
         self.color
     }
 
-    fn ticker_info(&self) -> &TickerInfo {
+    fn ticker_info(&self) -> &FuturesTickerInfo {
         &self.ticker_info
     }
 }

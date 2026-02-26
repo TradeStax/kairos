@@ -5,9 +5,9 @@
 use super::Caches;
 use crate::chart::scale::linear::PriceInfoLabel;
 use crate::style::tokens;
+use data::FuturesTickerInfo;
 use data::{ChartBasis, ViewConfig};
-use exchange::FuturesTickerInfo;
-use exchange::util::{Price, PriceStep};
+use data::{Price, PriceStep};
 use iced::{Length, Rectangle, Size, Vector};
 use std::cell::Cell;
 

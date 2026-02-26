@@ -3,12 +3,10 @@
 //! Contains: quantity section, take profit, stop loss, labels, and
 //! display options for Buy/Sell calculator drawing tools.
 
-use data::CalcMode;
+use crate::drawing::CalcMode;
 use iced::{
     Alignment, Element, Length,
-    widget::{
-        button, column, container, pick_list, row, text, text_input,
-    },
+    widget::{button, column, container, pick_list, row, text, text_input},
 };
 
 use crate::components::form::form_section::FormSectionBuilder;
@@ -22,11 +20,7 @@ use super::{DrawingPropertiesModal, Message, PickerKind};
 impl DrawingPropertiesModal {
     /// Quantity stepper + contract info.
     pub(super) fn quantity_section(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
 
         let stepper: Element<'_, Message> = StepperBuilder::new(
             calc.quantity,
@@ -62,11 +56,7 @@ impl DrawingPropertiesModal {
 
     /// Take Profit -- mode dropdown, value input, color, opacity.
     pub(super) fn take_profit_section(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
 
         let mut section = FormSectionBuilder::new("Take Profit");
 
@@ -126,11 +116,7 @@ impl DrawingPropertiesModal {
 
     /// Stop Loss -- mode dropdown, value input, color, opacity.
     pub(super) fn stop_loss_section(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
 
         let mut section = FormSectionBuilder::new("Stop Loss");
 
@@ -200,14 +186,12 @@ impl DrawingPropertiesModal {
         let iced_color = crate::style::theme::rgba_to_iced_color(color);
         let hex = hex_input
             .as_deref()
-            .unwrap_or(
-                data::config::theme::rgba_to_hex_string(color).as_str(),
-            )
+            .unwrap_or(crate::config::theme::rgba_to_hex_string(color).as_str())
             .to_string();
         let is_hex_valid = hex_input.is_none()
             || hex_input
                 .as_deref()
-                .and_then(data::config::theme::hex_to_rgba_safe)
+                .and_then(crate::config::theme::hex_to_rgba_safe)
                 .is_some();
         let picker_open = self.active_picker.as_ref() == Some(&kind);
 
@@ -223,11 +207,7 @@ impl DrawingPropertiesModal {
 
     /// Calculator label toggles + font size.
     pub(super) fn calc_labels_section(&self) -> Element<'_, Message> {
-        let calc = self
-            .position_calc
-            .as_ref()
-            .cloned()
-            .unwrap_or_default();
+        let calc = self.position_calc.as_ref().cloned().unwrap_or_default();
 
         let label_toggles: Element<'_, Message> = column![
             row![
@@ -288,23 +268,20 @@ impl DrawingPropertiesModal {
 
         section = section.push(option_row(
             "Show Labels",
-            iced::widget::checkbox(self.show_labels)
-                .on_toggle(Message::ShowLabelsToggled),
+            iced::widget::checkbox(self.show_labels).on_toggle(Message::ShowLabelsToggled),
         ));
 
         section = section.push(option_row(
             "Visible",
-            iced::widget::checkbox(self.visible)
-                .on_toggle(Message::VisibleToggled),
+            iced::widget::checkbox(self.visible).on_toggle(Message::VisibleToggled),
         ));
 
-        let reset_btn: Element<'_, Message> = button(
-            text("Reset Colors to Default").size(tokens::text::BODY),
-        )
-        .on_press(Message::CalcResetColorsToDefault)
-        .padding([tokens::spacing::SM, tokens::spacing::XL])
-        .style(style::button::secondary)
-        .into();
+        let reset_btn: Element<'_, Message> =
+            button(text("Reset Colors to Default").size(tokens::text::BODY))
+                .on_press(Message::CalcResetColorsToDefault)
+                .padding([tokens::spacing::SM, tokens::spacing::XL])
+                .style(style::button::secondary)
+                .into();
 
         section = section.push(reset_btn);
         section.into()

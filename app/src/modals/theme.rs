@@ -60,7 +60,7 @@ pub struct ThemeEditor {
 }
 
 impl ThemeEditor {
-    pub fn new(custom_theme: Option<data::Theme>) -> Self {
+    pub fn new(custom_theme: Option<crate::config::Theme>) -> Self {
         Self {
             custom_theme: custom_theme.map(|t| crate::style::theme::theme_to_iced(&t)),
             component: Component::Background,
@@ -88,7 +88,7 @@ impl ThemeEditor {
                 self.editing = Some(hsva);
 
                 let mut new_palette = theme.palette();
-                let rgba = data::config::theme::hsva_to_rgba(hsva);
+                let rgba = crate::config::theme::hsva_to_rgba(hsva);
                 let color = crate::style::theme::rgba_to_iced_color(rgba);
 
                 match self.component {
@@ -108,7 +108,7 @@ impl ThemeEditor {
             Message::ComponentChanged(component) => {
                 self.component = component;
                 let color = self.focused_color(theme);
-                self.editing = Some(data::config::theme::rgba_to_hsva(
+                self.editing = Some(crate::config::theme::rgba_to_hsva(
                     crate::style::theme::iced_color_to_rgba(color),
                 ));
                 None
@@ -116,7 +116,7 @@ impl ThemeEditor {
             Message::HexInput(input) => {
                 let mut action = None;
 
-                if let Some(rgba) = data::config::theme::hex_to_rgba_safe(&input) {
+                if let Some(rgba) = crate::config::theme::hex_to_rgba_safe(&input) {
                     let color = crate::style::theme::rgba_to_iced_color(rgba);
                     let mut new_palette = theme.palette();
 
@@ -129,7 +129,7 @@ impl ThemeEditor {
                         Component::Warning => new_palette.warning = color,
                     }
 
-                    self.editing = Some(data::config::theme::rgba_to_hsva(rgba));
+                    self.editing = Some(crate::config::theme::rgba_to_hsva(rgba));
 
                     let new_theme = iced_core::Theme::custom("Custom".to_string(), new_palette);
                     self.custom_theme = Some(new_theme.clone());
@@ -147,24 +147,22 @@ impl ThemeEditor {
     pub fn view(&self, theme: &iced_core::Theme) -> Element<'_, Message> {
         let color = self.focused_color(theme);
         let hsva_in = self.editing.unwrap_or_else(|| {
-            data::config::theme::rgba_to_hsva(
-                crate::style::theme::iced_color_to_rgba(color),
-            )
+            crate::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(color))
         });
 
         let is_input_valid = self.hex_input.is_none()
             || self
                 .hex_input
                 .as_deref()
-                .and_then(data::config::theme::hex_to_rgba_safe)
+                .and_then(crate::config::theme::hex_to_rgba_safe)
                 .is_some();
 
         let hex_input = iced::widget::text_input(
             "",
             self.hex_input.as_deref().unwrap_or(
-                data::config::theme::rgba_to_hex_string(
-                    crate::style::theme::iced_color_to_rgba(color),
-                )
+                crate::config::theme::rgba_to_hex_string(crate::style::theme::iced_color_to_rgba(
+                    color,
+                ))
                 .as_str(),
             ),
         )
@@ -199,10 +197,7 @@ impl ThemeEditor {
             .push_control(focused_field)
             .on_close(Message::CloseRequested);
 
-        let body = container(
-            color_picker(hsva_in, Message::Color, 280.0),
-        )
-        .padding(iced::Padding {
+        let body = container(color_picker(hsva_in, Message::Color, 280.0)).padding(iced::Padding {
             top: tokens::spacing::MD,
             right: tokens::spacing::XXL,
             bottom: tokens::spacing::XXL,

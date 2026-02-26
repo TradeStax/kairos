@@ -6,9 +6,8 @@ use crate::components::input::slider_field::labeled_slider;
 use crate::screen::dashboard::pane::Message;
 use crate::style::tokens;
 
-use data::state::pane::{
-    ProfileConfig, ProfileExtendDirection, ProfileLineStyle,
-    VisualConfig,
+use crate::screen::dashboard::pane::config::{
+    ProfileConfig, ProfileExtendDirection, ProfileLineStyle, VisualConfig,
 };
 
 use iced::{
@@ -16,15 +15,8 @@ use iced::{
     widget::{column, pane_grid, pick_list},
 };
 
-fn cfg_msg(
-    pane: pane_grid::Pane,
-    cfg: ProfileConfig,
-) -> Message {
-    Message::VisualConfigChanged(
-        pane,
-        VisualConfig::Profile(cfg),
-        false,
-    )
+fn cfg_msg(pane: pane_grid::Pane, cfg: ProfileConfig) -> Message {
+    Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(cfg)), false)
 }
 
 pub(super) fn value_area_tab<'a>(
@@ -33,18 +25,13 @@ pub(super) fn value_area_tab<'a>(
 ) -> Element<'a, Message> {
     // VA fill
     let c = cfg.clone();
-    let show_fill = CheckboxFieldBuilder::new(
-        "Show VA fill",
-        cfg.show_va_fill,
-        move |value| {
-            let mut new = c.clone();
-            new.show_va_fill = value;
-            cfg_msg(pane, new)
-        },
-    );
+    let show_fill = CheckboxFieldBuilder::new("Show VA fill", cfg.show_va_fill, move |value| {
+        let mut new = c.clone();
+        new.show_va_fill = value;
+        cfg_msg(pane, new)
+    });
 
-    let mut fill_section =
-        FormSectionBuilder::new("VA Fill").push(show_fill);
+    let mut fill_section = FormSectionBuilder::new("VA Fill").push(show_fill);
 
     if cfg.show_va_fill {
         let c = cfg.clone();
@@ -143,15 +130,12 @@ pub(super) fn value_area_tab<'a>(
     .width(Length::Fixed(120.0));
 
     let c = cfg.clone();
-    let show_labels = CheckboxFieldBuilder::new(
-        "Show price labels",
-        cfg.show_va_labels,
-        move |value| {
+    let show_labels =
+        CheckboxFieldBuilder::new("Show price labels", cfg.show_va_labels, move |value| {
             let mut new = c.clone();
             new.show_va_labels = value;
             cfg_msg(pane, new)
-        },
-    );
+        });
 
     let extend_section = FormSectionBuilder::new("Extension")
         .push(extend)

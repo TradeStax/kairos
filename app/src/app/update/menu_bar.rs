@@ -256,8 +256,7 @@ impl MenuBar {
                     button(
                         row![
                             text("New Backtest").size(tokens::text::BODY),
-                            iced::widget::space::horizontal()
-                                .width(Length::Fill),
+                            iced::widget::space::horizontal().width(Length::Fill),
                             text("\u{25B8}").size(tokens::text::TINY),
                         ]
                         .align_y(Alignment::Center),
@@ -265,55 +264,36 @@ impl MenuBar {
                     .width(Length::Fill)
                     .padding(menu_item_padding())
                     .on_press(Message::OpenBacktest)
-                    .style(|theme, status| {
-                        style::button::pick_list_item(theme, status)
-                    }),
+                    .style(style::button::pick_list_item),
                 )
                 .on_enter(Message::ShowSubmenu);
 
-                let manager_item = mouse_area(
-                    menu_item(
-                        "Backtest Manager",
-                        Some(Message::OpenBacktestManager),
-                    ),
-                )
+                let manager_item = mouse_area(menu_item(
+                    "Backtest Manager",
+                    Some(Message::OpenBacktestManager),
+                ))
                 .on_enter(Message::HideSubmenu);
 
-                let quit_item = mouse_area(
-                    menu_item("Quit", Some(Message::Quit)),
-                )
-                .on_enter(Message::HideSubmenu);
+                let quit_item = mouse_area(menu_item("Quit", Some(Message::Quit)))
+                    .on_enter(Message::HideSubmenu);
 
                 let panel = menu_panel(
-                    column![
-                        backtest_item,
-                        manager_item,
-                        rule::horizontal(1),
-                        quit_item,
-                    ]
-                    .width(MENU_MIN_WIDTH),
+                    column![backtest_item, manager_item, rule::horizontal(1), quit_item,]
+                        .width(MENU_MIN_WIDTH),
                 );
 
                 let submenu = if self.show_submenu && !strategies.is_empty() {
-                    let mut col =
-                        column![].spacing(tokens::spacing::XXXS);
+                    let mut col = column![].spacing(tokens::spacing::XXXS);
                     for (id, name) in strategies {
                         let strategy_id = id.clone();
                         col = col.push(
-                            button(
-                                text(name.clone())
-                                    .size(tokens::text::BODY),
-                            )
-                            .width(Length::Fill)
-                            .padding(menu_item_padding())
-                            .on_press(Message::OpenBacktestStrategy(
-                                strategy_id,
-                            ))
-                            .style(|theme, status| {
-                                style::button::pick_list_item(
-                                    theme, status,
-                                )
-                            }),
+                            button(text(name.clone()).size(tokens::text::BODY))
+                                .width(Length::Fill)
+                                .padding(menu_item_padding())
+                                .on_press(Message::OpenBacktestStrategy(strategy_id))
+                                .style(|theme, status| {
+                                    style::button::pick_list_item(theme, status)
+                                }),
                         );
                     }
                     Some(
@@ -338,13 +318,10 @@ impl MenuBar {
                         let pane_row = mouse_area(
                             button(
                                 row![
-                                    text(info.label.clone())
-                                        .size(tokens::text::BODY),
-                                    iced::widget::space::horizontal()
-                                        .width(Length::Fill),
+                                    text(info.label.clone()).size(tokens::text::BODY),
+                                    iced::widget::space::horizontal().width(Length::Fill),
                                     if has_arrow {
-                                        text("\u{25B8}")
-                                            .size(tokens::text::TINY)
+                                        text("\u{25B8}").size(tokens::text::TINY)
                                     } else {
                                         text("").size(tokens::text::TINY)
                                     },
@@ -354,9 +331,7 @@ impl MenuBar {
                             .width(Length::Fill)
                             .padding(menu_item_padding())
                             .on_press(Message::HoverPane(Some(idx)))
-                            .style(|theme, status| {
-                                style::button::pick_list_item(theme, status)
-                            }),
+                            .style(style::button::pick_list_item),
                         )
                         .on_enter(Message::HoverPane(Some(idx)));
 
@@ -376,28 +351,19 @@ impl MenuBar {
                     let win = info.window_id;
                     let pane = info.pane;
 
-                    let reset_btn = button(
-                        text("Reset").size(tokens::text::BODY),
-                    )
-                    .width(Length::Fill)
-                    .padding(menu_item_padding())
-                    .on_press(Message::ResetPane(win, pane))
-                    .style(|theme, status| {
-                        style::button::pick_list_item(theme, status)
-                    });
+                    let reset_btn = button(text("Reset").size(tokens::text::BODY))
+                        .width(Length::Fill)
+                        .padding(menu_item_padding())
+                        .on_press(Message::ResetPane(win, pane))
+                        .style(style::button::pick_list_item);
 
-                    let split_btn = button(
-                        text("Split").size(tokens::text::BODY),
-                    )
-                    .width(Length::Fill)
-                    .padding(menu_item_padding())
-                    .on_press(Message::SplitPane(win, pane))
-                    .style(|theme, status| {
-                        style::button::pick_list_item(theme, status)
-                    });
+                    let split_btn = button(text("Split").size(tokens::text::BODY))
+                        .width(Length::Fill)
+                        .padding(menu_item_padding())
+                        .on_press(Message::SplitPane(win, pane))
+                        .style(style::button::pick_list_item);
 
-                    let sub_col =
-                        column![reset_btn, split_btn].width(MENU_MIN_WIDTH);
+                    let sub_col = column![reset_btn, split_btn].width(MENU_MIN_WIDTH);
                     let offset = idx as f32 * MENU_ITEM_HEIGHT;
 
                     Some(
@@ -425,7 +391,7 @@ impl MenuBar {
                     .width(Length::Fill)
                     .padding(menu_item_padding())
                     .on_press(Message::ShowSubmenu)
-                    .style(|theme, status| style::button::pick_list_item(theme, status)),
+                    .style(style::button::pick_list_item),
                 )
                 .on_enter(Message::ShowSubmenu);
 
@@ -489,7 +455,7 @@ fn menu_item<'a>(label: &str, on_press: Option<Message>) -> Element<'a, Message>
     let mut btn = button(text(label.to_string()).size(tokens::text::BODY))
         .width(Length::Fill)
         .padding(menu_item_padding())
-        .style(|theme, status| style::button::pick_list_item(theme, status));
+        .style(style::button::pick_list_item);
 
     if let Some(msg) = on_press {
         btn = btn.on_press(msg);
@@ -508,14 +474,13 @@ fn menu_panel<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Messa
 // ── Kairos handler ────────────────────────────────────────────────────
 
 impl Kairos {
-    pub(crate) fn handle_menu_bar(
-        &mut self,
-        msg: Message,
-    ) -> Task<crate::app::Message> {
+    pub(crate) fn handle_menu_bar(&mut self, msg: Message) -> Task<crate::app::Message> {
         // Pre-fill save dialog name when opening
         if matches!(msg, Message::SaveLayout) {
-            self.menu_bar.save_layout_name =
-                self.persistence.layout_manager.generate_unique_layout_name();
+            self.menu_bar.save_layout_name = self
+                .persistence
+                .layout_manager
+                .generate_unique_layout_name();
         }
 
         // Refresh pane info when Edit menu is opened or hovered
@@ -535,7 +500,8 @@ impl Kairos {
             Action::SaveLayout(name) => {
                 // Check if a layout with this name already exists
                 let collision = self
-                    .persistence.layout_manager
+                    .persistence
+                    .layout_manager
                     .layouts
                     .iter()
                     .any(|l| l.id.name == name);
@@ -543,34 +509,30 @@ impl Kairos {
                 if collision {
                     // Stash name and show overwrite confirmation
                     self.menu_bar.overwrite_layout_name = name.clone();
-                    self.ui.confirm_dialog = Some(
-                        crate::components::overlay::confirm_dialog
-                            ::ConfirmDialog {
-                            message: format!(
-                                "Layout \"{}\" already exists. Overwrite?",
-                                name
-                            ),
+                    self.ui.confirm_dialog =
+                        Some(crate::components::overlay::confirm_dialog::ConfirmDialog {
+                            message: format!("Layout \"{}\" already exists. Overwrite?", name),
                             on_confirm: Box::new(crate::app::Message::MenuBar(
                                 Message::OverwriteLayoutConfirm,
                             )),
                             on_confirm_btn_text: Some("Overwrite".into()),
-                        },
-                    );
+                        });
                 } else if let Some(active_id) = self
-                    .persistence.layout_manager
+                    .persistence
+                    .layout_manager
                     .active_layout_id()
                     .map(|l| l.unique)
                 {
                     self.handle_layout_clone(active_id);
                     // Rename the newly created layout (last in the list)
-                    if let Some(new_layout) =
-                        self.persistence.layout_manager.layouts.last()
-                    {
+                    if let Some(new_layout) = self.persistence.layout_manager.layouts.last() {
                         let new_id = new_layout.id.unique;
                         let unique_name = self
-                            .persistence.layout_manager
+                            .persistence
+                            .layout_manager
                             .ensure_unique_name(&name, new_id);
-                        self.persistence.layout_manager
+                        self.persistence
+                            .layout_manager
                             .layouts
                             .last_mut()
                             .unwrap()
@@ -582,9 +544,10 @@ impl Kairos {
             Action::OverwriteLayout(name) => {
                 self.ui.confirm_dialog = None;
                 if let Some(active_dashboard) = self.active_dashboard() {
-                    let ser = data::Dashboard::from(active_dashboard);
+                    let ser = crate::persistence::Dashboard::from(active_dashboard);
                     if let Some(layout) = self
-                        .persistence.layout_manager
+                        .persistence
+                        .layout_manager
                         .layouts
                         .iter_mut()
                         .find(|l| l.id.name == name)
@@ -592,18 +555,17 @@ impl Kairos {
                         let mut popout_windows = Vec::new();
                         for (pane, window_spec) in &ser.popout {
                             popout_windows.push((
-                                crate::layout::configuration(pane.clone()),
+                                crate::persistence::configuration(pane.clone()),
                                 window_spec.clone(),
                             ));
                         }
 
-                        layout.dashboard =
-                            crate::screen::dashboard::Dashboard::from_config(
-                                crate::layout::configuration(ser.pane),
-                                popout_windows,
-                                self.services.market_data_service.clone(),
-                                self.persistence.data_index.clone(),
-                            );
+                        layout.dashboard = crate::screen::dashboard::Dashboard::from_config(
+                            crate::persistence::configuration(ser.pane),
+                            popout_windows,
+                            None,
+                            self.persistence.data_index.clone(),
+                        );
                     }
                 }
             }
@@ -637,7 +599,9 @@ impl Kairos {
                 ));
             }
             Action::OpenBacktestStrategy(id) => {
-                self.modals.backtest.backtest_launch_modal
+                self.modals
+                    .backtest
+                    .backtest_launch_modal
                     .pre_select_strategy(&id);
                 return Task::done(crate::app::Message::Backtest(
                     crate::app::messages::BacktestMessage::OpenLaunchModal,

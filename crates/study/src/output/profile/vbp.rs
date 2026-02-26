@@ -1,21 +1,16 @@
 //! VBP (Volume by Price) configuration types.
 //!
-//! Contains VBP visualization, period, grouping, cache, and
-//! sub-feature configuration (POC, Value Area, Nodes, VWAP).
+//! Covers visualization mode, period splitting, grouping strategy, render cache,
+//! and sub-feature configs: POC, Value Area, HVN/LVN Nodes, and anchored VWAP.
 
 use crate::config::LineStyleValue;
 use data::SerializableColor;
 use serde::{Deserialize, Serialize};
 
-use super::types::{
-    ExtendDirection, NodeDetectionMethod, ProfileLevel,
-};
+use super::types::{ExtendDirection, NodeDetectionMethod, ProfileLevel};
 
 /// Visualization type for VBP study.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum VbpType {
     #[default]
     Volume,
@@ -26,10 +21,7 @@ pub enum VbpType {
 }
 
 impl std::fmt::Display for VbpType {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VbpType::Volume => write!(f, "Volume"),
             VbpType::BidAskVolume => {
@@ -47,10 +39,7 @@ impl std::fmt::Display for VbpType {
 }
 
 /// Time period mode for VBP computation range.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum VbpPeriod {
     /// Split into multiple profiles by time interval.
     #[default]
@@ -60,10 +49,7 @@ pub enum VbpPeriod {
 }
 
 impl std::fmt::Display for VbpPeriod {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VbpPeriod::Split => write!(f, "Split"),
             VbpPeriod::Custom => write!(f, "Custom"),
@@ -86,19 +72,14 @@ pub enum VbpSplitPeriod {
 }
 
 /// How the renderer should handle VBP level grouping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum VbpGroupingMode {
     /// Renderer merges levels dynamically based on y-axis
     /// scale * factor.
     Automatic { factor: i64 },
     /// Levels are pre-grouped by the study; renderer uses as-is.
+    #[default]
     Manual,
-}
-
-impl Default for VbpGroupingMode {
-    fn default() -> Self {
-        Self::Manual
-    }
 }
 
 /// Cached resolved profile levels after dynamic merging.
@@ -137,17 +118,13 @@ impl Default for VbpPocConfig {
     fn default() -> Self {
         Self {
             show_poc: false,
-            poc_color: SerializableColor::new(
-                1.0, 0.84, 0.0, 1.0,
-            ),
+            poc_color: SerializableColor::new(1.0, 0.84, 0.0, 1.0),
             poc_line_width: 1.5,
             poc_line_style: LineStyleValue::Solid,
             poc_extend: ExtendDirection::None,
             show_poc_label: false,
             show_developing_poc: false,
-            developing_poc_color: SerializableColor::new(
-                1.0, 0.84, 0.0, 0.5,
-            ),
+            developing_poc_color: SerializableColor::new(1.0, 0.84, 0.0, 0.5),
             developing_poc_line_width: 1.0,
             developing_poc_line_style: LineStyleValue::Dashed,
         }
@@ -179,20 +156,14 @@ impl Default for VbpValueAreaConfig {
             show_value_area: false,
             value_area_pct: 0.7,
             show_va_highlight: false,
-            vah_color: SerializableColor::new(
-                0.0, 0.7, 1.0, 0.8,
-            ),
+            vah_color: SerializableColor::new(0.0, 0.7, 1.0, 0.8),
             vah_line_width: 1.0,
             vah_line_style: LineStyleValue::Solid,
-            val_color: SerializableColor::new(
-                0.0, 0.7, 1.0, 0.8,
-            ),
+            val_color: SerializableColor::new(0.0, 0.7, 1.0, 0.8),
             val_line_width: 1.0,
             val_line_style: LineStyleValue::Solid,
             show_va_fill: false,
-            va_fill_color: SerializableColor::new(
-                0.0, 0.7, 1.0, 0.15,
-            ),
+            va_fill_color: SerializableColor::new(0.0, 0.7, 1.0, 0.15),
             va_fill_opacity: 0.15,
             va_extend: ExtendDirection::None,
             show_va_labels: false,
@@ -260,46 +231,34 @@ impl Default for VbpNodeConfig {
             min_prominence: 0.15,
 
             show_hvn_zones: false,
-            hvn_zone_color: SerializableColor::new(
-                0.0, 0.9, 0.4, 0.5,
-            ),
+            hvn_zone_color: SerializableColor::new(0.0, 0.9, 0.4, 0.5),
             hvn_zone_opacity: 0.08,
 
             show_peak_line: false,
-            peak_color: SerializableColor::new(
-                0.0, 0.9, 0.4, 0.8,
-            ),
+            peak_color: SerializableColor::new(0.0, 0.9, 0.4, 0.8),
             peak_line_style: LineStyleValue::Solid,
             peak_line_width: 1.5,
             peak_extend: ExtendDirection::None,
             show_peak_label: false,
 
             show_developing_peak: false,
-            developing_peak_color: SerializableColor::new(
-                0.0, 0.9, 0.4, 0.5,
-            ),
+            developing_peak_color: SerializableColor::new(0.0, 0.9, 0.4, 0.5),
             developing_peak_line_width: 1.0,
             developing_peak_line_style: LineStyleValue::Dashed,
 
             show_lvn_zones: false,
-            lvn_zone_color: SerializableColor::new(
-                0.9, 0.2, 0.2, 0.5,
-            ),
+            lvn_zone_color: SerializableColor::new(0.9, 0.2, 0.2, 0.5),
             lvn_zone_opacity: 0.08,
 
             show_valley_line: false,
-            valley_color: SerializableColor::new(
-                0.9, 0.2, 0.2, 0.8,
-            ),
+            valley_color: SerializableColor::new(0.9, 0.2, 0.2, 0.8),
             valley_line_style: LineStyleValue::Solid,
             valley_line_width: 1.5,
             valley_extend: ExtendDirection::None,
             show_valley_label: false,
 
             show_developing_valley: false,
-            developing_valley_color: SerializableColor::new(
-                0.9, 0.2, 0.2, 0.5,
-            ),
+            developing_valley_color: SerializableColor::new(0.9, 0.2, 0.2, 0.5),
             developing_valley_line_width: 1.0,
             developing_valley_line_style: LineStyleValue::Dashed,
         }
@@ -325,17 +284,13 @@ impl Default for VbpVwapConfig {
     fn default() -> Self {
         Self {
             show_vwap: false,
-            vwap_color: SerializableColor::new(
-                1.0, 1.0, 1.0, 0.8,
-            ),
+            vwap_color: SerializableColor::new(1.0, 1.0, 1.0, 0.8),
             vwap_line_width: 1.5,
             vwap_line_style: LineStyleValue::Solid,
             show_vwap_label: false,
             show_bands: false,
             band_multiplier: 1.0,
-            band_color: SerializableColor::new(
-                1.0, 1.0, 1.0, 0.4,
-            ),
+            band_color: SerializableColor::new(1.0, 1.0, 1.0, 0.4),
             band_line_style: LineStyleValue::Dashed,
             band_line_width: 1.0,
         }

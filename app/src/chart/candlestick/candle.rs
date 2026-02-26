@@ -1,6 +1,6 @@
+use crate::screen::dashboard::pane::config::CandleStyle;
 use data::Candle;
-use data::state::pane::CandleStyle;
-use exchange::util::Price;
+use data::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Path, Stroke};
 use iced::{Color, Point, Size};

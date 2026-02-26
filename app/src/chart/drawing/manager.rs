@@ -5,13 +5,14 @@
 use super::drawing::Drawing;
 use super::point::DrawingPoint;
 use crate::chart::ViewState;
-use data::{
+use crate::drawing::{
     DrawingId, DrawingStyle, DrawingTool, LineStyle, PositionCalcConfig, SerializableDrawing,
     VbpDrawingConfig,
 };
-use exchange::util::Price as ExchangePrice;
+use data::Price as ExchangePrice;
 use iced::{Point, Size};
 use std::collections::{HashSet, VecDeque};
+use study::Study as _;
 
 /// Maximum number of undo operations to keep
 const MAX_UNDO_STACK: usize = 50;
@@ -24,7 +25,7 @@ enum DrawingOp {
     Modify {
         id: DrawingId,
         before: SerializableDrawing,
-        after: SerializableDrawing,
+        after: Box<SerializableDrawing>,
     },
 }
 
@@ -103,7 +104,7 @@ impl DrawingManager {
         // Collect VBP drawings that need initial computation
         let vbp_needs_compute: Vec<DrawingId> = drawings
             .iter()
-            .filter(|d| d.tool == DrawingTool::VolumeProfile)
+            .filter(|d| d.tool.is_vbp())
             .map(|d| d.id)
             .collect();
         Self {
@@ -183,20 +184,38 @@ impl DrawingManager {
                 stroke_color: data::SerializableColor::new(0.95, 0.55, 0.15, 0.8),
                 stroke_width: 1.0,
                 line_style: LineStyle::Solid,
-                fill_color: Some(data::SerializableColor::new(
-                    0.95, 0.55, 0.15, 0.15,
-                )),
+                fill_color: Some(data::SerializableColor::new(0.95, 0.55, 0.15, 0.15)),
                 fill_opacity: 0.15,
                 vbp_config: Some(VbpDrawingConfig::default()),
                 ..self.default_style.clone()
             },
+            DrawingTool::DeltaProfile => {
+                // Create a VBP study pre-configured for Delta mode
+                let mut study = study::studies::orderflow::VbpStudy::new();
+                let _ = study.set_parameter(
+                    "vbp_type",
+                    study::ParameterValue::Choice("Delta".into()),
+                );
+                let delta_config = VbpDrawingConfig {
+                    params: study.export_config(),
+                };
+                DrawingStyle {
+                    stroke_color: data::SerializableColor::new(0.95, 0.55, 0.15, 0.8),
+                    stroke_width: 1.0,
+                    line_style: LineStyle::Solid,
+                    fill_color: Some(data::SerializableColor::new(
+                        0.95, 0.55, 0.15, 0.15,
+                    )),
+                    fill_opacity: 0.15,
+                    vbp_config: Some(delta_config),
+                    ..self.default_style.clone()
+                }
+            }
             DrawingTool::AiContext => DrawingStyle {
                 stroke_color: data::SerializableColor::new(0.35, 0.55, 0.95, 0.7),
                 stroke_width: 1.0,
                 line_style: LineStyle::Dashed,
-                fill_color: Some(data::SerializableColor::new(
-                    0.35, 0.55, 0.95, 0.08,
-                )),
+                fill_color: Some(data::SerializableColor::new(0.35, 0.55, 0.95, 0.08)),
                 fill_opacity: 0.08,
                 ..self.default_style.clone()
             },
@@ -213,19 +232,17 @@ impl DrawingManager {
                     let target_price = drawing.points[1].price.units();
                     let delta = target_price - entry_price;
                     let stop_price = ExchangePrice::from_units(entry_price - delta);
-                    drawing.points.push(DrawingPoint::new(
-                        stop_price,
-                        drawing.points[1].time,
-                    ));
+                    drawing
+                        .points
+                        .push(DrawingPoint::new(stop_price, drawing.points[1].time));
                 }
             }
-            DrawingTool::VolumeProfile => {
+            DrawingTool::VolumeProfile | DrawingTool::DeltaProfile => {
                 if drawing.points.len() >= 2 {
                     let t1 = drawing.points[0].time;
                     let t2 = drawing.points[1].time;
                     let (start, end) = (t1.min(t2), t1.max(t2));
-                    let mut study =
-                        study::orderflow::VbpStudy::for_range(start, end);
+                    let mut study = study::studies::orderflow::VbpStudy::for_range(start, end);
                     if let Some(ref cfg) = drawing.style.vbp_config {
                         study.import_config(&cfg.params);
                     }
@@ -279,7 +296,7 @@ impl DrawingManager {
             if drawing.is_complete() {
                 Self::on_drawing_completed(&mut drawing);
                 let id = drawing.id;
-                let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
+                let is_vbp = drawing.tool.is_vbp();
                 self.push_undo(DrawingOp::Add(drawing.to_serializable()));
                 self.drawings.push(drawing);
                 if is_vbp {
@@ -457,12 +474,11 @@ impl DrawingManager {
             if drawing.locked {
                 return;
             }
-            let skip_price = drawing.tool == DrawingTool::VolumeProfile;
+            let skip_price = drawing.tool.is_vbp();
             for point in &mut drawing.points {
                 point.time = (point.time as i64 + delta_time).max(0) as u64;
                 if !skip_price {
-                    point.price =
-                        exchange::util::Price::from_units(point.price.units() + delta_price);
+                    point.price = data::Price::from_units(point.price.units() + delta_price);
                 }
             }
         }
@@ -487,18 +503,18 @@ impl DrawingManager {
     /// Call this after a drag operation completes (mouse release).
     /// Pushes the Modify operation onto the undo stack.
     pub fn finish_move_edit(&mut self) {
-        if let Some((id, before)) = self.move_edit_before.take() {
-            if let Some(drawing) = self.get(id) {
-                let after = drawing.to_serializable();
-                self.push_undo(DrawingOp::Modify { id, before, after });
-            }
+        if let Some((id, before)) = self.move_edit_before.take()
+            && let Some(drawing) = self.get(id)
+        {
+            let after = Box::new(drawing.to_serializable());
+            self.push_undo(DrawingOp::Modify { id, before, after });
         }
     }
 
     /// Record a property change for undo, bypassing the move_edit guard.
     pub fn record_property_change(&mut self, id: DrawingId, before: SerializableDrawing) {
         if let Some(drawing) = self.get(id) {
-            let after = drawing.to_serializable();
+            let after = Box::new(drawing.to_serializable());
             self.push_undo(DrawingOp::Modify { id, before, after });
         }
     }
@@ -538,7 +554,7 @@ impl DrawingManager {
     ) {
         if self
             .get(id)
-            .is_some_and(|d| d.tool == DrawingTool::VolumeProfile)
+            .is_some_and(|d| d.tool.is_vbp())
         {
             if let Some(drawing) = self.get_mut(id)
                 && handle_index < drawing.points.len()
@@ -558,9 +574,10 @@ impl DrawingManager {
         // Check if we were dragging a VBP drawing that needs recompute
         if let Some((id, _)) = &self.move_edit_before {
             let id = *id;
-            if self.get(id).is_some_and(|d| {
-                d.tool == DrawingTool::VolumeProfile
-            }) {
+            if self
+                .get(id)
+                .is_some_and(|d| d.tool.is_vbp())
+            {
                 self.queue_vbp_compute(id);
             }
         }
@@ -587,7 +604,7 @@ impl DrawingManager {
         self.vbp_needs_compute = self
             .drawings
             .iter()
-            .filter(|d| d.tool == DrawingTool::VolumeProfile)
+            .filter(|d| d.tool.is_vbp())
             .map(|d| d.id)
             .collect();
     }
@@ -613,7 +630,7 @@ impl DrawingManager {
                 }
                 DrawingOp::Remove(drawing) => {
                     let id = drawing.id;
-                    let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
+                    let is_vbp = drawing.tool.is_vbp();
                     self.drawings.push(Drawing::from(&drawing));
                     if is_vbp {
                         self.queue_vbp_compute(id);
@@ -621,10 +638,8 @@ impl DrawingManager {
                     self.redo_stack.push_back(op);
                 }
                 DrawingOp::Modify { id, before, .. } => {
-                    let is_vbp = before.tool == DrawingTool::VolumeProfile;
-                    if let Some(pos) =
-                        self.drawings.iter().position(|d| d.id == id)
-                    {
+                    let is_vbp = before.tool.is_vbp();
+                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
                         self.drawings[pos] = Drawing::from(&before);
                     }
                     if is_vbp {
@@ -645,7 +660,7 @@ impl DrawingManager {
             match op.clone() {
                 DrawingOp::Add(drawing) => {
                     let id = drawing.id;
-                    let is_vbp = drawing.tool == DrawingTool::VolumeProfile;
+                    let is_vbp = drawing.tool.is_vbp();
                     self.drawings.push(Drawing::from(&drawing));
                     if is_vbp {
                         self.queue_vbp_compute(id);
@@ -658,11 +673,9 @@ impl DrawingManager {
                     self.undo_stack.push_back(op);
                 }
                 DrawingOp::Modify { id, after, .. } => {
-                    let is_vbp = after.tool == DrawingTool::VolumeProfile;
-                    if let Some(pos) =
-                        self.drawings.iter().position(|d| d.id == id)
-                    {
-                        self.drawings[pos] = Drawing::from(&after);
+                    let is_vbp = after.tool.is_vbp();
+                    if let Some(pos) = self.drawings.iter().position(|d| d.id == id) {
+                        self.drawings[pos] = Drawing::from(after.as_ref());
                     }
                     if is_vbp {
                         self.queue_vbp_compute(id);
@@ -704,13 +717,9 @@ impl DrawingManager {
 
     /// Adjust a VBP drawing's Y bounds to match the high/low of candles
     /// within the selected time range.
-    pub fn fit_vbp_to_candle_range(
-        &mut self,
-        id: DrawingId,
-        candles: &[data::Candle],
-    ) {
+    pub fn fit_vbp_to_candle_range(&mut self, id: DrawingId, candles: &[data::Candle]) {
         let Some(d) = self.get_mut(id) else { return };
-        if d.tool != DrawingTool::VolumeProfile || d.points.len() < 2 {
+        if !d.tool.is_vbp() || d.points.len() < 2 {
             return;
         }
         let t1 = d.points[0].time;
@@ -739,8 +748,7 @@ impl DrawingManager {
                 .or_else(|| idx.checked_sub(1).and_then(|i| candles.get(i)))
                 .map(|c| ExchangePrice::from_units(c.open.units()))
         };
-        if let (Some(lo), Some(ro)) = (find_open_at(start), find_open_at(end))
-        {
+        if let (Some(lo), Some(ro)) = (find_open_at(start), find_open_at(end)) {
             d.vbp_edge_opens = Some((lo, ro));
         }
     }
@@ -784,9 +792,8 @@ impl DrawingManager {
             let dp = cursor.price.units() - placement.center_price;
             for (i, point) in placement.drawing.points.iter_mut().enumerate() {
                 point.time = (placement.original_points[i].time as i64 + dt).max(0) as u64;
-                point.price = exchange::util::Price::from_units(
-                    placement.original_points[i].price.units() + dp,
-                );
+                point.price =
+                    data::Price::from_units(placement.original_points[i].price.units() + dp);
             }
         }
     }

@@ -1,19 +1,15 @@
 //! Input row and settings panel for the AI assistant panel.
 
-use crate::components::primitives::{
-    Icon,
-    icon_button::icon_button,
-    tiny,
-};
+use crate::components::primitives::{Icon, icon_button::icon_button, tiny};
 use crate::screen::dashboard::pane::types::{
     self, AiAssistantEvent, AiAssistantState, Event, Message,
 };
 use crate::style::{self, palette, tokens};
+use iced::widget::pane_grid;
 use iced::{
     Alignment, Element, Length, Padding, Theme,
     widget::{column, container, row, text_input},
 };
-use iced::widget::pane_grid;
 
 // ── Settings panel ────────────────────────────────────────────────
 
@@ -21,10 +17,7 @@ pub fn view_settings_panel<'a>(
     state: &'a AiAssistantState,
     id: pane_grid::Pane,
 ) -> Element<'a, Message> {
-    let model_names: Vec<&'static str> = types::AI_MODELS
-        .iter()
-        .map(|m| m.display_name)
-        .collect();
+    let model_names: Vec<&'static str> = types::AI_MODELS.iter().map(|m| m.display_name).collect();
 
     let selected_name = types::model_display_name(&state.model);
     let model_picker = iced::widget::pick_list(
@@ -33,49 +26,39 @@ pub fn view_settings_panel<'a>(
         move |name: &'static str| {
             Message::PaneEvent(
                 id,
-                Event::AiAssistant(AiAssistantEvent::ModelChanged(
+                Box::new(Event::AiAssistant(AiAssistantEvent::ModelChanged(
                     types::model_id_from_name(name).to_string(),
-                )),
+                ))),
             )
         },
     );
 
     let temp_value = state.temperature;
-    let temp_slider = iced::widget::slider(
-        0.0..=1.0,
-        temp_value,
-        move |v: f32| {
-            let rounded = (v * 10.0).round() / 10.0;
-            Message::PaneEvent(
-                id,
-                Event::AiAssistant(
-                    AiAssistantEvent::TemperatureChanged(rounded),
-                ),
-            )
-        },
-    )
+    let temp_slider = iced::widget::slider(0.0..=1.0, temp_value, move |v: f32| {
+        let rounded = (v * 10.0).round() / 10.0;
+        Message::PaneEvent(
+            id,
+            Box::new(Event::AiAssistant(AiAssistantEvent::TemperatureChanged(
+                rounded,
+            ))),
+        )
+    })
     .step(0.1);
 
     const TOKEN_OPTIONS: &[u32] = &[1024, 2048, 4096, 8192];
     let selected_tokens = state.max_tokens;
-    let token_picker = iced::widget::pick_list(
-        TOKEN_OPTIONS,
-        Some(selected_tokens),
-        move |val: u32| {
+    let token_picker =
+        iced::widget::pick_list(TOKEN_OPTIONS, Some(selected_tokens), move |val: u32| {
             Message::PaneEvent(
                 id,
-                Event::AiAssistant(
-                    AiAssistantEvent::MaxTokensChanged(val),
-                ),
+                Box::new(Event::AiAssistant(AiAssistantEvent::MaxTokensChanged(val))),
             )
-        },
-    );
+        });
 
     column![
         tiny("Model").style(palette::neutral_text),
         model_picker,
-        tiny(format!("Temperature: {:.1}", state.temperature))
-            .style(palette::neutral_text),
+        tiny(format!("Temperature: {:.1}", state.temperature)).style(palette::neutral_text),
         temp_slider,
         tiny("Max Tokens").style(palette::neutral_text),
         token_picker,
@@ -91,8 +74,7 @@ pub fn view_input_row<'a>(
     id: pane_grid::Pane,
     is_linked: bool,
 ) -> Element<'a, Message> {
-    let can_send =
-        !state.input_text.trim().is_empty() && !state.is_streaming;
+    let can_send = !state.input_text.trim().is_empty() && !state.is_streaming;
     let is_streaming = state.is_streaming;
 
     const BTN_PADDING: f32 = 10.0;
@@ -105,7 +87,7 @@ pub fn view_input_row<'a>(
             .padding(BTN_PADDING)
             .on_press(Message::PaneEvent(
                 id,
-                Event::AiAssistant(AiAssistantEvent::StopStreaming),
+                Box::new(Event::AiAssistant(AiAssistantEvent::StopStreaming)),
             ))
             .into_element()
     } else {
@@ -123,7 +105,7 @@ pub fn view_input_row<'a>(
         if can_send {
             btn = btn.on_press(Message::PaneEvent(
                 id,
-                Event::AiAssistant(AiAssistantEvent::SendMessage),
+                Box::new(Event::AiAssistant(AiAssistantEvent::SendMessage)),
             ));
         }
         btn.into_element()
@@ -137,28 +119,25 @@ pub fn view_input_row<'a>(
         "Ask a question..."
     };
 
-    let input: Element<'a, Message> = text_input(
-        placeholder,
-        &state.input_text,
-    )
-    .on_input(move |s| {
-        Message::PaneEvent(
+    let input: Element<'a, Message> = text_input(placeholder, &state.input_text)
+        .on_input(move |s| {
+            Message::PaneEvent(
+                id,
+                Box::new(Event::AiAssistant(AiAssistantEvent::InputChanged(s))),
+            )
+        })
+        .on_submit(Message::PaneEvent(
             id,
-            Event::AiAssistant(AiAssistantEvent::InputChanged(s)),
-        )
-    })
-    .on_submit(Message::PaneEvent(
-        id,
-        Event::AiAssistant(AiAssistantEvent::SendMessage),
-    ))
-    .size(tokens::text::BODY)
-    .padding(Padding {
-        top:    BTN_PADDING,
-        bottom: BTN_PADDING,
-        left:   tokens::spacing::SM,
-        right:  tokens::spacing::SM,
-    })
-    .into();
+            Box::new(Event::AiAssistant(AiAssistantEvent::SendMessage)),
+        ))
+        .size(tokens::text::BODY)
+        .padding(Padding {
+            top: BTN_PADDING,
+            bottom: BTN_PADDING,
+            left: tokens::spacing::SM,
+            right: tokens::spacing::SM,
+        })
+        .into();
 
     container(
         row![input, action_btn]

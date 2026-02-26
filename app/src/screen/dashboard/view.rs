@@ -1,10 +1,10 @@
 use super::{Dashboard, Message, pane};
+use crate::config::UserTimezone;
 use crate::{
     style::{self, tokens},
-    infra::window::{self, Window},
+    window::{self, Window},
 };
-use data::UserTimezone;
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element, Length, Task,
     widget::{PaneGrid, center, container},

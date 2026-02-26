@@ -10,7 +10,7 @@ use crate::chart::core::tokens as chart_tokens;
 use crate::components::primitives::AZERET_MONO;
 use crate::style::tokens;
 use data::ChartBasis;
-use exchange::util::Price;
+use data::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, Text};
 use iced::{Alignment, Point, Size};
@@ -95,7 +95,11 @@ pub fn draw_ruler(
     frame.fill_rectangle(
         Point::new(rect_x, rect_y),
         Size::new(rect_w, rect_h),
-        palette.primary.base.color.scale_alpha(chart_tokens::ruler::FILL_ALPHA),
+        palette
+            .primary
+            .base
+            .color
+            .scale_alpha(chart_tokens::ruler::FILL_ALPHA),
     );
 
     // Find corner closest to cursor for text positioning

@@ -101,12 +101,8 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
 }
 
-pub fn exec_get_study_values(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
-    let count =
-        args["count"].as_u64().unwrap_or(10).min(50) as usize;
+pub fn exec_get_study_values(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+    let count = args["count"].as_u64().unwrap_or(10).min(50) as usize;
 
     if snap.study_snapshots.is_empty() {
         return ToolExecResult {
@@ -138,9 +134,7 @@ pub fn exec_get_study_values(
                         let start = n.saturating_sub(count);
                         let pts: Vec<Value> = points[start..]
                             .iter()
-                            .map(|(t, v)| {
-                                json!({"time": t, "value": v})
-                            })
+                            .map(|(t, v)| json!({"time": t, "value": v}))
                             .collect();
                         json!({ "label": label, "values": pts })
                     })
@@ -157,9 +151,7 @@ pub fn exec_get_study_values(
                         let start = n.saturating_sub(count);
                         let pts: Vec<Value> = points[start..]
                             .iter()
-                            .map(|(t, v)| {
-                                json!({"time": t, "value": v})
-                            })
+                            .map(|(t, v)| json!({"time": t, "value": v}))
                             .collect();
                         json!({ "label": label, "values": pts })
                     })
@@ -171,9 +163,7 @@ pub fn exec_get_study_values(
                 let lvls: Vec<Value> = s
                     .levels
                     .iter()
-                    .map(|(label, price)| {
-                        json!({"label": label, "price": price})
-                    })
+                    .map(|(label, price)| json!({"label": label, "price": price}))
                     .collect();
                 obj["levels"] = json!(lvls);
             }
@@ -187,8 +177,7 @@ pub fn exec_get_study_values(
         .iter()
         .map(|s| s.study_name.as_str())
         .collect();
-    let summary =
-        format!("{} studies: {}", studies.len(), names.join(", "));
+    let summary = format!("{} studies: {}", studies.len(), names.join(", "));
 
     ToolExecResult {
         content_json: json!({ "studies": studies }).to_string(),
@@ -197,12 +186,8 @@ pub fn exec_get_study_values(
     }
 }
 
-pub fn exec_get_big_trades(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
-    let count =
-        args["count"].as_u64().unwrap_or(50).min(200) as usize;
+pub fn exec_get_big_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+    let count = args["count"].as_u64().unwrap_or(50).min(200) as usize;
 
     if snap.big_trade_markers.is_empty() {
         return ToolExecResult {
@@ -222,7 +207,7 @@ pub fn exec_get_big_trades(
         .iter()
         .map(|m| {
             json!({
-                "time": m.time_secs,
+                "time": m.time,
                 "price": m.price,
                 "quantity": m.quantity,
                 "side": if m.is_buy { "buy" } else { "sell" },
@@ -237,10 +222,7 @@ pub fn exec_get_big_trades(
     }
 }
 
-pub fn exec_get_footprint(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_footprint(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     if snap.footprint_candles.is_empty() {
         return ToolExecResult {
             content_json: json!({
@@ -253,23 +235,22 @@ pub fn exec_get_footprint(
         };
     }
 
-    let count =
-        args["count"].as_u64().unwrap_or(20).min(50) as usize;
+    let count = args["count"].as_u64().unwrap_or(20).min(50) as usize;
     let (start_ms, end_ms) = parse_time_range(args);
 
     let filtered: Vec<_> = snap
         .footprint_candles
         .iter()
         .filter(|c| {
-            if let Some(s) = start_ms {
-                if c.time_secs < s / 1_000 {
-                    return false;
-                }
+            if let Some(s) = start_ms
+                && c.time_secs < s / 1_000
+            {
+                return false;
             }
-            if let Some(e) = end_ms {
-                if c.time_secs > e / 1_000 {
-                    return false;
-                }
+            if let Some(e) = end_ms
+                && c.time_secs > e / 1_000
+            {
+                return false;
             }
             true
         })
@@ -306,20 +287,13 @@ pub fn exec_get_footprint(
         .collect();
 
     ToolExecResult {
-        content_json: json!({ "footprint_candles": rows })
-            .to_string(),
-        display_summary: format!(
-            "{} footprint candles",
-            rows.len()
-        ),
+        content_json: json!({ "footprint_candles": rows }).to_string(),
+        display_summary: format!("{} footprint candles", rows.len()),
         is_error: false,
     }
 }
 
-pub fn exec_get_profile_data(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_profile_data(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     if snap.profile_snapshots.is_empty() {
         return ToolExecResult {
             content_json: json!({
@@ -332,8 +306,7 @@ pub fn exec_get_profile_data(
         };
     }
 
-    let max_levels =
-        args["max_levels"].as_u64().unwrap_or(50).min(200) as usize;
+    let max_levels = args["max_levels"].as_u64().unwrap_or(50).min(200) as usize;
 
     let profiles: Vec<Value> = snap
         .profile_snapshots
@@ -343,21 +316,15 @@ pub fn exec_get_profile_data(
             let mut sorted: Vec<_> = p
                 .levels
                 .iter()
-                .map(|l| {
-                    (l.price, l.buy_volume, l.sell_volume)
-                })
+                .map(|l| (l.price, l.buy_volume, l.sell_volume))
                 .collect();
             sorted.sort_by(|a, b| {
                 let va = a.1 + a.2;
                 let vb = b.1 + b.2;
-                vb.partial_cmp(&va)
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
             });
             sorted.truncate(max_levels);
-            sorted.sort_by(|a, b| {
-                a.0.partial_cmp(&b.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
             let levels: Vec<Value> = sorted
                 .iter()
@@ -387,10 +354,7 @@ pub fn exec_get_profile_data(
     let total_profiles = profiles.len();
     ToolExecResult {
         content_json: json!({ "profiles": profiles }).to_string(),
-        display_summary: format!(
-            "{} profile(s), {} levels",
-            total_profiles, max_levels
-        ),
+        display_summary: format!("{} profile(s), {} levels", total_profiles, max_levels),
         is_error: false,
     }
 }

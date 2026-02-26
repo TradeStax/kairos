@@ -1,6 +1,6 @@
 use super::{AxisLabel, LabelContent, calc_label_rect};
+use data::Price;
 use data::util::abbr_large_numbers;
-use exchange::util::Price;
 
 const MAX_ITERATIONS: usize = 1000;
 

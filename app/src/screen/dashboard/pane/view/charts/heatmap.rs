@@ -1,10 +1,12 @@
+use crate::config::UserTimezone;
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     chart,
     modals::{self, ModifierKind},
     screen::dashboard::pane::view::CompactControls,
 };
-use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{ChartBasis, Timeframe};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{Element, widget::column};
 use rustc_hash::FxHashMap;
 
@@ -47,17 +49,18 @@ impl State {
 
             extra.push(modifiers);
 
-            let base = chart::view(chart, timezone)
-                .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
+            let base = chart::view(chart, timezone).map(move |message| {
+                Message::PaneEvent(id, Box::new(Event::ChartInteraction(message)))
+            });
             let settings_modal = || {
                 // Convert chart::heatmap::VisualConfig to data::HeatmapConfig
                 let visual = chart.visual_config();
-                let cfg = data::state::pane::HeatmapConfig {
+                let cfg = crate::screen::dashboard::pane::config::HeatmapConfig {
                     trade_size_filter: visual.trade_size_filter,
                     order_size_filter: visual.order_size_filter,
                     trade_size_scale: visual.trade_size_scale,
                     coalescing: None,
-                    rendering_mode: data::state::pane::HeatmapRenderMode::Auto,
+                    rendering_mode: crate::screen::dashboard::pane::config::HeatmapRenderMode::Auto,
                     max_trade_markers: visual.max_trade_markers,
                     performance_preset: None,
                 };

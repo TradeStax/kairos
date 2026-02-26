@@ -1,8 +1,6 @@
-//! Primitive output types shared across multiple study categories.
+//! Primitive series types shared across study categories.
 //!
-//! Contains line series, bar series, histogram bars, and price
-//! level types used by trend, momentum, volatility, and volume
-//! studies.
+//! Line series, bar series, histogram bars, and horizontal price levels.
 
 use crate::config::LineStyleValue;
 use data::SerializableColor;
@@ -57,4 +55,8 @@ pub struct PriceLevel {
     pub fill_above: Option<(SerializableColor, f32)>,
     /// Fill color and opacity below this level
     pub fill_below: Option<(SerializableColor, f32)>,
+    /// Ray anchor X coordinate. When Some, level renders as a ray from
+    /// this point rightward. When None, renders as full-width line.
+    #[serde(default)]
+    pub start_x: Option<u64>,
 }

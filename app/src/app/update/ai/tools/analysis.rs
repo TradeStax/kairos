@@ -123,23 +123,16 @@ pub fn exec_get_drawings(snap: &ChartSnapshot) -> ToolExecResult {
     }
 }
 
-pub fn exec_get_session_stats(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
+pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     if snap.candles.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No candle data" })
-                .to_string(),
+            content_json: json!({ "error": "No candle data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
     }
 
-    let session = args["session"]
-        .as_str()
-        .unwrap_or("rth")
-        .to_lowercase();
+    let session = args["session"].as_str().unwrap_or("rth").to_lowercase();
 
     // RTH: 09:30-16:00 ET, ETH: 18:00-09:30 ET
     // We approximate ET as UTC-5 (EST). DST handling would require
@@ -151,16 +144,13 @@ pub fn exec_get_session_stats(
         .iter()
         .filter(|c| {
             let secs = (c.time.0 / 1_000) as i64;
-            let Some(dt) = chrono::DateTime::from_timestamp(secs, 0)
-            else {
+            let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) else {
                 return false;
             };
             let et = dt.with_timezone(&et_offset);
             let time = et.time();
-            let rth_start =
-                chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap();
-            let rth_end =
-                chrono::NaiveTime::from_hms_opt(16, 0, 0).unwrap();
+            let rth_start = chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap();
+            let rth_end = chrono::NaiveTime::from_hms_opt(16, 0, 0).unwrap();
 
             match session.as_str() {
                 "rth" => time >= rth_start && time < rth_end,
@@ -194,8 +184,7 @@ pub fn exec_get_session_stats(
         .iter()
         .map(|c| c.low.to_f64())
         .fold(f64::INFINITY, f64::min);
-    let total_volume: f64 =
-        filtered.iter().map(|c| c.volume() as f64).sum();
+    let total_volume: f64 = filtered.iter().map(|c| c.volume() as f64).sum();
     let total_delta: f64 = filtered
         .iter()
         .map(|c| c.buy_volume.0 - c.sell_volume.0)
@@ -207,8 +196,7 @@ pub fn exec_get_session_stats(
     let mut initial_balance = json!(null);
 
     if session == "rth" || session == "both" {
-        let first_time_secs =
-            filtered.first().unwrap().time.0 / 1_000;
+        let first_time_secs = filtered.first().unwrap().time.0 / 1_000;
         let or_end = first_time_secs + 30 * 60;
         let ib_end = first_time_secs + 60 * 60;
 
@@ -225,8 +213,7 @@ pub fn exec_get_session_stats(
                 .iter()
                 .map(|c| c.low.to_f64())
                 .fold(f64::INFINITY, f64::min);
-            opening_range =
-                json!({ "high": or_high, "low": or_low });
+            opening_range = json!({ "high": or_high, "low": or_low });
         }
 
         let ib_candles: Vec<_> = filtered
@@ -242,8 +229,7 @@ pub fn exec_get_session_stats(
                 .iter()
                 .map(|c| c.low.to_f64())
                 .fold(f64::INFINITY, f64::min);
-            initial_balance =
-                json!({ "high": ib_high, "low": ib_low });
+            initial_balance = json!({ "high": ib_high, "low": ib_low });
         }
     }
 
@@ -272,14 +258,8 @@ pub fn exec_get_session_stats(
     }
 }
 
-pub fn exec_identify_levels(
-    snap: &ChartSnapshot,
-    args: &Value,
-) -> ToolExecResult {
-    let method = args["method"]
-        .as_str()
-        .unwrap_or("all")
-        .to_lowercase();
+pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+    let method = args["method"].as_str().unwrap_or("all").to_lowercase();
     let lookback = args["lookback"]
         .as_u64()
         .map(|v| v as usize)
@@ -287,8 +267,7 @@ pub fn exec_identify_levels(
 
     if snap.candles.is_empty() {
         return ToolExecResult {
-            content_json: json!({ "error": "No candle data" })
-                .to_string(),
+            content_json: json!({ "error": "No candle data" }).to_string(),
             display_summary: "No data".to_string(),
             is_error: true,
         };
@@ -315,8 +294,7 @@ pub fn exec_identify_levels(
                     .all(|c| c.high.to_f64() <= candles[i].high.to_f64());
                 if is_high {
                     let price = candles[i].high.to_f64();
-                    let time =
-                        candles[i].time.0 / 1_000;
+                    let time = candles[i].time.0 / 1_000;
                     levels.push(json!({
                         "price": price,
                         "type": "swing_high",
@@ -331,8 +309,7 @@ pub fn exec_identify_levels(
                     .all(|c| c.low.to_f64() >= candles[i].low.to_f64());
                 if is_low {
                     let price = candles[i].low.to_f64();
-                    let time =
-                        candles[i].time.0 / 1_000;
+                    let time = candles[i].time.0 / 1_000;
                     levels.push(json!({
                         "price": price,
                         "type": "swing_low",
@@ -420,10 +397,8 @@ pub fn exec_identify_levels(
             (tick * 100.0).max(0.5)
         };
 
-        let start_level =
-            (data_low / step).floor() as i64 * step as i64;
-        let end_level =
-            (data_high / step).ceil() as i64 * step as i64;
+        let start_level = (data_low / step).floor() as i64 * step as i64;
+        let end_level = (data_high / step).ceil() as i64 * step as i64;
         let mut price = start_level as f64;
         while price <= end_level as f64 {
             if price >= data_low && price <= data_high {
@@ -444,8 +419,7 @@ pub fn exec_identify_levels(
         levels.sort_by(|a, b| {
             let pa = a["price"].as_f64().unwrap_or(0.0);
             let pb = b["price"].as_f64().unwrap_or(0.0);
-            pa.partial_cmp(&pb)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
         });
         levels.dedup_by(|a, b| {
             let pa = a["price"].as_f64().unwrap_or(0.0);
@@ -461,11 +435,7 @@ pub fn exec_identify_levels(
             "method": method,
         })
         .to_string(),
-        display_summary: format!(
-            "{} levels identified ({})",
-            levels.len(),
-            method
-        ),
+        display_summary: format!("{} levels identified ({})", levels.len(), method),
         is_error: false,
     }
 }

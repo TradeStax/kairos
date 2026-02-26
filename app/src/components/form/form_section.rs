@@ -51,8 +51,8 @@ impl<'a, Message: 'a> FormSectionBuilder<'a, Message> {
     pub fn into_element(self) -> Element<'a, Message> {
         let mut outer = column![].spacing(tokens::spacing::MD);
 
-        let mut header = SectionHeaderBuilder::new(self.title)
-            .with_divider(self.with_header_divider);
+        let mut header =
+            SectionHeaderBuilder::new(self.title).with_divider(self.with_header_divider);
 
         if let Some(trailing) = self.header_trailing {
             header = header.trailing(trailing);

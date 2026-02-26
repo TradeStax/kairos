@@ -1,19 +1,14 @@
 //! VBP annotation rendering: VA fills/lines, POC, zones, developing
 //! lines, VWAP, bounding rect, and price labels.
 
-use super::{
-    draw_horizontal_line, draw_label, draw_polyline,
-    extend_x_range, to_iced_color,
-};
-use crate::chart::study_renderer::coord;
+use super::{draw_horizontal_line, draw_label, draw_polyline, extend_x_range, to_iced_color};
 use crate::chart::ViewState;
-use exchange::util::Price;
+use crate::chart::study_renderer::coord;
+use data::Price;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::config::LineStyleValue;
-use study::output::{
-    ProfileLevel, ProfileOutput, ProfileRenderConfig,
-};
+use study::output::{ProfileLevel, ProfileOutput, ProfileRenderConfig};
 
 // ── VA fill rectangle ───────────────────────────────────────────────
 
@@ -37,10 +32,8 @@ pub(super) fn draw_va_fill(
         return;
     };
 
-    let y_vah = state
-        .price_to_y(Price::from_units(vah_level.price_units));
-    let y_val = state
-        .price_to_y(Price::from_units(val_level.price_units));
+    let y_vah = state.price_to_y(Price::from_units(vah_level.price_units));
+    let y_val = state.price_to_y(Price::from_units(val_level.price_units));
     let y_top = y_vah.min(y_val);
     let y_height = (y_vah - y_val).abs().max(1.0);
 
@@ -81,15 +74,11 @@ pub(super) fn draw_va_lines(
 
     // VAH line
     if let Some(level) = levels.get(vah_idx) {
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         draw_horizontal_line(
             frame,
             y,
-            to_iced_color(
-                config.va_config.vah_color,
-                1.0,
-            ),
+            to_iced_color(config.va_config.vah_color, 1.0),
             &config.va_config.vah_line_style,
             config.va_config.vah_line_width,
             &config.va_config.va_extend,
@@ -102,15 +91,11 @@ pub(super) fn draw_va_lines(
 
     // VAL line
     if let Some(level) = levels.get(val_idx) {
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         draw_horizontal_line(
             frame,
             y,
-            to_iced_color(
-                config.va_config.val_color,
-                1.0,
-            ),
+            to_iced_color(config.va_config.val_color, 1.0),
             &config.va_config.val_line_style,
             config.va_config.val_line_width,
             &config.va_config.va_extend,
@@ -162,20 +147,17 @@ pub(super) fn draw_developing_line(
     }
 
     let color = to_iced_color(color, 1.0);
-    let width =
-        coord::effective_line_width(line_width, state.scaling);
+    let width = coord::effective_line_width(line_width, state.scaling);
     let dash = coord::line_dash_for_style(line_style);
 
     let path = Path::new(|builder| {
         let x0 = state.interval_to_x(points[0].0);
-        let y0 =
-            state.price_to_y(Price::from_units(points[0].1));
+        let y0 = state.price_to_y(Price::from_units(points[0].1));
         builder.move_to(Point::new(x0, y0));
 
         for &(ts, price_units) in &points[1..] {
             let x = state.interval_to_x(ts);
-            let y =
-                state.price_to_y(Price::from_units(price_units));
+            let y = state.price_to_y(Price::from_units(price_units));
             builder.line_to(Point::new(x, y));
         }
     });
@@ -208,12 +190,8 @@ pub(super) fn draw_poc_enhanced(
     if let Some(poc_idx) = poc
         && let Some(level) = levels.get(poc_idx)
     {
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
-        let color = to_iced_color(
-            config.poc_config.poc_color,
-            1.0,
-        );
+        let y = state.price_to_y(Price::from_units(level.price_units));
+        let color = to_iced_color(config.poc_config.poc_color, 1.0);
         draw_horizontal_line(
             frame,
             y,
@@ -242,28 +220,19 @@ pub(super) fn draw_developing_poc(
         return;
     }
 
-    let color = to_iced_color(
-        config.poc_config.developing_poc_color,
-        1.0,
-    );
-    let width = coord::effective_line_width(
-        config.poc_config.developing_poc_line_width,
-        state.scaling,
-    );
-    let dash = coord::line_dash_for_style(
-        &config.poc_config.developing_poc_line_style,
-    );
+    let color = to_iced_color(config.poc_config.developing_poc_color, 1.0);
+    let width =
+        coord::effective_line_width(config.poc_config.developing_poc_line_width, state.scaling);
+    let dash = coord::line_dash_for_style(&config.poc_config.developing_poc_line_style);
 
     let path = Path::new(|builder| {
         let x0 = state.interval_to_x(points[0].0);
-        let y0 =
-            state.price_to_y(Price::from_units(points[0].1));
+        let y0 = state.price_to_y(Price::from_units(points[0].1));
         builder.move_to(Point::new(x0, y0));
 
         for &(ts, price_units) in &points[1..] {
             let x = state.interval_to_x(ts);
-            let y =
-                state.price_to_y(Price::from_units(price_units));
+            let y = state.price_to_y(Price::from_units(price_units));
             builder.line_to(Point::new(x, y));
         }
     });
@@ -296,14 +265,9 @@ pub(super) fn draw_vwap(
         && !output.vwap_upper_points.is_empty()
         && !output.vwap_lower_points.is_empty()
     {
-        let band_color =
-            to_iced_color(cfg.band_color, 1.0);
-        let band_width = coord::effective_line_width(
-            cfg.band_line_width,
-            state.scaling,
-        );
-        let band_dash =
-            coord::line_dash_for_style(&cfg.band_line_style);
+        let band_color = to_iced_color(cfg.band_color, 1.0);
+        let band_width = coord::effective_line_width(cfg.band_line_width, state.scaling);
+        let band_dash = coord::line_dash_for_style(&cfg.band_line_style);
 
         draw_polyline(
             frame,
@@ -324,14 +288,9 @@ pub(super) fn draw_vwap(
     }
 
     // VWAP line
-    let vwap_color =
-        to_iced_color(cfg.vwap_color, 1.0);
-    let vwap_width = coord::effective_line_width(
-        cfg.vwap_line_width,
-        state.scaling,
-    );
-    let vwap_dash =
-        coord::line_dash_for_style(&cfg.vwap_line_style);
+    let vwap_color = to_iced_color(cfg.vwap_color, 1.0);
+    let vwap_width = coord::effective_line_width(cfg.vwap_line_width, state.scaling);
+    let vwap_dash = coord::line_dash_for_style(&cfg.vwap_line_style);
 
     draw_polyline(
         frame,
@@ -358,10 +317,7 @@ pub(super) fn draw_bounding_rect(
     let height = (y_bottom - y_top).abs();
 
     if height > 0.0 && width > 0.0 {
-        let rect_path = Path::rectangle(
-            Point::new(left, top),
-            Size::new(width, height),
-        );
+        let rect_path = Path::rectangle(Point::new(left, top), Size::new(width, height));
         frame.stroke(
             &rect_path,
             Stroke::default()
@@ -395,109 +351,55 @@ pub(super) fn draw_price_labels(
     // POC label
     if config.poc_config.show_poc
         && config.poc_config.show_poc_label
+        && let Some(idx) = poc
+        && let Some(level) = levels.get(idx)
     {
-        if let Some(idx) = poc
-            && let Some(level) = levels.get(idx)
-        {
-            let y = state.price_to_y(Price::from_units(
-                level.price_units,
-            ));
-            let color = to_iced_color(
-                config.poc_config.poc_color,
-                1.0,
-            );
-            draw_label(
-                frame,
-                &format!("POC {:.2}", level.price),
-                label_x,
-                y,
-                color,
-            );
-        }
+        let y = state.price_to_y(Price::from_units(level.price_units));
+        let color = to_iced_color(config.poc_config.poc_color, 1.0);
+        draw_label(frame, &format!("POC {:.2}", level.price), label_x, y, color);
     }
 
     // VA labels
     if config.va_config.show_value_area
         && config.va_config.show_va_labels
+        && let Some((vah_idx, val_idx)) = value_area
     {
-        if let Some((vah_idx, val_idx)) = value_area {
-            if let Some(level) = levels.get(vah_idx) {
-                let y = state.price_to_y(
-                    Price::from_units(level.price_units),
-                );
-                let color = to_iced_color(
-                    config.va_config.vah_color,
-                    1.0,
-                );
-                draw_label(
-                    frame,
-                    &format!("VAH {:.2}", level.price),
-                    label_x,
-                    y,
-                    color,
-                );
-            }
-            if let Some(level) = levels.get(val_idx) {
-                let y = state.price_to_y(
-                    Price::from_units(level.price_units),
-                );
-                let color = to_iced_color(
-                    config.va_config.val_color,
-                    1.0,
-                );
-                draw_label(
-                    frame,
-                    &format!("VAL {:.2}", level.price),
-                    label_x,
-                    y,
-                    color,
-                );
-            }
+        if let Some(level) = levels.get(vah_idx) {
+            let y = state.price_to_y(Price::from_units(level.price_units));
+            let color = to_iced_color(config.va_config.vah_color, 1.0);
+            draw_label(frame, &format!("VAH {:.2}", level.price), label_x, y, color);
+        }
+        if let Some(level) = levels.get(val_idx) {
+            let y = state.price_to_y(Price::from_units(level.price_units));
+            let color = to_iced_color(config.va_config.val_color, 1.0);
+            draw_label(frame, &format!("VAL {:.2}", level.price), label_x, y, color);
         }
     }
 
     // Peak label
     if config.node_config.show_peak_line
         && config.node_config.show_peak_label
+        && let Some(ref node) = output.peak_node
     {
-        if let Some(ref node) = output.peak_node {
-            let y = state.price_to_y(Price::from_units(
-                node.price_units,
-            ));
-            let color = to_iced_color(
-                config.node_config.peak_color,
-                1.0,
-            );
-            draw_label(
-                frame,
-                &format!("Peak {:.2}", node.price),
-                label_x,
-                y,
-                color,
-            );
-        }
+        let y = state.price_to_y(Price::from_units(node.price_units));
+        let color = to_iced_color(config.node_config.peak_color, 1.0);
+        draw_label(frame, &format!("Peak {:.2}", node.price), label_x, y, color);
     }
 
     // Valley label
     if config.node_config.show_valley_line
         && config.node_config.show_valley_label
+        && let Some(ref node) = output.valley_node
     {
-        if let Some(ref node) = output.valley_node {
-            let y = state.price_to_y(Price::from_units(
-                node.price_units,
-            ));
-            let color = to_iced_color(
-                config.node_config.valley_color,
-                1.0,
-            );
-            draw_label(
-                frame,
-                &format!("Valley {:.2}", node.price),
-                label_x,
-                y,
-                color,
-            );
-        }
+        let y = state.price_to_y(Price::from_units(node.price_units));
+        let color = to_iced_color(config.node_config.valley_color, 1.0);
+        draw_label(
+            frame,
+            &format!("Valley {:.2}", node.price),
+            label_x,
+            y,
+            color,
+        );
     }
 
     // VWAP label
@@ -505,18 +407,8 @@ pub(super) fn draw_price_labels(
         && config.vwap_config.show_vwap_label
         && let Some(last) = output.vwap_points.last()
     {
-        let y =
-            state.price_to_y(Price::from_f32(last.1));
-        let color = to_iced_color(
-            config.vwap_config.vwap_color,
-            1.0,
-        );
-        draw_label(
-            frame,
-            &format!("VWAP {:.2}", last.1),
-            label_x,
-            y,
-            color,
-        );
+        let y = state.price_to_y(Price::from_f32(last.1));
+        let color = to_iced_color(config.vwap_config.vwap_color, 1.0);
+        draw_label(frame, &format!("VWAP {:.2}", last.1), label_x, y, color);
     }
 }

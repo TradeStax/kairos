@@ -11,5 +11,5 @@ pub(crate) mod ui;
 pub(crate) use connections::ConnectionState;
 pub(crate) use modals::ModalState;
 pub(crate) use persistence::PersistenceState;
-pub(crate) use services::ServiceState;
+pub(crate) use services::DataEngineState;
 pub(crate) use ui::UiState;

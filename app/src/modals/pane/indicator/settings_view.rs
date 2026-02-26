@@ -17,8 +17,7 @@ use crate::style::{self, tokens};
 use iced::{
     Alignment, Element, Length,
     widget::{
-        button, center, column, container, pick_list, row,
-        rule, scrollable,
+        button, center, column, container, pick_list, row, rule, scrollable,
         scrollable::{Direction, Scrollbar},
         space, text,
     },
@@ -31,36 +30,19 @@ impl IndicatorManagerModal {
 
     pub(super) fn view_right_panel(&self) -> Element<'_, Message> {
         match &self.selected {
-            None => {
-                center(
-                    EmptyStateBuilder::new(
-                        "Select an indicator to view settings",
-                    )
-                    .icon(Icon::Cog),
-                )
-                .into()
-            }
-            Some(SelectedIndicator::Study(id)) => {
-                self.view_study_settings(id)
-            }
+            None => center(
+                EmptyStateBuilder::new("Select an indicator to view settings").icon(Icon::Cog),
+            )
+            .into(),
+            Some(SelectedIndicator::Study(id)) => self.view_study_settings(id),
         }
     }
 
-    fn view_study_settings(
-        &self,
-        study_id: &str,
-    ) -> Element<'_, Message> {
-        let snapshot = self
-            .study_snapshots
-            .iter()
-            .find(|(id, _)| id == study_id);
+    fn view_study_settings(&self, study_id: &str) -> Element<'_, Message> {
+        let snapshot = self.study_snapshots.iter().find(|(id, _)| id == study_id);
 
         let Some((_, study)) = snapshot else {
-            return center(
-                EmptyStateBuilder::new("Study not found")
-                    .icon(Icon::Close),
-            )
-            .into();
+            return center(EmptyStateBuilder::new("Study not found").icon(Icon::Close)).into();
         };
 
         let placement = study.placement();
@@ -87,22 +69,20 @@ impl IndicatorManagerModal {
             .iter()
             .map(|tab| {
                 let label = tab_label_for(*tab, tab_labels);
-                (label.to_string(), Message::TabChanged(
-                    param_tab_to_settings_tab(*tab),
-                ))
+                (
+                    label.to_string(),
+                    Message::TabChanged(param_tab_to_settings_tab(*tab)),
+                )
             })
             .collect();
 
-        let current_param_tab =
-            settings_tab_to_param_tab(self.settings_tab);
+        let current_param_tab = settings_tab_to_param_tab(self.settings_tab);
         let selected_tab_idx = tabs
             .iter()
             .position(|t| *t == current_param_tab)
             .unwrap_or(0);
 
-        let tab_bar =
-            ButtonGroupBuilder::new(tab_items, selected_tab_idx)
-                .tab_style();
+        let tab_bar = ButtonGroupBuilder::new(tab_items, selected_tab_idx).tab_style();
 
         // Tab content — generic data-driven rendering
         let active_tab = tabs
@@ -110,8 +90,7 @@ impl IndicatorManagerModal {
             .copied()
             .unwrap_or(study::ParameterTab::Parameters);
 
-        let tab_content =
-            self.view_tab_content(study_id, params, config, active_tab);
+        let tab_content = self.view_tab_content(study_id, params, config, active_tab);
 
         column![
             header,
@@ -122,9 +101,7 @@ impl IndicatorManagerModal {
                 Direction::Vertical(
                     Scrollbar::new()
                         .width(tokens::layout::SCROLLBAR_WIDTH)
-                        .scroller_width(
-                            tokens::layout::SCROLLBAR_WIDTH,
-                        ),
+                        .scroller_width(tokens::layout::SCROLLBAR_WIDTH,),
                 ),
             )
             .style(style::scroll_bar)
@@ -159,13 +136,7 @@ impl IndicatorManagerModal {
                 text("No configurable parameters")
                     .size(tokens::text::BODY)
                     .style(|theme: &iced::Theme| text::Style {
-                        color: Some(
-                            theme
-                                .extended_palette()
-                                .background
-                                .weak
-                                .text,
-                        ),
+                        color: Some(theme.extended_palette().background.weak.text),
                     }),
             )
             .padding(tokens::spacing::LG)
@@ -175,13 +146,13 @@ impl IndicatorManagerModal {
         // Group parameters by section
         // Collect unique sections in definition order, preserving
         // the section's own `order` field for sorting.
-        let mut section_order: Vec<Option<&study::ParameterSection>> =
-            Vec::new();
+        let mut section_order: Vec<Option<&study::ParameterSection>> = Vec::new();
         for p in &visible {
             let key = p.section.as_ref().map(|s| s.label);
-            if !section_order.iter().any(|existing| {
-                existing.map(|s| s.label) == key
-            }) {
+            if !section_order
+                .iter()
+                .any(|existing| existing.map(|s| s.label) == key)
+            {
                 section_order.push(p.section.as_ref());
             }
         }
@@ -201,23 +172,18 @@ impl IndicatorManagerModal {
             // Collect params for this section, sorted by order
             let mut section_params: Vec<&study::ParameterDef> = visible
                 .iter()
-                .filter(|p| {
-                    p.section.as_ref().map(|s| s.label) == section_label
-                })
+                .filter(|p| p.section.as_ref().map(|s| s.label) == section_label)
                 .copied()
                 .collect();
             section_params.sort_by_key(|p| p.order);
 
             // Build form section
-            let title = section_label
-                .unwrap_or(tab_default_label(tab));
+            let title = section_label.unwrap_or(tab_default_label(tab));
 
-            let mut form = FormSectionBuilder::new(title)
-                .spacing(tokens::spacing::LG);
+            let mut form = FormSectionBuilder::new(title).spacing(tokens::spacing::LG);
 
             for param in section_params {
-                let widget =
-                    self.param_widget(study_id, param, config);
+                let widget = self.param_widget(study_id, param, config);
                 form = form.push(widget);
             }
 
@@ -256,22 +222,15 @@ impl IndicatorManagerModal {
                 let current_f = current as f32;
                 let fmt = param.format;
 
-                SliderFieldBuilder::new(
-                    &param.label,
-                    min_f..=max_f,
-                    current_f,
-                    {
-                        let sid = sid.clone();
-                        let key = key.clone();
-                        move |v| Message::ParameterChanged {
-                            study_id: sid.clone(),
-                            key: key.clone(),
-                            value: study::ParameterValue::Integer(
-                                v as i64,
-                            ),
-                        }
-                    },
-                )
+                SliderFieldBuilder::new(&param.label, min_f..=max_f, current_f, {
+                    let sid = sid.clone();
+                    let key = key.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: key.clone(),
+                        value: study::ParameterValue::Integer(v as i64),
+                    }
+                })
                 .step(1.0)
                 .format(move |v| format_integer(*v as i64, fmt))
                 .into()
@@ -290,22 +249,15 @@ impl IndicatorManagerModal {
                 let current_f = current as f32;
                 let fmt = param.format;
 
-                SliderFieldBuilder::new(
-                    &param.label,
-                    min_f..=max_f,
-                    current_f,
-                    {
-                        let sid = sid.clone();
-                        let key = key.clone();
-                        move |v| Message::ParameterChanged {
-                            study_id: sid.clone(),
-                            key: key.clone(),
-                            value: study::ParameterValue::Float(
-                                v as f64,
-                            ),
-                        }
-                    },
-                )
+                SliderFieldBuilder::new(&param.label, min_f..=max_f, current_f, {
+                    let sid = sid.clone();
+                    let key = key.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: key.clone(),
+                        value: study::ParameterValue::Float(v as f64),
+                    }
+                })
                 .step(step_f)
                 .format(move |v| format_float(*v, fmt))
                 .into()
@@ -315,36 +267,26 @@ impl IndicatorManagerModal {
                     &param.key,
                     match &param.default {
                         study::ParameterValue::Color(c) => *c,
-                        _ => data::SerializableColor::new(
-                            1.0, 1.0, 1.0, 1.0,
-                        ),
+                        _ => data::SerializableColor::new(1.0, 1.0, 1.0, 1.0),
                     },
                 );
-                let iced_color: iced::Color =
-                    crate::style::theme::rgba_to_iced_color(
-                        current,
-                    );
-                let is_editing = self.editing_color_key.as_deref()
-                    == Some(param.key.as_str());
+                let iced_color: iced::Color = crate::style::theme::rgba_to_iced_color(current);
+                let is_editing = self.editing_color_key.as_deref() == Some(param.key.as_str());
 
-                let swatch = button(
-                    space::horizontal().width(22).height(22),
-                )
-                .style(move |_theme, _status| button::Style {
-                    background: Some(iced_color.into()),
-                    border: iced::border::rounded(3)
-                        .width(if is_editing { 2.0 } else { 1.0 })
-                        .color(if is_editing {
-                            iced::Color::WHITE
-                        } else {
-                            iced::Color::from_rgba(
-                                1.0, 1.0, 1.0, 0.3,
-                            )
-                        }),
-                    ..button::Style::default()
-                })
-                .padding(0)
-                .on_press(Message::EditColor(key.clone()));
+                let swatch = button(space::horizontal().width(22).height(22))
+                    .style(move |_theme, _status| button::Style {
+                        background: Some(iced_color.into()),
+                        border: iced::border::rounded(3)
+                            .width(if is_editing { 2.0 } else { 1.0 })
+                            .color(if is_editing {
+                                iced::Color::WHITE
+                            } else {
+                                iced::Color::from_rgba(1.0, 1.0, 1.0, 0.3)
+                            }),
+                        ..button::Style::default()
+                    })
+                    .padding(0)
+                    .on_press(Message::EditColor(key.clone()));
 
                 let mut col = column![
                     row![
@@ -358,22 +300,15 @@ impl IndicatorManagerModal {
                 .spacing(tokens::spacing::SM);
 
                 if is_editing {
-                    let hsva =
-                        self.editing_color_hsva.unwrap_or_else(|| {
-                            data::config::theme::rgba_to_hsva(
-                                crate::style::theme::iced_color_to_rgba(
-                                    iced_color,
-                                ),
-                            )
-                        });
-                    col = col.push(
-                        container(color_picker(
-                            hsva,
-                            Message::ColorChanged,
-                            180.0,
+                    let hsva = self.editing_color_hsva.unwrap_or_else(|| {
+                        crate::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(
+                            iced_color,
                         ))
-                        .padding(tokens::spacing::SM)
-                        .style(style::dropdown_container),
+                    });
+                    col = col.push(
+                        container(color_picker(hsva, Message::ColorChanged, 180.0))
+                            .padding(tokens::spacing::SM)
+                            .style(style::dropdown_container),
                     );
                 }
 
@@ -388,40 +323,29 @@ impl IndicatorManagerModal {
                     },
                 );
 
-                crate::components::input::toggle_switch::toggle_switch(
-                    &param.label,
-                    current,
-                    {
-                        let sid = sid.clone();
-                        let key = key.clone();
-                        move |v| Message::ParameterChanged {
-                            study_id: sid.clone(),
-                            key: key.clone(),
-                            value: study::ParameterValue::Boolean(v),
-                        }
-                    },
-                )
-                .into()
+                crate::components::input::toggle_switch::toggle_switch(&param.label, current, {
+                    let sid = sid.clone();
+                    let key = key.clone();
+                    move |v| Message::ParameterChanged {
+                        study_id: sid.clone(),
+                        key: key.clone(),
+                        value: study::ParameterValue::Boolean(v),
+                    }
+                })
             }
             study::ParameterKind::Choice { options } => {
                 let current = config
                     .get_choice(
                         &param.key,
                         match &param.default {
-                            study::ParameterValue::Choice(s) => {
-                                s.as_str()
-                            }
+                            study::ParameterValue::Choice(s) => s.as_str(),
                             _ => options.first().unwrap_or(&""),
                         },
                     )
                     .to_string();
 
-                let options_vec: Vec<String> =
-                    options.iter().map(|s| s.to_string()).collect();
-                let selected = options_vec
-                    .iter()
-                    .find(|o| **o == current)
-                    .cloned();
+                let options_vec: Vec<String> = options.iter().map(|s| s.to_string()).collect();
+                let selected = options_vec.iter().find(|o| **o == current).cloned();
 
                 row![
                     text(&param.label).size(tokens::text::BODY),
@@ -429,13 +353,10 @@ impl IndicatorManagerModal {
                     pick_list(options_vec, selected, {
                         let sid = sid.clone();
                         let key = key.clone();
-                        move |v: String| {
-                            Message::ParameterChanged {
-                                study_id: sid.clone(),
-                                key: key.clone(),
-                                value:
-                                    study::ParameterValue::Choice(v),
-                            }
+                        move |v: String| Message::ParameterChanged {
+                            study_id: sid.clone(),
+                            key: key.clone(),
+                            value: study::ParameterValue::Choice(v),
                         }
                     })
                     .width(140),
@@ -468,8 +389,7 @@ impl IndicatorManagerModal {
                         move |v| Message::ParameterChanged {
                             study_id: sid.clone(),
                             key: key.clone(),
-                            value:
-                                study::ParameterValue::LineStyle(v),
+                            value: study::ParameterValue::LineStyle(v),
                         }
                     })
                     .width(120),
@@ -486,9 +406,7 @@ impl IndicatorManagerModal {
 
 /// Discover which tabs are present, deduplicating and preserving the
 /// order from parameter definitions.
-fn discover_tabs(
-    params: &[study::ParameterDef],
-) -> Vec<study::ParameterTab> {
+fn discover_tabs(params: &[study::ParameterDef]) -> Vec<study::ParameterTab> {
     let mut tabs: Vec<study::ParameterTab> = Vec::new();
     for p in params {
         if !tabs.contains(&p.tab) {
@@ -528,9 +446,7 @@ fn tab_default_label(tab: study::ParameterTab) -> &'static str {
 }
 
 /// Convert `ParameterTab` to `SettingsTab`.
-fn param_tab_to_settings_tab(
-    tab: study::ParameterTab,
-) -> SettingsTab {
+fn param_tab_to_settings_tab(tab: study::ParameterTab) -> SettingsTab {
     match tab {
         study::ParameterTab::Parameters => SettingsTab::Parameters,
         study::ParameterTab::Style => SettingsTab::Style,
@@ -543,9 +459,7 @@ fn param_tab_to_settings_tab(
 }
 
 /// Convert `SettingsTab` to `ParameterTab`.
-fn settings_tab_to_param_tab(
-    tab: SettingsTab,
-) -> study::ParameterTab {
+fn settings_tab_to_param_tab(tab: SettingsTab) -> study::ParameterTab {
     match tab {
         SettingsTab::Parameters => study::ParameterTab::Parameters,
         SettingsTab::Style => study::ParameterTab::Style,

@@ -6,20 +6,25 @@
 
 use crate::components;
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
-use crate::components::primitives::label::{body, small};
+use crate::components::primitives::label::small;
 use crate::style;
-use crate::style::tokens;
 use crate::style::palette;
-use data::feed::{DataFeed, DataFeedManager, FeedId, FeedStatus};
+use crate::style::tokens;
+use data::{Connection, ConnectionManager, ConnectionStatus, FeedId};
 
-/// Maps a feed connection status to a display color.
-fn feed_status_color(theme: &iced::Theme, status: &FeedStatus) -> iced::Color {
+/// Maps a connection status to a display color.
+fn feed_status_color(theme: &iced::Theme, status: &ConnectionStatus) -> iced::Color {
     match status {
-        FeedStatus::Connected => palette::success_color(theme),
-        FeedStatus::Connecting => theme.extended_palette().warning.strong.color,
-        FeedStatus::Downloading { .. } => palette::info_color(theme),
-        FeedStatus::Error(_) => palette::error_color(theme),
-        FeedStatus::Disconnected => palette::neutral_color(theme),
+        ConnectionStatus::Connected | ConnectionStatus::Streaming { .. } => {
+            palette::success_color(theme)
+        }
+        ConnectionStatus::Connecting => theme.extended_palette().warning.strong.color,
+        ConnectionStatus::Downloading { .. } | ConnectionStatus::Loading { .. } => {
+            palette::info_color(theme)
+        }
+        ConnectionStatus::Reconnecting { .. } => theme.extended_palette().warning.strong.color,
+        ConnectionStatus::Error(_) => palette::error_color(theme),
+        ConnectionStatus::Disconnected => palette::neutral_color(theme),
     }
 }
 use iced::{
@@ -46,17 +51,17 @@ pub enum Action {
 
 /// Snapshot-based view of connections for the sidebar popover
 pub struct ConnectionsMenu {
-    feeds_snapshot: DataFeedManager,
+    feeds_snapshot: ConnectionManager,
 }
 
 impl ConnectionsMenu {
     pub fn new() -> Self {
         Self {
-            feeds_snapshot: DataFeedManager::default(),
+            feeds_snapshot: ConnectionManager::default(),
         }
     }
 
-    pub fn sync_snapshot(&mut self, manager: &DataFeedManager) {
+    pub fn sync_snapshot(&mut self, manager: &ConnectionManager) {
         self.feeds_snapshot = manager.clone();
     }
 
@@ -81,7 +86,7 @@ impl ConnectionsMenu {
             .on_close(ConnectionsMenuMessage::Close);
 
         // Sort: connected feeds first, then by priority
-        let mut display_feeds: Vec<&DataFeed> = feeds.feeds().iter().collect();
+        let mut display_feeds: Vec<&Connection> = feeds.connections().iter().collect();
         display_feeds.sort_by(|a, b| {
             let a_connected = a.status.is_connected() as u8;
             let b_connected = b.status.is_connected() as u8;
@@ -94,7 +99,17 @@ impl ConnectionsMenu {
         let mut feed_list = column![].spacing(tokens::spacing::XS);
 
         if display_feeds.is_empty() {
-            feed_list = feed_list.push(body("No feeds configured"));
+            feed_list = feed_list.push(
+                container(
+                    text("No feeds configured")
+                        .size(tokens::text::BODY)
+                        .style(palette::neutral_text)
+                        .align_x(Alignment::Center),
+                )
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
+                .padding([tokens::spacing::LG, 0.0]),
+            );
         } else {
             for feed in &display_feeds {
                 feed_list = feed_list.push(self.view_connection_row(feed));
@@ -108,7 +123,8 @@ impl ConnectionsMenu {
         )
         .width(Length::Fill)
         .on_press(ConnectionsMenuMessage::OpenManageDialog)
-        .padding([tokens::spacing::XS, tokens::spacing::MD]);
+        .padding([tokens::spacing::SM, tokens::spacing::LG])
+        .style(style::button::secondary);
 
         // No outer padding — the ModalHeaderBuilder has its own left padding so
         // the header sits flush at the top without dead space above it.
@@ -126,20 +142,20 @@ impl ConnectionsMenu {
         .spacing(0);
 
         container(content)
-            .max_width(tokens::layout::MODAL_WIDTH_SM)
+            .max_width(260.0)
             .style(style::dashboard_modal)
             .into()
     }
 
-    fn view_connection_row<'a>(&self, feed: &'a DataFeed) -> Element<'a, ConnectionsMenuMessage> {
+    fn view_connection_row<'a>(&self, feed: &'a Connection) -> Element<'a, ConnectionsMenuMessage> {
         let feed_status = feed.status.clone();
-        let status_dot = components::display::status_dot_themed(
-            move |theme| feed_status_color(theme, &feed_status),
-        );
+        let status_dot = components::display::status_dot_themed(move |theme| {
+            feed_status_color(theme, &feed_status)
+        });
 
         let feed_id = feed.id;
         let is_connected = feed.status.is_connected();
-        let is_connecting = matches!(feed.status, FeedStatus::Connecting);
+        let is_connecting = matches!(feed.status, ConnectionStatus::Connecting);
 
         let provider_label = text(feed.provider.display_name())
             .size(tokens::text::TINY)

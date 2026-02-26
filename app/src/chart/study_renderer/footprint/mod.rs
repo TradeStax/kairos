@@ -11,21 +11,20 @@ mod scale;
 use crate::chart::ViewState;
 use crate::chart::perf::LodCalculator;
 use data::ChartBasis;
+use iced::Size;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::Frame;
-use iced::Size;
 use study::output::{
-    FootprintCandlePosition, FootprintData, FootprintDataType,
-    FootprintGroupingMode, FootprintLevel, TextFormat,
+    FootprintCandlePosition, FootprintData, FootprintDataType, FootprintGroupingMode,
+    FootprintLevel, TextFormat,
 };
 
 use cell::draw_footprint_candle_clusters;
 use scale::{
-    calc_visible_max, compute_dynamic_quantum,
-    effective_cluster_qty, merge_levels_to_quantum,
+    calc_visible_max, compute_dynamic_quantum, effective_cluster_qty, merge_levels_to_quantum,
 };
 
-use exchange::util::Price;
+use data::Price;
 
 /// Ratio of cell width occupied by cluster bars
 const BAR_WIDTH_FACTOR: f32 = 0.9;
@@ -117,27 +116,20 @@ impl ProfileArea {
                 bars_width: (content_right - content_left).max(0.0),
                 candle_center_x: 0.0,
             },
-            FootprintCandlePosition::Left
-            | FootprintCandlePosition::Center => {
-                let bars_left = content_left
-                    + candle_lane_width
-                    + gaps.candle_to_cluster;
+            FootprintCandlePosition::Left | FootprintCandlePosition::Center => {
+                let bars_left = content_left + candle_lane_width + gaps.candle_to_cluster;
                 Self {
                     bars_left,
                     bars_width: (content_right - bars_left).max(0.0),
-                    candle_center_x: content_left
-                        + (candle_lane_width / 2.0),
+                    candle_center_x: content_left + (candle_lane_width / 2.0),
                 }
             }
             FootprintCandlePosition::Right => {
-                let bars_right = content_right
-                    - candle_lane_width
-                    - gaps.candle_to_cluster;
+                let bars_right = content_right - candle_lane_width - gaps.candle_to_cluster;
                 Self {
                     bars_left: content_left,
                     bars_width: (bars_right - content_left).max(0.0),
-                    candle_center_x: content_right
-                        - (candle_lane_width / 2.0),
+                    candle_center_x: content_right - (candle_lane_width / 2.0),
                 }
             }
         }
@@ -175,10 +167,8 @@ impl BidAskArea {
         let candle_body_width = candle_width * bar_marker_width;
         let candle_left = x_position - (candle_body_width / 2.0);
         let candle_right = x_position + (candle_body_width / 2.0);
-        let ask_area_right =
-            candle_left - spacing.candle_to_cluster;
-        let bid_area_left =
-            candle_right + spacing.candle_to_cluster;
+        let ask_area_right = candle_left - spacing.candle_to_cluster;
+        let bid_area_left = candle_right + spacing.candle_to_cluster;
 
         Self {
             bid_area_left,
@@ -205,17 +195,13 @@ pub fn render_footprint(
     let region = state.visible_region(bounds);
     let (earliest, latest) = state.interval_range(&region);
 
-    let price_to_y = |price_units: i64| -> f32 {
-        state.price_to_y(Price::from_units(price_units))
-    };
+    let price_to_y = |price_units: i64| -> f32 { state.price_to_y(Price::from_units(price_units)) };
 
     // Calculate LOD for text visibility
     let visible_candle_count = match &state.basis {
         ChartBasis::Time(_) => {
-            let first =
-                data.candles.partition_point(|c| c.x < earliest);
-            let last =
-                data.candles.partition_point(|c| c.x <= latest);
+            let first = data.candles.partition_point(|c| c.x < earliest);
+            let last = data.candles.partition_point(|c| c.x <= latest);
             last.saturating_sub(first)
         }
         ChartBasis::Tick(_) => {
@@ -236,18 +222,15 @@ pub fn render_footprint(
     let candle_width = FOOTPRINT_CANDLE_WIDTH_RATIO * state.cell_width;
     let cell_width_unscaled = state.cell_width * state.scaling;
 
-    let content_spacing =
-        ContentGaps::from_view(candle_width, state.scaling);
+    let content_spacing = ContentGaps::from_view(candle_width, state.scaling);
 
     let min_text_w = match data.data_type {
         FootprintDataType::Volume | FootprintDataType::Delta => 80.0,
-        FootprintDataType::BidAskSplit
-        | FootprintDataType::DeltaAndVolume => 120.0,
+        FootprintDataType::BidAskSplit | FootprintDataType::DeltaAndVolume => 120.0,
     };
 
     // Width-based text limit (viewport-level, doesn't change per candle)
-    let from_w = (cell_width_unscaled
-        * FOOTPRINT_CANDLE_WIDTH_RATIO)
+    let from_w = (cell_width_unscaled * FOOTPRINT_CANDLE_WIDTH_RATIO)
         .round()
         .min(MAX_TEXT_SIZE)
         - TEXT_SIZE_PADDING;
@@ -263,55 +246,37 @@ pub fn render_footprint(
     };
 
     // Calculate max cluster qty for visible candles
-    let max_cluster_qty = calc_visible_max(
-        data,
-        earliest,
-        latest,
-        &state.basis,
-        dynamic_quantum,
-    );
+    let max_cluster_qty = calc_visible_max(data, earliest, latest, &state.basis, dynamic_quantum);
 
     let max_bars = data.max_bars_to_show;
     let mut rendered_count: usize = 0;
 
     // Per-candle helper: compute row_height + text/style params
-    let compute_render_params =
-        |levels: &[FootprintLevel], quantum: i64| {
-            let quantum_ticks =
-                (quantum / tick_units).max(1);
-            let fallback_row_height =
-                state.cell_height * quantum_ticks as f32;
-            let row_height = compute_row_height(
-                levels,
-                &price_to_y,
-                fallback_row_height,
-            );
-            let row_height_screen = row_height * state.scaling;
+    let compute_render_params = |levels: &[FootprintLevel], quantum: i64| {
+        let quantum_ticks = (quantum / tick_units).max(1);
+        let fallback_row_height = state.cell_height * quantum_ticks as f32;
+        let row_height = compute_row_height(levels, &price_to_y, fallback_row_height);
+        let row_height_screen = row_height * state.scaling;
 
-            let text_size = if data.dynamic_text_size {
-                let from_h = row_height_screen
-                    .round()
-                    .min(MAX_TEXT_SIZE)
-                    - TEXT_SIZE_PADDING;
-                from_h.min(from_w)
-            } else {
-                data.font_size
-            };
-
-            let show_text = lod_text_ok
-                && row_height_screen > 8.0
-                && cell_width_unscaled > min_text_w;
-
-            let cluster_style = ClusterStyle {
-                palette,
-                text_size,
-                show_text,
-                text_format: data.text_format,
-                show_zero_values: data.show_zero_values,
-            };
-
-            (row_height, cluster_style)
+        let text_size = if data.dynamic_text_size {
+            let from_h = row_height_screen.round().min(MAX_TEXT_SIZE) - TEXT_SIZE_PADDING;
+            from_h.min(from_w)
+        } else {
+            data.font_size
         };
+
+        let show_text = lod_text_ok && row_height_screen > 8.0 && cell_width_unscaled > min_text_w;
+
+        let cluster_style = ClusterStyle {
+            palette,
+            text_size,
+            show_text,
+            text_format: data.text_format,
+            show_zero_values: data.show_zero_values,
+        };
+
+        (row_height, cluster_style)
+    };
 
     // Iterate visible candles
     match &state.basis {
@@ -320,45 +285,28 @@ pub fn render_footprint(
             let earliest_idx = earliest as usize;
             let latest_idx = latest as usize;
 
-            for (rev_idx, fp_candle) in
-                data.candles.iter().rev().enumerate()
-            {
+            for (rev_idx, fp_candle) in data.candles.iter().rev().enumerate() {
                 if rev_idx < earliest_idx || rev_idx > latest_idx {
                     continue;
                 }
-                let x_position =
-                    state.interval_to_x(rev_idx as u64);
+                let x_position = state.interval_to_x(rev_idx as u64);
                 let _candle_idx = candle_count - 1 - rev_idx;
 
                 // Merge levels for automatic mode
                 let merged_buf;
-                let (levels, poc_index) = match dynamic_quantum
-                {
+                let (levels, poc_index) = match dynamic_quantum {
                     Some(q) if q > fp_candle.quantum => {
-                        merged_buf =
-                            merge_levels_to_quantum(
-                                &fp_candle.levels,
-                                q,
-                            );
+                        merged_buf = merge_levels_to_quantum(&fp_candle.levels, q);
                         (&merged_buf.0[..], merged_buf.1)
                     }
-                    _ => (
-                        &fp_candle.levels[..],
-                        fp_candle.poc_index,
-                    ),
+                    _ => (&fp_candle.levels[..], fp_candle.poc_index),
                 };
-                let eff_quantum =
-                    dynamic_quantum.unwrap_or(fp_candle.quantum);
+                let eff_quantum = dynamic_quantum.unwrap_or(fp_candle.quantum);
 
-                let eff_max = effective_cluster_qty(
-                    data.scaling,
-                    max_cluster_qty,
-                    levels,
-                    data.data_type,
-                );
+                let eff_max =
+                    effective_cluster_qty(data.scaling, max_cluster_qty, levels, data.data_type);
 
-                let (row_height, cluster_style) =
-                    compute_render_params(levels, eff_quantum);
+                let (row_height, cluster_style) = compute_render_params(levels, eff_quantum);
 
                 let layout = ClusterLayout {
                     x_position,
@@ -395,38 +343,23 @@ pub fn render_footprint(
                 if fp_candle.x < earliest || fp_candle.x > latest {
                     continue;
                 }
-                let x_position =
-                    state.interval_to_x(fp_candle.x);
+                let x_position = state.interval_to_x(fp_candle.x);
 
                 // Merge levels for automatic mode
                 let merged_buf;
-                let (levels, poc_index) = match dynamic_quantum
-                {
+                let (levels, poc_index) = match dynamic_quantum {
                     Some(q) if q > fp_candle.quantum => {
-                        merged_buf =
-                            merge_levels_to_quantum(
-                                &fp_candle.levels,
-                                q,
-                            );
+                        merged_buf = merge_levels_to_quantum(&fp_candle.levels, q);
                         (&merged_buf.0[..], merged_buf.1)
                     }
-                    _ => (
-                        &fp_candle.levels[..],
-                        fp_candle.poc_index,
-                    ),
+                    _ => (&fp_candle.levels[..], fp_candle.poc_index),
                 };
-                let eff_quantum =
-                    dynamic_quantum.unwrap_or(fp_candle.quantum);
+                let eff_quantum = dynamic_quantum.unwrap_or(fp_candle.quantum);
 
-                let eff_max = effective_cluster_qty(
-                    data.scaling,
-                    max_cluster_qty,
-                    levels,
-                    data.data_type,
-                );
+                let eff_max =
+                    effective_cluster_qty(data.scaling, max_cluster_qty, levels, data.data_type);
 
-                let (row_height, cluster_style) =
-                    compute_render_params(levels, eff_quantum);
+                let (row_height, cluster_style) = compute_render_params(levels, eff_quantum);
 
                 let layout = ClusterLayout {
                     x_position,

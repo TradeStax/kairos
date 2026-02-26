@@ -2,7 +2,7 @@
 
 use super::{draw_bar_left, draw_bar_right, to_iced_color};
 use crate::chart::ViewState;
-use exchange::util::Price;
+use data::Price;
 use iced::widget::canvas::Frame;
 use iced::{Point, Size};
 use study::output::{ProfileLevel, ProfileRenderConfig};
@@ -53,21 +53,11 @@ pub(super) fn draw_volume(
         if total <= 0.0 {
             continue;
         }
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         let bar_len = (total / max_vol) * max_bar_length;
-        let factor = va_factor(
-            idx,
-            value_area,
-            config.va_config.show_va_highlight,
-        );
-        let color = to_iced_color(
-            config.volume_color,
-            config.opacity * factor,
-        );
-        draw_bar_right(
-            frame, anchor_x, y, bar_height, bar_len, color,
-        );
+        let factor = va_factor(idx, value_area, config.va_config.show_va_highlight);
+        let color = to_iced_color(config.volume_color, config.opacity * factor);
+        draw_bar_right(frame, anchor_x, y, bar_height, bar_len, color);
     }
 }
 
@@ -97,24 +87,13 @@ pub(super) fn draw_bid_ask(
         if total <= 0.0 {
             continue;
         }
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         let bar_len = (total / max_vol) * max_bar_length;
         let sell_len = (level.sell_volume / total) * bar_len;
         let buy_len = (level.buy_volume / total) * bar_len;
-        let factor = va_factor(
-            idx,
-            value_area,
-            config.va_config.show_va_highlight,
-        );
-        let sell_color = to_iced_color(
-            config.ask_color,
-            config.opacity * factor,
-        );
-        let buy_color = to_iced_color(
-            config.bid_color,
-            config.opacity * factor,
-        );
+        let factor = va_factor(idx, value_area, config.va_config.show_va_highlight);
+        let sell_color = to_iced_color(config.ask_color, config.opacity * factor);
+        let buy_color = to_iced_color(config.bid_color, config.opacity * factor);
         let top = y - bar_height / 2.0;
         if sell_len > 0.0 {
             frame.fill_rectangle(
@@ -159,29 +138,15 @@ pub(super) fn draw_delta(
         if delta.abs() < f32::EPSILON {
             continue;
         }
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
-        let bar_len =
-            (delta.abs() / max_abs_delta) * max_bar_length;
-        let factor = va_factor(
-            idx,
-            value_area,
-            config.va_config.show_va_highlight,
-        );
+        let y = state.price_to_y(Price::from_units(level.price_units));
+        let bar_len = (delta.abs() / max_abs_delta) * max_bar_length;
+        let factor = va_factor(idx, value_area, config.va_config.show_va_highlight);
         let color = if delta > 0.0 {
-            to_iced_color(
-                config.bid_color,
-                config.opacity * factor,
-            )
+            to_iced_color(config.bid_color, config.opacity * factor)
         } else {
-            to_iced_color(
-                config.ask_color,
-                config.opacity * factor,
-            )
+            to_iced_color(config.ask_color, config.opacity * factor)
         };
-        draw_bar_left(
-            frame, anchor_x, y, bar_height, bar_len, color,
-        );
+        draw_bar_left(frame, anchor_x, y, bar_height, bar_len, color);
     }
 }
 
@@ -211,28 +176,14 @@ pub(super) fn draw_delta_and_total(
         if total <= 0.0 {
             continue;
         }
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         let top = y - bar_height / 2.0;
         let total_len = (total / max_vol) * max_bar_length;
-        let factor = va_factor(
-            idx,
-            value_area,
-            config.va_config.show_va_highlight,
-        );
+        let factor = va_factor(idx, value_area, config.va_config.show_va_highlight);
 
-        let vol_color = to_iced_color(
-            config.volume_color,
-            config.opacity * factor,
-        );
-        let sell_color = to_iced_color(
-            config.ask_color,
-            config.opacity * factor,
-        );
-        let buy_color = to_iced_color(
-            config.bid_color,
-            config.opacity * factor,
-        );
+        let vol_color = to_iced_color(config.volume_color, config.opacity * factor);
+        let sell_color = to_iced_color(config.ask_color, config.opacity * factor);
+        let buy_color = to_iced_color(config.bid_color, config.opacity * factor);
 
         frame.fill_rectangle(
             Point::new(anchor_x, top),
@@ -244,10 +195,7 @@ pub(super) fn draw_delta_and_total(
         let buy_len = (level.buy_volume / total) * total_len;
         if sell_len > 0.0 {
             frame.fill_rectangle(
-                Point::new(
-                    anchor_x - sell_len - buy_len,
-                    top,
-                ),
+                Point::new(anchor_x - sell_len - buy_len, top),
                 Size::new(sell_len, bar_height),
                 sell_color,
             );
@@ -284,27 +232,14 @@ pub(super) fn draw_delta_pct(
         if pct.abs() < f32::EPSILON {
             continue;
         }
-        let y = state
-            .price_to_y(Price::from_units(level.price_units));
+        let y = state.price_to_y(Price::from_units(level.price_units));
         let bar_len = pct.abs() * max_bar_length;
-        let factor = va_factor(
-            idx,
-            value_area,
-            config.va_config.show_va_highlight,
-        );
+        let factor = va_factor(idx, value_area, config.va_config.show_va_highlight);
         let color = if pct > 0.0 {
-            to_iced_color(
-                config.bid_color,
-                config.opacity * factor,
-            )
+            to_iced_color(config.bid_color, config.opacity * factor)
         } else {
-            to_iced_color(
-                config.ask_color,
-                config.opacity * factor,
-            )
+            to_iced_color(config.ask_color, config.opacity * factor)
         };
-        draw_bar_left(
-            frame, anchor_x, y, bar_height, bar_len, color,
-        );
+        draw_bar_left(frame, anchor_x, y, bar_height, bar_len, color);
     }
 }

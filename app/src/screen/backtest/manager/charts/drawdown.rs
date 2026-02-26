@@ -1,11 +1,10 @@
 //! DrawdownChart canvas program.
 
-use super::{
-    ChartHoverState, draw_crosshair_lines, draw_snap_dot,
-    draw_tooltip_box, format_date, grid_lines,
-    handle_cursor_event, position_tooltip, tooltip_size,
-};
 use super::super::ManagerMessage;
+use super::{
+    ChartHoverState, draw_crosshair_lines, draw_snap_dot, draw_tooltip_box, format_date,
+    grid_lines, handle_cursor_event, position_tooltip, tooltip_size,
+};
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle};
@@ -73,8 +72,7 @@ impl<'a> DrawdownChart<'a> {
     fn compute_dd_pcts(&self) -> (Vec<(u64, f64)>, f64) {
         let curve = &self.result.equity_curve;
         let mut peak = curve.initial_equity_usd;
-        let mut dd_pcts: Vec<(u64, f64)> =
-            Vec::with_capacity(curve.points.len());
+        let mut dd_pcts: Vec<(u64, f64)> = Vec::with_capacity(curve.points.len());
         let mut max_dd = 0.0_f64;
 
         for point in &curve.points {
@@ -107,12 +105,9 @@ impl<'a> DrawdownChart<'a> {
         let ts_range = (max_ts - min_ts).max(1) as f64;
 
         let ts_to_x = |ts: u64| -> f32 {
-            pad + ((ts - min_ts) as f64 / ts_range
-                * (w - pad * 2.0) as f64) as f32
+            pad + ((ts - min_ts) as f64 / ts_range * (w - pad * 2.0) as f64) as f32
         };
-        let dd_to_y = |dd: f64| -> f32 {
-            pad + (dd / max_dd * (h - pad * 2.0) as f64) as f32
-        };
+        let dd_to_y = |dd: f64| -> f32 { pad + (dd / max_dd * (h - pad * 2.0) as f64) as f32 };
 
         grid_lines(frame, bounds, pad, 3);
 
@@ -137,10 +132,7 @@ impl<'a> DrawdownChart<'a> {
 
         let line_path = Path::new(|b| {
             let (first_ts, first_dd) = dd_pcts[0];
-            b.move_to(Point::new(
-                ts_to_x(first_ts),
-                dd_to_y(first_dd),
-            ));
+            b.move_to(Point::new(ts_to_x(first_ts), dd_to_y(first_dd)));
             for &(ts, dd) in &dd_pcts[1..] {
                 b.line_to(Point::new(ts_to_x(ts), dd_to_y(dd)));
             }
@@ -155,12 +147,7 @@ impl<'a> DrawdownChart<'a> {
         );
     }
 
-    fn draw_overlay(
-        &self,
-        frame: &mut Frame,
-        cursor: Point,
-        bounds: Rectangle,
-    ) {
+    fn draw_overlay(&self, frame: &mut Frame, cursor: Point, bounds: Rectangle) {
         let (dd_pcts, max_dd) = self.compute_dd_pcts();
         if dd_pcts.is_empty() {
             return;
@@ -175,12 +162,9 @@ impl<'a> DrawdownChart<'a> {
         let ts_range = (max_ts - min_ts).max(1) as f64;
 
         let ts_to_x = |ts: u64| -> f32 {
-            pad + ((ts - min_ts) as f64 / ts_range
-                * (w - pad * 2.0) as f64) as f32
+            pad + ((ts - min_ts) as f64 / ts_range * (w - pad * 2.0) as f64) as f32
         };
-        let dd_to_y = |dd: f64| -> f32 {
-            pad + (dd / max_dd * (h - pad * 2.0) as f64) as f32
-        };
+        let dd_to_y = |dd: f64| -> f32 { pad + (dd / max_dd * (h - pad * 2.0) as f64) as f32 };
 
         let mut best_idx = 0;
         let mut best_dist = f32::INFINITY;
@@ -197,18 +181,10 @@ impl<'a> DrawdownChart<'a> {
         let snap_x = ts_to_x(snap_ts);
         let snap_y = dd_to_y(snap_dd);
 
-        draw_crosshair_lines(
-            frame,
-            Point::new(snap_x, cursor.y),
-            bounds.size(),
-            pad,
-        );
+        draw_crosshair_lines(frame, Point::new(snap_x, cursor.y), bounds.size(), pad);
         draw_snap_dot(frame, Point::new(snap_x, snap_y), 3.5);
 
-        let lines = vec![
-            format_date(snap_ts),
-            format!("DD: {:.2}%", snap_dd),
-        ];
+        let lines = vec![format_date(snap_ts), format!("DD: {:.2}%", snap_dd)];
         let (tw, th) = tooltip_size(&lines);
         let pos = position_tooltip(cursor, tw, th, bounds.size());
         draw_tooltip_box(frame, pos, &lines);

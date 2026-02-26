@@ -1,8 +1,8 @@
 //! Shape drawing rendering: Rectangle, Ellipse.
 
-use super::{DrawContext, draw_label, draw_rect_with_fill};
 use super::super::Drawing;
-use data::DrawingTool;
+use super::{DrawContext, draw_label, draw_rect_with_fill};
+use crate::drawing::DrawingTool;
 use iced::widget::canvas::{Frame, Path};
 use iced::{Color, Point};
 
@@ -15,23 +15,13 @@ pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[
     }
 }
 
-fn draw_rectangle(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_rectangle(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() >= 2 {
         draw_rect_with_fill(frame, pts, drawing, ctx.stroke, ctx.alpha);
     }
 }
 
-fn draw_ellipse(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_ellipse(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 2 {
         return;
     }
@@ -60,12 +50,7 @@ fn draw_ellipse(
     frame.stroke(&ellipse, ctx.stroke);
 }
 
-fn draw_ai_context(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_ai_context(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     if pts.len() < 2 {
         return;
     }

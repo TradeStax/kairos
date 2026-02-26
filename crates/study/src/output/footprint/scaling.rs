@@ -1,11 +1,9 @@
-//! Footprint scaling strategies for bar width computation.
+//! Scaling strategies for footprint bar width computation.
 
 use serde::{Deserialize, Serialize};
 
 /// Cluster scaling strategy for footprint bar widths.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum FootprintScaling {
     Linear,
     #[default]
@@ -13,7 +11,9 @@ pub enum FootprintScaling {
     Log,
     VisibleRange,
     Datapoint,
-    Hybrid { weight: f32 },
+    Hybrid {
+        weight: f32,
+    },
 }
 
 // SAFETY: Manual Eq is sound -- `weight` is always finite
@@ -21,10 +21,7 @@ pub enum FootprintScaling {
 impl Eq for FootprintScaling {}
 
 impl std::fmt::Display for FootprintScaling {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FootprintScaling::Linear => write!(f, "Linear"),
             FootprintScaling::Sqrt => write!(f, "Square Root"),
@@ -49,7 +46,7 @@ impl FootprintScaling {
     /// The `// SAFETY` comment on the manual `Eq` impl assumes finite weights;
     /// this constructor is the enforcement point for that invariant.
     pub fn hybrid(weight: f32) -> Result<Self, &'static str> {
-        if !weight.is_finite() || weight < 0.0 || weight > 1.0 {
+        if !weight.is_finite() || !(0.0..=1.0).contains(&weight) {
             return Err("Hybrid weight must be in [0.0, 1.0]");
         }
         Ok(Self::Hybrid { weight })

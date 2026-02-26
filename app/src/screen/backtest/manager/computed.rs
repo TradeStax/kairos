@@ -122,8 +122,7 @@ impl ComputedAnalytics {
             0.0
         };
 
-        let expectancy_per_trade =
-            win_rate * avg_win - (1.0 - win_rate) * avg_loss;
+        let expectancy_per_trade = win_rate * avg_win - (1.0 - win_rate) * avg_loss;
 
         let kelly_criterion = if payoff_ratio > 0.0 {
             win_rate - (1.0 - win_rate) / payoff_ratio
@@ -136,11 +135,13 @@ impl ComputedAnalytics {
         // ── Risk metrics ─────────────────────────────────────
         let var_95 = Self::compute_var(trades, 0.05);
         let cvar_99 = Self::compute_cvar(trades, 0.01);
-        let risk_of_ruin =
-            Self::compute_risk_of_ruin(win_rate, avg_win, avg_loss,
-                result.config.initial_capital_usd);
-        let max_consecutive_losses =
-            Self::compute_max_consecutive_losses(trades);
+        let risk_of_ruin = Self::compute_risk_of_ruin(
+            win_rate,
+            avg_win,
+            avg_loss,
+            result.config.initial_capital_usd,
+        );
+        let max_consecutive_losses = Self::compute_max_consecutive_losses(trades);
 
         // ── P&L by hour ──────────────────────────────────────
         let pnl_by_hour = Self::compute_pnl_by_hour(trades);
@@ -149,9 +150,7 @@ impl ComputedAnalytics {
         let mae_mfe_scatter: Vec<(i64, i64, bool, usize)> = trades
             .iter()
             .enumerate()
-            .map(|(i, t)| {
-                (t.mae_ticks, t.mfe_ticks, t.pnl_net_usd > 0.0, i)
-            })
+            .map(|(i, t)| (t.mae_ticks, t.mfe_ticks, t.pnl_net_usd > 0.0, i))
             .collect();
 
         // ── Daily P&L ────────────────────────────────────────
@@ -192,9 +191,7 @@ impl ComputedAnalytics {
         }
     }
 
-    fn compute_monthly_returns(
-        result: &backtest::BacktestResult,
-    ) -> Vec<(u16, u8, f64)> {
+    fn compute_monthly_returns(result: &backtest::BacktestResult) -> Vec<(u16, u8, f64)> {
         use chrono::Datelike;
 
         let points = &result.equity_curve.points;
@@ -230,15 +227,12 @@ impl ComputedAnalytics {
             .collect()
     }
 
-    fn compute_pnl_histogram(
-        trades: &[backtest::TradeRecord],
-    ) -> Vec<(f64, usize)> {
+    fn compute_pnl_histogram(trades: &[backtest::TradeRecord]) -> Vec<(f64, usize)> {
         if trades.is_empty() {
             return vec![];
         }
 
-        let pnls: Vec<f64> =
-            trades.iter().map(|t| t.pnl_net_usd).collect();
+        let pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd).collect();
         let min = pnls.iter().copied().fold(f64::INFINITY, f64::min);
         let max = pnls.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
@@ -247,14 +241,12 @@ impl ComputedAnalytics {
         }
 
         // Sturges' rule for bin count
-        let n_bins = ((trades.len() as f64).log2().ceil() as usize + 1)
-            .clamp(5, 25);
+        let n_bins = ((trades.len() as f64).log2().ceil() as usize + 1).clamp(5, 25);
         let bin_width = (max - min) / n_bins as f64;
 
         let mut bins = vec![0usize; n_bins];
         for &pnl in &pnls {
-            let idx =
-                ((pnl - min) / bin_width).floor() as usize;
+            let idx = ((pnl - min) / bin_width).floor() as usize;
             let idx = idx.min(n_bins - 1);
             bins[idx] += 1;
         }
@@ -278,14 +270,14 @@ impl ComputedAnalytics {
             return (vec![], vec![], vec![], vec![]);
         }
 
-        let pnls: Vec<f64> =
-            trades.iter().map(|t| t.pnl_net_usd).collect();
+        let pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd).collect();
         let n = pnls.len();
 
         // Simple LCG PRNG (deterministic, no external dependency)
         let mut seed: u64 = 42;
         let mut next_rand = move || -> usize {
-            seed = seed.wrapping_mul(6364136223846793005)
+            seed = seed
+                .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             (seed >> 33) as usize
         };
@@ -311,11 +303,8 @@ impl ComputedAnalytics {
         let mut p95 = vec![0.0; n + 1];
 
         for step in 0..=n {
-            let mut vals: Vec<f64> =
-                paths.iter().map(|p| p[step]).collect();
-            vals.sort_by(|a, b| {
-                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            let mut vals: Vec<f64> = paths.iter().map(|p| p[step]).collect();
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let len = vals.len();
             p5[step] = vals[(len as f64 * 0.05) as usize];
             p50[step] = vals[len / 2];
@@ -330,8 +319,7 @@ impl ComputedAnalytics {
             return 0.0;
         }
 
-        let pnls: Vec<f64> =
-            trades.iter().map(|t| t.pnl_net_usd).collect();
+        let pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd).collect();
         let max_loss = pnls
             .iter()
             .copied()
@@ -376,11 +364,8 @@ impl ComputedAnalytics {
         if trades.is_empty() {
             return 0.0;
         }
-        let mut pnls: Vec<f64> =
-            trades.iter().map(|t| t.pnl_net_usd).collect();
-        pnls.sort_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let mut pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd).collect();
+        pnls.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = (pnls.len() as f64 * pct).floor() as usize;
         pnls[idx.min(pnls.len() - 1)]
     }
@@ -389,23 +374,15 @@ impl ComputedAnalytics {
         if trades.is_empty() {
             return 0.0;
         }
-        let mut pnls: Vec<f64> =
-            trades.iter().map(|t| t.pnl_net_usd).collect();
-        pnls.sort_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let mut pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd).collect();
+        pnls.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let cutoff = (pnls.len() as f64 * pct).ceil() as usize;
         let cutoff = cutoff.max(1).min(pnls.len());
         let sum: f64 = pnls[..cutoff].iter().sum();
         sum / cutoff as f64
     }
 
-    fn compute_risk_of_ruin(
-        win_rate: f64,
-        _avg_win: f64,
-        avg_loss: f64,
-        capital: f64,
-    ) -> f64 {
+    fn compute_risk_of_ruin(win_rate: f64, _avg_win: f64, avg_loss: f64, capital: f64) -> f64 {
         if avg_loss <= 0.0 || capital <= 0.0 {
             return 0.0;
         }
@@ -419,9 +396,7 @@ impl ComputedAnalytics {
         (ror * 100.0).min(100.0)
     }
 
-    fn compute_max_consecutive_losses(
-        trades: &[backtest::TradeRecord],
-    ) -> usize {
+    fn compute_max_consecutive_losses(trades: &[backtest::TradeRecord]) -> usize {
         let mut max_streak = 0;
         let mut current = 0;
         for trade in trades {
@@ -435,9 +410,7 @@ impl ComputedAnalytics {
         max_streak
     }
 
-    fn compute_pnl_by_hour(
-        trades: &[backtest::TradeRecord],
-    ) -> Vec<(u8, f64)> {
+    fn compute_pnl_by_hour(trades: &[backtest::TradeRecord]) -> Vec<(u8, f64)> {
         let mut hourly = [0.0f64; 24];
         for trade in trades {
             let secs = trade.entry_time.0 / 1000;
@@ -452,11 +425,8 @@ impl ComputedAnalytics {
             .collect()
     }
 
-    fn compute_daily_pnl(
-        trades: &[backtest::TradeRecord],
-    ) -> Vec<(String, f64)> {
-        let mut daily: std::collections::BTreeMap<u64, f64> =
-            std::collections::BTreeMap::new();
+    fn compute_daily_pnl(trades: &[backtest::TradeRecord]) -> Vec<(String, f64)> {
+        let mut daily: std::collections::BTreeMap<u64, f64> = std::collections::BTreeMap::new();
 
         for trade in trades {
             let day = trade.exit_time.0 / 86_400_000;
@@ -467,9 +437,8 @@ impl ComputedAnalytics {
             .into_iter()
             .map(|(day, pnl)| {
                 let secs = day * 86400;
-                let date = chrono::NaiveDate::from_num_days_from_ce_opt(
-                    719163 + secs as i32 / 86400,
-                );
+                let date =
+                    chrono::NaiveDate::from_num_days_from_ce_opt(719163 + secs as i32 / 86400);
                 let label = if let Some(d) = date {
                     format!("{}", d.format("%m/%d"))
                 } else {
@@ -554,12 +523,9 @@ impl ComputedAnalytics {
             .iter()
             .map(|acct| {
                 let scale = scale_factor(acct.size);
-                let target_pnl =
-                    acct.size * acct.profit_target_pct / 100.0;
-                let dd_limit_pnl =
-                    acct.size * acct.max_drawdown_pct / 100.0;
-                let daily_limit_pnl =
-                    acct.size * acct.daily_loss_limit_pct / 100.0;
+                let target_pnl = acct.size * acct.profit_target_pct / 100.0;
+                let dd_limit_pnl = acct.size * acct.max_drawdown_pct / 100.0;
+                let daily_limit_pnl = acct.size * acct.daily_loss_limit_pct / 100.0;
 
                 let mut equity = acct.size;
                 let mut peak = acct.size;
@@ -569,8 +535,7 @@ impl ComputedAnalytics {
                 let mut hit_drawdown_limit = false;
                 let mut hit_daily_limit = false;
                 let mut breach_trade_idx: Option<usize> = None;
-                let mut equity_curve =
-                    Vec::with_capacity(trades.len() + 1);
+                let mut equity_curve = Vec::with_capacity(trades.len() + 1);
                 equity_curve.push(acct.size);
 
                 // Track daily P&L
@@ -588,11 +553,8 @@ impl ComputedAnalytics {
                         } else {
                             0.0
                         };
-                        worst_daily_loss_pct =
-                            worst_daily_loss_pct.max(daily_loss_pct);
-                        if daily_pnl.abs() >= daily_limit_pnl
-                            && daily_pnl < 0.0
-                        {
+                        worst_daily_loss_pct = worst_daily_loss_pct.max(daily_loss_pct);
+                        if daily_pnl.abs() >= daily_limit_pnl && daily_pnl < 0.0 {
                             if breach_trade_idx.is_none() {
                                 breach_trade_idx = Some(i);
                             }
@@ -631,22 +593,18 @@ impl ComputedAnalytics {
 
                 // Final day check
                 if daily_pnl < 0.0 {
-                    let daily_loss_pct =
-                        daily_pnl.abs() / acct.size * 100.0;
-                    worst_daily_loss_pct =
-                        worst_daily_loss_pct.max(daily_loss_pct);
+                    let daily_loss_pct = daily_pnl.abs() / acct.size * 100.0;
+                    worst_daily_loss_pct = worst_daily_loss_pct.max(daily_loss_pct);
                     if daily_pnl.abs() >= daily_limit_pnl {
                         if breach_trade_idx.is_none() {
-                            breach_trade_idx =
-                                Some(trades.len().saturating_sub(1));
+                            breach_trade_idx = Some(trades.len().saturating_sub(1));
                         }
                         hit_daily_limit = true;
                     }
                 }
 
                 let final_pnl = equity - acct.size;
-                let breached =
-                    hit_drawdown_limit || hit_daily_limit;
+                let breached = hit_drawdown_limit || hit_daily_limit;
                 let status = if breached {
                     PropFirmStatus::Failed
                 } else if hit_profit_target {

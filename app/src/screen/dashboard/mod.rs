@@ -1,13 +1,13 @@
-pub(crate) mod ops;
+pub(crate) mod grid;
 pub mod pane;
-pub mod panel;
+pub mod ladder;
 pub mod sidebar;
 mod update;
 mod view;
 
 pub use sidebar::Sidebar;
 
-use crate::{components::display::toast::Toast, infra::window};
+use crate::{components::display::toast::Toast, window};
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum DashboardError {
@@ -18,8 +18,8 @@ pub enum DashboardError {
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
-use data::{ChartConfig, ChartData, LoadingStatus, WindowSpec};
-use exchange::FuturesTickerInfo;
+use crate::persistence::WindowSpec;
+use data::{ChartConfig, ChartData, FuturesTickerInfo, LoadingStatus};
 
 use iced::widget::pane_grid::{self, Configuration};
 use std::collections::HashMap;
@@ -33,6 +33,7 @@ pub enum Message {
     Notification(Toast),
     ChartDataLoaded {
         pane_id: uuid::Uuid,
+        ticker_info: FuturesTickerInfo,
         chart_data: ChartData,
     },
     LoadChart {
@@ -43,13 +44,13 @@ pub enum Message {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     DataDownloadProgress {
@@ -61,14 +62,14 @@ pub enum Message {
         pane_id: uuid::Uuid,
         days_downloaded: usize,
     },
-    DrawingToolSelected(data::DrawingTool),
+    DrawingToolSelected(crate::drawing::DrawingTool),
     DrawingSnapToggled,
     DrawingUndo,
     DrawingRedo,
     DrawingDuplicate,
     ScrollToLatest,
     ZoomStep(f32),
-    ExchangeEvent(exchange::Event),
+    LiveData(data::DataEvent),
     ReplayTrades(FuturesTickerInfo, Vec<data::Trade>),
     ReplayRebuild(FuturesTickerInfo, Vec<data::Trade>),
     ReplaySyncPane {
@@ -81,20 +82,16 @@ pub struct Dashboard {
     pub(crate) panes: pane_grid::State<pane::State>,
     pub(crate) focus: Option<(window::Id, pane_grid::Pane)>,
     pub(crate) popout: HashMap<window::Id, (pane_grid::State<pane::State>, WindowSpec)>,
-    pub(crate) market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-    pub(crate) crosshair_positions: HashMap<data::LinkGroup, (u64, f32)>,
+    pub(crate) crosshair_positions:
+        HashMap<crate::screen::dashboard::pane::config::LinkGroup, (u64, f32)>,
     pub(crate) data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
 }
 
 impl Dashboard {
-    pub fn new(
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
-    ) -> Self {
+    pub fn new(data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>) -> Self {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
             focus: None,
-            market_data_service,
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
             data_index,
@@ -113,20 +110,20 @@ pub enum Event {
     EstimateDataCost {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     DownloadData {
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     },
     PaneClosed {
         pane_id: uuid::Uuid,
     },
     /// Drawing tool was auto-changed (e.g. after completing a drawing)
-    DrawingToolChanged(data::DrawingTool),
+    DrawingToolChanged(crate::drawing::DrawingTool),
     /// AI assistant wants to send a message
     AiRequest {
         pane_id: uuid::Uuid,
@@ -161,7 +158,7 @@ impl Dashboard {
     pub fn from_config(
         panes: Configuration<pane::State>,
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
+        _market_data_service: Option<()>,
         data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
@@ -178,7 +175,6 @@ impl Dashboard {
         Self {
             panes,
             focus: None,
-            market_data_service,
             popout,
             crosshair_positions: HashMap::new(),
             data_index,

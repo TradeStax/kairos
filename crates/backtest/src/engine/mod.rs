@@ -1,4 +1,13 @@
-pub mod execution;
-pub mod feed;
+pub mod clock;
+pub mod kernel;
 pub mod runner;
-pub mod session;
+
+mod context;
+mod processing;
+
+pub(crate) fn system_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}

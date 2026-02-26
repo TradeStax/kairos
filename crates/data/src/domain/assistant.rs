@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::entities::{Candle, Trade};
+use crate::domain::market::entities::{Candle, Trade};
 
 /// Role in a chat conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,9 +167,12 @@ pub struct DrawingSnapshot {
 }
 
 /// Snapshot of a big trade marker for AI tool access.
+///
+/// `time` is the marker's raw X coordinate: millisecond timestamp for
+/// time-based charts, or reverse candle index for tick-based charts.
 #[derive(Debug, Clone)]
 pub struct BigTradeSnapshot {
-    pub time_secs: u64,
+    pub time: u64,
     pub price: f64,
     pub quantity: f64,
     pub is_buy: bool,
@@ -201,6 +204,7 @@ pub struct ChartSnapshot {
     pub visible_price_low: Option<f64>,
     pub visible_time_start: Option<u64>,
     pub visible_time_end: Option<u64>,
+    pub is_tick_basis: bool,
 }
 
 /// A single message in the chat — used for backward compat in the

@@ -4,10 +4,7 @@ use crate::screen::dashboard::pane::{Action, Content, State};
 impl State {
     /// Handle chart interaction events.
     /// Returns `Some(Action)` if a side-effect should bubble up.
-    pub(super) fn handle_chart_interaction(
-        &mut self,
-        msg: chart::Message,
-    ) -> Option<Action> {
+    pub(super) fn handle_chart_interaction(&mut self, msg: chart::Message) -> Option<Action> {
         match msg {
             chart::Message::StudyOverlaySelect(_) => {
                 // Selection state lives in ChartState; no-op here
@@ -19,15 +16,16 @@ impl State {
                 use crate::screen::dashboard::pane::ContextMenuKind;
 
                 self.modal = None;
-                self.context_menu =
-                    Some(ContextMenuKind::StudyOverlay {
-                        position: pos,
-                        study_index: idx,
-                    });
+                self.context_menu = Some(ContextMenuKind::StudyOverlay {
+                    position: pos,
+                    study_index: idx,
+                });
             }
             chart::Message::DrawingClick(point, shift_held) => {
                 if self.handle_drawing_click(point, shift_held) {
-                    return Some(Action::DrawingToolChanged(data::DrawingTool::None));
+                    return Some(Action::DrawingToolChanged(
+                        crate::drawing::DrawingTool::None,
+                    ));
                 }
             }
             chart::Message::DrawingMove(point, shift_held) => {
@@ -73,8 +71,7 @@ impl State {
 
                 // Use hit-tested drawing, or fall back to
                 // currently selected drawing
-                let effective_id =
-                    drawing_id.or_else(|| self.get_selected_drawing_id());
+                let effective_id = drawing_id.or_else(|| self.get_selected_drawing_id());
 
                 if let Some(id) = effective_id {
                     let locked = self.get_drawing_locked(id);
@@ -92,25 +89,30 @@ impl State {
                 // Only clear the main crosshair cache, skip indicator caches
                 use crate::chart::Chart;
                 match &mut self.content {
-                    Content::Candlestick { chart: Some(c), .. } => {
-                        if c.drawings().active_tool() != data::DrawingTool::None {
-                            c.mut_state().cache.clear_crosshair();
-                        } else {
-                            chart::update(c, &msg);
+                    Content::Candlestick { chart, .. } => {
+                        if let Some(c) = (**chart).as_mut() {
+                            if c.drawings().active_tool() != crate::drawing::DrawingTool::None {
+                                c.mut_state().cache.clear_crosshair();
+                            } else {
+                                chart::update(c, &msg);
+                            }
                         }
                     }
+                    #[cfg(feature = "heatmap")]
                     Content::Heatmap { chart: Some(c), .. } => {
-                        if c.drawings().active_tool() != data::DrawingTool::None {
+                        if c.drawings().active_tool() != crate::drawing::DrawingTool::None {
                             c.mut_state().cache.clear_crosshair();
                         } else {
                             chart::update(c, &msg);
                         }
                     }
-                    Content::Profile { chart: Some(c), .. } => {
-                        if c.drawings().active_tool() != data::DrawingTool::None {
-                            c.mut_state().cache.clear_crosshair();
-                        } else {
-                            chart::update(c, &msg);
+                    Content::Profile { chart, .. } => {
+                        if let Some(c) = (**chart).as_mut() {
+                            if c.drawings().active_tool() != crate::drawing::DrawingTool::None {
+                                c.mut_state().cache.clear_crosshair();
+                            } else {
+                                chart::update(c, &msg);
+                            }
                         }
                     }
                     _ => {}
@@ -118,22 +120,27 @@ impl State {
 
                 // Emit crosshair sync for linked panes
                 if self.link_group.is_some() {
-                    let interval = cursor_pos.and_then(|pos| {
-                        self.compute_crosshair_interval(pos)
+                    let interval = cursor_pos.and_then(|pos| self.compute_crosshair_interval(pos));
+                    return Some(Action::CrosshairSync {
+                        timestamp: interval,
                     });
-                    return Some(Action::CrosshairSync { timestamp: interval });
                 }
             }
             chart::Message::CursorLeft => {
                 match &mut self.content {
-                    Content::Candlestick { chart: Some(c), .. } => {
-                        chart::update(c, &msg);
+                    Content::Candlestick { chart, .. } => {
+                        if let Some(c) = (**chart).as_mut() {
+                            chart::update(c, &msg);
+                        }
                     }
+                    #[cfg(feature = "heatmap")]
                     Content::Heatmap { chart: Some(c), .. } => {
                         chart::update(c, &msg);
                     }
-                    Content::Profile { chart: Some(c), .. } => {
-                        chart::update(c, &msg);
+                    Content::Profile { chart, .. } => {
+                        if let Some(c) = (**chart).as_mut() {
+                            chart::update(c, &msg);
+                        }
                     }
                     _ => {}
                 }
@@ -143,14 +150,19 @@ impl State {
                 }
             }
             _ => match &mut self.content {
+                #[cfg(feature = "heatmap")]
                 Content::Heatmap { chart: Some(c), .. } => {
                     chart::update(c, &msg);
                 }
-                Content::Candlestick { chart: Some(c), .. } => {
-                    chart::update(c, &msg);
+                Content::Candlestick { chart, .. } => {
+                    if let Some(c) = (**chart).as_mut() {
+                        chart::update(c, &msg);
+                    }
                 }
-                Content::Profile { chart: Some(c), .. } => {
-                    chart::update(c, &msg);
+                Content::Profile { chart, .. } => {
+                    if let Some(c) = (**chart).as_mut() {
+                        chart::update(c, &msg);
+                    }
                 }
                 _ => {}
             },
@@ -160,15 +172,25 @@ impl State {
 
     /// Compute the snapped interval (timestamp or tick index) for a cursor
     /// position within the chart bounds.
-    fn compute_crosshair_interval(
-        &self,
-        pos: iced::Point,
-    ) -> Option<u64> {
+    fn compute_crosshair_interval(&self, pos: iced::Point) -> Option<u64> {
         use crate::chart::Chart;
         let state = match &self.content {
-            Content::Candlestick { chart: Some(c), .. } => c.state(),
+            Content::Candlestick { chart, .. } => {
+                if let Some(c) = (**chart).as_ref() {
+                    c.state()
+                } else {
+                    return None;
+                }
+            }
+            #[cfg(feature = "heatmap")]
             Content::Heatmap { chart: Some(c), .. } => c.state(),
-            Content::Profile { chart: Some(c), .. } => c.state(),
+            Content::Profile { chart, .. } => {
+                if let Some(c) = (**chart).as_ref() {
+                    c.state()
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
 
@@ -178,8 +200,7 @@ impl State {
         }
 
         let region = state.visible_region(bounds);
-        let (interval, _snap_ratio) =
-            state.snap_x_to_index(pos.x, bounds, region);
+        let (interval, _snap_ratio) = state.snap_x_to_index(pos.x, bounds, region);
         Some(interval)
     }
 }

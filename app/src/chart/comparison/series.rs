@@ -6,7 +6,7 @@
 use super::types::Series;
 use crate::components::input::color_picker::color_picker;
 use crate::style;
-use exchange::FuturesTickerInfo;
+use data::FuturesTickerInfo;
 use iced::widget::{button, column, container, row, text};
 use iced::{Element, Length};
 use palette::Hsva;
@@ -50,7 +50,7 @@ impl TickerSeriesEditor {
                     return None;
                 }
                 self.show_config_for = Some(ticker);
-                self.editing_color = Some(data::config::theme::rgba_to_hsva(
+                self.editing_color = Some(crate::config::theme::rgba_to_hsva(
                     crate::style::theme::iced_color_to_rgba(applied_color),
                 ));
                 self.editing_name = applied_name;
@@ -62,7 +62,7 @@ impl TickerSeriesEditor {
                     return Some(Action::SeriesColorChanged(
                         t,
                         crate::style::theme::rgba_to_iced_color(
-                            data::config::theme::hsva_to_rgba(hsva),
+                            crate::config::theme::hsva_to_rgba(hsva),
                         ),
                     ));
                 }
@@ -112,13 +112,11 @@ impl TickerSeriesEditor {
             let mut inner_col = column![];
 
             if is_open {
-                let hsva_in = self
-                    .editing_color
-                    .unwrap_or_else(|| {
-                        data::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(
-                            applied,
-                        ))
-                    });
+                let hsva_in = self.editing_color.unwrap_or_else(|| {
+                    crate::config::theme::rgba_to_hsva(crate::style::theme::iced_color_to_rgba(
+                        applied,
+                    ))
+                });
                 inner_col = inner_col.push(color_picker(hsva_in, Message::ColorChangedHsva, 280.0));
 
                 let label_name = self

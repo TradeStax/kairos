@@ -3,7 +3,7 @@ use crate::components::layout::scrollable_content;
 use crate::screen::dashboard::pane::Message;
 use crate::style;
 
-use data::state::pane::VisualConfig;
+use crate::screen::dashboard::pane::config::VisualConfig;
 
 use iced::{
     Element, Length,

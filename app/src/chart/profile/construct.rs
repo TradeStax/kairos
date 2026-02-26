@@ -1,14 +1,14 @@
 use super::ProfileChart;
 use super::apply_profile_config_to_study;
 use super::compute_initial_price_scale;
-use data::state::pane::ProfileConfig;
-use data::{Autoscale, ChartBasis, ChartData, Timeframe, ViewConfig};
-use exchange::FuturesTickerInfo;
-use exchange::util::{Price, PriceStep};
+use crate::screen::dashboard::pane::config::ProfileConfig;
+use data::FuturesTickerInfo;
 use data::util::count_decimals;
+use data::{Autoscale, ChartBasis, ChartData, Timeframe, ViewConfig};
+use data::{Price, PriceStep};
 use iced::widget::canvas::Cache;
 use std::time::Instant;
-use study::orderflow::VbpStudy;
+use study::studies::orderflow::VbpStudy;
 
 impl ProfileChart {
     /// Create a new ProfileChart from loaded chart data.
@@ -22,10 +22,8 @@ impl ProfileChart {
         let basis = ChartBasis::Time(Timeframe::M5);
 
         // Compute initial cell_height from price range
-        let (_, _, cell_height) = compute_initial_price_scale(
-            &chart_data.candles,
-            ticker_info.tick_size,
-        );
+        let (_, _, cell_height) =
+            compute_initial_price_scale(&chart_data.candles, ticker_info.tick_size);
 
         let base_price_y = chart_data
             .candles
@@ -54,18 +52,13 @@ impl ProfileChart {
         chart.base_price_y = base_price_y;
         chart.latest_x = latest_x;
 
-        let x_translation = 0.5
-            * (chart.bounds.width / chart.scaling)
-            - (8.0 * chart.cell_width / chart.scaling);
+        let x_translation =
+            0.5 * (chart.bounds.width / chart.scaling) - (8.0 * chart.cell_width / chart.scaling);
         chart.translation.x = x_translation;
         chart.translation.y = -chart.bounds.height / 2.0;
 
         let mut profile_study = VbpStudy::new();
-        apply_profile_config_to_study(
-            &mut profile_study,
-            &config,
-            &ticker_info,
-        );
+        apply_profile_config_to_study(&mut profile_study, &config, &ticker_info);
 
         let mut profile = ProfileChart {
             chart,

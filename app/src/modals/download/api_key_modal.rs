@@ -28,7 +28,7 @@ pub enum ApiKeySetupMessage {
 
 pub enum Action {
     Saved {
-        provider: data::config::secrets::ApiProvider,
+        provider: crate::config::secrets::ApiProvider,
         key: String,
     },
     Closed,
@@ -55,12 +55,11 @@ impl ApiKeySetupModal {
                     return None;
                 }
                 if key.len() < 10 {
-                    self.error =
-                        Some("API key appears too short".to_string());
+                    self.error = Some("API key appears too short".to_string());
                     return None;
                 }
                 return Some(Action::Saved {
-                    provider: data::config::secrets::ApiProvider::Databento,
+                    provider: crate::config::secrets::ApiProvider::Databento,
                     key: key.to_string(),
                 });
             }
@@ -72,8 +71,8 @@ impl ApiKeySetupModal {
     }
 
     pub fn view(&self) -> Element<'_, ApiKeySetupMessage> {
-        let header = ModalHeaderBuilder::new("API Key Required")
-            .on_close(ApiKeySetupMessage::Close);
+        let header =
+            ModalHeaderBuilder::new("API Key Required").on_close(ApiKeySetupMessage::Close);
 
         let description = text(
             "A Databento API key is required to download \
@@ -130,16 +129,8 @@ impl ApiKeySetupModal {
             body = body.push(
                 text(err)
                     .size(tokens::text::SMALL)
-                    .style(|theme: &iced::Theme| {
-                        iced::widget::text::Style {
-                            color: Some(
-                                theme
-                                    .extended_palette()
-                                    .danger
-                                    .base
-                                    .color,
-                            ),
-                        }
+                    .style(|theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(theme.extended_palette().danger.base.color),
                     }),
             );
         }

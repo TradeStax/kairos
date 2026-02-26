@@ -1,33 +1,21 @@
 pub(crate) mod ai;
 mod backtest;
 mod chart;
+mod data_events;
 mod download;
 mod feeds;
 pub(crate) mod menu_bar;
-mod shell;
-#[cfg(feature = "options")]
-mod options;
 mod preferences;
 mod replay;
+mod shell;
 
 use iced::Task;
 
 use crate::components::display::toast::Toast;
 
-#[cfg(feature = "options")]
-use super::OptionsMessage;
 use super::{ChartMessage, DownloadMessage, Kairos, Message, WindowMessage, build_tickers_info};
 
 impl Kairos {
-    /// Lock the DataFeedManager and call `f` with a mutable reference.
-    /// Avoids the clone-Arc → lock → drop → clone-Arc → re-lock pattern.
-    pub(crate) fn with_feed_manager<R>(
-        &self,
-        f: impl FnOnce(&mut data::DataFeedManager) -> R,
-    ) -> R {
-        self.connections.with_feed_manager(f)
-    }
-
     /// Rebuild `tickers_info` and `ticker_ranges` from the current DataIndex.
     pub(crate) fn rebuild_ticker_data(&mut self) {
         let tickers: std::collections::HashSet<String> =
@@ -36,33 +24,29 @@ impl Kairos {
                 .into_iter()
                 .collect();
         self.persistence.tickers_info = build_tickers_info(tickers);
-        self.persistence.ticker_ranges =
-            Self::build_ticker_ranges(&self.persistence.data_index);
+        self.persistence.ticker_ranges = Self::build_ticker_ranges(&self.persistence.data_index);
     }
 
-    /// Sync both feed modal snapshots from the current DataFeedManager state.
-    pub(crate) fn sync_feed_snapshots(
-        &mut self,
-        feed_manager: &data::DataFeedManager,
-    ) {
-        self.modals.data_feeds_modal.sync_snapshot(feed_manager);
-        self.modals.connections_menu.sync_snapshot(feed_manager);
+    /// Sync both feed modal snapshots from the current ConnectionManager state.
+    pub(crate) fn sync_feed_snapshots(&mut self, connection_manager: &data::ConnectionManager) {
+        self.modals
+            .data_feeds_modal
+            .sync_snapshot(connection_manager);
+        self.modals
+            .connections_menu
+            .sync_snapshot(connection_manager);
     }
 
-    /// Get market data service or push error toast and return None.
-    pub(crate) fn require_market_service(
+    /// Get the DataEngine or push error toast and return None.
+    pub(crate) fn require_data_engine(
         &mut self,
-    ) -> Option<std::sync::Arc<data::MarketDataService>> {
-        if let Some(service) = self.services.market_data_service.clone() {
-            Some(service)
+    ) -> Option<std::sync::Arc<tokio::sync::Mutex<data::engine::DataEngine>>> {
+        if let Some(engine) = self.services.engine.clone() {
+            Some(engine)
         } else {
-            log::warn!(
-                "Market data service not available (API key not configured)"
-            );
-            self.ui.notifications.push(Toast::error(
-                "Databento API key not configured. Set it in connection \
-                 settings."
-                    .to_string(),
+            log::warn!("DataEngine not available (initialization not complete)");
+            self.ui.push_notification(Toast::error(
+                "Data engine not ready. Check your connection settings.".to_string(),
             ));
             None
         }
@@ -83,26 +67,15 @@ impl Kairos {
                 ChartMessage::ChartDataLoaded {
                     layout_id,
                     pane_id,
+                    ticker_info,
                     result,
                 } => {
-                    return self.handle_chart_data_loaded(layout_id, pane_id, result);
+                    return self.handle_chart_data_loaded(
+                        layout_id, pane_id, ticker_info, result,
+                    );
                 }
                 ChartMessage::UpdateLoadingStatus => {
                     return self.fetch_loading_statuses();
-                }
-                ChartMessage::LoadingStatusesReady(statuses) => {
-                    return self.dispatch_loading_statuses(statuses);
-                }
-            },
-
-            // Options data loading (sub-enum)
-            #[cfg(feature = "options")]
-            Message::Options(msg) => match msg {
-                OptionsMessage::OptionChainLoaded { pane_id, result } => {
-                    self.handle_option_chain_loaded(pane_id, result);
-                }
-                OptionsMessage::GexProfileLoaded { pane_id, result } => {
-                    self.handle_gex_profile_loaded(pane_id, result);
                 }
             },
 
@@ -156,7 +129,7 @@ impl Kairos {
                     date_range,
                     result,
                 } => {
-                    self.handle_historical_download_complete(ticker, date_range, result);
+                    return self.handle_historical_download_complete(ticker, date_range, result);
                 }
             },
 
@@ -169,9 +142,6 @@ impl Kairos {
             Message::DataFeeds(msg) => {
                 return self.handle_data_feeds(msg);
             }
-            Message::DataFeedPreviewLoaded { feed_id, result } => {
-                self.handle_data_feed_preview_loaded(feed_id, result);
-            }
             Message::ConnectionsMenu(msg) => {
                 return self.handle_connections_menu(msg);
             }
@@ -179,30 +149,16 @@ impl Kairos {
                 return self.handle_rithmic_connected(feed_id, result);
             }
             Message::RithmicSystemNames { server, result } => {
-                self.modals.data_feeds_modal.update(
-                    crate::modals::data_feeds::DataFeedsMessage::SystemNamesLoaded(
-                        server, result,
-                    ),
-                    &mut data::lock_or_recover(
-                        &self.connections.data_feed_manager,
-                    ),
-                );
+                self.handle_rithmic_system_names(server, result);
             }
             Message::RithmicProductCodes {
-                feed_id: _,
+                _feed_id: _,
                 result,
             } => {
-                self.modals.data_feeds_modal.update(
-                    crate::modals::data_feeds::DataFeedsMessage::AvailableTickersLoaded(
-                        result,
-                    ),
-                    &mut data::lock_or_recover(
-                        &self.connections.data_feed_manager,
-                    ),
-                );
+                self.handle_rithmic_product_codes(result);
             }
-            Message::RithmicStreamEvent(event) => {
-                return self.handle_rithmic_stream_event(event);
+            Message::DataEvent(event) => {
+                return self.handle_data_event(event);
             }
             Message::Replay(msg) => {
                 return self.handle_replay_message(msg);
@@ -234,22 +190,13 @@ impl Kairos {
                 layout_id: id,
                 event: msg,
             } => {
-                return self.handle_dashboard(id, msg);
+                return self.handle_dashboard(id, *msg);
             }
             Message::DataFolderRequested => {
                 self.handle_data_folder_requested();
             }
 
             // Preferences and UI
-            Message::ThemeSelected(theme) => {
-                self.handle_theme_selected(theme);
-            }
-            Message::ScaleFactorChanged(value) => {
-                self.handle_scale_factor_changed(value);
-            }
-            Message::SetTimezone(tz) => {
-                self.handle_set_timezone(tz);
-            }
             Message::RemoveNotification(index) => {
                 self.handle_remove_notification(index);
             }
@@ -259,11 +206,11 @@ impl Kairos {
             Message::ReinitializeService(provider) => {
                 return self.handle_reinitialize_service(provider);
             }
-            Message::Layouts(message) => {
-                return self.handle_layouts(message);
-            }
             Message::ThemeEditor(msg) => {
                 self.handle_theme_editor(msg);
+            }
+            Message::CacheManagement(msg) => {
+                return self.handle_cache_management(msg);
             }
             Message::Sidebar(message) => {
                 return self.handle_sidebar(message);
@@ -287,14 +234,17 @@ impl Kairos {
                     return self.handle_window_close(id);
                 }
             },
-            Message::ServicesReady(result) => {
-                return self.handle_services_ready(result);
+            Message::DataEngineReady(result) => {
+                return self.handle_data_engine_ready(result);
             }
             Message::AiStreamEvent(event) => {
                 return self.handle_ai_stream_event(event);
             }
             Message::AiStreamComplete => {
                 return self.handle_ai_stream_complete();
+            }
+            Message::PersistState(windows) => {
+                self.save_state_to_disk(&windows);
             }
         }
         Task::none()

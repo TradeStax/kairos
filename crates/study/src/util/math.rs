@@ -8,7 +8,11 @@ pub fn mean(values: &[f64]) -> f64 {
     values.iter().sum::<f64>() / values.len() as f64
 }
 
-/// Calculate the variance of a slice of f64 values.
+/// Calculate the population variance (N divisor) of a slice of f64 values.
+///
+/// Uses population variance (divides by N, not N-1) which is the standard
+/// convention for technical indicators like Bollinger Bands and standard
+/// deviation calculations in financial charting.
 pub fn variance(values: &[f64]) -> f64 {
     if values.len() < 2 {
         return 0.0;

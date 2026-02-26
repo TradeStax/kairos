@@ -1,15 +1,14 @@
-//! Prelude for implementing custom studies.
+//! Convenience prelude for implementing studies.
 //!
-//! Import all essential types with a single glob:
-//! ```rust
+//! ```ignore
 //! use kairos_study::prelude::*;
 //! ```
 
-pub use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 pub use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterSection,
-    ParameterTab, ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
-pub use crate::output::StudyOutput;
+pub use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 pub use crate::error::StudyError;
-pub use crate::{BULLISH_COLOR, BEARISH_COLOR};
+pub use crate::output::StudyOutput;
+pub use crate::{BEARISH_COLOR, BULLISH_COLOR};

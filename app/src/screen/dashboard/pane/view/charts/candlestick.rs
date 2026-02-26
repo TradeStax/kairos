@@ -1,11 +1,13 @@
+use crate::config::UserTimezone;
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     chart,
     modals::{self, ModifierKind},
     screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
-use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{ChartBasis, Timeframe};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element,
     widget::{column, row},
@@ -52,16 +54,18 @@ impl State {
                     .into();
             extra.push(modifiers);
 
-            let base = chart::view(chart, timezone)
-                .map(move |message| Message::PaneEvent(id, Event::ChartInteraction(message)));
+            let base = chart::view(chart, timezone).map(move |message| {
+                Message::PaneEvent(id, Box::new(Event::ChartInteraction(message)))
+            });
             let settings_modal = || {
                 // Read candle style from the chart's current config
-                let cfg = if let Some(data::VisualConfig::Kline(ref saved)) =
-                    self.settings.visual_config
+                let cfg = if let Some(
+                    crate::screen::dashboard::pane::config::VisualConfig::Kline(ref saved),
+                ) = self.settings.visual_config
                 {
                     saved.clone()
                 } else {
-                    data::state::pane::KlineConfig {
+                    crate::screen::dashboard::pane::config::KlineConfig {
                         candle_style: chart.candle_style().clone(),
                         ..Default::default()
                     }

@@ -8,8 +8,9 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-data = { version = "0.1.0", path = "../data", package = "kairos-data" }
+data = { version = "0.2.0", path = "../data", package = "kairos-data" }
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
+chrono.workspace = true

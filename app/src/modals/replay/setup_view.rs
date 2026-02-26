@@ -18,8 +18,7 @@ impl ReplayManager {
 
     /// Sidebar popover: setup form or active-replay controls.
     pub fn view_setup_modal(&self, _timezone: UserTimezone) -> Element<'_, Message> {
-        let header = ModalHeaderBuilder::new("Replay")
-            .on_close(Message::Close);
+        let header = ModalHeaderBuilder::new("Replay").on_close(Message::Close);
 
         let form = if self.data_loaded {
             self.view_setup_active()
@@ -27,20 +26,27 @@ impl ReplayManager {
             self.view_setup_form()
         };
 
-        let base = container(
-            column![
-                header,
-                container(form).padding(tokens::spacing::LG),
-            ],
-        )
+        let base = container(column![
+            header,
+            container(form).padding(tokens::spacing::LG),
+        ])
         .width(Length::Fixed(280.0))
         .style(style::dashboard_modal);
 
         if let Some(popup) = self.active_popup {
             let (popup_content, offset_y) = match popup {
-                Popup::StreamPicker => (self.view_stream_popup(), tokens::component::replay::STREAM_POPUP_Y),
-                Popup::DatePicker => (self.view_date_popup(), tokens::component::replay::DATETIME_POPUP_Y),
-                Popup::TimePicker => (self.view_time_popup(), tokens::component::replay::DATETIME_POPUP_Y),
+                Popup::StreamPicker => (
+                    self.view_stream_popup(),
+                    tokens::component::replay::STREAM_POPUP_Y,
+                ),
+                Popup::DatePicker => (
+                    self.view_date_popup(),
+                    tokens::component::replay::DATETIME_POPUP_Y,
+                ),
+                Popup::TimePicker => (
+                    self.view_time_popup(),
+                    tokens::component::replay::DATETIME_POPUP_Y,
+                ),
             };
 
             let align_x = match popup {
@@ -63,6 +69,8 @@ impl ReplayManager {
                 container(base).height(Length::Fixed(340.0)),
                 mouse_area(positioned).on_press(Message::ClosePopups),
             ]
+            .width(280.0)
+            .height(340.0)
             .into()
         } else {
             base.into()
@@ -317,12 +325,13 @@ impl ReplayManager {
 
         // Leading blanks
         for _ in 0..offset {
-            week_row = week_row.push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
+            week_row =
+                week_row.push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
         }
 
         for day in 1..=total_days {
             let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
-            let in_range = date_range.map_or(false, |r| date >= r.start && date <= r.end);
+            let in_range = date_range.is_some_and(|r| date >= r.start && date <= r.end);
             let is_weekend = date.weekday() == Weekday::Sat || date.weekday() == Weekday::Sun;
             let is_selected = selected_date == Some(date);
 
@@ -331,7 +340,9 @@ impl ReplayManager {
                 .align_x(Alignment::Center)
                 .width(Length::Fill);
 
-            let mut day_btn = button(day_text).width(tokens::component::replay::CALENDAR_CELL).padding([7.0, 0.0]);
+            let mut day_btn = button(day_text)
+                .width(tokens::component::replay::CALENDAR_CELL)
+                .padding([7.0, 0.0]);
 
             if in_range && !is_weekend {
                 day_btn =
@@ -356,7 +367,7 @@ impl ReplayManager {
 
             week_row = week_row.push(day_btn);
 
-            if (offset + day as usize) % 7 == 0 {
+            if (offset + day as usize).is_multiple_of(7) {
                 grid = grid.push(week_row);
                 week_row = row![].spacing(tokens::spacing::XXXS);
             }
@@ -366,7 +377,8 @@ impl ReplayManager {
         let remaining = (offset + total_days as usize) % 7;
         if remaining != 0 {
             for _ in 0..(7 - remaining) {
-                week_row = week_row.push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
+                week_row = week_row
+                    .push(container(text("")).width(tokens::component::replay::CALENDAR_CELL));
             }
             grid = grid.push(week_row);
         }

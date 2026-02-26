@@ -13,7 +13,7 @@ use iced::widget::canvas::{self, Cache, Event, Frame, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, mouse};
 use study::output::{ProfileOutput, ProfileRenderConfig, VbpGroupingMode, VbpResolvedCache};
 
-use exchange::util::Price;
+use data::Price;
 
 /// Canvas program that renders side-panel studies (horizontal VBP bars)
 /// sharing the main chart's price Y-axis.
@@ -76,13 +76,10 @@ fn draw_side_panel_content(
     use study::StudyOutput;
 
     for info in studies {
-        match info.output {
-            StudyOutput::Profile(profiles, config) => {
-                for profile in profiles {
-                    render_side_panel_bars(frame, profile, config, state, bounds);
-                }
+        if let StudyOutput::Profile(profiles, config) = info.output {
+            for profile in profiles {
+                render_side_panel_bars(frame, profile, config, state, bounds);
             }
-            _ => {}
         }
     }
 }
@@ -143,14 +140,11 @@ pub fn render_side_panel_bars(
         // Convert price → screen Y (matching main chart transform exactly)
         let price = Price::from_units(level.price_units);
         let chart_y = state.price_to_y(price);
-        let screen_y =
-            (chart_y + state.translation.y) * state.scaling + bounds.height / 2.0;
+        let screen_y = (chart_y + state.translation.y) * state.scaling + bounds.height / 2.0;
 
         // Row height in screen pixels — matches one tick level height on the main canvas
-        let row_h = (state.cell_height
-            * state.scaling
-            * (resolved.quantum as f32 / tick_units))
-            .max(1.0);
+        let row_h =
+            (state.cell_height * state.scaling * (resolved.quantum as f32 / tick_units)).max(1.0);
 
         let top = screen_y - row_h / 2.0;
 
@@ -171,54 +165,50 @@ pub fn render_side_panel_bars(
     }
 
     // POC line
-    if config.poc_config.show_poc {
-        if let Some(poc_idx) = resolved.poc {
-            if let Some(level) = resolved.levels.get(poc_idx) {
+    if config.poc_config.show_poc
+        && let Some(poc_idx) = resolved.poc
+        && let Some(level) = resolved.levels.get(poc_idx)
+    {
+        let price = Price::from_units(level.price_units);
+        let chart_y = state.price_to_y(price);
+        let screen_y = (chart_y + state.translation.y) * state.scaling + bounds.height / 2.0;
+        let color = coord::to_iced_color(config.poc_config.poc_color, 1.0);
+        let width = coord::effective_line_width(config.poc_config.poc_line_width, state.scaling);
+        let line = Path::line(
+            Point::new(0.0, screen_y),
+            Point::new(bounds.width, screen_y),
+        );
+        frame.stroke(&line, Stroke::default().with_color(color).with_width(width));
+    }
+
+    // VAH / VAL lines
+    if config.va_config.show_value_area
+        && let Some((vah_idx, val_idx)) = resolved.value_area
+    {
+        for (idx, color_field, width_field) in [
+            (
+                vah_idx,
+                config.va_config.vah_color,
+                config.va_config.vah_line_width,
+            ),
+            (
+                val_idx,
+                config.va_config.val_color,
+                config.va_config.val_line_width,
+            ),
+        ] {
+            if let Some(level) = resolved.levels.get(idx) {
                 let price = Price::from_units(level.price_units);
                 let chart_y = state.price_to_y(price);
                 let screen_y =
                     (chart_y + state.translation.y) * state.scaling + bounds.height / 2.0;
-                let color = coord::to_iced_color(config.poc_config.poc_color, 1.0);
-                let width = coord::effective_line_width(
-                    config.poc_config.poc_line_width,
-                    state.scaling,
-                );
+                let color = coord::to_iced_color(color_field, 1.0);
+                let width = coord::effective_line_width(width_field, state.scaling);
                 let line = Path::line(
                     Point::new(0.0, screen_y),
                     Point::new(bounds.width, screen_y),
                 );
-                frame.stroke(
-                    &line,
-                    Stroke::default().with_color(color).with_width(width),
-                );
-            }
-        }
-    }
-
-    // VAH / VAL lines
-    if config.va_config.show_value_area {
-        if let Some((vah_idx, val_idx)) = resolved.value_area {
-            for (idx, color_field, width_field) in [
-                (vah_idx, config.va_config.vah_color, config.va_config.vah_line_width),
-                (val_idx, config.va_config.val_color, config.va_config.val_line_width),
-            ] {
-                if let Some(level) = resolved.levels.get(idx) {
-                    let price = Price::from_units(level.price_units);
-                    let chart_y = state.price_to_y(price);
-                    let screen_y =
-                        (chart_y + state.translation.y) * state.scaling + bounds.height / 2.0;
-                    let color = coord::to_iced_color(color_field, 1.0);
-                    let width =
-                        coord::effective_line_width(width_field, state.scaling);
-                    let line = Path::line(
-                        Point::new(0.0, screen_y),
-                        Point::new(bounds.width, screen_y),
-                    );
-                    frame.stroke(
-                        &line,
-                        Stroke::default().with_color(color).with_width(width),
-                    );
-                }
+                frame.stroke(&line, Stroke::default().with_color(color).with_width(width));
             }
         }
     }
@@ -263,22 +253,20 @@ fn bar_color(
 }
 
 /// Populate the resolved cache if not yet computed or stale.
-fn ensure_resolved_cache(
-    output: &ProfileOutput,
-    config: &ProfileRenderConfig,
-    state: &ViewState,
-) {
+fn ensure_resolved_cache(output: &ProfileOutput, config: &ProfileRenderConfig, state: &ViewState) {
     let tick_units = state.tick_size.units.max(1);
 
     let target_quantum = match output.grouping_mode {
         VbpGroupingMode::Automatic { factor } => {
             let dq = coord::compute_dynamic_quantum(
-                state,
-                4.0, // MIN_ROW_PX
-                factor,
-                tick_units,
+                state, 4.0, // MIN_ROW_PX
+                factor, tick_units,
             );
-            if dq > output.quantum { dq } else { output.quantum }
+            if dq > output.quantum {
+                dq
+            } else {
+                output.quantum
+            }
         }
         VbpGroupingMode::Manual => output.quantum,
     };
@@ -295,7 +283,7 @@ fn ensure_resolved_cache(
         }
     }
 
-    use study::orderflow::vbp::profile_core;
+    use study::studies::orderflow::vbp::profile_core;
 
     let (levels, poc, value_area) = if target_quantum > output.quantum {
         let merged = merge_levels_to_quantum(&output.levels, target_quantum);
@@ -385,4 +373,3 @@ fn draw_crosshair(frame: &mut Frame, y: f32, bounds: Size) {
             .with_width(1.0),
     );
 }
-

@@ -5,12 +5,10 @@
 
 pub(crate) mod coord;
 pub(crate) mod footprint;
-mod primitives;
-pub(crate) mod vbp;
 pub mod panel;
+mod primitives;
 pub mod side_panel;
-
-pub use primitives::bar::{VolumeBarSpec, draw_volume_bar};
+pub(crate) mod vbp;
 
 use crate::chart::ViewState;
 use iced::Size;
@@ -84,24 +82,14 @@ pub fn render_study_output(
         }
         StudyOutput::Composite(outputs) => {
             for sub_output in outputs {
-                render_study_output(
-                    frame,
-                    sub_output,
-                    state,
-                    bounds,
-                    placement,
-                    palette,
-                );
+                render_study_output(frame, sub_output, state, bounds, placement, palette);
             }
         }
         StudyOutput::Footprint(data) => {
             if let Some(pal) = palette {
-                footprint::render_footprint(
-                    frame, data, state, bounds, pal,
-                );
+                footprint::render_footprint(frame, data, state, bounds, pal);
             }
         }
         StudyOutput::Empty => {}
     }
 }
-

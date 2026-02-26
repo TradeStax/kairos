@@ -31,7 +31,6 @@ pub fn guesstimate_ticks(range: f32) -> f32 {
 }
 
 /// Shrinks main panel if needed when adding a new panel.
-/// Ensures indicators never shrink below `MIN_PANEL_HEIGHT`
 pub fn calc_panel_splits(
     initial_main_split: f32,
     active_indicators: usize,
@@ -46,10 +45,8 @@ pub fn calc_panel_splits(
         && active_indicators > prev_inds
     {
         let min_space_needed_all_indis = active_indicators as f32 * MIN_PANEL_HEIGHT;
-
         let max_main_split_if_indis_get_min =
             (TOTAL_HEIGHT - min_space_needed_all_indis).max(MIN_PANEL_HEIGHT);
-
         if main_split > max_main_split_if_indis_get_min {
             main_split = max_main_split_if_indis_get_min;
         }

@@ -1,5 +1,8 @@
+//! Study-specific error types with severity classification.
+
 use thiserror::Error;
 
+/// Errors produced during study configuration or computation.
 #[derive(Debug, Error)]
 pub enum StudyError {
     #[error("invalid parameter '{key}': {reason}")]

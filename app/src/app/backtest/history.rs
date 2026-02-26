@@ -78,11 +78,7 @@ impl BacktestHistory {
         }
     }
 
-    pub fn append_live_equity(
-        &mut self,
-        id: Uuid,
-        point: ::backtest::EquityPoint,
-    ) {
+    pub fn append_live_equity(&mut self, id: Uuid, point: ::backtest::EquityPoint) {
         if let Some(entry) = self.get_mut(id) {
             entry.live_equity.push(point);
         }

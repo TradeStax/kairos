@@ -66,8 +66,7 @@ impl AxisLabel {
         is_crosshair: bool,
         palette: &Extended,
     ) -> Self {
-        let content_width =
-            text_content.len() as f32 * (TEXT_SIZE / 2.6);
+        let content_width = text_content.len() as f32 * (TEXT_SIZE / 2.6);
 
         let rect = Rectangle {
             x: center_x_position - content_width,
@@ -135,9 +134,7 @@ impl AxisLabel {
         match self {
             AxisLabel::X { bounds, label } => {
                 let frame_bounds = frame.size();
-                if bounds.x + bounds.width < 0.0
-                    || bounds.x > frame_bounds.width
-                {
+                if bounds.x + bounds.width < 0.0 || bounds.x > frame_bounds.width {
                     return;
                 }
 

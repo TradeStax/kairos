@@ -6,9 +6,8 @@ use crate::components::input::slider_field::labeled_slider;
 use crate::screen::dashboard::pane::Message;
 use crate::style::tokens;
 
-use data::state::pane::{
-    ProfileConfig, ProfileExtendDirection, ProfileLineStyle,
-    VisualConfig,
+use crate::screen::dashboard::pane::config::{
+    ProfileConfig, ProfileExtendDirection, ProfileLineStyle, VisualConfig,
 };
 
 use iced::{
@@ -16,34 +15,19 @@ use iced::{
     widget::{column, pane_grid, pick_list, row},
 };
 
-fn cfg_msg(
-    pane: pane_grid::Pane,
-    cfg: ProfileConfig,
-) -> Message {
-    Message::VisualConfigChanged(
-        pane,
-        VisualConfig::Profile(cfg),
-        false,
-    )
+fn cfg_msg(pane: pane_grid::Pane, cfg: ProfileConfig) -> Message {
+    Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(cfg)), false)
 }
 
-pub(super) fn poc_tab<'a>(
-    cfg: ProfileConfig,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub(super) fn poc_tab<'a>(cfg: ProfileConfig, pane: pane_grid::Pane) -> Element<'a, Message> {
     let c = cfg.clone();
-    let show_poc = CheckboxFieldBuilder::new(
-        "Show POC line",
-        cfg.show_poc,
-        move |value| {
-            let mut new = c.clone();
-            new.show_poc = value;
-            cfg_msg(pane, new)
-        },
-    );
+    let show_poc = CheckboxFieldBuilder::new("Show POC line", cfg.show_poc, move |value| {
+        let mut new = c.clone();
+        new.show_poc = value;
+        cfg_msg(pane, new)
+    });
 
-    let mut section = FormSectionBuilder::new("Point of Control")
-        .push(show_poc);
+    let mut section = FormSectionBuilder::new("Point of Control").push(show_poc);
 
     if cfg.show_poc {
         let c = cfg.clone();
@@ -102,15 +86,12 @@ pub(super) fn poc_tab<'a>(
         section = section.push(style_row);
 
         let c = cfg.clone();
-        let show_label = CheckboxFieldBuilder::new(
-            "Show price label",
-            cfg.show_poc_label,
-            move |value| {
+        let show_label =
+            CheckboxFieldBuilder::new("Show price label", cfg.show_poc_label, move |value| {
                 let mut new = c.clone();
                 new.show_poc_label = value;
                 cfg_msg(pane, new)
-            },
-        );
+            });
         section = section.push(show_label);
     }
 

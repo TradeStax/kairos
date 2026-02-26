@@ -4,15 +4,12 @@ use iced::Task;
 
 use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
-use crate::infra::window;
+use crate::window;
 
 use super::super::{ChartMessage, DownloadMessage, Kairos, Message};
 
 impl Kairos {
-    pub(crate) fn handle_tick(
-        &mut self,
-        now: std::time::Instant,
-    ) -> Task<Message> {
+    pub(crate) fn handle_tick(&mut self, now: std::time::Instant) -> Task<Message> {
         let main_window_id = self.main_window.id;
 
         let Some(dashboard) = self.active_dashboard_mut() else {
@@ -22,14 +19,11 @@ impl Kairos {
             .tick(now, main_window_id)
             .map(move |msg| Message::Dashboard {
                 layout_id: None,
-                event: msg,
+                event: Box::new(msg),
             })
     }
 
-    pub(crate) fn handle_window_event(
-        &mut self,
-        event: window::Event,
-    ) -> Task<Message> {
+    pub(crate) fn handle_window_event(&mut self, event: window::Event) -> Task<Message> {
         match event {
             window::Event::CloseRequested(window) => {
                 let main_window = self.main_window.id;
@@ -49,17 +43,14 @@ impl Kairos {
                     .collect::<Vec<window::Id>>();
                 active_windows.push(main_window);
 
-                window::collect_window_specs(
-                    active_windows,
-                    Message::ExitRequested,
-                )
+                window::collect_window_specs(active_windows, Message::ExitRequested)
             }
         }
     }
 
     pub(crate) fn handle_exit_requested(
         &mut self,
-        windows: HashMap<window::Id, data::state::WindowSpec>,
+        windows: HashMap<window::Id, crate::persistence::WindowSpec>,
     ) -> Task<Message> {
         self.save_state_to_disk(&windows);
         iced::exit()
@@ -121,8 +112,7 @@ impl Kairos {
         id: Option<uuid::Uuid>,
         msg: dashboard::Message,
     ) -> Task<Message> {
-        let Some(active_layout) = self.persistence.layout_manager.active_layout_id()
-        else {
+        let Some(active_layout) = self.persistence.layout_manager.active_layout_id() else {
             log::error!("No active layout to handle dashboard message");
             return Task::none();
         };
@@ -130,27 +120,22 @@ impl Kairos {
         let main_window = self.main_window;
         let layout_id = id.unwrap_or(active_layout.unique);
 
-        if let Some(dashboard) =
-            self.persistence.layout_manager.mut_dashboard(layout_id)
-        {
-            let (main_task, event) =
-                dashboard.update(msg, &main_window);
+        if let Some(dashboard) = self.persistence.layout_manager.mut_dashboard(layout_id) {
+            let (main_task, event) = dashboard.update(msg, &main_window);
 
             let additional_task = match event {
                 Some(dashboard::Event::LoadChart {
                     pane_id,
                     config,
                     ticker_info,
-                }) => Task::done(Message::Chart(
-                    ChartMessage::LoadChartData {
-                        layout_id,
-                        pane_id,
-                        config,
-                        ticker_info,
-                    },
-                )),
+                }) => Task::done(Message::Chart(ChartMessage::LoadChartData {
+                    layout_id,
+                    pane_id,
+                    config,
+                    ticker_info,
+                })),
                 Some(dashboard::Event::Notification(toast)) => {
-                    self.ui.notifications.push(toast);
+                    self.ui.push_notification(toast);
                     Task::none()
                 }
                 Some(dashboard::Event::EstimateDataCost {
@@ -158,27 +143,23 @@ impl Kairos {
                     ticker,
                     schema,
                     date_range,
-                }) => Task::done(Message::Download(
-                    DownloadMessage::EstimateDataCost {
-                        pane_id,
-                        ticker,
-                        schema,
-                        date_range,
-                    },
-                )),
+                }) => Task::done(Message::Download(DownloadMessage::EstimateDataCost {
+                    pane_id,
+                    ticker,
+                    schema,
+                    date_range,
+                })),
                 Some(dashboard::Event::DownloadData {
                     pane_id,
                     ticker,
                     schema,
                     date_range,
-                }) => Task::done(Message::Download(
-                    DownloadMessage::DownloadData {
-                        pane_id,
-                        ticker,
-                        schema,
-                        date_range,
-                    },
-                )),
+                }) => Task::done(Message::Download(DownloadMessage::DownloadData {
+                    pane_id,
+                    ticker,
+                    schema,
+                    date_range,
+                })),
                 Some(dashboard::Event::PaneClosed { .. }) => Task::none(),
                 Some(dashboard::Event::DrawingToolChanged(tool)) => {
                     self.ui.sidebar.drawing_tools.set_active_tool(tool);
@@ -187,37 +168,36 @@ impl Kairos {
                 Some(dashboard::Event::AiRequest {
                     pane_id,
                     user_message,
-                }) => self.handle_ai_request(pane_id, user_message),
+                }) => self.handle_ai_request(pane_id, user_message, None),
                 Some(dashboard::Event::SaveAiApiKey(key)) => {
-                    match self.secrets.set_api_key(
-                        data::config::secrets::ApiProvider::OpenRouter,
-                        &key,
-                    ) {
-                        Ok(()) => self.ui.notifications.push(
-                            Toast::success("OpenRouter API key saved."),
-                        ),
-                        Err(e) => self.ui.notifications.push(
-                            Toast::error(format!("Failed to save key: {}", e)),
-                        ),
+                    match self
+                        .secrets
+                        .set_api_key(crate::config::secrets::ApiProvider::OpenRouter, &key)
+                    {
+                        Ok(()) => self
+                            .ui
+                            .push_notification(Toast::success("OpenRouter API key saved.")),
+                        Err(e) => self
+                            .ui
+                            .push_notification(Toast::error(format!("Failed to save key: {}", e))),
                     }
                     Task::none()
                 }
                 Some(dashboard::Event::AiContextQuery {
-                    source_pane_id: _,
+                    source_pane_id,
                     context,
                     question,
-                }) => self.handle_ai_context_query(context, question),
+                }) => self.handle_ai_context_query(source_pane_id, context, question),
                 Some(dashboard::Event::AiPreferencesChanged {
                     model,
                     temperature,
                     max_tokens,
                 }) => {
-                    self.ui.ai_preferences =
-                        data::AiPreferences {
-                            model,
-                            temperature,
-                            max_tokens,
-                        };
+                    self.ui.ai_preferences = crate::persistence::AiPreferences {
+                        model,
+                        temperature,
+                        max_tokens,
+                    };
                     Task::none()
                 }
                 None => Task::none(),
@@ -226,7 +206,7 @@ impl Kairos {
             return main_task
                 .map(move |msg| Message::Dashboard {
                     layout_id: Some(layout_id),
-                    event: msg,
+                    event: Box::new(msg),
                 })
                 .chain(additional_task);
         }
@@ -235,9 +215,8 @@ impl Kairos {
 
     pub(crate) fn handle_data_folder_requested(&mut self) {
         if let Err(err) = crate::infra::platform::open_data_folder() {
-            self.ui.notifications.push(Toast::error(format!(
-                "Failed to open data folder: {err}"
-            )));
+            self.ui
+                .push_notification(Toast::error(format!("Failed to open data folder: {err}")));
         }
     }
 
@@ -247,27 +226,18 @@ impl Kairos {
         iced::window::drag(id)
     }
 
-    pub(crate) fn handle_window_minimize(
-        &self,
-        id: window::Id,
-    ) -> Task<Message> {
+    pub(crate) fn handle_window_minimize(&self, id: window::Id) -> Task<Message> {
         iced::window::minimize(id, true)
     }
 
-    pub(crate) fn handle_window_toggle_maximize(
-        &mut self,
-        id: window::Id,
-    ) -> Task<Message> {
+    pub(crate) fn handle_window_toggle_maximize(&mut self, id: window::Id) -> Task<Message> {
         if id == self.main_window.id {
             self.main_window.is_maximized = !self.main_window.is_maximized;
         }
         iced::window::toggle_maximize(id)
     }
 
-    pub(crate) fn handle_window_close(
-        &mut self,
-        id: window::Id,
-    ) -> Task<Message> {
+    pub(crate) fn handle_window_close(&mut self, id: window::Id) -> Task<Message> {
         self.handle_window_event(window::Event::CloseRequested(id))
     }
 }

@@ -61,8 +61,8 @@ pub fn setup(is_debug: bool) -> Result<(), Error> {
         .level(log::LevelFilter::Off)
         .level_for("panic", log::LevelFilter::Error)
         .level_for("iced_wgpu", log::LevelFilter::Info)
-        .level_for("data", level_filter)
-        .level_for("exchange", level_filter)
+        .level_for("kairos_data", level_filter)
+        .level_for("kairos_exchange", level_filter)
         .level_for("kairos", level_filter)
         .chain(io_sink)
         .apply()?;
@@ -90,7 +90,7 @@ fn initial_rotation(log_path: &PathBuf) -> io::Result<()> {
 
 struct BackgroundLogger {
     sender: mpsc::Sender<LogMessage>,
-    _thread_handle: thread::JoinHandle<()>,
+    thread_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl BackgroundLogger {
@@ -127,7 +127,7 @@ impl BackgroundLogger {
 
         Ok(BackgroundLogger {
             sender,
-            _thread_handle: thread_handle,
+            thread_handle: Some(thread_handle),
         })
     }
 }
@@ -152,6 +152,9 @@ impl Write for BackgroundLogger {
 impl Drop for BackgroundLogger {
     fn drop(&mut self) {
         let _ = self.sender.send(LogMessage::Shutdown);
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -210,11 +213,11 @@ impl Write for Logger {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let buf_len = buf.len() as u64;
 
-        if self.current_size + buf_len > MAX_LOG_FILE_SIZE {
-            if let Err(e) = self.rotate() {
-                eprintln!("Failed to rotate log file: {e}");
-                return Ok(buf.len());
-            }
+        if self.current_size + buf_len > MAX_LOG_FILE_SIZE
+            && let Err(e) = self.rotate()
+        {
+            eprintln!("Failed to rotate log file: {e}");
+            return Ok(buf.len());
         }
 
         let bytes = self.file.write(buf)?;

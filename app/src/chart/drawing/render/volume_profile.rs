@@ -29,16 +29,11 @@ pub fn draw_in_chart_coords(
 
     // If computed profile data exists, delegate to the renderer
     if let Some(ref study) = drawing.vbp_study
-        && let StudyOutput::Profile(ref profiles, ref config) =
-            *study.output()
+        && let StudyOutput::Profile(ref profiles, ref config) = *study.output()
     {
         for output in profiles {
-            let (ax, br) = vbp_renderer::profile_x_range(
-                output, state, bounds,
-            );
-            vbp_renderer::render_vbp(
-                frame, output, config, state, bounds, ax, br,
-            );
+            let (ax, br) = vbp_renderer::profile_x_range(output, state, bounds);
+            vbp_renderer::render_vbp(frame, output, config, state, bounds, ax, br);
         }
 
         // Draw selection highlight
@@ -61,31 +56,19 @@ pub fn draw_in_chart_coords(
 
     if width > 0.0 && height > 0.0 {
         let stroke_color = drawing.stroke_color().scale_alpha(0.5);
-        let rect = Path::rectangle(
-            Point::new(min_x, min_y),
-            Size::new(width, height),
-        );
+        let rect = Path::rectangle(Point::new(min_x, min_y), Size::new(width, height));
         if let Some(fill_color) = drawing.fill_color() {
-            frame.fill(
-                &rect,
-                fill_color.scale_alpha(drawing.style.fill_opacity),
-            );
+            frame.fill(&rect, fill_color.scale_alpha(drawing.style.fill_opacity));
         }
         frame.stroke(
             &rect,
-            Stroke::default()
-                .with_color(stroke_color)
-                .with_width(1.0),
+            Stroke::default().with_color(stroke_color).with_width(1.0),
         );
     }
 }
 
 /// Draw a subtle selection highlight around a VBP drawing.
-fn draw_selection_rect(
-    frame: &mut Frame,
-    state: &ViewState,
-    drawing: &Drawing,
-) {
+fn draw_selection_rect(frame: &mut Frame, state: &ViewState, drawing: &Drawing) {
     if drawing.points.len() < 2 {
         return;
     }
@@ -100,10 +83,7 @@ fn draw_selection_rect(
     let height = (y1 - y2).abs();
 
     if width > 0.0 && height > 0.0 {
-        let rect = Path::rectangle(
-            Point::new(min_x, min_y),
-            Size::new(width, height),
-        );
+        let rect = Path::rectangle(Point::new(min_x, min_y), Size::new(width, height));
         frame.stroke(
             &rect,
             Stroke::default()

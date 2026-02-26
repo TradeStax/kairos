@@ -3,7 +3,7 @@ use crate::components::layout::dragger_row::dragger_row;
 use crate::components::layout::reorderable_list::{self as column_drag, DragEvent};
 use crate::components::primitives::label::body;
 use crate::components::primitives::{Icon, icon_text};
-use crate::layout::{Layout, LayoutId};
+use crate::persistence::{LayoutId, RuntimeLayout as Layout};
 use crate::screen::dashboard::Dashboard;
 use crate::style;
 use crate::style::tokens;
@@ -45,15 +45,11 @@ pub struct LayoutManager {
     pub layouts: Vec<Layout>,
     active_layout_id: Option<Uuid>,
     pub edit_mode: Editing,
-    market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
     data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
 }
 
 impl LayoutManager {
-    pub fn new(
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
-        data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
-    ) -> Self {
+    pub fn new(data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>) -> Self {
         let default_layout = LayoutId {
             unique: Uuid::new_v4(),
             name: "Layout 1".into(),
@@ -62,14 +58,10 @@ impl LayoutManager {
         Self {
             layouts: vec![Layout {
                 id: default_layout.clone(),
-                dashboard: Dashboard::new(
-                    market_data_service.clone(),
-                    data_index.clone(),
-                ),
+                dashboard: Dashboard::new(data_index.clone()),
             }],
             active_layout_id: Some(default_layout.unique),
             edit_mode: Editing::None,
-            market_data_service,
             data_index,
         }
     }
@@ -80,14 +72,11 @@ impl LayoutManager {
     /// shares the same Arc.
     pub fn update_shared_state(
         &mut self,
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) {
-        self.market_data_service = market_data_service.clone();
         self.data_index = data_index.clone();
         for layout in &mut self.layouts {
             layout.dashboard.data_index = data_index.clone();
-            layout.dashboard.market_data_service = market_data_service.clone();
         }
     }
 
@@ -95,15 +84,12 @@ impl LayoutManager {
     pub fn from_saved(
         layouts: Vec<Layout>,
         active_layout_id: Option<Uuid>,
-        market_data_service: Option<std::sync::Arc<data::MarketDataService>>,
         data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
     ) -> Self {
         Self {
-            active_layout_id: active_layout_id
-                .or_else(|| layouts.first().map(|l| l.id.unique)),
+            active_layout_id: active_layout_id.or_else(|| layouts.first().map(|l| l.id.unique)),
             layouts,
             edit_mode: Editing::None,
-            market_data_service,
             data_index,
         }
     }
@@ -193,13 +179,7 @@ impl LayoutManager {
                     name: self.generate_unique_layout_name(),
                 };
 
-                self.insert_layout(
-                    new_layout.clone(),
-                    Dashboard::new(
-                        self.market_data_service.clone(),
-                        self.data_index.clone(),
-                    ),
-                );
+                self.insert_layout(new_layout.clone(), Dashboard::new(self.data_index.clone()));
 
                 return Some(Action::Select(new_layout.unique));
             }

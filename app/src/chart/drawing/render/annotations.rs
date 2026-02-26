@@ -2,7 +2,7 @@
 
 use super::super::Drawing;
 use super::DrawContext;
-use data::DrawingTool;
+use crate::drawing::DrawingTool;
 use iced::alignment;
 use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Point, Size};
@@ -15,12 +15,7 @@ pub fn draw(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[
     }
 }
 
-fn draw_text_label(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_text_label(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     let Some(p) = pts.first() else { return };
 
     let text_content = drawing
@@ -69,12 +64,7 @@ fn draw_text_label(
     });
 }
 
-fn draw_price_label(
-    frame: &mut Frame,
-    ctx: &DrawContext<'_>,
-    drawing: &Drawing,
-    pts: &[Point],
-) {
+fn draw_price_label(frame: &mut Frame, ctx: &DrawContext<'_>, drawing: &Drawing, pts: &[Point]) {
     let Some(p) = pts.first() else { return };
 
     let price_str = format!("{:.2}", drawing.points[0].price.to_f64());
@@ -128,7 +118,7 @@ fn draw_price_label(
         position: Point::new(badge_origin.x + 6.0, badge_origin.y + badge_h * 0.5),
         color: ctx.stroke_color.scale_alpha(ctx.alpha),
         size: iced::Pixels(font_size),
-        align_y: alignment::Vertical::Center.into(),
+        align_y: alignment::Vertical::Center,
         ..Default::default()
     });
 }

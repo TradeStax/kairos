@@ -20,10 +20,8 @@ pub mod gap {
     use iced::Color;
 
     pub const NO_DATA: Color = Color::from_rgba(0.8, 0.2, 0.2, 0.08);
-    pub const MARKET_CLOSED: Color =
-        Color::from_rgba(0.5, 0.5, 0.5, 0.05);
-    pub const PARTIAL_COVERAGE: Color =
-        Color::from_rgba(0.8, 0.7, 0.2, 0.08);
+    pub const MARKET_CLOSED: Color = Color::from_rgba(0.5, 0.5, 0.5, 0.05);
+    pub const PARTIAL_COVERAGE: Color = Color::from_rgba(0.8, 0.7, 0.2, 0.08);
 }
 
 /// Histogram zero-line baseline.

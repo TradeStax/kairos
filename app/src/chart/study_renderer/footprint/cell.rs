@@ -1,21 +1,15 @@
 //! Per-cell and per-candle drawing for footprint clusters.
 
 use super::scale::{format_value, scaled_ratio};
-use super::{
-    BidAskArea, ClusterLayout, ClusterStyle, ProfileArea,
-};
-use super::{
-    BAR_ALPHA_WITH_TEXT, BAR_WIDTH_FACTOR, POC_HIGHLIGHT_ALPHA,
-    TEXT_BUDGET,
-};
+use super::{BAR_ALPHA_WITH_TEXT, BAR_WIDTH_FACTOR, POC_HIGHLIGHT_ALPHA, TEXT_BUDGET};
+use super::{BidAskArea, ClusterLayout, ClusterStyle, ProfileArea};
 use crate::components::primitives::AZERET_MONO;
 use iced::widget::canvas::{self, Frame, Path, Stroke};
 use iced::{Alignment, Color, Point, Size};
 use std::collections::BTreeSet;
 use study::output::{
-    FootprintCandle, FootprintCandlePosition, FootprintData,
-    FootprintDataType, FootprintLevel, FootprintRenderMode,
-    OutsideBarStyle,
+    FootprintCandle, FootprintCandlePosition, FootprintData, FootprintDataType, FootprintLevel,
+    FootprintRenderMode, OutsideBarStyle,
 };
 
 use super::box_mode::draw_box_mode;
@@ -31,23 +25,15 @@ pub(super) fn draw_poc_highlight(
     frame.fill_rectangle(
         Point::new(x, y - (cell_height / 2.0)),
         Size::new(width, cell_height),
-        palette
-            .primary
-            .base
-            .color
-            .scale_alpha(POC_HIGHLIGHT_ALPHA),
+        palette.primary.base.color.scale_alpha(POC_HIGHLIGHT_ALPHA),
     );
 }
 
-pub(super) fn text_budget_set(
-    levels: &[FootprintLevel],
-    show_text: bool,
-) -> Option<BTreeSet<i64>> {
+pub(super) fn text_budget_set(levels: &[FootprintLevel], show_text: bool) -> Option<BTreeSet<i64>> {
     if !show_text || levels.len() <= TEXT_BUDGET {
         return None;
     }
-    let mut ranked: Vec<(i64, f32)> =
-        levels.iter().map(|l| (l.price, l.total_qty())).collect();
+    let mut ranked: Vec<(i64, f32)> = levels.iter().map(|l| (l.price, l.total_qty())).collect();
     ranked.select_nth_unstable_by(TEXT_BUDGET - 1, |a, b| {
         b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
     });
@@ -123,10 +109,7 @@ pub(super) fn draw_thin_candle(
             body_color.scale_alpha(0.8),
         );
         frame.stroke(
-            &Path::rectangle(
-                Point::new(body_x, body_top),
-                Size::new(body_w, body_h),
-            ),
+            &Path::rectangle(Point::new(body_x, body_top), Size::new(body_w, body_h)),
             border_stroke,
         );
     }
@@ -177,9 +160,7 @@ pub(super) fn draw_footprint_candle_clusters(
     let text_size = style.text_size;
     let show_text = style.show_text;
 
-    let poc_price = poc_index
-        .and_then(|i| levels.get(i))
-        .map(|l| l.price);
+    let poc_price = poc_index.and_then(|i| levels.get(i)).map(|l| l.price);
     // Box mode: no text budget (cells don't overlap)
     let text_set = if data.mode == FootprintRenderMode::Box {
         None
@@ -188,12 +169,8 @@ pub(super) fn draw_footprint_candle_clusters(
     };
     let show_zero = style.show_zero_values;
     let text_format = style.text_format;
-    let should_label = |price: i64| {
-        show_text
-            && text_set
-                .as_ref()
-                .is_none_or(|s| s.contains(&price))
-    };
+    let should_label =
+        |price: i64| show_text && text_set.as_ref().is_none_or(|s| s.contains(&price));
 
     // When skip_levels is true, only draw the thin candle (no levels)
     if skip_levels {
@@ -215,64 +192,43 @@ pub(super) fn draw_footprint_candle_clusters(
 
     if data.mode == FootprintRenderMode::Box {
         // Compute box grid area, accounting for candle marker
-        let inset =
-            (cell_width * (1.0 - BAR_WIDTH_FACTOR)) / 2.0;
-        let content_left =
-            x_position - (cell_width / 2.0) + inset;
-        let content_right =
-            x_position + (cell_width / 2.0) - inset;
+        let inset = (cell_width * (1.0 - BAR_WIDTH_FACTOR)) / 2.0;
+        let content_left = x_position - (cell_width / 2.0) + inset;
+        let content_right = x_position + (cell_width / 2.0) - inset;
 
-        let (box_left, box_width, candle_cx) =
-            if candle_position
-                == FootprintCandlePosition::None
-            {
-                (
-                    content_left,
-                    (content_right - content_left).max(0.0),
-                    0.0,
-                )
-            } else {
-                let lane =
-                    candle_width * bar_marker_width;
-                match candle_position {
-                    FootprintCandlePosition::Left => {
-                        let bl = content_left
-                            + lane
-                            + spacing.candle_to_cluster;
-                        (
-                            bl,
-                            (content_right - bl).max(0.0),
-                            content_left + (lane / 2.0),
-                        )
-                    }
-                    FootprintCandlePosition::Center => {
-                        // Candle overlays centered on full
-                        // grid
-                        (
-                            content_left,
-                            (content_right - content_left)
-                                .max(0.0),
-                            x_position,
-                        )
-                    }
-                    FootprintCandlePosition::Right => {
-                        let br = content_right
-                            - lane
-                            - spacing.candle_to_cluster;
-                        (
-                            content_left,
-                            (br - content_left).max(0.0),
-                            content_right - (lane / 2.0),
-                        )
-                    }
-                    _ => (
-                        content_left,
-                        (content_right - content_left)
-                            .max(0.0),
-                        0.0,
-                    ),
+        let (box_left, box_width, candle_cx) = if candle_position == FootprintCandlePosition::None {
+            (content_left, (content_right - content_left).max(0.0), 0.0)
+        } else {
+            let lane = candle_width * bar_marker_width;
+            match candle_position {
+                FootprintCandlePosition::Left => {
+                    let bl = content_left + lane + spacing.candle_to_cluster;
+                    (
+                        bl,
+                        (content_right - bl).max(0.0),
+                        content_left + (lane / 2.0),
+                    )
                 }
-            };
+                FootprintCandlePosition::Center => {
+                    // Candle overlays centered on full
+                    // grid
+                    (
+                        content_left,
+                        (content_right - content_left).max(0.0),
+                        x_position,
+                    )
+                }
+                FootprintCandlePosition::Right => {
+                    let br = content_right - lane - spacing.candle_to_cluster;
+                    (
+                        content_left,
+                        (br - content_left).max(0.0),
+                        content_right - (lane / 2.0),
+                    )
+                }
+                _ => (content_left, (content_right - content_left).max(0.0), 0.0),
+            }
+        };
 
         draw_box_mode(
             frame,
@@ -290,22 +246,18 @@ pub(super) fn draw_footprint_candle_clusters(
             &should_label,
             data.bg_color_mode,
             data.bg_max_alpha,
-            data.bg_buy_color.map(|c| {
-                Color::from_rgba(c.r, c.g, c.b, c.a)
-            }),
-            data.bg_sell_color.map(|c| {
-                Color::from_rgba(c.r, c.g, c.b, c.a)
-            }),
-            data.text_color.map(|c| {
-                Color::from_rgba(c.r, c.g, c.b, c.a)
-            }),
+            data.bg_buy_color
+                .map(|c| Color::from_rgba(c.r, c.g, c.b, c.a)),
+            data.bg_sell_color
+                .map(|c| Color::from_rgba(c.r, c.g, c.b, c.a)),
+            data.text_color
+                .map(|c| Color::from_rgba(c.r, c.g, c.b, c.a)),
             data.show_grid_lines,
             show_zero,
             text_format,
         );
 
-        if candle_position != FootprintCandlePosition::None
-        {
+        if candle_position != FootprintCandlePosition::None {
             draw_thin_candle(
                 frame,
                 fp_candle,
@@ -331,8 +283,7 @@ pub(super) fn draw_footprint_candle_clusters(
     let content_left = cell_left + inset;
     let content_right = x_position + (cell_width / 2.0) - inset;
 
-    let draw_candle_body =
-        candle_position != FootprintCandlePosition::None;
+    let draw_candle_body = candle_position != FootprintCandlePosition::None;
 
     let buy_bar_color = data
         .bg_buy_color
@@ -353,8 +304,7 @@ pub(super) fn draw_footprint_candle_clusters(
                 candle_position,
                 bar_marker_width,
             );
-            let bar_alpha =
-                if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
+            let bar_alpha = if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
 
             for level in levels {
                 let y = price_to_y(level.price);
@@ -373,60 +323,35 @@ pub(super) fn draw_footprint_candle_clusters(
                 match data.data_type {
                     FootprintDataType::Volume => {
                         let total_qty = level.total_qty();
-                        let ratio = scaled_ratio(
-                            total_qty,
-                            max_cluster_qty,
-                            data.scaling,
-                        );
-                        let total_bar_len =
-                            ratio * area.bars_width;
+                        let ratio = scaled_ratio(total_qty, max_cluster_qty, data.scaling);
+                        let total_bar_len = ratio * area.bars_width;
 
                         if total_bar_len > 0.0 {
-                            let buy_frac =
-                                level.buy_volume / total_qty;
-                            let sell_len =
-                                (1.0 - buy_frac) * total_bar_len;
-                            let buy_len =
-                                buy_frac * total_bar_len;
+                            let buy_frac = level.buy_volume / total_qty;
+                            let sell_len = (1.0 - buy_frac) * total_bar_len;
+                            let buy_len = buy_frac * total_bar_len;
                             let bar_y = y - (row_height / 2.0);
 
                             if level.sell_volume > 0.0 {
                                 frame.fill_rectangle(
-                                    Point::new(
-                                        area.bars_left, bar_y,
-                                    ),
-                                    Size::new(
-                                        sell_len, row_height,
-                                    ),
-                                    sell_bar_color
-                                        .scale_alpha(bar_alpha),
+                                    Point::new(area.bars_left, bar_y),
+                                    Size::new(sell_len, row_height),
+                                    sell_bar_color.scale_alpha(bar_alpha),
                                 );
                             }
                             if level.buy_volume > 0.0 {
                                 frame.fill_rectangle(
-                                    Point::new(
-                                        area.bars_left + sell_len,
-                                        bar_y,
-                                    ),
-                                    Size::new(
-                                        buy_len, row_height,
-                                    ),
-                                    buy_bar_color
-                                        .scale_alpha(bar_alpha),
+                                    Point::new(area.bars_left + sell_len, bar_y),
+                                    Size::new(buy_len, row_height),
+                                    buy_bar_color.scale_alpha(bar_alpha),
                                 );
                             }
                         }
 
-                        if should_label(level.price)
-                            && (show_zero
-                                || total_qty > f32::EPSILON)
-                        {
+                        if should_label(level.price) && (show_zero || total_qty > f32::EPSILON) {
                             draw_cluster_text(
                                 frame,
-                                &format_value(
-                                    total_qty,
-                                    text_format,
-                                ),
+                                &format_value(total_qty, text_format),
                                 Point::new(area.bars_left, y),
                                 text_size,
                                 text_color,
@@ -437,35 +362,23 @@ pub(super) fn draw_footprint_candle_clusters(
                     }
                     FootprintDataType::Delta => {
                         let delta = level.delta_qty();
-                        let ratio = scaled_ratio(
-                            delta.abs(),
-                            max_cluster_qty,
-                            data.scaling,
-                        );
+                        let ratio = scaled_ratio(delta.abs(), max_cluster_qty, data.scaling);
                         let bar_width = ratio * area.bars_width;
 
                         if bar_width > 0.0 {
                             let color = if delta >= 0.0 {
-                                buy_bar_color
-                                    .scale_alpha(bar_alpha)
+                                buy_bar_color.scale_alpha(bar_alpha)
                             } else {
-                                sell_bar_color
-                                    .scale_alpha(bar_alpha)
+                                sell_bar_color.scale_alpha(bar_alpha)
                             };
                             frame.fill_rectangle(
-                                Point::new(
-                                    area.bars_left,
-                                    y - (row_height / 2.0),
-                                ),
+                                Point::new(area.bars_left, y - (row_height / 2.0)),
                                 Size::new(bar_width, row_height),
                                 color,
                             );
                         }
 
-                        if should_label(level.price)
-                            && (show_zero
-                                || delta.abs() > f32::EPSILON)
-                        {
+                        if should_label(level.price) && (show_zero || delta.abs() > f32::EPSILON) {
                             draw_cluster_text(
                                 frame,
                                 &format_value(delta, text_format),
@@ -495,8 +408,7 @@ pub(super) fn draw_footprint_candle_clusters(
                 );
             }
         }
-        FootprintDataType::BidAskSplit
-        | FootprintDataType::DeltaAndVolume => {
+        FootprintDataType::BidAskSplit | FootprintDataType::DeltaAndVolume => {
             let area = BidAskArea::new(
                 x_position,
                 content_left,
@@ -507,12 +419,9 @@ pub(super) fn draw_footprint_candle_clusters(
                 bar_marker_width,
             );
 
-            let bar_alpha =
-                if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
-            let right_area_width =
-                (area.bid_area_right - area.bid_area_left).max(0.0);
-            let left_area_width =
-                (area.ask_area_right - area.ask_area_left).max(0.0);
+            let bar_alpha = if show_text { BAR_ALPHA_WITH_TEXT } else { 1.0 };
+            let right_area_width = (area.bid_area_right - area.bid_area_left).max(0.0);
+            let left_area_width = (area.ask_area_right - area.ask_area_left).max(0.0);
 
             for level in levels {
                 let y = price_to_y(level.price);
@@ -528,19 +437,11 @@ pub(super) fn draw_footprint_candle_clusters(
                     );
                 }
 
-                if level.buy_volume > 0.0
-                    && right_area_width > 0.0
-                {
-                    if should_label(level.price)
-                        && (show_zero
-                            || level.buy_volume > f32::EPSILON)
-                    {
+                if level.buy_volume > 0.0 && right_area_width > 0.0 {
+                    if should_label(level.price) && (show_zero || level.buy_volume > f32::EPSILON) {
                         draw_cluster_text(
                             frame,
-                            &format_value(
-                                level.buy_volume,
-                                text_format,
-                            ),
+                            &format_value(level.buy_volume, text_format),
                             Point::new(area.bid_area_left, y),
                             text_size,
                             text_color,
@@ -549,37 +450,22 @@ pub(super) fn draw_footprint_candle_clusters(
                         );
                     }
 
-                    let ratio = scaled_ratio(
-                        level.buy_volume,
-                        max_cluster_qty,
-                        data.scaling,
-                    );
+                    let ratio = scaled_ratio(level.buy_volume, max_cluster_qty, data.scaling);
                     let bar_width = ratio * right_area_width;
                     if bar_width > 0.0 {
                         frame.fill_rectangle(
-                            Point::new(
-                                area.bid_area_left,
-                                y - (row_height / 2.0),
-                            ),
+                            Point::new(area.bid_area_left, y - (row_height / 2.0)),
                             Size::new(bar_width, row_height),
-                            buy_bar_color
-                                .scale_alpha(bar_alpha),
+                            buy_bar_color.scale_alpha(bar_alpha),
                         );
                     }
                 }
-                if (level.sell_volume > 0.0 || show_zero)
-                    && left_area_width > 0.0
-                {
-                    if should_label(level.price)
-                        && (show_zero
-                            || level.sell_volume > f32::EPSILON)
+                if (level.sell_volume > 0.0 || show_zero) && left_area_width > 0.0 {
+                    if should_label(level.price) && (show_zero || level.sell_volume > f32::EPSILON)
                     {
                         draw_cluster_text(
                             frame,
-                            &format_value(
-                                level.sell_volume,
-                                text_format,
-                            ),
+                            &format_value(level.sell_volume, text_format),
                             Point::new(area.ask_area_right, y),
                             text_size,
                             text_color,
@@ -589,23 +475,13 @@ pub(super) fn draw_footprint_candle_clusters(
                     }
 
                     if level.sell_volume > 0.0 {
-                        let ratio = scaled_ratio(
-                            level.sell_volume,
-                            max_cluster_qty,
-                            data.scaling,
-                        );
+                        let ratio = scaled_ratio(level.sell_volume, max_cluster_qty, data.scaling);
                         let bar_width = ratio * left_area_width;
                         if bar_width > 0.0 {
                             frame.fill_rectangle(
-                                Point::new(
-                                    area.ask_area_right,
-                                    y - (row_height / 2.0),
-                                ),
-                                Size::new(
-                                    -bar_width, row_height,
-                                ),
-                                sell_bar_color
-                                    .scale_alpha(bar_alpha),
+                                Point::new(area.ask_area_right, y - (row_height / 2.0)),
+                                Size::new(-bar_width, row_height),
+                                sell_bar_color.scale_alpha(bar_alpha),
                             );
                         }
                     }

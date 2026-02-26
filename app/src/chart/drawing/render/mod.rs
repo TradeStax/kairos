@@ -14,7 +14,7 @@ mod volume_profile;
 use super::{Drawing, DrawingManager, DrawingTool};
 use crate::chart::ViewState;
 use crate::chart::core::tokens;
-use data::{LabelAlignment, LineStyle};
+use crate::drawing::{LabelAlignment, LineStyle};
 use iced::alignment;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, LineDash, Path, Stroke, Text};
@@ -27,7 +27,7 @@ pub struct DrawContext<'a> {
     pub stroke_color: Color,
     pub stroke_width: f32,
     pub stroke: Stroke<'a>,
-    pub is_selected: bool,
+    pub _is_selected: bool,
     pub alpha: f32,
 }
 
@@ -48,20 +48,18 @@ pub fn draw_completed_drawings(
 ) {
     // Pass 1: Non-VBP drawings (screen coordinates)
     for drawing in drawings.drawings() {
-        if drawing.tool == DrawingTool::VolumeProfile {
+        if drawing.tool.is_vbp() {
             continue;
         }
         let is_selected = drawings.is_selected(drawing.id);
-        draw_single_drawing(
-            frame, state, drawing, bounds, palette, is_selected, 1.0,
-        );
+        draw_single_drawing(frame, state, drawing, bounds, palette, is_selected, 1.0);
     }
 
     // Pass 2: VBP drawings (chart coordinates with transforms)
     let has_vbp = drawings
         .drawings()
         .iter()
-        .any(|d| d.tool == DrawingTool::VolumeProfile && d.visible);
+        .any(|d| d.tool.is_vbp() && d.visible);
     if has_vbp {
         let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         frame.translate(center);
@@ -69,13 +67,11 @@ pub fn draw_completed_drawings(
         frame.translate(state.translation);
 
         for drawing in drawings.drawings() {
-            if drawing.tool != DrawingTool::VolumeProfile || !drawing.visible {
+            if !drawing.tool.is_vbp() || !drawing.visible {
                 continue;
             }
             let is_selected = drawings.is_selected(drawing.id);
-            volume_profile::draw_in_chart_coords(
-                frame, state, drawing, bounds, is_selected,
-            );
+            volume_profile::draw_in_chart_coords(frame, state, drawing, bounds, is_selected);
         }
     }
 }
@@ -102,61 +98,57 @@ pub fn draw_overlay_drawings(
     }
 
     // Draw pending preview with reduced alpha (non-VBP)
-    if let Some(pending) = drawings.pending() {
-        if pending.tool != DrawingTool::VolumeProfile {
-            draw_single_drawing(
-                frame,
-                state,
-                pending,
-                bounds,
-                palette,
-                false,
-                tokens::drawing::PREVIEW_ALPHA,
-            );
-        }
+    if let Some(pending) = drawings.pending()
+        && !pending.tool.is_vbp()
+    {
+        draw_single_drawing(
+            frame,
+            state,
+            pending,
+            bounds,
+            palette,
+            false,
+            tokens::drawing::PREVIEW_ALPHA,
+        );
     }
 
     // Draw clone placement preview with reduced alpha (non-VBP)
-    if let Some(clone) = drawings.clone_preview() {
-        if clone.tool != DrawingTool::VolumeProfile {
-            draw_single_drawing(
-                frame,
-                state,
-                clone,
-                bounds,
-                palette,
-                false,
-                tokens::drawing::PREVIEW_ALPHA,
-            );
-        }
+    if let Some(clone) = drawings.clone_preview()
+        && !clone.tool.is_vbp()
+    {
+        draw_single_drawing(
+            frame,
+            state,
+            clone,
+            bounds,
+            palette,
+            false,
+            tokens::drawing::PREVIEW_ALPHA,
+        );
     }
 
     // VBP overlays in chart coordinates
     let has_vbp_overlay = drawings
         .pending()
-        .is_some_and(|p| p.tool == DrawingTool::VolumeProfile)
+        .is_some_and(|p| p.tool.is_vbp())
         || drawings
             .clone_preview()
-            .is_some_and(|c| c.tool == DrawingTool::VolumeProfile);
+            .is_some_and(|c| c.tool.is_vbp());
     if has_vbp_overlay {
         let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         frame.translate(center);
         frame.scale(state.scaling);
         frame.translate(state.translation);
 
-        if let Some(pending) = drawings.pending() {
-            if pending.tool == DrawingTool::VolumeProfile {
-                volume_profile::draw_in_chart_coords(
-                    frame, state, pending, bounds, false,
-                );
-            }
+        if let Some(pending) = drawings.pending()
+            && pending.tool.is_vbp()
+        {
+            volume_profile::draw_in_chart_coords(frame, state, pending, bounds, false);
         }
-        if let Some(clone) = drawings.clone_preview() {
-            if clone.tool == DrawingTool::VolumeProfile {
-                volume_profile::draw_in_chart_coords(
-                    frame, state, clone, bounds, false,
-                );
-            }
+        if let Some(clone) = drawings.clone_preview()
+            && clone.tool.is_vbp()
+        {
+            volume_profile::draw_in_chart_coords(frame, state, clone, bounds, false);
         }
     }
 }
@@ -202,7 +194,7 @@ fn draw_single_drawing(
             stroke_color: glow_color,
             stroke_width: glow_width,
             stroke: glow_stroke,
-            is_selected,
+            _is_selected: is_selected,
             alpha,
         };
 
@@ -218,7 +210,7 @@ fn draw_single_drawing(
         stroke_color,
         stroke_width,
         stroke,
-        is_selected,
+        _is_selected: is_selected,
         alpha,
     };
 
@@ -250,9 +242,7 @@ fn dispatch_draw(
             fibonacci::draw(frame, ctx, drawing, screen_points)
         }
 
-        DrawingTool::ParallelChannel => {
-            channel::draw(frame, ctx, drawing, screen_points)
-        }
+        DrawingTool::ParallelChannel => channel::draw(frame, ctx, drawing, screen_points),
 
         DrawingTool::TextLabel | DrawingTool::PriceLabel => {
             annotations::draw(frame, ctx, drawing, screen_points)
@@ -262,7 +252,7 @@ fn dispatch_draw(
             calculator::draw(frame, ctx, drawing, screen_points)
         }
 
-        DrawingTool::VolumeProfile => {
+        DrawingTool::VolumeProfile | DrawingTool::DeltaProfile => {
             // VBP is handled in the two-pass flow (chart coordinates)
         }
     }
@@ -296,11 +286,7 @@ fn draw_handles(
 // ---------------------------------------------------------------------------
 
 /// Create a stroke with the given color, width, and line style.
-pub(super) fn create_stroke(
-    color: Color,
-    width: f32,
-    line_style: LineStyle,
-) -> Stroke<'static> {
+pub(super) fn create_stroke(color: Color, width: f32, line_style: LineStyle) -> Stroke<'static> {
     let line_dash = match line_style {
         LineStyle::Solid => LineDash::default(),
         LineStyle::Dashed => LineDash {
@@ -427,7 +413,7 @@ fn draw_label_aligned(
         color,
         size: iced::Pixels(11.0),
         align_x: h_align.into(),
-        align_y: alignment::Vertical::Bottom.into(),
+        align_y: alignment::Vertical::Bottom,
         ..Default::default()
     };
     frame.fill_text(label);
@@ -507,10 +493,7 @@ pub(super) fn draw_drawing_label(
         let p1 = line_endpoints[1];
 
         let (left, right) = if p0.x <= p1.x { (p0, p1) } else { (p1, p0) };
-        let mid = Point::new(
-            (left.x + right.x) / 2.0,
-            (left.y + right.y) / 2.0,
-        );
+        let mid = Point::new((left.x + right.x) / 2.0, (left.y + right.y) / 2.0);
 
         let (pos, h_align) = match align {
             LabelAlignment::Left => (
@@ -532,4 +515,3 @@ pub(super) fn draw_drawing_label(
         draw_label_aligned(frame, label_text, pos, stroke_color, h_align);
     }
 }
-

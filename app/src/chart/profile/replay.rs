@@ -23,7 +23,7 @@ impl ProfileChart {
         self.invalidate();
     }
 
-    /// Append a single trade during replay.
+    /// Append a single trade during replay or live streaming.
     pub fn append_trade(&mut self, trade: &Trade) {
         self.chart_data.trades.push(*trade);
 
@@ -48,19 +48,25 @@ impl ProfileChart {
                     last.close = trade.price;
                     last.buy_volume = Volume(last.buy_volume.0 + buy_vol.0);
                     last.sell_volume = Volume(last.sell_volume.0 + sell_vol.0);
-                    return;
+                } else {
+                    self.chart_data.candles.push(Candle {
+                        time: Timestamp::from_millis(bucket_time),
+                        open: trade.price,
+                        high: trade.price,
+                        low: trade.price,
+                        close: trade.price,
+                        buy_volume: buy_vol,
+                        sell_volume: sell_vol,
+                    });
                 }
-                self.chart_data.candles.push(Candle {
-                    time: Timestamp::from_millis(bucket_time),
-                    open: trade.price,
-                    high: trade.price,
-                    low: trade.price,
-                    close: trade.price,
-                    buy_volume: buy_vol,
-                    sell_volume: sell_vol,
-                });
             }
             data::ChartBasis::Tick(_) => {} // Profile doesn't use tick basis
         }
+
+        // Recompute profile and invalidate caches so the chart redraws.
+        // recompute_profile() has fingerprint-based dedup and won't redo
+        // work if nothing meaningful changed.
+        self.recompute_profile();
+        self.invalidate();
     }
 }

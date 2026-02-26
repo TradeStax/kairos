@@ -1,3 +1,4 @@
+pub mod cache_management;
 pub mod connections;
 pub mod data_feeds;
 pub mod download;

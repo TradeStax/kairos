@@ -1,8 +1,8 @@
 use crate::components::display::toast;
+use crate::config::sidebar;
 use crate::screen::dashboard;
 use crate::style::tokens;
-use crate::{infra::window, style};
-use data::sidebar;
+use crate::{style, window};
 
 use iced::{
     Alignment, Element, Length, padding,
@@ -18,18 +18,10 @@ fn map_title_bar_action(action: title_bar::Action) -> Message {
     use super::super::WindowMessage;
     match action {
         title_bar::Action::Drag(id) => Message::Window(WindowMessage::Drag(id)),
-        title_bar::Action::Minimize(id) => {
-            Message::Window(WindowMessage::Minimize(id))
-        }
-        title_bar::Action::ToggleMaximize(id) => {
-            Message::Window(WindowMessage::ToggleMaximize(id))
-        }
-        title_bar::Action::Close(id) => {
-            Message::Window(WindowMessage::Close(id))
-        }
-        title_bar::Action::Hover(hovered) => {
-            Message::Window(WindowMessage::TitleBarHover(hovered))
-        }
+        title_bar::Action::Minimize(id) => Message::Window(WindowMessage::Minimize(id)),
+        title_bar::Action::ToggleMaximize(id) => Message::Window(WindowMessage::ToggleMaximize(id)),
+        title_bar::Action::Close(id) => Message::Window(WindowMessage::Close(id)),
+        title_bar::Action::Hover(hovered) => Message::Window(WindowMessage::TitleBarHover(hovered)),
     }
 }
 
@@ -50,10 +42,15 @@ impl Kairos {
             let sidebar_view = self.ui.sidebar.view().map(Message::Sidebar);
 
             let dashboard_view = dashboard
-                .view(&self.main_window, tickers_info, self.ui.timezone, ticker_ranges)
+                .view(
+                    &self.main_window,
+                    tickers_info,
+                    self.ui.timezone,
+                    ticker_ranges,
+                )
                 .map(move |msg| Message::Dashboard {
                     layout_id: None,
-                    event: msg,
+                    event: Box::new(msg),
                 });
 
             let header: Element<'_, Message> = {
@@ -170,11 +167,9 @@ impl Kairos {
                             }),
                     };
 
-                    let on_close = Message::Sidebar(
-                        dashboard::sidebar::Message::Settings(
-                            crate::modals::preferences::Message::ToggleFlyout(false),
-                        ),
-                    );
+                    let on_close = Message::Sidebar(dashboard::sidebar::Message::Settings(
+                        crate::modals::preferences::Message::ToggleFlyout(false),
+                    ));
 
                     stack![base, mouse_area(positioned).on_press(on_close)].into()
                 } else {
@@ -185,9 +180,14 @@ impl Kairos {
             let base: Element<'_, Message> = {
                 use iced::widget::{mouse_area, opaque, stack};
 
-                let active_id = self.persistence.layout_manager.active_layout_id().map(|lid| lid.unique);
+                let active_id = self
+                    .persistence
+                    .layout_manager
+                    .active_layout_id()
+                    .map(|lid| lid.unique);
                 let layouts: Vec<(uuid::Uuid, String, bool)> = self
-                    .persistence.layout_manager
+                    .persistence
+                    .layout_manager
                     .layouts
                     .iter()
                     .map(|l| {
@@ -200,7 +200,9 @@ impl Kairos {
                     .collect();
 
                 let strategies: Vec<(String, String)> = self
-                    .modals.backtest.strategy_registry
+                    .modals
+                    .backtest
+                    .strategy_registry
                     .list()
                     .into_iter()
                     .map(|s| (s.id, s.name))
@@ -215,9 +217,7 @@ impl Kairos {
                     let x = match self.menu_bar.open_menu {
                         Some(menu_bar::Menu::File) => tokens::spacing::SM,
                         Some(menu_bar::Menu::Edit) => tokens::spacing::SM + btn_w,
-                        Some(menu_bar::Menu::Layout) => {
-                            tokens::spacing::SM + btn_w * 2.0
-                        }
+                        Some(menu_bar::Menu::Layout) => tokens::spacing::SM + btn_w * 2.0,
                         None => 0.0,
                     };
 
@@ -226,7 +226,7 @@ impl Kairos {
                     let menus: Element<'_, Message> = if let Some(sub) = submenu {
                         row![opaque(dropdown), opaque(sub.map(Message::MenuBar)),].into()
                     } else {
-                        opaque(dropdown).into()
+                        opaque(dropdown)
                     };
 
                     let positioned = container(menus)
@@ -305,7 +305,7 @@ impl Kairos {
                     )
                     .map(move |msg| Message::Dashboard {
                         layout_id: None,
-                        event: msg,
+                        event: Box::new(msg),
                     }),
             )
             .padding(padding::top(style::TITLE_PADDING_TOP));
@@ -327,18 +327,19 @@ impl Kairos {
         // Overlay the backtest launch modal when open.
         let content: Element<'_, Message> = if self.modals.backtest.show_backtest_modal {
             use crate::modals::main_dialog_modal;
-            let modal_content = self
-                .modals.backtest.backtest_launch_modal
-                .view()
-                .map(|m| {
-                    Message::Backtest(super::super::messages::BacktestMessage::LaunchModalInteraction(m))
-                });
+            let modal_content = self.modals.backtest.backtest_launch_modal.view().map(|m| {
+                Message::Backtest(
+                    super::super::messages::BacktestMessage::LaunchModalInteraction(m),
+                )
+            });
             main_dialog_modal(
                 content,
                 modal_content,
-                Message::Backtest(super::super::messages::BacktestMessage::LaunchModalInteraction(
-                    crate::screen::backtest::launch::Message::Close,
-                )),
+                Message::Backtest(
+                    super::super::messages::BacktestMessage::LaunchModalInteraction(
+                        crate::screen::backtest::launch::Message::Close,
+                    ),
+                ),
             )
         } else {
             content
@@ -349,21 +350,21 @@ impl Kairos {
             use crate::modals::main_dialog_modal;
             use crate::screen::backtest::manager::ManagerMessage;
             let modal_content = self
-                .modals.backtest.backtest_manager
+                .modals
+                .backtest
+                .backtest_manager
                 .view(&self.modals.backtest.backtest_history)
                 .map(|m| {
-                    Message::Backtest(
-                        super::super::messages::BacktestMessage::ManagerInteraction(m),
-                    )
+                    Message::Backtest(super::super::messages::BacktestMessage::ManagerInteraction(
+                        m,
+                    ))
                 });
             main_dialog_modal(
                 content,
                 modal_content,
-                Message::Backtest(
-                    super::super::messages::BacktestMessage::ManagerInteraction(
-                        ManagerMessage::Close,
-                    ),
-                ),
+                Message::Backtest(super::super::messages::BacktestMessage::ManagerInteraction(
+                    ManagerMessage::Close,
+                )),
             )
         } else {
             content
@@ -377,7 +378,8 @@ impl Kairos {
             use iced::widget::stack;
             let pos = self.modals.replay_manager.panel_position;
             let controller = self
-                .modals.replay_manager
+                .modals
+                .replay_manager
                 .view_floating_controller(self.ui.timezone)
                 .map(Message::Replay);
             let overlay = container(controller).padding(iced::Padding {

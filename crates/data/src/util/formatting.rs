@@ -8,7 +8,9 @@ pub fn abbr_large_numbers(value: f32) -> String {
         v if v >= 1_000_000_000.0 => {
             format!("{}{:.2}b", sign, v / 1_000_000_000.0)
         }
-        v if v >= 1_000_000.0 => format!("{}{:.2}m", sign, v / 1_000_000.0),
+        v if v >= 1_000_000.0 => {
+            format!("{}{:.2}m", sign, v / 1_000_000.0)
+        }
         v if v >= 10_000.0 => format!("{}{:.1}k", sign, v / 1_000.0),
         v if v >= 1_000.0 => format!("{}{:.2}k", sign, v / 1_000.0),
         v if v >= 100.0 => format!("{}{:.0}", sign, v),
@@ -71,7 +73,6 @@ pub fn format_with_commas(num: f32) -> String {
     let mut result = {
         let num_commas = (integer_part.len() - 1) / 3;
         let decimal_len = decimal_part.map_or(0, str::len);
-
         String::with_capacity(
             usize::from(is_negative) + integer_part.len() + num_commas + decimal_len,
         )
@@ -84,7 +85,6 @@ pub fn format_with_commas(num: f32) -> String {
     let digits_len = integer_part.len();
     for (i, ch) in integer_part.chars().enumerate() {
         result.push(ch);
-
         let pos_from_right = digits_len - i - 1;
         if i < digits_len - 1 && pos_from_right % 3 == 0 {
             result.push(',');
@@ -100,7 +100,9 @@ pub fn format_with_commas(num: f32) -> String {
 
 pub fn currency_abbr(price: f32) -> String {
     match price {
-        p if p > 1_000_000_000.0 => format!("${:.2}b", p / 1_000_000_000.0),
+        p if p > 1_000_000_000.0 => {
+            format!("${:.2}b", p / 1_000_000_000.0)
+        }
         p if p > 1_000_000.0 => format!("${:.1}m", p / 1_000_000.0),
         p if p > 1000.0 => format!("${:.2}k", p / 1000.0),
         _ => format!("${:.2}", price),

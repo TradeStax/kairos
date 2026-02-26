@@ -25,9 +25,7 @@ impl HeatmapChart {
                 }
             }
             Some(study::Action::ConfigureStudy(study)) => {
-                if let Some(existing_study) =
-                    studies.iter_mut().find(|s| s.is_same_type(&study))
-                {
+                if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
                     *existing_study = study;
                 }
             }

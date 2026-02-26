@@ -1,4 +1,4 @@
-use exchange::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
+use data::{FuturesTicker, FuturesTickerInfo, FuturesVenue};
 use rustc_hash::FxHashMap;
 
 /// CME Futures Products - Lookup table for ticker info (tick sizes, etc.)

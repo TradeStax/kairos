@@ -4,7 +4,7 @@ use crate::style;
 use crate::style::tokens;
 
 use data::ChartBasis;
-use exchange::{FuturesTickerInfo, FuturesVenue, Timeframe};
+use data::{FuturesTickerInfo, FuturesVenue, Timeframe};
 use iced::{
     Element, Length,
     alignment::Horizontal,
@@ -22,7 +22,9 @@ const TICK_COUNT_MAX: u16 = 1000;
 pub enum ModifierKind {
     Candlestick(ChartBasis),
     Footprint(ChartBasis),
+    #[cfg(feature = "heatmap")]
     Heatmap(ChartBasis),
+    #[cfg(feature = "heatmap")]
     Orderbook(ChartBasis),
     Comparison(ChartBasis),
 }
@@ -149,9 +151,11 @@ impl Modifier {
             ModifierKind::Footprint(_) => {
                 self.kind = ModifierKind::Footprint(basis);
             }
+            #[cfg(feature = "heatmap")]
             ModifierKind::Heatmap(_) => {
                 self.kind = ModifierKind::Heatmap(basis);
             }
+            #[cfg(feature = "heatmap")]
             ModifierKind::Orderbook(_) => {
                 self.kind = ModifierKind::Orderbook(basis);
             }
@@ -225,9 +229,9 @@ impl Modifier {
         let selected_basis = match kind {
             ModifierKind::Candlestick(basis)
             | ModifierKind::Comparison(basis)
-            | ModifierKind::Footprint(basis)
-            | ModifierKind::Heatmap(basis)
-            | ModifierKind::Orderbook(basis) => Some(basis),
+            | ModifierKind::Footprint(basis) => Some(basis),
+            #[cfg(feature = "heatmap")]
+            ModifierKind::Heatmap(basis) | ModifierKind::Orderbook(basis) => Some(basis),
         };
 
         let create_button = |content: iced::widget::text::Text<'a>,
@@ -253,9 +257,9 @@ impl Modifier {
 
                 let allows_tick_basis = match kind {
                     ModifierKind::Candlestick(_) | ModifierKind::Footprint(_) => true,
-                    ModifierKind::Heatmap(_)
-                    | ModifierKind::Orderbook(_)
-                    | ModifierKind::Comparison(_) => false,
+                    #[cfg(feature = "heatmap")]
+                    ModifierKind::Heatmap(_) | ModifierKind::Orderbook(_) => false,
+                    ModifierKind::Comparison(_) => false,
                 };
 
                 if selected_basis.is_some() {
@@ -379,6 +383,7 @@ impl Modifier {
                                     basis_selection_column =
                                         basis_selection_column.push(kline_timeframe_grid);
                                 }
+                                #[cfg(feature = "heatmap")]
                                 ModifierKind::Heatmap(_) => {
                                     // All heatmap timeframes are supported for futures
                                     let heatmap_timeframes: Vec<Timeframe> =
@@ -525,29 +530,30 @@ where
 
 impl From<&ModifierKind> for SelectedTab {
     fn from(kind: &ModifierKind) -> Self {
-        match kind {
+        let basis = match kind {
             ModifierKind::Candlestick(basis)
             | ModifierKind::Footprint(basis)
-            | ModifierKind::Heatmap(basis)
-            | ModifierKind::Orderbook(basis)
-            | ModifierKind::Comparison(basis) => match basis {
-                ChartBasis::Time(_) => SelectedTab::Timeframe,
-                ChartBasis::Tick(tc) => {
-                    const TICK_COUNTS: [u16; 8] = [10, 25, 50, 100, 250, 500, 1000, 2500];
-                    // tc is u32, convert to u16 for comparison
-                    let tc_u16 = *tc as u16;
-                    let is_custom = !TICK_COUNTS.contains(&tc_u16);
-                    SelectedTab::TickCount {
-                        raw_input_buf: if is_custom {
-                            NumericInput::from_tick_count(tc_u16)
-                        } else {
-                            NumericInput::default()
-                        },
-                        parsed_input: if is_custom { Some(tc_u16) } else { None },
-                        is_input_valid: true,
-                    }
+            | ModifierKind::Comparison(basis) => basis,
+            #[cfg(feature = "heatmap")]
+            ModifierKind::Heatmap(basis) | ModifierKind::Orderbook(basis) => basis,
+        };
+        match basis {
+            ChartBasis::Time(_) => SelectedTab::Timeframe,
+            ChartBasis::Tick(tc) => {
+                const TICK_COUNTS: [u16; 8] = [10, 25, 50, 100, 250, 500, 1000, 2500];
+                // tc is u32, convert to u16 for comparison
+                let tc_u16 = *tc as u16;
+                let is_custom = !TICK_COUNTS.contains(&tc_u16);
+                SelectedTab::TickCount {
+                    raw_input_buf: if is_custom {
+                        NumericInput::from_tick_count(tc_u16)
+                    } else {
+                        NumericInput::default()
+                    },
+                    parsed_input: if is_custom { Some(tc_u16) } else { None },
+                    is_input_valid: true,
                 }
-            },
+            }
         }
     }
 }

@@ -22,12 +22,12 @@ pub fn context_menu<'a, Message: Clone + 'a>(
                 .width(Length::Fill)
                 .padding([tokens::spacing::XS, tokens::spacing::MD])
                 .on_press(msg)
-                .style(|theme, status| style::button::pick_list_item(theme, status))
+                .style(style::button::pick_list_item)
         } else {
             button(text(label).size(tokens::text::BODY))
                 .width(Length::Fill)
                 .padding([tokens::spacing::XS, tokens::spacing::MD])
-                .style(|theme, status| style::button::pick_list_item(theme, status))
+                .style(style::button::pick_list_item)
         };
         col = col.push(btn);
     }

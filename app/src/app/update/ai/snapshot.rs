@@ -3,12 +3,12 @@
 //! Captures an immutable snapshot of chart data at request time so
 //! the async streaming function needs no mutable access to pane state.
 
+use crate::config::UserTimezone;
 use crate::screen::dashboard::pane;
-use data::config::timezone::UserTimezone;
 use data::domain::assistant::{
-    BigTradeSnapshot, ChartSnapshot, DrawingPointSnapshot,
-    DrawingSnapshot, FootprintCandleSnapshot, FootprintLevelSnapshot,
-    ProfileLevelSnapshot, ProfileSnapshot, StudyOutputSnapshot,
+    BigTradeSnapshot, ChartSnapshot, DrawingPointSnapshot, DrawingSnapshot,
+    FootprintCandleSnapshot, FootprintLevelSnapshot, ProfileLevelSnapshot, ProfileSnapshot,
+    StudyOutputSnapshot,
 };
 
 const MAX_TRADES: usize = 100_000;
@@ -23,17 +23,18 @@ pub(crate) fn build_chart_snapshot(
     let chart_data = state.chart_data.as_ref()?;
 
     let kind = state.content.kind();
-    let timeframe = state
-        .settings
-        .selected_basis
+    let selected_basis = state.settings.selected_basis;
+    let timeframe = selected_basis
         .map(|b| format!("{}", b))
         .unwrap_or_else(|| "default".to_string());
+    let is_tick_basis = selected_basis.is_some_and(|b| b.is_tick());
 
     let is_live = state.feed_id.is_some();
 
     let active_studies: Vec<String> = match &state.content {
-        pane::Content::Candlestick { study_ids, .. }
-        | pane::Content::Profile { study_ids, .. } => study_ids.clone(),
+        pane::Content::Candlestick { study_ids, .. } | pane::Content::Profile { study_ids, .. } => {
+            study_ids.clone()
+        }
         _ => vec![],
     };
 
@@ -53,22 +54,16 @@ pub(crate) fn build_chart_snapshot(
         let fmt = |ts: u64| {
             let secs = (ts / 1_000) as i64;
             match timezone {
-                UserTimezone::Local => {
-                    chrono::DateTime::from_timestamp(secs, 0)
-                        .map(|dt| {
-                            dt.with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d %H:%M")
-                                .to_string()
-                        })
-                        .unwrap_or_else(|| "?".to_string())
-                }
-                UserTimezone::Utc => {
-                    chrono::DateTime::from_timestamp(secs, 0)
-                        .map(|dt| {
-                            dt.format("%Y-%m-%d %H:%M").to_string()
-                        })
-                        .unwrap_or_else(|| "?".to_string())
-                }
+                UserTimezone::Local => chrono::DateTime::from_timestamp(secs, 0)
+                    .map(|dt| {
+                        dt.with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "?".to_string()),
+                UserTimezone::Utc => chrono::DateTime::from_timestamp(secs, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                    .unwrap_or_else(|| "?".to_string()),
             }
         };
         Some((fmt(first.time.0), fmt(last.time.0)))
@@ -104,6 +99,7 @@ pub(crate) fn build_chart_snapshot(
         visible_price_low: None,
         visible_time_start: None,
         visible_time_end: None,
+        is_tick_basis,
     })
 }
 
@@ -118,13 +114,18 @@ struct ExtractedStudyData {
 /// Extract study snapshots, big trades, footprint, and profile data
 /// from chart content.
 fn extract_studies(content: &pane::Content) -> ExtractedStudyData {
+    let empty: &[Box<dyn study::Study>] = &[];
     let studies: &[Box<dyn study::Study>] = match content {
-        pane::Content::Candlestick {
-            chart: Some(c), ..
-        } => c.studies(),
-        pane::Content::Profile {
-            chart: Some(c), ..
-        } => c.studies(),
+        pane::Content::Candlestick { chart, .. } => {
+            if let Some(c) = (**chart).as_ref() {
+                c.studies()
+            } else {
+                empty
+            }
+        }
+        pane::Content::Profile { chart, .. } => {
+            (**chart).as_ref().map(|c| c.studies()).unwrap_or(empty)
+        }
         _ => {
             return ExtractedStudyData {
                 snapshots: vec![],
@@ -158,10 +159,7 @@ fn extract_studies(content: &pane::Content) -> ExtractedStudyData {
             &mut profile_snapshots,
         );
 
-        if !snap.line_values.is_empty()
-            || !snap.bar_values.is_empty()
-            || !snap.levels.is_empty()
-        {
+        if !snap.line_values.is_empty() || !snap.bar_values.is_empty() || !snap.levels.is_empty() {
             snapshots.push(snap);
         }
     }
@@ -187,13 +185,11 @@ fn extract_from_output(
             for line in lines {
                 let n = line.points.len();
                 let start = n.saturating_sub(MAX_STUDY_POINTS);
-                let points: Vec<(u64, f32)> = line.points
-                    [start..]
+                let points: Vec<(u64, f32)> = line.points[start..]
                     .iter()
                     .map(|(t, v)| (*t / 1_000, *v))
                     .collect();
-                snap.line_values
-                    .push((line.label.clone(), points));
+                snap.line_values.push((line.label.clone(), points));
             }
         }
         study::StudyOutput::Band {
@@ -208,26 +204,22 @@ fn extract_from_output(
             {
                 let n = line.points.len();
                 let start = n.saturating_sub(MAX_STUDY_POINTS);
-                let points: Vec<(u64, f32)> = line.points
-                    [start..]
+                let points: Vec<(u64, f32)> = line.points[start..]
                     .iter()
                     .map(|(t, v)| (*t / 1_000, *v))
                     .collect();
-                snap.line_values
-                    .push((line.label.clone(), points));
+                snap.line_values.push((line.label.clone(), points));
             }
         }
         study::StudyOutput::Bars(bar_series) => {
             for series in bar_series {
                 let n = series.points.len();
                 let start = n.saturating_sub(MAX_STUDY_POINTS);
-                let points: Vec<(u64, f32)> = series.points
-                    [start..]
+                let points: Vec<(u64, f32)> = series.points[start..]
                     .iter()
                     .map(|p| (p.x / 1_000, p.value))
                     .collect();
-                snap.bar_values
-                    .push((series.label.clone(), points));
+                snap.bar_values.push((series.label.clone(), points));
             }
         }
         study::StudyOutput::Histogram(bars) => {
@@ -237,19 +229,17 @@ fn extract_from_output(
                 .iter()
                 .map(|b| (b.x / 1_000, b.value))
                 .collect();
-            snap.bar_values
-                .push(("Histogram".to_string(), points));
+            snap.bar_values.push(("Histogram".to_string(), points));
         }
         study::StudyOutput::Levels(lvls) => {
             for lvl in lvls {
-                snap.levels
-                    .push((lvl.label.clone(), lvl.price));
+                snap.levels.push((lvl.label.clone(), lvl.price));
             }
         }
         study::StudyOutput::Markers(marker_data) => {
             for m in &marker_data.markers {
                 big_trades.push(BigTradeSnapshot {
-                    time_secs: m.time / 1_000,
+                    time: m.time,
                     price: data::Price::from_units(m.price).to_f64(),
                     quantity: m.contracts,
                     is_buy: m.is_buy,
@@ -263,23 +253,16 @@ fn extract_from_output(
                     .iter()
                     .map(|l| (l.buy_volume + l.sell_volume) as f64)
                     .sum();
-                let poc_price = profile.poc.and_then(|idx| {
-                    profile.levels.get(idx).map(|l| l.price)
-                });
-                let (va_high, va_low) =
-                    match profile.value_area {
-                        Some((hi_idx, lo_idx)) => (
-                            profile
-                                .levels
-                                .get(hi_idx)
-                                .map(|l| l.price),
-                            profile
-                                .levels
-                                .get(lo_idx)
-                                .map(|l| l.price),
-                        ),
-                        None => (None, None),
-                    };
+                let poc_price = profile
+                    .poc
+                    .and_then(|idx| profile.levels.get(idx).map(|l| l.price));
+                let (va_high, va_low) = match profile.value_area {
+                    Some((hi_idx, lo_idx)) => (
+                        profile.levels.get(hi_idx).map(|l| l.price),
+                        profile.levels.get(lo_idx).map(|l| l.price),
+                    ),
+                    None => (None, None),
+                };
                 let hvn_prices: Vec<f64> = profile
                     .hvn_zones
                     .iter()
@@ -305,11 +288,7 @@ fn extract_from_output(
                         sell_volume: l.sell_volume,
                     })
                     .collect();
-                let time_range = profile.time_range.map(
-                    |(s, e)| {
-                        (s / 1_000, e / 1_000)
-                    },
-                );
+                let time_range = profile.time_range.map(|(s, e)| (s / 1_000, e / 1_000));
                 profile_snapshots.push(ProfileSnapshot {
                     levels,
                     poc_price,
@@ -324,40 +303,30 @@ fn extract_from_output(
         }
         study::StudyOutput::Footprint(fp_data) => {
             for candle in &fp_data.candles {
-                let poc_price =
-                    candle.poc_index.and_then(|idx| {
-                        candle.levels.get(idx).map(|l| {
-                            data::Price::from_units(l.price)
-                                .to_f64()
-                        })
-                    });
+                let poc_price = candle.poc_index.and_then(|idx| {
+                    candle
+                        .levels
+                        .get(idx)
+                        .map(|l| data::Price::from_units(l.price).to_f64())
+                });
                 let levels: Vec<FootprintLevelSnapshot> = candle
                     .levels
                     .iter()
                     .map(|l| FootprintLevelSnapshot {
-                        price: data::Price::from_units(l.price)
-                            .to_f64(),
+                        price: data::Price::from_units(l.price).to_f64(),
                         buy_volume: l.buy_volume,
                         sell_volume: l.sell_volume,
                     })
                     .collect();
-                footprint_candles.push(
-                    FootprintCandleSnapshot {
-                        time_secs: candle.x / 1_000,
-                        open: data::Price::from_units(candle.open)
-                            .to_f64(),
-                        high: data::Price::from_units(candle.high)
-                            .to_f64(),
-                        low: data::Price::from_units(candle.low)
-                            .to_f64(),
-                        close: data::Price::from_units(
-                            candle.close,
-                        )
-                        .to_f64(),
-                        poc_price,
-                        levels,
-                    },
-                );
+                footprint_candles.push(FootprintCandleSnapshot {
+                    time_secs: candle.x / 1_000,
+                    open: data::Price::from_units(candle.open).to_f64(),
+                    high: data::Price::from_units(candle.high).to_f64(),
+                    low: data::Price::from_units(candle.low).to_f64(),
+                    close: data::Price::from_units(candle.close).to_f64(),
+                    poc_price,
+                    levels,
+                });
             }
         }
         study::StudyOutput::Composite(children) => {
@@ -385,7 +354,7 @@ fn extract_drawings(content: &pane::Content) -> Vec<DrawingSnapshot> {
         .drawings()
         .to_serializable()
         .iter()
-        .filter(|d| d.visible && d.tool != data::DrawingTool::AiContext)
+        .filter(|d| d.visible && d.tool != crate::drawing::DrawingTool::AiContext)
         .map(|d| DrawingSnapshot {
             id: d.id.0.to_string(),
             tool_type: format!("{}", d.tool),
@@ -393,8 +362,7 @@ fn extract_drawings(content: &pane::Content) -> Vec<DrawingSnapshot> {
                 .points
                 .iter()
                 .map(|p| DrawingPointSnapshot {
-                    price: data::Price::from_units(p.price_units)
-                        .to_f64(),
+                    price: data::Price::from_units(p.price_units).to_f64(),
                     time_secs: p.time / 1_000,
                 })
                 .collect(),

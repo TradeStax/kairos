@@ -1,7 +1,7 @@
 //! Persistent data state: layout manager, downloaded ticker registry, data index, ticker metadata.
 
 use crate::modals::LayoutManager;
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use rustc_hash::FxHashMap;
 
 pub(crate) struct PersistenceState {

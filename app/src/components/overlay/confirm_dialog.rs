@@ -13,7 +13,6 @@ pub struct ConfirmDialog<M> {
     pub on_confirm_btn_text: Option<String>,
 }
 
-
 /// Builder for a confirmation dialog that renders on top of a base element.
 ///
 /// Uses [`ModalShell`] internally with [`ModalKind::Confirm`].
@@ -43,12 +42,6 @@ impl<'a, Message: Clone + 'a> ConfirmDialogBuilder<'a, Message> {
     /// Override the confirm button label (default "Confirm").
     pub fn confirm_text(mut self, label: impl Into<String>) -> Self {
         self.confirm_text = label.into();
-        self
-    }
-
-    /// Override the cancel button label (default "Cancel").
-    pub fn cancel_text(mut self, label: impl Into<String>) -> Self {
-        self.cancel_text = label.into();
         self
     }
 

@@ -1,6 +1,6 @@
 use crate::components::primitives::icons::{Icon, icon_text};
 use crate::style::{self, tokens};
-use crate::infra::window;
+use crate::window;
 
 use iced::widget::{button, container, mouse_area, row, space, text};
 use iced::{Alignment, Element, Length, mouse, padding};
@@ -70,9 +70,7 @@ pub fn view_title_bar<'a, Message: 'a + Clone>(
     .on_press(map(Action::Close(window_id)))
     .style(style::button::window_close);
 
-    let controls =
-        row![minimize_btn, maximize_btn, close_btn]
-            .spacing(tokens::spacing::XXS);
+    let controls = row![minimize_btn, maximize_btn, close_btn].spacing(tokens::spacing::XXS);
 
     let bar = container(
         row![

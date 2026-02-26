@@ -3,8 +3,8 @@
 //! Draws a horizontal dashed line at the last traded price with a
 //! floating price label box at the right edge of the chart area.
 
-use crate::chart::core::tokens;
 use crate::chart::core::ViewState;
+use crate::chart::core::tokens;
 use crate::components::primitives::AZERET_MONO;
 use data::util::count_decimals;
 use iced::theme::palette::Extended;
@@ -52,9 +52,8 @@ pub fn draw_last_price_line(
             price_text.len() as f32 * char_width + tokens::last_price::LABEL_PADDING_X * 2.0;
         let label_height = text_size + tokens::last_price::LABEL_PADDING_Y * 2.0;
 
-        let label_x = region.x + region.width
-            - label_width
-            - tokens::last_price::LABEL_MARGIN_RIGHT;
+        let label_x =
+            region.x + region.width - label_width - tokens::last_price::LABEL_MARGIN_RIGHT;
         let label_y = y_pos - label_height / 2.0;
 
         // Fill label background with the line color

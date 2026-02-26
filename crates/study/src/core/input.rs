@@ -1,6 +1,8 @@
+//! Input data passed to [`Study::compute()`](super::Study::compute).
+
 use data::{Candle, ChartBasis, Price, Trade};
 
-/// Input data provided to studies for computation.
+/// Market data and chart context provided to a study for computation.
 pub struct StudyInput<'a> {
     /// OHLCV candle data. Non-empty; studies may return `Empty` output if
     /// fewer candles than required are present (e.g. period not yet warm).

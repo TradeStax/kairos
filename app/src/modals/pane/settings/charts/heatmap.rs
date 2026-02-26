@@ -5,9 +5,9 @@ use crate::split_column;
 use crate::style;
 use crate::style::tokens;
 
+use crate::screen::dashboard::pane::config::{HeatmapConfig, VisualConfig};
 use data::ChartBasis;
-use data::domain::chart::heatmap::{CoalesceKind, HeatmapStudy};
-use data::state::pane::{HeatmapConfig, VisualConfig};
+use data::domain::chart::heatmap::heatmap::{CoalesceKind, HeatmapStudy};
 use data::util::format_with_commas;
 
 use iced::{
@@ -287,7 +287,10 @@ pub fn heatmap_cfg_view<'a>(
     };
 
     let study_cfg = study_config.view(studies, basis).map(move |msg| {
-        Message::PaneEvent(pane, Event::StudyConfigurator(StudyMessage::Heatmap(msg)))
+        Message::PaneEvent(
+            pane,
+            Box::new(Event::StudyConfigurator(StudyMessage::Heatmap(msg))),
+        )
     });
 
     let content = split_column![

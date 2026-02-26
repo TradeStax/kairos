@@ -3,21 +3,22 @@
 //! Provides navigation buttons for layout management, replay, connections,
 //! settings, and drawing tools with flyout submenus.
 
+use crate::config::Sidebar as SidebarConfig;
+use crate::config::sidebar;
 use crate::{
-    components::display::tooltip::{button_with_tooltip, tooltip},
+    components::display::tooltip::button_with_tooltip,
     components::primitives::{Icon, icon_text},
-    layout::SavedState,
     modals::drawing::tools::{self, DrawingToolsPanel, SidebarGroup},
     modals::preferences::{self, SettingsPanel},
+    persistence::SavedState,
     style,
     style::tokens,
 };
-use data::sidebar;
 use iced::widget::tooltip::Position as TooltipPosition;
 
 use iced::{
     Alignment, Element, Length, Task,
-    widget::{button, column, container, row, rule, space},
+    widget::{column, container, rule, space},
 };
 
 #[derive(Debug, Clone)]
@@ -33,7 +34,7 @@ pub enum SidebarAction {
 }
 
 pub struct Sidebar {
-    pub state: data::Sidebar,
+    pub state: SidebarConfig,
     pub drawing_tools: DrawingToolsPanel,
     pub settings: SettingsPanel,
 }
@@ -47,15 +48,10 @@ impl Sidebar {
         }
     }
 
-    pub fn update(
-        &mut self,
-        message: Message,
-    ) -> (Task<Message>, Option<SidebarAction>) {
+    pub fn update(&mut self, message: Message) -> (Task<Message>, Option<SidebarAction>) {
         match message {
             Message::ToggleSidebarMenu(menu) => {
-                self.set_menu(
-                    menu.filter(|&m| !self.is_menu_active(m)),
-                );
+                self.set_menu(menu.filter(|&m| !self.is_menu_active(m)));
                 // Close any open flyout when toggling sidebar menus
                 self.drawing_tools.expanded_group = None;
                 self.settings.flyout_expanded = false;
@@ -68,10 +64,7 @@ impl Sidebar {
             }
             Message::Settings(msg) => {
                 // Close drawing flyout when settings flyout opens
-                if matches!(
-                    msg,
-                    preferences::Message::ToggleFlyout(true)
-                ) {
+                if matches!(msg, preferences::Message::ToggleFlyout(true)) {
                     self.drawing_tools.expanded_group = None;
                 }
                 let action = self.settings.update(msg);
@@ -83,63 +76,46 @@ impl Sidebar {
     pub fn view(&self) -> Element<'_, Message> {
         let state = &self.state;
 
-        let tooltip_position =
-            if state.position == sidebar::Position::Left {
-                TooltipPosition::Right
-            } else {
-                TooltipPosition::Left
-            };
+        let tooltip_position = if state.position == sidebar::Position::Left {
+            TooltipPosition::Right
+        } else {
+            TooltipPosition::Left
+        };
 
         self.build_sidebar_content(tooltip_position)
     }
 
-    fn build_sidebar_content(
-        &self,
-        tooltip_position: TooltipPosition,
-    ) -> Element<'_, Message> {
+    fn build_sidebar_content(&self, tooltip_position: TooltipPosition) -> Element<'_, Message> {
         let replay_btn = {
-            let is_active =
-                self.is_menu_active(sidebar::Menu::Replay);
+            let is_active = self.is_menu_active(sidebar::Menu::Replay);
 
             button_with_tooltip(
                 icon_text(Icon::Replay, 14)
                     .width(24)
+                    .height(24)
                     .align_x(Alignment::Center),
-                Message::ToggleSidebarMenu(Some(
-                    sidebar::Menu::Replay,
-                )),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Replay)),
                 Some("Replay"),
                 tooltip_position,
-                move |theme, status| {
-                    crate::style::button::transparent(
-                        theme, status, is_active,
-                    )
-                },
+                move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
         };
 
         // Drawing tool buttons - one per sidebar group
-        let drawing_buttons =
-            self.build_drawing_buttons(tooltip_position);
+        let drawing_buttons = self.build_drawing_buttons(tooltip_position);
 
         let connections_btn = {
-            let is_active =
-                self.is_menu_active(sidebar::Menu::Connections);
+            let is_active = self.is_menu_active(sidebar::Menu::Connections);
 
             button_with_tooltip(
                 icon_text(Icon::Link, 14)
                     .width(24)
+                    .height(24)
                     .align_x(Alignment::Center),
-                Message::ToggleSidebarMenu(Some(
-                    sidebar::Menu::Connections,
-                )),
+                Message::ToggleSidebarMenu(Some(sidebar::Menu::Connections)),
                 Some("Connections"),
                 tooltip_position,
-                move |theme, status| {
-                    crate::style::button::transparent(
-                        theme, status, is_active,
-                    )
-                },
+                move |theme, status| crate::style::button::transparent(theme, status, is_active),
             )
         };
 
@@ -148,39 +124,20 @@ impl Sidebar {
             let is_active = is_expanded
                 || self.settings.active_modal.is_some()
                 || self.is_menu_active(sidebar::Menu::Settings)
-                || self
-                    .is_menu_active(sidebar::Menu::ThemeEditor);
+                || self.is_menu_active(sidebar::Menu::ThemeEditor);
 
-            let btn = iced::widget::mouse_area(
-                button(
-                    row![
-                        icon_text(Icon::Cog, 14)
-                            .width(16)
-                            .align_x(Alignment::Center),
-                        icon_text(Icon::ExpandRight, 8)
-                            .width(8)
-                            .align_x(Alignment::Center),
-                    ]
-                    .align_y(Alignment::Center)
-                    .spacing(0),
-                )
-                .style(move |theme, status| {
-                    style::button::transparent(
-                        theme, status, is_active,
-                    )
-                })
-                .on_press(Message::Settings(
-                    preferences::Message::ToggleFlyout(!is_expanded),
-                )),
-            );
+            let tip = if is_expanded { None } else { Some("Settings") };
 
-            let tip = if is_expanded {
-                None
-            } else {
-                Some("Settings")
-            };
-
-            tooltip(btn, tip, tooltip_position)
+            button_with_tooltip(
+                icon_text(Icon::Cog, 14)
+                    .width(24)
+                    .height(24)
+                    .align_x(Alignment::Center),
+                Message::Settings(preferences::Message::ToggleFlyout(!is_expanded)),
+                tip,
+                tooltip_position,
+                move |theme, status| style::button::transparent(theme, status, is_active),
+            )
         };
 
         let mut content = column![]
@@ -188,19 +145,16 @@ impl Sidebar {
             .spacing(tokens::spacing::XS)
             .align_x(Alignment::Center);
 
-        // Top section: nav buttons
-        content = content.push(replay_btn);
-
-        // Drawing tools
+        // Top section: drawing tools
         for btn in drawing_buttons {
             content = content.push(btn);
         }
 
         // Spacer
-        content =
-            content.push(space::vertical().height(Length::Fill));
+        content = content.push(space::vertical().height(Length::Fill));
 
         // Bottom section
+        content = content.push(replay_btn);
         content = content.push(connections_btn);
         content = content.push(settings_btn);
 
@@ -218,96 +172,57 @@ impl Sidebar {
         SidebarGroup::ALL
             .iter()
             .map(|&group| {
-                let selected_tool =
-                    self.drawing_tools.get_selected_for_group(group);
+                let selected_tool = self.drawing_tools.get_selected_for_group(group);
                 let icon = group.icon(selected_tool);
 
                 let is_active = if group == SidebarGroup::Select {
-                    active_tool == data::DrawingTool::None
+                    active_tool == crate::drawing::DrawingTool::None
                 } else {
                     SidebarGroup::for_tool(active_tool) == group
-                        && active_tool != data::DrawingTool::None
+                        && active_tool != crate::drawing::DrawingTool::None
                 };
 
-                let is_expanded =
-                    self.drawing_tools.expanded_group == Some(group);
+                let is_expanded = self.drawing_tools.expanded_group == Some(group);
 
                 // For groups with submenus, select the tool
                 // and toggle the flyout.
                 // For Select, directly activate the tool.
                 let msg = if group.has_submenu() {
-                    Message::DrawingTools(
-                        tools::Message::GroupClicked {
-                            tool: selected_tool,
-                            group,
-                        },
-                    )
+                    Message::DrawingTools(tools::Message::GroupClicked {
+                        tool: selected_tool,
+                        group,
+                    })
                 } else {
-                    Message::DrawingTools(
-                        tools::Message::ToolSelected(
-                            selected_tool,
-                        ),
-                    )
+                    Message::DrawingTools(tools::Message::ToolSelected(selected_tool))
                 };
 
-                if group.has_submenu() {
-                    let label = group.label();
+                {
+                    let tip = if is_expanded {
+                        None
+                    } else {
+                        Some(group.label())
+                    };
 
-                    let btn_content = iced::widget::mouse_area(
-                        button(
-                            row![
-                                icon_text(icon, 14)
-                                    .width(16)
-                                    .align_x(Alignment::Center),
-                                icon_text(Icon::ExpandRight, 8)
-                                    .width(8)
-                                    .align_x(Alignment::Center),
-                            ]
-                            .align_y(Alignment::Center)
-                            .spacing(0),
-                        )
-                        .style(move |theme, status| {
-                            style::button::transparent(
-                                theme,
-                                status,
-                                is_active || is_expanded,
-                            )
-                        })
-                        .on_press(msg),
-                    );
-
-                    let tip =
-                        if is_expanded { None } else { Some(label) };
-
-                    tooltip(btn_content, tip, tooltip_position)
-                } else {
-                    // Select button: normal tooltip
                     button_with_tooltip(
                         icon_text(icon, 14)
                             .width(24)
+                            .height(24)
                             .align_x(Alignment::Center),
                         msg,
-                        Some(group.label()),
+                        tip,
                         tooltip_position,
                         move |theme, status| {
-                            style::button::transparent(
-                                theme, status, is_active,
-                            )
+                            style::button::transparent(theme, status, is_active || is_expanded)
                         },
                     )
                 }
             })
-            .chain(std::iter::once(
-                self.snap_button(tooltip_position),
-            ))
+            .chain(std::iter::once(self.snap_button(tooltip_position)))
             .collect()
     }
 
     /// Snap toggle button using button_with_tooltip.
-    fn snap_button(
-        &self,
-        tooltip_position: TooltipPosition,
-    ) -> Element<'_, Message> {
+    fn snap_button(&self, tooltip_position: TooltipPosition) -> Element<'_, Message> {
         let snap_enabled = self.drawing_tools.snap_enabled;
         let icon = if snap_enabled {
             Icon::SnapOn
@@ -316,21 +231,14 @@ impl Sidebar {
         };
 
         button_with_tooltip(
-            icon_text(icon, 14).width(24).align_x(Alignment::Center),
+            icon_text(icon, 14)
+                .width(24)
+                .height(24)
+                .align_x(Alignment::Center),
             Message::DrawingTools(tools::Message::ToggleSnap),
-            Some(if snap_enabled {
-                "Snap On"
-            } else {
-                "Snap Off"
-            }),
+            Some(if snap_enabled { "Snap On" } else { "Snap Off" }),
             tooltip_position,
-            move |theme, status| {
-                style::button::transparent(
-                    theme,
-                    status,
-                    snap_enabled,
-                )
-            },
+            move |theme, status| style::button::transparent(theme, status, snap_enabled),
         )
     }
 
@@ -342,12 +250,11 @@ impl Sidebar {
         let sections = group.tool_sections();
         let active_tool = self.drawing_tools.active_tool;
 
-        let tooltip_pos =
-            if self.state.position == sidebar::Position::Left {
-                TooltipPosition::Right
-            } else {
-                TooltipPosition::Left
-            };
+        let tooltip_pos = if self.state.position == sidebar::Position::Left {
+            TooltipPosition::Right
+        } else {
+            TooltipPosition::Left
+        };
 
         let mut col = column![]
             .spacing(tokens::spacing::XS)
@@ -356,10 +263,7 @@ impl Sidebar {
 
         for (i, section) in sections.iter().enumerate() {
             if i > 0 {
-                col = col.push(
-                    rule::horizontal(1.0)
-                        .style(style::split_ruler),
-                );
+                col = col.push(rule::horizontal(1.0).style(style::split_ruler));
             }
 
             for &tool in *section {
@@ -370,19 +274,12 @@ impl Sidebar {
                 let btn = button_with_tooltip(
                     icon_text(icon, 14)
                         .width(24)
+                        .height(24)
                         .align_x(Alignment::Center),
-                    Message::DrawingTools(
-                        tools::Message::ToolSelected(tool),
-                    ),
+                    Message::DrawingTools(tools::Message::ToolSelected(tool)),
                     Some(label),
                     tooltip_pos,
-                    move |theme, status| {
-                        style::button::transparent(
-                            theme,
-                            status,
-                            is_selected,
-                        )
-                    },
+                    move |theme, status| style::button::transparent(theme, status, is_selected),
                 );
 
                 col = col.push(btn);
@@ -397,15 +294,12 @@ impl Sidebar {
     }
 
     /// Build the settings flyout content.
-    pub fn view_settings_flyout(
-        &self,
-    ) -> Option<Element<'_, Message>> {
-        let tooltip_position =
-            if self.state.position == sidebar::Position::Left {
-                TooltipPosition::Right
-            } else {
-                TooltipPosition::Left
-            };
+    pub fn view_settings_flyout(&self) -> Option<Element<'_, Message>> {
+        let tooltip_position = if self.state.position == sidebar::Position::Left {
+            TooltipPosition::Right
+        } else {
+            TooltipPosition::Left
+        };
 
         self.settings
             .view_flyout(tooltip_position)
@@ -431,13 +325,12 @@ impl Sidebar {
         let row_pad = tokens::spacing::MD;
 
         // Buttons above this group button:
-        // Replay = 1 nav button, then group index
-        let nav_buttons = 1u32;
+        // Drawing tools start at the top of the sidebar
         let group_idx = SidebarGroup::ALL
             .iter()
             .position(|g| *g == group)
             .unwrap_or(0) as u32;
-        let buttons_above = nav_buttons + group_idx;
+        let buttons_above = group_idx;
 
         // Each button slot: button natural height + column spacing (XS)
         // Sidebar buttons are ~32px (SIDEBAR_WIDTH) tall

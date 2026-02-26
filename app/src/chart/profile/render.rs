@@ -1,7 +1,5 @@
 use crate::chart::drawing;
-use crate::chart::{
-    Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction,
-};
+use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction};
 use crate::components::primitives::AZERET_MONO;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Frame, Geometry, Text};
@@ -35,159 +33,136 @@ impl canvas::Program<Message> for ProfileChart {
         let chart = self.state();
 
         // Extract the computed profiles + render config.
-        let (profiles, render_config) =
-            match self.profiles_and_config() {
-                Some((ps, c)) => (ps, c),
-                _ => return vec![],
-            };
+        let (profiles, render_config) = match self.profiles_and_config() {
+            Some((ps, c)) => (ps, c),
+            _ => return vec![],
+        };
         if bounds.width == 0.0 || profiles.is_empty() {
             return vec![];
         }
 
         // For tooltip: collect all levels from all profiles
-        let all_levels: Vec<&ProfileLevel> = profiles
-            .iter()
-            .flat_map(|p| p.levels.iter())
-            .collect();
+        let all_levels: Vec<&ProfileLevel> =
+            profiles.iter().flat_map(|p| p.levels.iter()).collect();
 
         let bounds_size = bounds.size();
         let palette = theme.extended_palette();
 
         // ── Main cache layer ─────────────────────────────────────────
-        let main_layer =
-            chart.cache.main.draw(renderer, bounds_size, |frame| {
-                let center = Vector::new(
-                    bounds.width / 2.0,
-                    bounds.height / 2.0,
-                );
+        let main_layer = chart.cache.main.draw(renderer, bounds_size, |frame| {
+            let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
 
-                frame.translate(center);
-                frame.scale(chart.scaling);
-                frame.translate(chart.translation);
+            frame.translate(center);
+            frame.scale(chart.scaling);
+            frame.translate(chart.translation);
 
-                // Render profiles using time-based positioning
-                crate::chart::study_renderer::vbp::render_vbp_multi(
-                    frame,
-                    profiles,
-                    render_config,
-                    chart,
-                    bounds_size,
-                );
+            // Render profiles using time-based positioning
+            crate::chart::study_renderer::vbp::render_vbp_multi(
+                frame,
+                profiles,
+                render_config,
+                chart,
+                bounds_size,
+            );
 
-                // ── Overlay studies ───────────────────────────────────
-                for s in &self.studies {
-                    let output = s.output();
-                    let placement = s.placement();
-                    if !matches!(output, study::StudyOutput::Empty)
-                        && matches!(
-                            placement,
-                            study::StudyPlacement::Overlay
-                                | study::StudyPlacement::Background
-                        )
-                    {
-                        crate::chart::study_renderer::render_study_output(
-                            frame,
-                            output,
-                            chart,
-                            bounds_size,
-                            placement,
-                            Some(palette),
-                        );
-                    }
+            // ── Overlay studies ───────────────────────────────────
+            for s in &self.studies {
+                let output = s.output();
+                let placement = s.placement();
+                if !matches!(output, study::StudyOutput::Empty)
+                    && matches!(
+                        placement,
+                        study::StudyPlacement::Overlay | study::StudyPlacement::Background
+                    )
+                {
+                    crate::chart::study_renderer::render_study_output(
+                        frame,
+                        output,
+                        chart,
+                        bounds_size,
+                        placement,
+                        Some(palette),
+                    );
                 }
-            });
+            }
+        });
 
         // ── Drawings cache layer ─────────────────────────────────────
-        let drawings_layer =
-            chart.cache.drawings.draw(renderer, bounds_size, |frame| {
-                drawing::render::draw_completed_drawings(
-                    frame,
-                    chart,
-                    &self.drawings,
-                    bounds_size,
-                    palette,
-                );
-            });
+        let drawings_layer = chart.cache.drawings.draw(renderer, bounds_size, |frame| {
+            drawing::render::draw_completed_drawings(
+                frame,
+                chart,
+                &self.drawings,
+                bounds_size,
+                palette,
+            );
+        });
 
         // ── Crosshair cache layer ────────────────────────────────────
-        let crosshair =
-            chart
-                .cache
-                .crosshair
-                .draw(renderer, bounds_size, |frame| {
-                    drawing::render::draw_overlay_drawings(
-                        frame,
+        let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
+            drawing::render::draw_overlay_drawings(
+                frame,
+                chart,
+                &self.drawings,
+                bounds_size,
+                palette,
+            );
+
+            if let Some(cursor_position) = cursor.position_in(bounds) {
+                // Ruler
+                if let Interaction::Ruler { start: Some(start) } = interaction {
+                    crate::chart::overlay::draw_ruler(
                         chart,
-                        &self.drawings,
-                        bounds_size,
+                        frame,
                         palette,
+                        bounds_size,
+                        *start,
+                        cursor_position,
                     );
+                }
 
-                    if let Some(cursor_position) =
-                        cursor.position_in(bounds)
-                    {
-                        // Ruler
-                        if let Interaction::Ruler {
-                            start: Some(start),
-                        } = interaction
-                        {
-                            crate::chart::overlay::draw_ruler(
-                                chart,
-                                frame,
-                                palette,
-                                bounds_size,
-                                *start,
-                                cursor_position,
-                            );
-                        }
+                // Crosshair
+                let result = crate::chart::overlay::draw_crosshair(
+                    chart,
+                    frame,
+                    theme,
+                    bounds_size,
+                    cursor_position,
+                    interaction,
+                );
 
-                        // Crosshair
-                        let result =
-                            crate::chart::overlay::draw_crosshair(
-                                chart,
-                                frame,
-                                theme,
-                                bounds_size,
-                                cursor_position,
-                                interaction,
-                            );
+                chart.crosshair.interval.set(Some(result.interval));
 
-                        chart.crosshair.interval.set(Some(result.interval));
-
-                        // Profile tooltip
-                        draw_profile_tooltip(
-                            &all_levels,
-                            &self.ticker_info,
-                            frame,
-                            palette,
-                            chart,
-                            cursor_position,
-                            bounds_size,
-                        );
-                    } else if let Some(interval) =
-                        chart.crosshair.interval.get()
-                    {
-                        // Crosshair driven by study panel cursor
-                        crate::chart::overlay::draw_remote_crosshair(
-                            chart,
-                            frame,
-                            theme,
-                            bounds_size,
-                            interval,
-                        );
-                    } else if let Some(interval) =
-                        chart.crosshair.remote
-                    {
-                        // Remote crosshair from linked pane
-                        crate::chart::overlay::draw_remote_crosshair(
-                            chart,
-                            frame,
-                            theme,
-                            bounds_size,
-                            interval,
-                        );
-                    }
-                });
+                // Profile tooltip
+                draw_profile_tooltip(
+                    &all_levels,
+                    &self.ticker_info,
+                    frame,
+                    palette,
+                    chart,
+                    cursor_position,
+                    bounds_size,
+                );
+            } else if let Some(interval) = chart.crosshair.interval.get() {
+                // Crosshair driven by study panel cursor
+                crate::chart::overlay::draw_remote_crosshair(
+                    chart,
+                    frame,
+                    theme,
+                    bounds_size,
+                    interval,
+                );
+            } else if let Some(interval) = chart.crosshair.remote {
+                // Remote crosshair from linked pane
+                crate::chart::overlay::draw_remote_crosshair(
+                    chart,
+                    frame,
+                    theme,
+                    bounds_size,
+                    interval,
+                );
+            }
+        });
 
         vec![main_layer, drawings_layer, crosshair]
     }
@@ -198,9 +173,7 @@ impl canvas::Program<Message> for ProfileChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if let Some(i) =
-            base_mouse_interaction(&state.interaction, bounds, cursor)
-        {
+        if let Some(i) = base_mouse_interaction(&state.interaction, bounds, cursor) {
             return i;
         }
         if cursor.is_over(bounds) {
@@ -214,7 +187,7 @@ impl canvas::Program<Message> for ProfileChart {
 /// Draw profile tooltip showing volume at cursor price.
 fn draw_profile_tooltip(
     levels: &[&ProfileLevel],
-    ticker_info: &exchange::FuturesTickerInfo,
+    ticker_info: &data::FuturesTickerInfo,
     frame: &mut Frame,
     palette: &Extended,
     chart: &crate::chart::ViewState,
@@ -226,9 +199,7 @@ fn draw_profile_tooltip(
     }
 
     // Convert cursor Y to chart-space Y, then to price
-    let chart_y = (cursor_position.y - bounds.height / 2.0)
-        / chart.scaling
-        - chart.translation.y;
+    let chart_y = (cursor_position.y - bounds.height / 2.0) / chart.scaling - chart.translation.y;
     let price = chart.y_to_price(chart_y);
     let price_units = price.units();
 
@@ -240,14 +211,9 @@ fn draw_profile_tooltip(
 
     let total = nearest.buy_volume + nearest.sell_volume;
     let delta = nearest.buy_volume - nearest.sell_volume;
-    let precision =
-        data::util::count_decimals(ticker_info.tick_size);
+    let precision = data::util::count_decimals(ticker_info.tick_size);
 
-    let price_str = format!(
-        "{:.prec$}",
-        nearest.price,
-        prec = precision
-    );
+    let price_str = format!("{:.prec$}", nearest.price, prec = precision);
     let vol_str = format_volume(total);
     let buy_str = format_volume(nearest.buy_volume);
     let sell_str = format_volume(nearest.sell_volume);
@@ -329,4 +295,3 @@ fn format_volume(vol: f32) -> String {
         formatted
     }
 }
-

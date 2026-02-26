@@ -5,7 +5,7 @@
 //! per group, with flyout submenus for multi-tool groups.
 
 use crate::components::primitives::Icon;
-use data::DrawingTool;
+use crate::drawing::DrawingTool;
 
 /// Tool category for grouping related drawing tools (internal detail)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,9 +19,11 @@ pub enum ToolCategory {
     Annotations,
     Trading,
     Analysis,
+    AiQuery,
 }
 
 impl ToolCategory {
+    #[allow(dead_code)]
     pub const ALL: &'static [ToolCategory] = &[
         ToolCategory::Cursor,
         ToolCategory::Lines,
@@ -32,6 +34,7 @@ impl ToolCategory {
         ToolCategory::Annotations,
         ToolCategory::Trading,
         ToolCategory::Analysis,
+        ToolCategory::AiQuery,
     ];
 
     pub fn tools(&self) -> &'static [DrawingTool] {
@@ -51,10 +54,9 @@ impl ToolCategory {
                 DrawingTool::PriceLabel,
                 DrawingTool::Arrow,
             ],
-            ToolCategory::Trading => {
-                &[DrawingTool::BuyCalculator, DrawingTool::SellCalculator]
-            }
-            ToolCategory::Analysis => &[DrawingTool::VolumeProfile, DrawingTool::AiContext],
+            ToolCategory::Trading => &[DrawingTool::BuyCalculator, DrawingTool::SellCalculator],
+            ToolCategory::Analysis => &[DrawingTool::VolumeProfile, DrawingTool::DeltaProfile],
+            ToolCategory::AiQuery => &[DrawingTool::AiContext],
         }
     }
 }
@@ -79,6 +81,8 @@ pub enum SidebarGroup {
     Trading,
     /// Analysis tools (Volume Profile)
     Analysis,
+    /// AI context query
+    AiQuery,
 }
 
 impl SidebarGroup {
@@ -90,6 +94,7 @@ impl SidebarGroup {
         SidebarGroup::Annotate,
         SidebarGroup::Trading,
         SidebarGroup::Analysis,
+        SidebarGroup::AiQuery,
     ];
 
     /// All tools in this group (flat list).
@@ -125,12 +130,15 @@ impl SidebarGroup {
             SidebarGroup::Analysis => {
                 vec![ToolCategory::Analysis.tools()]
             }
+            SidebarGroup::AiQuery => {
+                vec![ToolCategory::AiQuery.tools()]
+            }
         }
     }
 
     /// Whether this group opens a flyout submenu (vs direct click).
     pub fn has_submenu(&self) -> bool {
-        !matches!(self, SidebarGroup::Select)
+        !matches!(self, SidebarGroup::Select | SidebarGroup::AiQuery)
     }
 
     /// Check if a tool belongs to this group.
@@ -158,6 +166,7 @@ impl SidebarGroup {
             SidebarGroup::Annotate => DrawingTool::TextLabel,
             SidebarGroup::Trading => DrawingTool::BuyCalculator,
             SidebarGroup::Analysis => DrawingTool::VolumeProfile,
+            SidebarGroup::AiQuery => DrawingTool::AiContext,
         }
     }
 
@@ -171,6 +180,7 @@ impl SidebarGroup {
             SidebarGroup::Annotate => "Annotate",
             SidebarGroup::Trading => "Trading",
             SidebarGroup::Analysis => "Analysis",
+            SidebarGroup::AiQuery => "AI Context",
         }
     }
 
@@ -208,6 +218,7 @@ pub fn tool_label(tool: DrawingTool) -> &'static str {
         DrawingTool::BuyCalculator => "Buy Calculator",
         DrawingTool::SellCalculator => "Sell Calculator",
         DrawingTool::VolumeProfile => "Volume Profile",
+        DrawingTool::DeltaProfile => "Delta Profile",
         DrawingTool::AiContext => "AI Context",
     }
 }
@@ -331,11 +342,12 @@ pub fn tool_icon(tool: DrawingTool) -> Icon {
         DrawingTool::Rectangle => Icon::DrawRectangle,       // E82B
         DrawingTool::Ellipse => Icon::DrawEllipse,           // E82C
         DrawingTool::TextLabel => Icon::DrawText,            // E82C
-        DrawingTool::PriceLabel => Icon::DrawPriceLabel,    // E82D
-        DrawingTool::Arrow => Icon::DrawArrow,              // E82E
-        DrawingTool::BuyCalculator => Icon::DrawBuyCalc,    // E826 trending-up
+        DrawingTool::PriceLabel => Icon::DrawPriceLabel,     // E82D
+        DrawingTool::Arrow => Icon::DrawArrow,               // E82E
+        DrawingTool::BuyCalculator => Icon::DrawBuyCalc,     // E826 trending-up
         DrawingTool::SellCalculator => Icon::DrawSellCalc,   // E835 trending-down
         DrawingTool::VolumeProfile => Icon::DrawVolumeProfile, // E836 align-left
-        DrawingTool::AiContext => Icon::MessageSquare,            // E837
+        DrawingTool::DeltaProfile => Icon::DrawDeltaProfile, // E836 align-left (delta)
+        DrawingTool::AiContext => Icon::MessageSquare,       // E837
     }
 }

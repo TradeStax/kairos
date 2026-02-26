@@ -9,13 +9,13 @@ mod modal_stack;
 
 pub(crate) use modal_stack::CompactControls;
 
+use crate::config::UserTimezone;
 use crate::{
     modals::{self, pane::Modal},
     style::{self, tokens},
-    infra::window::{self, Window},
+    window::{self, Window},
 };
-use data::UserTimezone;
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Alignment, Length, Renderer, Theme,
     alignment::Vertical,
@@ -77,24 +77,27 @@ impl State {
         }
 
         // Append loading status badge to stream-info row
-        stream_info_element =
-            header::append_loading_badge(stream_info_element, self, is_ai_pane);
+        stream_info_element = header::append_loading_badge(stream_info_element, self, is_ai_pane);
 
         let content = pane_grid::Content::new(body)
             .style(move |theme| style::pane_background(theme, is_focused));
 
         let controls = {
             let compact_control = container(
-                button(crate::components::primitives::label::label_text("...").align_y(Alignment::End))
-                    .on_press(Message::PaneEvent(id, Event::ShowModal(Modal::Controls)))
-                    .style(move |theme, status| {
-                        style::button::transparent(
-                            theme,
-                            status,
-                            self.modal == Some(Modal::Controls)
-                                || self.modal == Some(Modal::Settings),
-                        )
-                    }),
+                button(
+                    crate::components::primitives::label::label_text("...").align_y(Alignment::End),
+                )
+                .on_press(Message::PaneEvent(
+                    id,
+                    Box::new(Event::ShowModal(Modal::Controls)),
+                ))
+                .style(move |theme, status| {
+                    style::button::transparent(
+                        theme,
+                        status,
+                        self.modal == Some(Modal::Controls) || self.modal == Some(Modal::Settings),
+                    )
+                }),
             )
             .align_y(Alignment::Center)
             .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT))
@@ -112,9 +115,9 @@ impl State {
 
         let title_bar = pane_grid::TitleBar::new(
             stream_info_element
-                .padding(padding::left(tokens::spacing::XS).top(tokens::spacing::XXXS))
+                .padding(padding::left(tokens::spacing::XS))
                 .align_y(Vertical::Center)
-                .spacing(tokens::spacing::MD)
+                .spacing(tokens::spacing::XS)
                 .height(Length::Fixed(tokens::layout::TITLE_BAR_HEIGHT)),
         )
         .controls(controls)

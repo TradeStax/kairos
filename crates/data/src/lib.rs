@@ -1,99 +1,123 @@
-//! Kairos Data Layer
+//! Data infrastructure for the Kairos charting platform.
 //!
-//! Layered architecture with strict separation of concerns:
+//! Domain types, exchange adapters, per-day caching, and the `DataEngine` facade.
+//! No GUI dependencies.
 //!
-//! - **domain**: Pure business logic (types, entities, aggregation)
-//! - **repository**: Data access abstraction (traits, cache, composite)
-//! - **services**: Business orchestration (market data, cache management)
-//! - **state**: Application state management (app state, persistence)
-//! - **config**: Configuration (theme, timezone, sidebar)
-//! - **util**: Utilities (formatting, math, time)
+//! # Modules
+//!
+//! - [`domain`] — pure value objects and entities (no I/O, no async)
+//! - [`adapter`] — exchange adapters: Databento (historical), Rithmic (real-time)
+//! - [`aggregation`] — trade-to-candle aggregation (time-based and tick-based)
+//! - [`cache`] — per-day bincode+zstd file storage with atomic writes
+//! - [`connection`] — connection configuration and lifecycle
+//! - [`engine`] — `DataEngine` facade: routes requests, manages adapters, emits events
+//! - [`stream`] — stream subscription types (serializable and runtime-resolved)
+//! - [`event`] — `DataEvent` enum delivered via mpsc channel
+//! - [`error`] — error hierarchy with `AppError` trait
+//! - [`util`] — formatting, math, time, serde helpers
+//!
+//! # Feature flags
+//!
+//! - `databento` (default) — Databento adapter for CME Globex historical data
+//! - `rithmic` (default) — Rithmic adapter for CME real-time streaming
+//! - `heatmap` — depth snapshots and heatmap chart types
 
-pub mod config; // Configuration
-pub mod domain; // Pure domain logic - THE source of truth
-pub mod drawing; // Drawing types for chart annotations
-pub mod error; // Crate-level error types
-pub mod feed; // Data feed connection model
-pub mod repository; // Data access abstraction
-pub mod services; // Business logic orchestration
-pub mod state; // State management with persistence
-pub mod util; // Utilities
+pub mod adapter;
+pub mod aggregation;
+pub mod cache;
+pub mod connection;
+pub mod domain;
+pub mod engine;
+pub mod error;
+pub mod event;
+pub mod stream;
+pub mod util;
 
-// Re-export error types
-pub use domain::error::{AppError, ErrorSeverity};
+// Re-export error
+pub use error::Error;
 
-// Re-export commonly used types for convenience
+// Re-export aggregation
+pub use aggregation::{
+    AggregationError, aggregate_candles_to_timeframe, aggregate_trades_to_candles,
+    aggregate_trades_to_ticks,
+};
+
+// Re-export domain types
+#[cfg(feature = "heatmap")]
+pub use domain::HeatmapIndicator;
 pub use domain::{
-    Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, DataGap, DataGapKind,
-    DataIndex, DataKey, DataSchema, DataSegment, DateRange, DepthSnapshot, FuturesTicker,
-    FuturesTickerInfo, FuturesVenue, HeatmapIndicator, KlineDataPoint, KlineTrades, LoadingStatus,
-    MergeResult, NPoc, PointOfControl, Price, Quantity, Side, Timeframe, Timestamp, Trade,
-    ViewConfig, Volume, aggregate_trades_to_candles, aggregate_trades_to_ticks,
+    AppError, Autoscale, Candle, ChartBasis, ChartConfig, ChartData, ChartType, ContractSize,
+    ContractSpec, ContractType, DataGap, DataGapKind, DataIndex, DataKey, DataSchema, DataSegment,
+    DateRange, Depth, DownloadedTickersRegistry, ErrorSeverity, FeedContribution, FeedId,
+    FuturesTicker, FuturesTickerInfo, FuturesVenue, KlineDataPoint, KlineTrades, LoadingStatus,
+    MarketData, MergeResult, MinQtySize, MinTicksize, NPoc, PlaybackStatus, PointOfControl,
+    Power10, Price, PriceExt, PriceStep, Quantity, ReplayData, ReplayState, Rgba,
+    SerializableColor, Side, SpeedPreset, TickerStats, TimeRange, Timeframe, Timestamp, Trade,
+    ViewConfig, Volume, hex_to_rgba, ms_to_datetime, rgba_to_hex,
 };
 
-pub use repository::{
-    CompositeTradeRepository, DepthRepository, DownloadRepository, FeedRepo, RepositoryError,
-    RepositoryResult, RepositoryStats, TradeRepository,
+// Re-export connection types
+pub use connection::{
+    Connection, ConnectionCapability, ConnectionConfig, ConnectionKind, ConnectionManager,
+    ConnectionProvider, ConnectionStatus, DatabentoConnectionConfig, HistoricalDatasetInfo,
+    ResolvedConnection, RithmicConnectionConfig, RithmicEnvironment, RithmicServer,
 };
 
-pub use services::{
-    CacheManagerService, DataRequestEstimate, MarketDataService, ServiceError, merge_segments,
+// Re-export event types
+pub use event::DataEvent;
+
+// Re-export stream types
+#[cfg(feature = "heatmap")]
+pub use stream::PersistDepth;
+pub use stream::{
+    DownloadSchema, PersistKline, PersistStreamKind, PushFrequency, ResolvedStream, StreamConfig,
+    StreamKind, StreamSpecs, StreamTicksize, UniqueStreams,
 };
 
-pub use state::{
-    AiPreferences, AppState, Axis, ChartState, ComparisonConfig, ContentKind, Dashboard,
-    DownloadedTickersRegistry, HeatmapConfig, KlineConfig, LadderConfig, Layout, LayoutManager,
-    Layouts, LinkGroup, Pane, ProfileConfig, ProfileDisplayType, ProfileSplitUnit,
-    Settings, StateVersion, StudyInstanceConfig, TimeAndSalesConfig,
-    VisualConfig, WindowSpec, load_state, save_state,
+// Re-export adapter types needed by app
+#[cfg(feature = "rithmic")]
+pub use adapter::rithmic::client::probe_system_names;
+#[cfg(feature = "rithmic")]
+pub use adapter::rithmic::{
+    RithmicClient, RithmicConfig, RithmicError, build_rithmic_contribution,
 };
 
-// Re-export config types
-pub use config::color::Rgba;
-pub use config::ScaleFactor;
-pub use config::sidebar;
-pub use config::sidebar::Sidebar;
-pub use config::theme::Theme;
-pub use config::timezone::UserTimezone;
-
-// Re-export config secrets (domain types only; SecretsManager lives in GUI crate)
-pub use config::secrets::{ApiKeyStatus, ApiProvider, SecretsError};
-
-// Re-export drawing types
-pub use drawing::{
-    CalcMode, DrawingId, DrawingStyle, DrawingTool, FibLevel, FibonacciConfig, LabelAlignment,
-    LineStyle, PositionCalcConfig, SerializableColor, SerializableDrawing, SerializablePoint,
-    VbpDrawingConfig,
-};
-
-// Re-export feed types
-pub use feed::{
-    DataFeed, DataFeedManager, DatabentoFeedConfig, FeedCapability, FeedConfig, FeedId, FeedKind,
-    FeedProvider, FeedStatus, HistoricalDatasetInfo, ResolvedFeed, RithmicEnvironment,
-    RithmicFeedConfig,
-};
+#[cfg(feature = "databento")]
+pub use adapter::databento::DatabentoConfig;
 
 // Re-export logging util for convenience
 pub use util::logging as log;
 
-// Re-export crate-level error type
-pub use error::DataError;
+/// Scan the Databento cache directory and build a DataIndex.
+///
+/// This is a free-function wrapper around `CacheStore::scan_to_index` for
+/// use by the application layer after a Databento feed connects or data
+/// download completes.
+#[cfg(feature = "databento")]
+pub async fn scan_databento_cache(
+    cache_root: &std::path::Path,
+    feed_id: domain::types::FeedId,
+) -> Result<domain::index::DataIndex, String> {
+    let store = cache::store::CacheStore::new(cache_root.to_path_buf());
+    let index = store
+        .scan_to_index(cache::store::CacheProvider::Databento, feed_id)
+        .await;
+    Ok(index)
+}
+
+#[cfg(not(feature = "databento"))]
+pub async fn scan_databento_cache(
+    _cache_root: &std::path::Path,
+    _feed_id: domain::types::FeedId,
+) -> Result<domain::index::DataIndex, String> {
+    Ok(domain::index::DataIndex::new())
+}
 
 /// Safely lock a mutex and recover from poisoned locks.
-///
-/// If the mutex is poisoned (a thread panicked while holding it), this recovers
-/// the data via `into_inner()` to avoid deadlocking the UI thread. The incident
-/// is logged as an error because the recovered state may be partially mutated.
-///
-/// Callers should treat the returned guard as potentially inconsistent when a
-/// poisoning event has occurred.
 pub fn lock_or_recover<T>(
     mutex: &std::sync::Arc<std::sync::Mutex<T>>,
 ) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| {
-        // A thread panicked while holding this lock. We recover the data to avoid
-        // deadlocking the UI thread, but log the incident for debugging.
-        // Use ::log:: to bypass the `pub use util::logging as log` re-export in this file.
         ::log::error!(
             "Mutex poisoned: recovering from panicked lock holder. \
              The application may be in an inconsistent state."

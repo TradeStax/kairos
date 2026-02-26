@@ -1,46 +1,49 @@
 use iced::Task;
 
+use super::super::{DownloadMessage, Kairos, Message};
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
-use super::super::{DownloadMessage, Kairos, Message};
-use super::super::core::globals::{get_download_sender, DownloadProgressEvent};
+
+/// Sentinel UUID representing the global data-management panel context
+/// (as opposed to a specific pane). Used as a `pane_id` in download
+/// messages when the operation originates from the sidebar data-management
+/// panel rather than an individual chart pane.
+pub(crate) const GLOBAL_PANE_ID: uuid::Uuid = uuid::Uuid::nil();
 
 impl Kairos {
     pub(crate) fn handle_estimate_data_cost(
         &mut self,
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        _schema: data::DownloadSchema,
         date_range: data::DateRange,
     ) -> Task<Message> {
-        log::info!("EstimateDataCost message received");
-        log::info!(
-            "Ticker={:?}, Schema={:?}, Range={:?}",
-            ticker,
-            schema,
-            date_range
-        );
-
-        let Some(service) = self.require_market_service() else {
+        let Some(engine) = self.require_data_engine() else {
             return Task::none();
         };
 
-        let schema_discriminant = schema.as_discriminant();
+        let symbol = ticker.as_str().to_string();
+
         Task::perform(
             async move {
-                log::info!("Async block entered, about to call service");
-                let result = service
-                    .estimate_data_request(&ticker, schema_discriminant, &date_range)
+                let engine = engine.lock().await;
+                let cached = engine
+                    .list_cached_dates(
+                        &symbol,
+                        data::cache::CacheSchema::Trades,
+                    )
                     .await;
-                log::info!("Service call completed, result success: {}", result.is_ok());
-                if let Err(ref e) = result {
-                    log::error!("Service error: {}", e);
-                }
-                result.map_err(|e| e.to_string())
+                let cached_in_range: Vec<_> = cached
+                    .into_iter()
+                    .filter(|d| date_range.contains(*d))
+                    .collect();
+                Ok((date_range.num_days() as usize, cached_in_range))
             },
             move |result| {
-                log::info!("Task finished, sending DataCostEstimated");
-                Message::Download(DownloadMessage::DataCostEstimated { pane_id, result })
+                Message::Download(DownloadMessage::DataCostEstimated {
+                    pane_id,
+                    result,
+                })
             },
         )
     }
@@ -48,43 +51,37 @@ impl Kairos {
     pub(crate) fn handle_data_cost_estimated(
         &mut self,
         pane_id: uuid::Uuid,
-        result: Result<data::DataRequestEstimate, String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
     ) -> Task<Message> {
         match result {
-            Ok(estimate) => {
-                let cached_days = estimate.cached_dates.len();
-                log::info!(
-                    "Cost estimated: {}/{} days cached, ${:.4} USD",
-                    cached_days,
-                    estimate.total_days,
-                    estimate.estimated_cost_usd
-                );
+            Ok((total_days, cached_dates)) => {
+                let cached_days = cached_dates.len();
+                let uncached_days = total_days.saturating_sub(cached_days);
+                log::info!("Cost estimated: {}/{} days cached", cached_days, total_days,);
 
-                if pane_id == uuid::Uuid::nil() {
+                if pane_id == GLOBAL_PANE_ID {
                     self.modals.data_management_panel.set_cache_status(
                         crate::modals::download::CacheStatus {
-                            total_days: estimate.total_days,
+                            total_days,
                             cached_days,
-                            uncached_days: estimate.uncached_count,
+                            uncached_days,
                             gaps_description: None,
                         },
-                        estimate.cached_dates.clone(),
+                        cached_dates,
                     );
-                    self.modals.data_management_panel
-                        .set_actual_cost(estimate.estimated_cost_usd);
                 } else {
                     log::info!(
                         "Cost estimated for pane {}: {}/{} days cached",
                         pane_id,
                         cached_days,
-                        estimate.total_days
+                        total_days
                     );
                 }
             }
             Err(e) => {
                 log::error!("Failed to estimate cost: {}", e);
-                self.ui.notifications
-                    .push(Toast::error(format!("Estimation failed: {}", e)));
+                self.ui
+                    .push_notification(Toast::error(format!("Estimation failed: {}", e)));
             }
         }
         Task::none()
@@ -94,41 +91,22 @@ impl Kairos {
         &mut self,
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        schema: exchange::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     ) -> Task<Message> {
-        let Some(service) = self.require_market_service() else {
+        let Some(engine) = self.require_data_engine() else {
             return Task::none();
         };
 
-        let schema_discriminant = schema.as_discriminant();
         let ticker_clone = ticker;
         let date_range_clone = date_range;
 
-        // Send initial 0/N progress event
-        let _ = get_download_sender().send(DownloadProgressEvent {
-            pane_id,
-            current: 0,
-            total: date_range.num_days() as usize,
-        });
-
-        let sender = get_download_sender();
         Task::perform(
             async move {
-                service
-                    .download_to_cache_with_progress(
-                        &ticker,
-                        schema_discriminant,
-                        &date_range,
-                        Box::new(move |current, total| {
-                            let _ = sender.send(DownloadProgressEvent {
-                                pane_id,
-                                current,
-                                total,
-                            });
-                            log::info!("Download progress: {}/{} days", current, total);
-                        }),
-                    )
+                engine
+                    .lock()
+                    .await
+                    .download_to_cache(&ticker, schema, &date_range)
                     .await
                     .map_err(|e| e.to_string())
             },
@@ -165,7 +143,7 @@ impl Kairos {
                     },
                 );
             }
-        } else if pane_id == uuid::Uuid::nil() {
+        } else if pane_id == GLOBAL_PANE_ID {
             self.modals.data_management_panel.set_download_progress(
                 crate::modals::download::DownloadProgress::Downloading {
                     current_day: current,
@@ -174,12 +152,16 @@ impl Kairos {
             );
         } else {
             return Task::done(Message::Dashboard {
-                layout_id: self.persistence.layout_manager.active_layout_id().map(|l| l.unique),
-                event: dashboard::Message::DataDownloadProgress {
+                layout_id: self
+                    .persistence
+                    .layout_manager
+                    .active_layout_id()
+                    .map(|l| l.unique),
+                event: Box::new(dashboard::Message::DataDownloadProgress {
                     pane_id,
                     current,
                     total,
-                },
+                }),
             });
         }
         Task::none()
@@ -201,8 +183,8 @@ impl Kairos {
                     date_range.start,
                     date_range.end
                 );
-                self.ui.notifications
-                    .push(Toast::new(Notification::Info(format!(
+                self.ui
+                    .push_notification(Toast::new(Notification::Info(format!(
                         "Successfully downloaded {} days of data",
                         days_downloaded
                     ))));
@@ -212,27 +194,37 @@ impl Kairos {
                 log::info!("Registered {} in downloaded tickers registry", ticker);
 
                 // Re-scan cache to rebuild the DataIndex with new data
-                let cache_root =
-                    crate::infra::platform::data_path(Some("cache/databento"));
-                let scan_feed_id = {
-                    let fm =
-                        data::lock_or_recover(&self.connections.data_feed_manager);
-                    fm.connected_feed_id_for_provider(data::FeedProvider::Databento)
-                        .unwrap_or(uuid::Uuid::nil())
+                let scan_task = if let Some(engine) = self.require_data_engine() {
+                    Task::perform(
+                        async move {
+                            let eng = engine.lock().await;
+                            let index = eng.scan_cache().await;
+                            Ok(index)
+                        },
+                        Message::DataIndexRebuilt,
+                    )
+                } else {
+                    // Fallback: Databento-specific scan
+                    let cache_root =
+                        crate::infra::platform::data_path(Some("cache/databento"));
+                    let scan_feed_id = {
+                        let fm =
+                            data::lock_or_recover(&self.connections.connection_manager);
+                        fm.connected_id_for_provider(data::ConnectionProvider::Databento)
+                            .unwrap_or(Kairos::REGISTRY_SENTINEL_FEED)
+                    };
+                    Task::perform(
+                        async move {
+                            data::scan_databento_cache(&cache_root, scan_feed_id).await
+                        },
+                        Message::DataIndexRebuilt,
+                    )
                 };
-                let scan_task = Task::perform(
-                    async move {
-                        exchange::scan_databento_cache(&cache_root, scan_feed_id)
-                            .await
-                    },
-                    Message::DataIndexRebuilt,
-                );
 
-                if pane_id == uuid::Uuid::nil() {
-                    self.modals.data_management_panel
-                        .set_download_progress(
-                            crate::modals::download::DownloadProgress::Idle,
-                        );
+                if pane_id == GLOBAL_PANE_ID {
+                    self.modals
+                        .data_management_panel
+                        .set_download_progress(crate::modals::download::DownloadProgress::Idle);
 
                     let estimate_ticker = data::FuturesTicker::new(
                         crate::modals::download::FUTURES_PRODUCTS
@@ -248,31 +240,29 @@ impl Kairos {
 
                     return Task::batch([
                         scan_task,
-                        Task::done(Message::Download(
-                            DownloadMessage::EstimateDataCost {
-                                pane_id: uuid::Uuid::nil(),
-                                ticker: estimate_ticker,
-                                schema,
-                                date_range: estimate_date_range,
-                            },
-                        )),
+                        Task::done(Message::Download(DownloadMessage::EstimateDataCost {
+                            pane_id: GLOBAL_PANE_ID,
+                            ticker: estimate_ticker,
+                            schema,
+                            date_range: estimate_date_range,
+                        })),
                     ]);
                 } else {
                     let layout_id = self
-                        .persistence.layout_manager
+                        .persistence
+                        .layout_manager
                         .active_layout_id()
                         .map(|id| id.unique)
                         .or_else(|| {
-                            self.persistence.layout_manager
+                            self.persistence
+                                .layout_manager
                                 .layouts
                                 .first()
                                 .map(|l| l.id.unique)
                         });
 
                     let Some(layout_id) = layout_id else {
-                        log::error!(
-                            "No layout available for DataDownloadComplete"
-                        );
+                        log::error!("No layout available for DataDownloadComplete");
                         return scan_task;
                     };
 
@@ -280,18 +270,18 @@ impl Kairos {
                         scan_task,
                         Task::done(Message::Dashboard {
                             layout_id: Some(layout_id),
-                            event: dashboard::Message::DataDownloadComplete {
+                            event: Box::new(dashboard::Message::DataDownloadComplete {
                                 pane_id,
                                 days_downloaded,
-                            },
+                            }),
                         }),
                     ]);
                 }
             }
             Err(e) => {
                 log::error!("Failed to download data: {}", e);
-                self.ui.notifications
-                    .push(Toast::error(format!("Download failed: {}", e)));
+                self.ui
+                    .push_notification(Toast::error(format!("Download failed: {}", e)));
             }
         }
         Task::none()
@@ -305,14 +295,13 @@ impl Kairos {
             && let Some(action) = modal.update(msg)
         {
             match action {
-                crate::modals::download::api_key_modal::Action::Saved {
-                    provider,
-                    key,
-                } => {
+                crate::modals::download::api_key_modal::Action::Saved { provider, key } => {
                     if let Err(e) = self.secrets.set_api_key(provider, &key) {
                         log::warn!("Failed to save API key: {}", e);
-                        self.ui.notifications
-                            .push(Toast::error(format!("Failed to save API key: {}", e)));
+                        self.ui.push_notification(Toast::error(format!(
+                            "Failed to save API key: {}",
+                            e
+                        )));
                         return Task::none();
                     }
                     log::info!("API key saved for {:?}", provider);
@@ -339,24 +328,38 @@ impl Kairos {
             match action {
                 crate::modals::download::historical::Action::EstimateRequested {
                     ticker,
-                    schema,
+                    schema: _schema,
                     date_range,
                 } => {
-                    let Some(service) = self.require_market_service() else {
+                    let Some(engine) = self.require_data_engine() else {
                         return Task::none();
                     };
-                    let schema_discriminant = schema.as_discriminant();
+                    let symbol = ticker.as_str().to_string();
+
                     return Task::perform(
                         async move {
-                            service
-                                .estimate_data_request(&ticker, schema_discriminant, &date_range)
-                                .await
-                                .map_err(|e| e.to_string())
+                            let engine = engine.lock().await;
+                            let cached = engine
+                                .list_cached_dates(
+                                    &symbol,
+                                    data::cache::CacheSchema::Trades,
+                                )
+                                .await;
+                            let cached_in_range: Vec<_> = cached
+                                .into_iter()
+                                .filter(|d| date_range.contains(*d))
+                                .collect();
+                            Ok((
+                                date_range.num_days() as usize,
+                                cached_in_range,
+                            ))
                         },
                         move |result| {
-                            Message::Download(DownloadMessage::HistoricalDownloadCostEstimated {
-                                result,
-                            })
+                            Message::Download(
+                                DownloadMessage::HistoricalDownloadCostEstimated {
+                                    result,
+                                },
+                            )
                         },
                     );
                 }
@@ -365,36 +368,19 @@ impl Kairos {
                     schema,
                     date_range,
                 } => {
-                    let Some(service) = self.require_market_service() else {
+                    let Some(engine) = self.require_data_engine() else {
                         return Task::none();
                     };
-                    let schema_discriminant = schema.as_discriminant();
                     let download_id = uuid::Uuid::new_v4();
                     self.modals.historical_download_id = Some(download_id);
-                    // Send initial 0/N progress event
-                    let _ = get_download_sender().send(DownloadProgressEvent {
-                        pane_id: download_id,
-                        current: 0,
-                        total: date_range.num_days() as usize,
-                    });
                     let ticker_clone = ticker;
                     let date_range_clone = date_range;
-                    let sender = get_download_sender();
                     return Task::perform(
                         async move {
-                            service
-                                .download_to_cache_with_progress(
-                                    &ticker,
-                                    schema_discriminant,
-                                    &date_range,
-                                    Box::new(move |current, total| {
-                                        let _ = sender.send(DownloadProgressEvent {
-                                            pane_id: download_id,
-                                            current,
-                                            total,
-                                        });
-                                    }),
-                                )
+                            engine
+                                .lock()
+                                .await
+                                .download_to_cache(&ticker, schema, &date_range)
                                 .await
                                 .map_err(|e| e.to_string())
                         },
@@ -418,29 +404,27 @@ impl Kairos {
 
     pub(crate) fn handle_historical_download_cost_estimated(
         &mut self,
-        result: Result<data::DataRequestEstimate, String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
     ) {
         if let Some(modal) = &mut self.modals.historical_download_modal {
             match result {
-                Ok(estimate) => {
+                Ok((total_days, cached_dates)) => {
+                    let cached_days = cached_dates.len();
+                    let uncached_days = total_days.saturating_sub(cached_days);
                     modal.set_cache_status(
                         crate::modals::download::CacheStatus {
-                            total_days: estimate.total_days,
-                            cached_days: estimate.cached_dates.len(),
-                            uncached_days: estimate.uncached_count,
+                            total_days,
+                            cached_days,
+                            uncached_days,
                             gaps_description: None,
                         },
-                        estimate.cached_dates,
+                        cached_dates,
                     );
-                    modal.set_actual_cost(estimate.estimated_cost_usd);
                 }
                 Err(e) => {
-                    log::error!(
-                        "Historical download cost estimation failed: {}",
-                        e
-                    );
-                    self.ui.notifications
-                        .push(Toast::error(format!("Estimation failed: {}", e)));
+                    log::error!("Historical download cost estimation failed: {}", e);
+                    self.ui
+                        .push_notification(Toast::error(format!("Estimation failed: {}", e)));
                 }
             }
         }
@@ -451,7 +435,7 @@ impl Kairos {
         ticker: data::FuturesTicker,
         date_range: data::DateRange,
         result: Result<usize, String>,
-    ) {
+    ) -> Task<Message> {
         match result {
             Ok(days_downloaded) => {
                 log::info!(
@@ -459,8 +443,8 @@ impl Kairos {
                     days_downloaded,
                     ticker
                 );
-                self.ui.notifications
-                    .push(Toast::new(Notification::Info(format!(
+                self.ui
+                    .push_notification(Toast::new(Notification::Info(format!(
                         "Downloaded {} days of data",
                         days_downloaded
                     ))));
@@ -479,8 +463,12 @@ impl Kairos {
                         ticker: ticker.to_string(),
                         schema: "trades".to_string(),
                     };
-                    data::lock_or_recover(&self.persistence.data_index)
-                        .add_contribution(key, uuid::Uuid::nil(), dates, false);
+                    data::lock_or_recover(&self.persistence.data_index).add_contribution(
+                        key,
+                        Kairos::REGISTRY_SENTINEL_FEED,
+                        dates,
+                        false,
+                    );
                 }
 
                 self.rebuild_ticker_data();
@@ -500,10 +488,10 @@ impl Kairos {
                         trade_count: None,
                         file_size_bytes: None,
                     };
-                    let feed = data::DataFeed::new_historical_databento(name, info);
+                    let feed = data::Connection::new_historical_databento(name, info);
                     let _feed_id = feed.id;
 
-                    let dm_arc = self.connections.data_feed_manager.clone();
+                    let dm_arc = self.connections.connection_manager.clone();
                     let mut feed_manager = data::lock_or_recover(&dm_arc);
                     feed_manager.add(feed);
                     self.sync_feed_snapshots(&feed_manager);
@@ -512,21 +500,19 @@ impl Kairos {
                     self.modals.historical_download_modal = None;
                     self.modals.historical_download_id = None;
 
-                    let windows = std::collections::HashMap::new();
-                    self.save_state_to_disk(&windows);
+                    return self.collect_and_persist_state();
                 }
             }
             Err(e) => {
                 log::error!("Historical download failed: {}", e);
-                self.ui.notifications
-                    .push(Toast::error(format!("Download failed: {}", e)));
+                self.ui
+                    .push_notification(Toast::error(format!("Download failed: {}", e)));
                 if let Some(modal) = &mut self.modals.historical_download_modal {
                     modal
-                        .set_download_progress(
-                            crate::modals::download::DownloadProgress::Error(e),
-                        );
+                        .set_download_progress(crate::modals::download::DownloadProgress::Error(e));
                 }
             }
         }
+        Task::none()
     }
 }

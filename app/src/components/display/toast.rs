@@ -3,7 +3,6 @@ use iced::advanced::overlay;
 use iced::advanced::renderer;
 use iced::advanced::widget::{self, Operation, Tree};
 use iced::advanced::{Clipboard, Shell, Widget};
-use iced_core::Renderer as _;
 use iced::time::{self, Duration, Instant};
 use iced::widget::{button, column, container, row, space, text};
 use iced::{
@@ -11,6 +10,7 @@ use iced::{
     Vector,
 };
 use iced::{Border, mouse, padding, theme, window};
+use iced_core::Renderer as _;
 
 use crate::style;
 use crate::style::{animation, tokens};
@@ -21,7 +21,6 @@ pub const DEFAULT_TIMEOUT: u64 = 8;
 pub enum Status {
     #[default]
     Primary,
-    Secondary,
     Success,
     Danger,
     Warning,
@@ -130,7 +129,6 @@ where
                     )
                     .style(match toast.status {
                         Status::Primary => primary,
-                        Status::Secondary => secondary,
                         Status::Success => success,
                         Status::Danger => danger,
                         Status::Warning => warning,
@@ -397,9 +395,7 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
                             let in_enter = elapsed < enter_dur;
                             let in_exit = remaining < exit_dur;
                             if in_enter || in_exit {
-                                shell.request_redraw_at(
-                                    *now + Duration::from_millis(16),
-                                );
+                                shell.request_redraw_at(*now + Duration::from_millis(16));
                             } else {
                                 shell.request_redraw_at(*now + remaining);
                             }
@@ -466,14 +462,12 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
 
                 if elapsed < enter_dur {
                     // Slide in: ease-out from -20px to 0
-                    let progress = elapsed.as_millis() as f32
-                        / enter_dur.as_millis() as f32;
+                    let progress = elapsed.as_millis() as f32 / enter_dur.as_millis() as f32;
                     let ease_out = 1.0 - (1.0 - progress).powi(2);
                     (1.0 - ease_out) * -20.0
                 } else if remaining < exit_dur {
                     // Slide out: ease-in from 0 to -20px
-                    let exit_progress = remaining.as_millis() as f32
-                        / exit_dur.as_millis() as f32;
+                    let exit_progress = remaining.as_millis() as f32 / exit_dur.as_millis() as f32;
                     (1.0 - exit_progress) * -20.0
                 } else {
                     0.0
@@ -483,18 +477,15 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
             };
 
             if offset_y.abs() > 0.01 {
-                renderer.with_translation(
-                    Vector::new(0.0, offset_y),
-                    |renderer| {
-                        child.as_widget().draw(
-                            state, renderer, theme, style, layout, cursor, &viewport,
-                        );
-                    },
-                );
+                renderer.with_translation(Vector::new(0.0, offset_y), |renderer| {
+                    child
+                        .as_widget()
+                        .draw(state, renderer, theme, style, layout, cursor, &viewport);
+                });
             } else {
-                child.as_widget().draw(
-                    state, renderer, theme, style, layout, cursor, &viewport,
-                );
+                child
+                    .as_widget()
+                    .draw(state, renderer, theme, style, layout, cursor, &viewport);
             }
         }
     }
@@ -570,12 +561,6 @@ fn primary(theme: &Theme) -> container::Style {
     let palette = theme.extended_palette();
 
     styled(palette.primary.weak)
-}
-
-fn secondary(theme: &Theme) -> container::Style {
-    let palette = theme.extended_palette();
-
-    styled(palette.secondary.weak)
 }
 
 fn success(theme: &Theme) -> container::Style {

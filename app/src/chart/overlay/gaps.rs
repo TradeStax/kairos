@@ -67,8 +67,6 @@ fn gap_color(kind: &DataGapKind) -> Color {
     match kind {
         DataGapKind::NoData => tokens::chart::gap::NO_DATA,
         DataGapKind::MarketClosed => tokens::chart::gap::MARKET_CLOSED,
-        DataGapKind::PartialCoverage { .. } => {
-            tokens::chart::gap::PARTIAL_COVERAGE
-        }
+        DataGapKind::PartialCoverage { .. } => tokens::chart::gap::PARTIAL_COVERAGE,
     }
 }

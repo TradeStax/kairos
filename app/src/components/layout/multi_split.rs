@@ -284,12 +284,8 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
                 mouse::Event::CursorMoved { position, .. } => {
                     if let Some(index) = state.dragging_index {
                         let split_at = match self.axis {
-                            SplitAxis::Vertical => {
-                                (position.y - bounds.y) / bounds.height
-                            }
-                            SplitAxis::Horizontal => {
-                                (position.x - bounds.x) / bounds.width
-                            }
+                            SplitAxis::Vertical => (position.y - bounds.y) / bounds.height,
+                            SplitAxis::Horizontal => (position.x - bounds.x) / bounds.width,
                         };
 
                         let dimension = match self.axis {

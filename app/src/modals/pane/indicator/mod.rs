@@ -10,7 +10,7 @@ mod settings_view;
 
 use crate::components::layout::reorderable_list as column_drag;
 
-use data::ContentKind;
+use crate::screen::dashboard::pane::config::ContentKind;
 use palette::Hsva;
 
 // ── Category Filter ──────────────────────────────────────────────────
@@ -38,21 +38,11 @@ impl CategoryFilter {
     pub(super) fn matches(&self, category: study::StudyCategory) -> bool {
         match self {
             CategoryFilter::All => true,
-            CategoryFilter::Trend => {
-                category == study::StudyCategory::Trend
-            }
-            CategoryFilter::Momentum => {
-                category == study::StudyCategory::Momentum
-            }
-            CategoryFilter::Volume => {
-                category == study::StudyCategory::Volume
-            }
-            CategoryFilter::Volatility => {
-                category == study::StudyCategory::Volatility
-            }
-            CategoryFilter::OrderFlow => {
-                category == study::StudyCategory::OrderFlow
-            }
+            CategoryFilter::Trend => category == study::StudyCategory::Trend,
+            CategoryFilter::Momentum => category == study::StudyCategory::Momentum,
+            CategoryFilter::Volume => category == study::StudyCategory::Volume,
+            CategoryFilter::Volatility => category == study::StudyCategory::Volatility,
+            CategoryFilter::OrderFlow => category == study::StudyCategory::OrderFlow,
         }
     }
 }
@@ -224,15 +214,13 @@ impl IndicatorManagerModal {
             Message::ToggleStudy(study_id) => {
                 if self.active_study_ids.contains(&study_id) {
                     self.active_study_ids.retain(|id| id != &study_id);
-                    self.study_snapshots
-                        .retain(|(id, _)| id != &study_id);
+                    self.study_snapshots.retain(|(id, _)| id != &study_id);
                 } else {
                     self.active_study_ids.push(study_id.clone());
                     // Create a snapshot for the newly-enabled study
                     let registry = crate::app::init::services::create_unified_registry();
                     if let Some(s) = registry.create(&study_id) {
-                        self.study_snapshots
-                            .push((study_id.clone(), s));
+                        self.study_snapshots.push((study_id.clone(), s));
                     }
                 }
                 return Some(Action::ToggleStudy(study_id));
@@ -240,16 +228,19 @@ impl IndicatorManagerModal {
             Message::ReorderIndicator(event) => {
                 return Some(Action::ReorderIndicators(event));
             }
-            Message::ParameterChanged { study_id, key, value } => {
+            Message::ParameterChanged {
+                study_id,
+                key,
+                value,
+            } => {
                 // Update local snapshot
                 if let Some((_, snapshot)) = self
                     .study_snapshots
                     .iter_mut()
                     .find(|(id, _)| id == &study_id)
+                    && let Err(e) = snapshot.set_parameter(&key, value.clone())
                 {
-                    if let Err(e) = snapshot.set_parameter(&key, value.clone()) {
-                        log::warn!("Failed to set study parameter: {}", e);
-                    }
+                    log::warn!("Failed to set study parameter: {}", e);
                 }
                 return Some(Action::StudyParameterUpdated {
                     study_id,
@@ -270,22 +261,15 @@ impl IndicatorManagerModal {
                 self.editing_color_hsva = Some(hsva);
                 // Apply immediately via ParameterChanged
                 if let Some(ref key) = self.editing_color_key
-                    && let Some(SelectedIndicator::Study(ref sid)) =
-                        self.selected
+                    && let Some(SelectedIndicator::Study(ref sid)) = self.selected
                 {
-                    let sc = data::config::theme::hsva_to_rgba(hsva);
-                    let value =
-                        study::ParameterValue::Color(sc);
-                    if let Some((_, snapshot)) = self
-                        .study_snapshots
-                        .iter_mut()
-                        .find(|(id, _)| id == sid)
+                    let sc = crate::config::theme::hsva_to_rgba(hsva);
+                    let value = study::ParameterValue::Color(sc);
+                    if let Some((_, snapshot)) =
+                        self.study_snapshots.iter_mut().find(|(id, _)| id == sid)
+                        && let Err(e) = snapshot.set_parameter(key, value.clone())
                     {
-                        if let Err(e) = snapshot
-                            .set_parameter(key, value.clone())
-                        {
-                            log::warn!("Failed to set study parameter: {}", e);
-                        }
+                        log::warn!("Failed to set study parameter: {}", e);
                     }
                     return Some(Action::StudyParameterUpdated {
                         study_id: sid.clone(),

@@ -1,10 +1,12 @@
+use crate::config::UserTimezone;
+use crate::screen::dashboard::pane::config::ContentKind;
 use crate::{
     modals::{self, ModifierKind},
     screen::dashboard::pane::view::CompactControls,
     style::tokens,
 };
-use data::{ChartBasis, ContentKind, Timeframe, UserTimezone};
-use exchange::{FuturesTicker, FuturesTickerInfo};
+use data::{ChartBasis, Timeframe};
+use data::{FuturesTicker, FuturesTickerInfo};
 use iced::{
     Element,
     widget::{column, row},
@@ -47,7 +49,7 @@ impl State {
             extra.push(modifiers);
 
             let base = c.view(timezone).map(move |message| {
-                Message::PaneEvent(id, Event::ComparisonChartInteraction(message))
+                Message::PaneEvent(id, Box::new(Event::ComparisonChartInteraction(message)))
             });
 
             let settings_modal = || modals::pane::settings::comparison_cfg_view(id, c);

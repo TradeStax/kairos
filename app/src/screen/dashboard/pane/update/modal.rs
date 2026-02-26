@@ -21,11 +21,14 @@ impl State {
                         self.settings.selected_basis = Some(new_basis);
 
                         match &mut self.content {
+                            #[cfg(feature = "heatmap")]
                             Content::Heatmap { chart: Some(c), .. } => {
                                 c.set_basis(new_basis);
                             }
-                            Content::Candlestick { chart: Some(c), .. } => {
-                                if let Some(ticker) = self.ticker_info {
+                            Content::Candlestick { chart, .. } => {
+                                if let Some(c) = (**chart).as_mut()
+                                    && let Some(ticker) = self.ticker_info
+                                {
                                     c.switch_basis(new_basis, ticker);
                                 }
                             }
@@ -59,8 +62,7 @@ impl State {
                         .unwrap_or(ChartBasis::Time(Timeframe::M5));
 
                     let date_range = DateRange::new(
-                        chrono::Local::now().date_naive()
-                            - chrono::Duration::days(7),
+                        chrono::Local::now().date_naive() - chrono::Duration::days(7),
                         chrono::Local::now().date_naive(),
                     )
                     .expect("invariant: 7 days ago < today");
@@ -77,9 +79,7 @@ impl State {
                         ticker_info,
                     });
                 }
-                crate::modals::pane::tickers::RowSelection::Remove(
-                    ticker_info,
-                ) => {
+                crate::modals::pane::tickers::RowSelection::Remove(ticker_info) => {
                     if let Content::Comparison(Some(chart)) = &mut self.content {
                         chart.remove_ticker(&ticker_info);
                     }
@@ -137,19 +137,13 @@ impl State {
             let mut modal = modal.clone();
             if let Some(action) = modal.update(message) {
                 match action {
-                    crate::modals::drawing::properties::Action::Applied(
-                        id,
-                        update,
-                    ) => {
+                    crate::modals::drawing::properties::Action::Applied(id, update) => {
                         self.apply_drawing_style(id, &update);
                         let snapshot = modal.before_snapshot().clone();
                         self.finalize_drawing_properties(id, snapshot);
                         self.modal = None;
                     }
-                    crate::modals::drawing::properties::Action::Cancelled(
-                        id,
-                        original,
-                    ) => {
+                    crate::modals::drawing::properties::Action::Cancelled(id, original) => {
                         self.apply_drawing_style(id, &original);
                         self.modal = None;
                     }
@@ -165,61 +159,15 @@ impl State {
         None
     }
 
-    pub(super) fn handle_indicator_manager(
-        &mut self,
-        message: modals::pane::indicator::Message,
-    ) -> Option<Action> {
-        if let Some(Modal::IndicatorManager(ref mut manager)) = self.modal {
-            let mut manager = manager.clone();
-            if let Some(action) = manager.update(message) {
-                use modals::pane::indicator::Action;
-                match action {
-                    Action::ToggleStudy(study_id) => {
-                        self.content.toggle_study(&study_id);
-                    }
-                    Action::ReorderIndicators(event) => {
-                        self.content.reorder_indicators(&event);
-                    }
-                    Action::StudyParameterUpdated {
-                        study_id,
-                        key,
-                        value,
-                    } => {
-                        self.content.update_study_parameter(
-                            &study_id,
-                            &key,
-                            value.clone(),
-                        );
-                        // Reload chart data when days_to_load changes
-                        if study_id == "big_trades"
-                            && key == "days_to_load"
-                            && let study::ParameterValue::Integer(days) = value
-                        {
-                            self.modal =
-                                Some(Modal::IndicatorManager(manager));
-                            return self.rebuild_chart_with_days(days);
-                        }
-                    }
-                    Action::Close => {
-                        self.modal = None;
-                        return None;
-                    }
-                }
-            }
-            self.modal = Some(Modal::IndicatorManager(manager));
-        }
-        None
-    }
-
+    #[cfg(feature = "heatmap")]
     pub(super) fn handle_study_configurator(
         &mut self,
         study_msg: modals::pane::settings::StudyMessage,
     ) {
         match study_msg {
+            #[cfg(feature = "heatmap")]
             modals::pane::settings::StudyMessage::Heatmap(m) => {
-                if let Content::Heatmap {
-                    chart, studies, ..
-                } = &mut self.content
+                if let Content::Heatmap { chart, studies, .. } = &mut self.content
                     && let Some(c) = chart
                 {
                     c.update_study_configurator(m);
@@ -227,10 +175,10 @@ impl State {
                         .studies
                         .iter()
                         .map(|s| match s {
-                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(
-                                kind,
-                            ) => {
-                                data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
+                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
+                                data::domain::chart::heatmap::heatmap::HeatmapStudy::VolumeProfile(
+                                    *kind,
+                                )
                             }
                         })
                         .collect();
@@ -258,8 +206,7 @@ impl State {
                     self.modal = Some(Modal::Settings);
                 }
                 chart::comparison::Action::RemoveSeries(ticker_info) => {
-                    if let Content::Comparison(Some(chart)) = &mut self.content
-                    {
+                    if let Content::Comparison(Some(chart)) = &mut self.content {
                         chart.remove_ticker(&ticker_info);
                     }
                 }
@@ -299,10 +246,10 @@ impl State {
                 self.open_indicator_manager_for_study(idx);
             }
             ContextMenuAction::CopyAiMessageText(idx) => {
-                if let Content::AiAssistant(ai) = &self.content {
-                    if let Some(text) = ai.message_text(idx) {
-                        return Some(Action::CopyToClipboard(text));
-                    }
+                if let Content::AiAssistant(ai) = &self.content
+                    && let Some(text) = ai.message_text(idx)
+                {
+                    return Some(Action::CopyToClipboard(text));
                 }
             }
         }

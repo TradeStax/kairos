@@ -1,10 +1,11 @@
+use crate::screen::dashboard::pane::config::LinkGroup;
 use crate::{
     components::display::tooltip::button_with_tooltip,
     components::primitives::AZERET_MONO,
     modals::{self, ModifierKind},
     style::{self, tokens},
 };
-use data::{ChartBasis, LinkGroup};
+use data::ChartBasis;
 use iced::{
     Element,
     widget::{button, column, container, pane_grid, row, text, tooltip},
@@ -72,6 +73,10 @@ pub fn basis_modifier<'a>(
 
     button(text(selected_basis.to_string()))
         .style(move |theme, status| style::button::modifier(theme, status, !is_active))
-        .on_press(Message::PaneEvent(id, Event::ShowModal(modifier_modal)))
+        .on_press(Message::PaneEvent(
+            id,
+            Box::new(Event::ShowModal(modifier_modal)),
+        ))
+        .padding([4, 10])
         .into()
 }

@@ -10,8 +10,8 @@ use super::{CacheStatus, DownloadConfig, DownloadProgress};
 use crate::components::layout::scrollable_content;
 use crate::modals::pane::calendar::{CalendarMessage, DateRangeCalendar};
 use crate::style::{self, tokens};
+use data::DownloadSchema;
 use data::{DateRange, FuturesTicker};
-use exchange::DownloadSchema;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, space, text},
@@ -25,10 +25,8 @@ pub struct DataManagementPanel {
     calendar: DateRangeCalendar,
 
     cache_status: Option<CacheStatus>,
-    actual_cost_usd: Option<f64>,
     download_progress: DownloadProgress,
     show_confirm_modal: bool,
-    has_valid_selection: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,10 +59,8 @@ impl DataManagementPanel {
             selected_schema_idx: 0,
             calendar: DateRangeCalendar::new(),
             cache_status: None,
-            actual_cost_usd: None,
             download_progress: DownloadProgress::Idle,
             show_confirm_modal: false,
-            has_valid_selection: false,
         }
     }
 
@@ -84,13 +80,11 @@ impl DataManagementPanel {
             DataManagementMessage::TickerSelected(idx) => {
                 self.selected_ticker_idx = idx;
                 self.cache_status = None;
-                self.actual_cost_usd = None;
                 return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::SchemaSelected(idx) => {
                 self.selected_schema_idx = idx;
                 self.cache_status = None;
-                self.actual_cost_usd = None;
                 return self.trigger_viewing_month_cache_check();
             }
             DataManagementMessage::Calendar(cal_msg) => {
@@ -104,15 +98,12 @@ impl DataManagementPanel {
                     return self.trigger_viewing_month_cache_check();
                 } else if selection_complete {
                     self.cache_status = None;
-                    self.actual_cost_usd = None;
                     return self.trigger_estimation(None);
                 }
                 return None;
             }
             DataManagementMessage::ShowDownloadConfirm => {
-                if self.actual_cost_usd.is_some() {
-                    self.show_confirm_modal = true;
-                }
+                self.show_confirm_modal = true;
             }
             DataManagementMessage::ConfirmDownload => {
                 self.show_confirm_modal = false;
@@ -126,7 +117,8 @@ impl DataManagementPanel {
                 };
                 let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
                 let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);
-                let date_range = DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
+                let date_range =
+                    DateRange::new(self.calendar.start_date, self.calendar.end_date).ok()?;
                 return Some(Action::DownloadRequested {
                     ticker,
                     schema,
@@ -162,12 +154,10 @@ impl DataManagementPanel {
     pub fn set_cache_status(&mut self, status: CacheStatus, cached_dates: Vec<chrono::NaiveDate>) {
         self.cache_status = Some(status);
         self.calendar.cached_dates = Some(cached_dates.into_iter().collect());
-    }
-
-    pub fn set_actual_cost(&mut self, cost_usd: f64) {
-        self.actual_cost_usd = Some(cost_usd);
-        self.download_progress = DownloadProgress::Idle;
-        self.has_valid_selection = true;
+        // Reset from CheckingCost now that estimation is complete
+        if matches!(self.download_progress, DownloadProgress::CheckingCost) {
+            self.download_progress = DownloadProgress::Idle;
+        }
     }
 
     pub fn set_download_progress(&mut self, progress: DownloadProgress) {
@@ -188,14 +178,12 @@ impl DataManagementPanel {
         } else {
             (self.calendar.end_date, self.calendar.start_date)
         };
-        DateRange::new(start, end)
-            .expect("invariant: start <= end after normalization")
+        DateRange::new(start, end).expect("invariant: start <= end after normalization")
     }
 
     fn viewing_month_range(&self) -> DateRange {
         let (first, last) = self.calendar.viewing_month_range();
-        DateRange::new(first, last)
-            .expect("invariant: month first day <= last day")
+        DateRange::new(first, last).expect("invariant: month first day <= last day")
     }
 
     pub fn request_initial_estimation(&mut self) -> Option<Action> {
@@ -249,8 +237,7 @@ impl DataManagementPanel {
             _ => ("Download", false),
         };
 
-        let can_download = self.has_valid_selection
-            && self.actual_cost_usd.is_some()
+        let can_download = self.cache_status.is_some()
             && !is_downloading
             && !matches!(self.download_progress, DownloadProgress::CheckingCost);
 
@@ -300,7 +287,6 @@ impl DataManagementPanel {
                 self.selected_schema_idx,
                 self.calendar.start_date,
                 self.calendar.end_date,
-                self.actual_cost_usd.unwrap_or(0.0),
                 self.cache_status.as_ref(),
                 DataManagementMessage::CancelDownload,
                 DataManagementMessage::ConfirmDownload,

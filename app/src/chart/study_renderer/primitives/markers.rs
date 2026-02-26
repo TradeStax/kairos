@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use crate::chart::ViewState;
 use crate::components::primitives::AZERET_MONO;
-use exchange::util::Price;
+use data::Price;
 use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Size};
 use study::output::{MarkerRenderConfig, MarkerShape, TradeMarker};
@@ -68,8 +68,8 @@ pub fn render_markers(
     let zoom_factor = (x_zoom * y_zoom).sqrt();
 
     // Biaxial clamping bounds
-    let max_chart_radius = (MAX_RADIUS_CELLS_X * state.cell_width)
-        .min(MAX_RADIUS_CELLS_Y * state.cell_height);
+    let max_chart_radius =
+        (MAX_RADIUS_CELLS_X * state.cell_width).min(MAX_RADIUS_CELLS_Y * state.cell_height);
     let min_chart_radius = MIN_RADIUS_SCREEN_PX / state.scaling;
     let max_screen_radius = MAX_RADIUS_SCREEN_PX / state.scaling;
 
@@ -109,8 +109,7 @@ pub fn render_markers(
         // Area-proportional sizing: sqrt gives perceptually linear
         // area growth (standard bubble chart approach)
         let t_linear = if scale_range > 0.0 {
-            ((marker.contracts - config.scale_min) / scale_range)
-                .clamp(0.0, 1.0) as f32
+            ((marker.contracts - config.scale_min) / scale_range).clamp(0.0, 1.0) as f32
         } else {
             0.5
         };
@@ -126,8 +125,7 @@ pub fn render_markers(
             .min(max_screen_radius);
 
         // Per-marker opacity with density attenuation
-        let base_opacity =
-            lerp(config.min_opacity, config.max_opacity, t_linear);
+        let base_opacity = lerp(config.min_opacity, config.max_opacity, t_linear);
 
         let bx = (vm.screen_x / DENSITY_BUCKET_PX) as i32;
         let by = (vm.screen_y / DENSITY_BUCKET_PX) as i32;
@@ -139,9 +137,11 @@ pub fn render_markers(
         };
         let opacity = base_opacity * density_factor;
 
-        let base_color: Color =
-            crate::style::theme::rgba_to_iced_color(marker.color);
-        let color = Color { a: opacity, ..base_color };
+        let base_color: Color = crate::style::theme::rgba_to_iced_color(marker.color);
+        let color = Color {
+            a: opacity,
+            ..base_color
+        };
 
         let center = Point::new(x, y);
 
@@ -154,10 +154,7 @@ pub fn render_markers(
                         width: 2.0 / state.scaling,
                         ..Stroke::default()
                     };
-                    frame.stroke(
-                        &circle,
-                        Stroke::with_color(stroke, color),
-                    );
+                    frame.stroke(&circle, Stroke::with_color(stroke, color));
                 } else {
                     frame.fill(&circle, color);
                     // 1px border stroke
@@ -169,31 +166,19 @@ pub fn render_markers(
                         width: 1.0 / state.scaling,
                         ..Stroke::default()
                     };
-                    frame.stroke(
-                        &circle,
-                        Stroke::with_color(stroke, border_color),
-                    );
+                    frame.stroke(&circle, Stroke::with_color(stroke, border_color));
                 }
             }
             MarkerShape::Square => {
                 let side = radius * 2.0;
-                let top_left = Point::new(
-                    center.x - radius,
-                    center.y - radius,
-                );
-                let rect = Path::rectangle(
-                    top_left,
-                    Size::new(side, side),
-                );
+                let top_left = Point::new(center.x - radius, center.y - radius);
+                let rect = Path::rectangle(top_left, Size::new(side, side));
                 if config.hollow {
                     let stroke = Stroke {
                         width: 2.0 / state.scaling,
                         ..Stroke::default()
                     };
-                    frame.stroke(
-                        &rect,
-                        Stroke::with_color(stroke, color),
-                    );
+                    frame.stroke(&rect, Stroke::with_color(stroke, color));
                 } else {
                     frame.fill(&rect, color);
                     let border_color = Color {
@@ -204,10 +189,7 @@ pub fn render_markers(
                         width: 1.0 / state.scaling,
                         ..Stroke::default()
                     };
-                    frame.stroke(
-                        &rect,
-                        Stroke::with_color(stroke, border_color),
-                    );
+                    frame.stroke(&rect, Stroke::with_color(stroke, border_color));
                 }
             }
             MarkerShape::TextOnly => {
@@ -222,8 +204,7 @@ pub fn render_markers(
             // Scale font to fit inside the marker's diameter.
             // Use ~60% of char width as the monospace advance ratio.
             let char_count = label.len().max(1) as f32;
-            let max_font_for_width =
-                (radius * 2.0 * 0.85) / (char_count * 0.6);
+            let max_font_for_width = (radius * 2.0 * 0.85) / (char_count * 0.6);
             let max_font_for_height = radius * 1.3;
             let font_size = max_font_for_width
                 .min(max_font_for_height)
@@ -232,10 +213,7 @@ pub fn render_markers(
             // Only render if the computed font is legible on screen
             let effective_px = font_size * state.scaling;
             if effective_px >= MIN_TEXT_SCREEN_PX {
-                let text_color: Color =
-                    crate::style::theme::rgba_to_iced_color(
-                        config.text_color,
-                    );
+                let text_color: Color = crate::style::theme::rgba_to_iced_color(config.text_color);
 
                 let text_width = char_count * font_size * 0.6;
                 let text_x = center.x - text_width / 2.0;
@@ -258,13 +236,9 @@ pub fn render_markers(
             let debug_y = center.y + radius + debug_font_size * 0.5;
 
             // Fill count and time window
-            let window_ms = debug
-                .last_fill_time
-                .saturating_sub(debug.first_fill_time);
-            let debug_text =
-                format!("{} fills | {}ms", debug.fill_count, window_ms);
-            let debug_width =
-                debug_text.len() as f32 * debug_font_size * 0.6;
+            let window_ms = debug.last_fill_time.saturating_sub(debug.first_fill_time);
+            let debug_text = format!("{} fills | {}ms", debug.fill_count, window_ms);
+            let debug_width = debug_text.len() as f32 * debug_font_size * 0.6;
             let debug_x = center.x - debug_width / 2.0;
 
             frame.fill_text(Text {
@@ -283,19 +257,11 @@ pub fn render_markers(
 
             // Price range line (thin vertical from min to max price)
             if debug.price_min_units != debug.price_max_units {
-                let y_min = state
-                    .price_to_y(Price::from_units(debug.price_min_units));
-                let y_max = state
-                    .price_to_y(Price::from_units(debug.price_max_units));
+                let y_min = state.price_to_y(Price::from_units(debug.price_min_units));
+                let y_max = state.price_to_y(Price::from_units(debug.price_max_units));
                 let range_line = Path::line(
-                    Point::new(
-                        center.x + radius + 2.0 / state.scaling,
-                        y_max,
-                    ),
-                    Point::new(
-                        center.x + radius + 2.0 / state.scaling,
-                        y_min,
-                    ),
+                    Point::new(center.x + radius + 2.0 / state.scaling, y_max),
+                    Point::new(center.x + radius + 2.0 / state.scaling, y_min),
                 );
                 let range_stroke = Stroke {
                     width: 1.0 / state.scaling,
@@ -303,12 +269,15 @@ pub fn render_markers(
                 };
                 frame.stroke(
                     &range_line,
-                    Stroke::with_color(range_stroke, Color {
-                        r: 0.6,
-                        g: 0.6,
-                        b: 0.6,
-                        a: 0.6,
-                    }),
+                    Stroke::with_color(
+                        range_stroke,
+                        Color {
+                            r: 0.6,
+                            g: 0.6,
+                            b: 0.6,
+                            a: 0.6,
+                        },
+                    ),
                 );
             }
         }
@@ -316,11 +285,7 @@ pub fn render_markers(
 }
 
 /// Sum marker counts in the 3x3 neighborhood around (bx, by).
-fn neighborhood_count(
-    density: &HashMap<(i32, i32), u32>,
-    bx: i32,
-    by: i32,
-) -> u32 {
+fn neighborhood_count(density: &HashMap<(i32, i32), u32>, bx: i32, by: i32) -> u32 {
     let mut count = 0u32;
     for dx in -1..=1 {
         for dy in -1..=1 {

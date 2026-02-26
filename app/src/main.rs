@@ -3,11 +3,15 @@
 mod app;
 mod chart;
 mod components;
+mod config;
+pub mod drawing;
 mod infra;
-mod layout;
 mod modals;
+pub mod persistence;
 mod screen;
+pub mod services;
 mod style;
+mod window;
 
 use app::Kairos;
 use std::borrow::Cow;

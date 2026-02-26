@@ -2,9 +2,9 @@
 
 use super::{DrawingEditMode, DrawingState, Interaction};
 use crate::chart::Message;
-use crate::chart::core::tokens;
 use crate::chart::core::Chart;
-use data::{DrawingId, DrawingTool};
+use crate::chart::core::tokens;
+use crate::drawing::{DrawingId, DrawingTool};
 use iced::{Point, widget::canvas};
 
 /// Handle left click during Drawing state
@@ -104,38 +104,34 @@ pub fn handle_selection_click<T: Chart>(
     chart: &T,
     interaction: &mut Interaction,
     cursor_in_bounds: Point,
-    last_selection_click: &mut Option<(std::time::Instant, data::DrawingId)>,
+    last_selection_click: &mut Option<(std::time::Instant, crate::drawing::DrawingId)>,
 ) -> Option<canvas::Action<Message>> {
     let bounds = chart.state().bounds.size();
 
     // 1. Check handle hit on already-selected drawings (skip locked)
-    if let Some((id, handle_index)) = chart.hit_test_drawing_handle(cursor_in_bounds, bounds) {
-        if !chart.is_drawing_locked(id) {
-            *last_selection_click = None;
-            *interaction = Interaction::EditingDrawing {
-                id,
-                edit_mode: DrawingEditMode::DraggingHandle { handle_index },
-                last_screen_pos: cursor_in_bounds,
-                drag_committed: true, // handle drags are immediate
-            };
-            return Some(canvas::Action::request_redraw().and_capture());
-        }
+    if let Some((id, handle_index)) = chart.hit_test_drawing_handle(cursor_in_bounds, bounds)
+        && !chart.is_drawing_locked(id)
+    {
+        *last_selection_click = None;
+        *interaction = Interaction::EditingDrawing {
+            id,
+            edit_mode: DrawingEditMode::DraggingHandle { handle_index },
+            last_screen_pos: cursor_in_bounds,
+            drag_committed: true, // handle drags are immediate
+        };
+        return Some(canvas::Action::request_redraw().and_capture());
     }
 
     // 2. Check drawing body hit
     if let Some(id) = chart.hit_test_drawing(cursor_in_bounds, bounds) {
         // Check for double-click on an already-selected drawing
-        if chart.is_drawing_selected(id) {
-            if let Some((prev_time, prev_id)) = last_selection_click {
-                if *prev_id == id
-                    && prev_time.elapsed().as_millis() < tokens::drawing::DOUBLE_CLICK_MS
-                {
-                    *last_selection_click = None;
-                    return Some(
-                        canvas::Action::publish(Message::DrawingDoubleClick(id)).and_capture(),
-                    );
-                }
-            }
+        if chart.is_drawing_selected(id)
+            && let Some((prev_time, prev_id)) = last_selection_click
+            && *prev_id == id
+            && prev_time.elapsed().as_millis() < tokens::drawing::DOUBLE_CLICK_MS
+        {
+            *last_selection_click = None;
+            return Some(canvas::Action::publish(Message::DrawingDoubleClick(id)).and_capture());
         }
 
         *last_selection_click = Some((std::time::Instant::now(), id));

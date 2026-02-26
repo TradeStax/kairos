@@ -29,13 +29,13 @@ pub const FUTURES_PRODUCTS: &[(&str, &str)] = &[
 ];
 
 /// Schemas with display names and cost rating
-pub const SCHEMAS: &[(exchange::DownloadSchema, &str, u8)] = &[
-    (exchange::DownloadSchema::Trades, "Trades", 2),
-    (exchange::DownloadSchema::Mbp10, "MBP-10 (10 Levels)", 3),
-    (exchange::DownloadSchema::Mbp1, "MBP-1 (Top of Book)", 2),
-    (exchange::DownloadSchema::Ohlcv1M, "OHLCV-1M", 1),
-    (exchange::DownloadSchema::Tbbo, "TBBO (Top BBO)", 2),
-    (exchange::DownloadSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
+pub const SCHEMAS: &[(data::DownloadSchema, &str, u8)] = &[
+    (data::DownloadSchema::Trades, "Trades", 2),
+    (data::DownloadSchema::Mbp10, "MBP-10 (10 Levels)", 3),
+    (data::DownloadSchema::Mbp1, "MBP-1 (Top of Book)", 2),
+    (data::DownloadSchema::Ohlcv1M, "OHLCV-1M", 1),
+    (data::DownloadSchema::Tbbo, "TBBO (Top BBO)", 2),
+    (data::DownloadSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
 ];
 
 /// Cache coverage status for a date range
@@ -69,10 +69,10 @@ pub struct DownloadConfig;
 impl DownloadConfig {
     pub fn ticker_from_idx(idx: usize) -> data::FuturesTicker {
         let (sym, _) = FUTURES_PRODUCTS[idx];
-        data::FuturesTicker::new(sym, exchange::FuturesVenue::CMEGlobex)
+        data::FuturesTicker::new(sym, data::FuturesVenue::CMEGlobex)
     }
 
-    pub fn schema_from_idx(idx: usize) -> exchange::DownloadSchema {
+    pub fn schema_from_idx(idx: usize) -> data::DownloadSchema {
         SCHEMAS[idx].0
     }
 

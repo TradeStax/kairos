@@ -5,7 +5,6 @@ pub const MENU_BAR_HEIGHT: f32 = 24.0;
 pub const SIDEBAR_WIDTH: f32 = 32.0;
 pub const SIDEBAR_BUTTON_HEIGHT: f32 = 34.0;
 pub const PANEL_ROW_HEIGHT: f32 = 16.0; // Ladder
-pub const PANEL_ROW_HEIGHT_SM: f32 = 14.0; // TimeAndSales
 pub const MODAL_MAX_WIDTH: u32 = 650;
 
 // Modal widths
@@ -20,8 +19,4 @@ pub const TOGGLER_SIZE: f32 = 18.0;
 pub const TOAST_MAX_WIDTH: f32 = 200.0;
 
 /// macOS title padding (window controls inset).
-pub const TITLE_PADDING_TOP: f32 = if cfg!(target_os = "macos") {
-    20.0
-} else {
-    0.0
-};
+pub const TITLE_PADDING_TOP: f32 = if cfg!(target_os = "macos") { 20.0 } else { 0.0 };

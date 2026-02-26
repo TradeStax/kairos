@@ -15,8 +15,8 @@ pub use drawing::Drawing;
 pub use manager::DrawingManager;
 pub use point::DrawingPoint;
 
-// Re-export types from data layer for convenience
-pub use data::{DrawingTool, LineStyle};
+// Re-export types from app drawing module for convenience
+pub use crate::drawing::DrawingTool;
 
 use super::ViewState;
 
@@ -56,10 +56,7 @@ pub trait ChartDrawingAccess {
 
     /// Get the candle open price at or near the given time.
     /// Used for snapping the first VBP drawing point.
-    fn candle_open_at_time(
-        &self,
-        _time: u64,
-    ) -> Option<exchange::util::Price> {
+    fn candle_open_at_time(&self, _time: u64) -> Option<data::Price> {
         None
     }
 }

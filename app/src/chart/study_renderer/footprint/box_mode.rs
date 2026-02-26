@@ -5,8 +5,7 @@ use super::scale::{format_value, scaled_ratio};
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Alignment, Color, Point, Size};
 use study::output::{
-    BackgroundColorMode, FootprintDataType, FootprintLevel,
-    FootprintScaling, TextFormat,
+    BackgroundColorMode, FootprintDataType, FootprintLevel, FootprintScaling, TextFormat,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -33,13 +32,10 @@ pub(super) fn draw_box_mode(
     show_zero: bool,
     text_format: TextFormat,
 ) {
-    let text_color = custom_text_color
-        .unwrap_or(palette.background.weakest.text);
+    let text_color = custom_text_color.unwrap_or(palette.background.weakest.text);
     let box_center = box_left + box_width / 2.0;
-    let buy_color =
-        custom_buy_color.unwrap_or(palette.success.base.color);
-    let sell_color =
-        custom_sell_color.unwrap_or(palette.danger.base.color);
+    let buy_color = custom_buy_color.unwrap_or(palette.success.base.color);
+    let sell_color = custom_sell_color.unwrap_or(palette.danger.base.color);
 
     let grid_stroke = if show_grid_lines {
         Some(Stroke::with_color(
@@ -47,11 +43,7 @@ pub(super) fn draw_box_mode(
                 width: 1.0,
                 ..Default::default()
             },
-            palette
-                .background
-                .weak
-                .color
-                .scale_alpha(0.3),
+            palette.background.weak.color.scale_alpha(0.3),
         ))
     } else {
         None
@@ -62,8 +54,7 @@ pub(super) fn draw_box_mode(
         let bar_y = y - (row_height / 2.0);
 
         match data_type {
-            FootprintDataType::BidAskSplit
-            | FootprintDataType::DeltaAndVolume => {
+            FootprintDataType::BidAskSplit | FootprintDataType::DeltaAndVolume => {
                 // Left half: sell, Right half: buy
                 let sell_bg = compute_box_bg(
                     level.sell_volume,
@@ -79,10 +70,7 @@ pub(super) fn draw_box_mode(
                 if let Some((color, alpha)) = sell_bg {
                     frame.fill_rectangle(
                         Point::new(box_left, bar_y),
-                        Size::new(
-                            box_width / 2.0,
-                            row_height,
-                        ),
+                        Size::new(box_width / 2.0, row_height),
                         color.scale_alpha(alpha),
                     );
                 }
@@ -101,10 +89,7 @@ pub(super) fn draw_box_mode(
                 if let Some((color, alpha)) = buy_bg {
                     frame.fill_rectangle(
                         Point::new(box_center, bar_y),
-                        Size::new(
-                            box_width / 2.0,
-                            row_height,
-                        ),
+                        Size::new(box_width / 2.0, row_height),
                         color.scale_alpha(alpha),
                     );
                 }
@@ -113,20 +98,14 @@ pub(super) fn draw_box_mode(
                     frame.stroke(
                         &Path::rectangle(
                             Point::new(box_left, bar_y),
-                            Size::new(
-                                box_width / 2.0,
-                                row_height,
-                            ),
+                            Size::new(box_width / 2.0, row_height),
                         ),
                         *stroke,
                     );
                     frame.stroke(
                         &Path::rectangle(
                             Point::new(box_center, bar_y),
-                            Size::new(
-                                box_width / 2.0,
-                                row_height,
-                            ),
+                            Size::new(box_width / 2.0, row_height),
                         ),
                         *stroke,
                     );
@@ -136,14 +115,8 @@ pub(super) fn draw_box_mode(
                     if level.sell_volume > 0.0 || show_zero {
                         draw_cluster_text(
                             frame,
-                            &format_value(
-                                level.sell_volume,
-                                text_format,
-                            ),
-                            Point::new(
-                                box_left + box_width * 0.25,
-                                y,
-                            ),
+                            &format_value(level.sell_volume, text_format),
+                            Point::new(box_left + box_width * 0.25, y),
                             text_size,
                             text_color,
                             Alignment::Center,
@@ -153,14 +126,8 @@ pub(super) fn draw_box_mode(
                     if level.buy_volume > 0.0 || show_zero {
                         draw_cluster_text(
                             frame,
-                            &format_value(
-                                level.buy_volume,
-                                text_format,
-                            ),
-                            Point::new(
-                                box_center + box_width * 0.25,
-                                y,
-                            ),
+                            &format_value(level.buy_volume, text_format),
+                            Point::new(box_center + box_width * 0.25, y),
                             text_size,
                             text_color,
                             Alignment::Center,
@@ -199,9 +166,7 @@ pub(super) fn draw_box_mode(
                     );
                 }
 
-                if should_label(level.price)
-                    && (total > f32::EPSILON || show_zero)
-                {
+                if should_label(level.price) && (total > f32::EPSILON || show_zero) {
                     draw_cluster_text(
                         frame,
                         &format_value(total, text_format),
@@ -226,11 +191,7 @@ pub(super) fn draw_box_mode(
                     &buy_color,
                 );
                 if let Some((_color, alpha)) = bg {
-                    let actual_color = if delta >= 0.0 {
-                        buy_color
-                    } else {
-                        sell_color
-                    };
+                    let actual_color = if delta >= 0.0 { buy_color } else { sell_color };
                     frame.fill_rectangle(
                         Point::new(box_left, bar_y),
                         Size::new(box_width, row_height),
@@ -248,10 +209,7 @@ pub(super) fn draw_box_mode(
                     );
                 }
 
-                if should_label(level.price)
-                    && (delta.abs() > f32::EPSILON
-                        || show_zero)
-                {
+                if should_label(level.price) && (delta.abs() > f32::EPSILON || show_zero) {
                     draw_cluster_text(
                         frame,
                         &format_value(delta, text_format),
@@ -266,10 +224,7 @@ pub(super) fn draw_box_mode(
         }
 
         if poc_price == Some(level.price) {
-            draw_poc_highlight(
-                frame, box_left, y, box_width, row_height,
-                palette,
-            );
+            draw_poc_highlight(frame, box_left, y, box_width, row_height, palette);
         }
     }
 }
@@ -291,10 +246,8 @@ fn compute_box_bg(
 ) -> Option<(Color, f32)> {
     match bg_mode {
         BackgroundColorMode::VolumeIntensity => {
-            let ratio =
-                scaled_ratio(volume, max_cluster_qty, scaling);
-            let alpha =
-                (ratio.min(1.0) * bg_max_alpha).max(0.03);
+            let ratio = scaled_ratio(volume, max_cluster_qty, scaling);
+            let alpha = (ratio.min(1.0) * bg_max_alpha).max(0.03);
             let color = if is_buy { *buy_color } else { *sell_color };
             Some((color, alpha))
         }
@@ -310,8 +263,7 @@ fn compute_box_bg(
             } else {
                 *sell_color
             };
-            let alpha =
-                (delta_ratio.abs() * bg_max_alpha).max(0.03);
+            let alpha = (delta_ratio.abs() * bg_max_alpha).max(0.03);
             Some((color, alpha))
         }
         BackgroundColorMode::None => None,
@@ -333,8 +285,7 @@ fn compute_box_bg_single(
 ) -> Option<(Color, f32)> {
     match bg_mode {
         BackgroundColorMode::VolumeIntensity => {
-            let ratio =
-                scaled_ratio(qty, max_cluster_qty, scaling);
+            let ratio = scaled_ratio(qty, max_cluster_qty, scaling);
             let buy_frac = if level.total_qty() > 0.0 {
                 level.buy_volume / level.total_qty()
             } else {
@@ -345,8 +296,7 @@ fn compute_box_bg_single(
             } else {
                 *sell_color
             };
-            let alpha =
-                (ratio.min(1.0) * bg_max_alpha).max(0.03);
+            let alpha = (ratio.min(1.0) * bg_max_alpha).max(0.03);
             Some((color, alpha))
         }
         BackgroundColorMode::DeltaIntensity => {
@@ -361,8 +311,7 @@ fn compute_box_bg_single(
             } else {
                 *sell_color
             };
-            let alpha =
-                (delta_ratio.abs() * bg_max_alpha).max(0.03);
+            let alpha = (delta_ratio.abs() * bg_max_alpha).max(0.03);
             Some((color, alpha))
         }
         BackgroundColorMode::None => None,

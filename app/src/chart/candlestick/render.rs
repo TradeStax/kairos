@@ -1,15 +1,13 @@
 use crate::chart::core::tokens;
 use crate::chart::drawing;
 use crate::chart::perf::{LodCalculator, LodIteratorExt};
-use crate::chart::{
-    Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction,
-};
+use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction};
 use crate::components::primitives::AZERET_MONO;
-use data::state::pane::CandleStyle;
+use crate::screen::dashboard::pane::config::CandleStyle;
+use data::FuturesTickerInfo;
+use data::Price;
 use data::util::count_decimals;
 use data::{Candle, ChartBasis, Trade};
-use exchange::FuturesTickerInfo;
-use exchange::util::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Geometry, Stroke};
 use iced::{Color, Point, Rectangle, Renderer, Theme, Vector, mouse};
@@ -62,6 +60,7 @@ impl canvas::Program<Message> for KlineChart {
             // Draw grid lines behind all content
             crate::chart::overlay::draw_price_grid(chart, frame, palette, &region);
             crate::chart::overlay::draw_time_grid(chart, frame, palette, &region);
+            crate::chart::overlay::draw_date_separators(chart, frame, palette, &region);
 
             let (earliest, latest) = chart.interval_range(&region);
 
@@ -97,23 +96,18 @@ impl canvas::Program<Message> for KlineChart {
 
             // When zoomed out past a CandleReplace study's max_bars,
             // fall back to normal candle rendering instead.
-            let candle_replace_fallback =
-                self.has_candle_replace()
-                    && self.studies.iter().any(|s| {
-                        s.placement()
-                            == study::StudyPlacement::CandleReplace
-                            && match s.output() {
-                                study::StudyOutput::Footprint(d) => {
-                                    visible_candle_count
-                                        > d.max_bars_to_show
-                                }
-                                _ => false,
+            let candle_replace_fallback = self.has_candle_replace()
+                && self.studies.iter().any(|s| {
+                    s.placement() == study::StudyPlacement::CandleReplace
+                        && match s.output() {
+                            study::StudyOutput::Footprint(d) => {
+                                visible_candle_count > d.max_bars_to_show
                             }
-                    });
+                            _ => false,
+                        }
+                });
 
-            if !self.has_candle_replace()
-                || candle_replace_fallback
-            {
+            if !self.has_candle_replace() || candle_replace_fallback {
                 // Standard candle rendering
                 let candle_width = chart.cell_width * tokens::candle::WIDTH_RATIO;
                 let interval_ms = match &self.basis {
@@ -173,9 +167,8 @@ impl canvas::Program<Message> for KlineChart {
                 let output = study.output();
                 let placement = study.placement();
                 // Skip CandleReplace when in fallback mode
-                let skip = candle_replace_fallback
-                    && placement
-                        == study::StudyPlacement::CandleReplace;
+                let skip =
+                    candle_replace_fallback && placement == study::StudyPlacement::CandleReplace;
                 if !skip
                     && !matches!(output, study::StudyOutput::Empty)
                     && matches!(
@@ -284,8 +277,8 @@ impl canvas::Program<Message> for KlineChart {
                 );
 
                 if has_candle && !self.studies.is_empty() {
-                    let y_start = crate::style::tokens::spacing::MD
-                        + crate::style::tokens::text::HEADING;
+                    let y_start =
+                        crate::style::tokens::spacing::MD + crate::style::tokens::text::HEADING;
                     draw_study_overlay(
                         &self.studies,
                         result.interval,
@@ -340,9 +333,7 @@ impl canvas::Program<Message> for KlineChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if let Some(i) =
-            base_mouse_interaction(&state.interaction, bounds, cursor)
-        {
+        if let Some(i) = base_mouse_interaction(&state.interaction, bounds, cursor) {
             return i;
         }
         if let Some(cursor_position) = cursor.position_in(bounds) {
@@ -375,7 +366,7 @@ impl canvas::Program<Message> for KlineChart {
 }
 
 /// Return the slice of trades whose timestamp falls in `[start_ts, end_ts]`.
-fn trades_for_candle<'t>(trades: &'t [Trade], start_ts: u64, end_ts: u64) -> &'t [Trade] {
+fn trades_for_candle(trades: &[Trade], start_ts: u64, end_ts: u64) -> &[Trade] {
     let lo = trades.partition_point(|t| t.time.0 < start_ts);
     let hi = trades.partition_point(|t| t.time.0 <= end_ts);
     &trades[lo..hi]
@@ -385,7 +376,7 @@ fn render_candles<F>(
     candles: &[Candle],
     trades: &[Trade],
     basis: &ChartBasis,
-    _tick_size: exchange::util::PriceStep,
+    _tick_size: data::PriceStep,
     interval_ms: u64,
     frame: &mut canvas::Frame,
     earliest: u64,
@@ -644,17 +635,21 @@ fn draw_output_entries(
     match output {
         study::StudyOutput::Lines(series) => {
             for s in series {
-                let value_color =
-                    crate::style::theme::rgba_to_iced_color(
-                        s.color,
-                    );
+                let value_color = crate::style::theme::rgba_to_iced_color(s.color);
                 buf.clear();
                 if let Some(v) = find_line_value_at(&s.points, at) {
                     let _ = write!(buf, "{:.2}", v);
                 }
                 emit_study_line(
-                    frame, &s.label, buf, base_color,
-                    value_color, x, y, line_height, alpha,
+                    frame,
+                    &s.label,
+                    buf,
+                    base_color,
+                    value_color,
+                    x,
+                    y,
+                    line_height,
+                    alpha,
                 );
             }
         }
@@ -664,16 +659,9 @@ fn draw_output_entries(
             lower,
             ..
         } => {
-            let label = middle
-                .as_ref()
-                .map(|m| m.label.as_str())
-                .unwrap_or(name);
-            let sc = middle
-                .as_ref()
-                .map(|m| m.color)
-                .unwrap_or(upper.color);
-            let value_color =
-                crate::style::theme::rgba_to_iced_color(sc);
+            let label = middle.as_ref().map(|m| m.label.as_str()).unwrap_or(name);
+            let sc = middle.as_ref().map(|m| m.color).unwrap_or(upper.color);
+            let value_color = crate::style::theme::rgba_to_iced_color(sc);
 
             let u = find_line_value_at(&upper.points, at);
             let m = middle
@@ -684,10 +672,7 @@ fn draw_output_entries(
             buf.clear();
             match (u, m, l) {
                 (Some(uv), Some(mv), Some(lv)) => {
-                    let _ = write!(
-                        buf, "{:.2} / {:.2} / {:.2}",
-                        uv, mv, lv
-                    );
+                    let _ = write!(buf, "{:.2} / {:.2} / {:.2}", uv, mv, lv);
                 }
                 (Some(uv), None, Some(lv)) => {
                     let _ = write!(buf, "{:.2} / {:.2}", uv, lv);
@@ -695,8 +680,15 @@ fn draw_output_entries(
                 _ => {}
             }
             emit_study_line(
-                frame, label, buf, base_color,
-                value_color, x, y, line_height, alpha,
+                frame,
+                label,
+                buf,
+                base_color,
+                value_color,
+                x,
+                y,
+                line_height,
+                alpha,
             );
         }
         study::StudyOutput::Bars(series) => {
@@ -704,36 +696,31 @@ fn draw_output_entries(
                 let value_color = s
                     .points
                     .first()
-                    .map(|p| {
-                        crate::style::theme::rgba_to_iced_color(
-                            p.color,
-                        )
-                    })
+                    .map(|p| crate::style::theme::rgba_to_iced_color(p.color))
                     .unwrap_or(base_color);
 
                 buf.clear();
-                let val = s
-                    .points
-                    .iter()
-                    .find(|p| p.x == at)
-                    .map(|p| p.value);
+                let val = s.points.iter().find(|p| p.x == at).map(|p| p.value);
                 if let Some(v) = val {
                     let _ = write!(buf, "{:.2}", v);
                 }
                 emit_study_line(
-                    frame, &s.label, buf, base_color,
-                    value_color, x, y, line_height, alpha,
+                    frame,
+                    &s.label,
+                    buf,
+                    base_color,
+                    value_color,
+                    x,
+                    y,
+                    line_height,
+                    alpha,
                 );
             }
         }
         study::StudyOutput::Histogram(bars) => {
             let value_color = bars
                 .first()
-                .map(|b| {
-                    crate::style::theme::rgba_to_iced_color(
-                        b.color,
-                    )
-                })
+                .map(|b| crate::style::theme::rgba_to_iced_color(b.color))
                 .unwrap_or(base_color);
 
             buf.clear();
@@ -749,15 +736,30 @@ fn draw_output_entries(
                 let _ = write!(buf, "{:.2}", v);
             }
             emit_study_line(
-                frame, name, buf, base_color,
-                value_color, x, y, line_height, alpha,
+                frame,
+                name,
+                buf,
+                base_color,
+                value_color,
+                x,
+                y,
+                line_height,
+                alpha,
             );
         }
         study::StudyOutput::Composite(sub_outputs) => {
             for sub in sub_outputs {
                 draw_output_entries(
-                    sub, name, at, frame, base_color, x, y,
-                    line_height, buf, alpha,
+                    sub,
+                    name,
+                    at,
+                    frame,
+                    base_color,
+                    x,
+                    y,
+                    line_height,
+                    buf,
+                    alpha,
                 );
             }
         }
@@ -767,8 +769,15 @@ fn draw_output_entries(
         | study::StudyOutput::Footprint(_)
         | study::StudyOutput::Markers(_) => {
             emit_study_line(
-                frame, name, "", base_color,
-                base_color, x, y, line_height, alpha,
+                frame,
+                name,
+                "",
+                base_color,
+                base_color,
+                x,
+                y,
+                line_height,
+                alpha,
             );
         }
         study::StudyOutput::Empty => {}
@@ -782,9 +791,7 @@ fn study_line_count(output: &study::StudyOutput) -> usize {
         study::StudyOutput::Band { .. } => 1,
         study::StudyOutput::Bars(series) => series.len(),
         study::StudyOutput::Histogram(_) => 1,
-        study::StudyOutput::Composite(subs) => {
-            subs.iter().map(|s| study_line_count(s)).sum()
-        }
+        study::StudyOutput::Composite(subs) => subs.iter().map(study_line_count).sum(),
         study::StudyOutput::Levels(_)
         | study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
@@ -826,7 +833,7 @@ fn draw_study_overlay(
     let mut y = y_start;
     for (index, study) in studies.iter().enumerate() {
         let output = study.output();
-        let lines = study_line_count(&output);
+        let lines = study_line_count(output);
         if lines == 0 {
             continue;
         }
@@ -834,12 +841,15 @@ fn draw_study_overlay(
         let rect_height = lines as f32 * line_height;
         y += rect_height;
 
-        rects.push((index, Rectangle {
-            x: x - pad,
-            y: y_before - pad,
-            width: hit_width + 2.0 * pad,
-            height: rect_height + 2.0 * pad,
-        }));
+        rects.push((
+            index,
+            Rectangle {
+                x: x - pad,
+                y: y_before - pad,
+                width: hit_width + 2.0 * pad,
+                height: rect_height + 2.0 * pad,
+            },
+        ));
     }
 
     let hovered_index = rects
@@ -893,13 +903,7 @@ fn draw_study_overlay(
                 &builder.build(),
                 Stroke::default()
                     .with_width(1.0)
-                    .with_color(
-                        palette
-                            .primary
-                            .base
-                            .color
-                            .scale_alpha(0.4),
-                    ),
+                    .with_color(palette.primary.base.color.scale_alpha(0.4)),
             );
         }
     }
@@ -930,12 +934,7 @@ fn draw_debug_overlay(
         }
     };
 
-    let lod = LodCalculator::new(
-        chart.scaling,
-        chart.cell_width,
-        visible_count,
-        bounds.width,
-    );
+    let lod = LodCalculator::new(chart.scaling, chart.cell_width, visible_count, bounds.width);
     let lod_level = lod.calculate_lod();
 
     let fps = if frame_time_ms > 0.0 {
@@ -948,8 +947,15 @@ fn draw_debug_overlay(
         format!("FPS: {:.0}", fps),
         format!("Frame: {:.1}ms", frame_time_ms),
         format!("Candles: {} vis / {} total", visible_count, candles.len()),
-        format!("LOD: {:?} (dec {}x)", lod_level, lod_level.decimation_factor()),
-        format!("Zoom: {:.2}x  Cell: {:.1}px", chart.scaling, chart.cell_width),
+        format!(
+            "LOD: {:?} (dec {}x)",
+            lod_level,
+            lod_level.decimation_factor()
+        ),
+        format!(
+            "Zoom: {:.2}x  Cell: {:.1}px",
+            chart.scaling, chart.cell_width
+        ),
     ];
 
     let line_height = 14.0_f32;
@@ -971,10 +977,7 @@ fn draw_debug_overlay(
     for (i, line) in lines.iter().enumerate() {
         frame.fill_text(canvas::Text {
             content: line.clone(),
-            position: Point::new(
-                box_x + padding,
-                box_y + padding + (i as f32 * line_height),
-            ),
+            position: Point::new(box_x + padding, box_y + padding + (i as f32 * line_height)),
             size: iced::Pixels(11.0),
             color: label_color,
             font: AZERET_MONO,

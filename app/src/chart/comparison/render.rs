@@ -7,11 +7,11 @@ use iced::theme::palette::Extended;
 use iced::widget::canvas;
 use iced::{Point, Rectangle, Size, Vector};
 
+use super::TEXT_SIZE;
 use super::legend::{EndLabel, IconKind, LegendLayout};
 use super::line_widget::{
     CHAR_W, GAP_BREAK_MULTIPLIER, LEGEND_LINE_H, LEGEND_PADDING, MIN_X_TICK_PX,
 };
-use super::TEXT_SIZE;
 use super::scene::{PlotContext, Scene};
 
 impl<'a, S> super::line_widget::LineComparison<'a, S>

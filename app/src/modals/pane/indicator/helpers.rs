@@ -6,9 +6,7 @@ use crate::components::primitives::badge::{BadgeKind, badge};
 
 use iced::Element;
 
-pub(super) fn placement_badge(
-    placement: study::StudyPlacement,
-) -> Element<'static, Message> {
+pub(super) fn placement_badge(placement: study::StudyPlacement) -> Element<'static, Message> {
     let label = match placement {
         study::StudyPlacement::Overlay => "Overlay",
         study::StudyPlacement::Panel => "Panel",
@@ -19,9 +17,7 @@ pub(super) fn placement_badge(
     badge(label, BadgeKind::Info)
 }
 
-pub(super) fn category_badge(
-    category: study::StudyCategory,
-) -> Element<'static, Message> {
+pub(super) fn category_badge(category: study::StudyCategory) -> Element<'static, Message> {
     let kind = match category {
         study::StudyCategory::Trend => BadgeKind::Info,
         study::StudyCategory::Momentum => BadgeKind::Warning,
@@ -42,10 +38,7 @@ pub(super) fn category_badge(
 }
 
 /// Format an integer value according to `DisplayFormat`.
-pub(crate) fn format_integer(
-    v: i64,
-    fmt: study::DisplayFormat,
-) -> String {
+pub(crate) fn format_integer(v: i64, fmt: study::DisplayFormat) -> String {
     match fmt {
         study::DisplayFormat::Integer { suffix } => {
             format!("{v}{suffix}")
@@ -66,10 +59,7 @@ pub(crate) fn format_integer(
 }
 
 /// Format a float value according to `DisplayFormat`.
-pub(crate) fn format_float(
-    v: f32,
-    fmt: study::DisplayFormat,
-) -> String {
+pub(crate) fn format_float(v: f32, fmt: study::DisplayFormat) -> String {
     match fmt {
         study::DisplayFormat::Percent => {
             format!("{:.0}%", v * 100.0)

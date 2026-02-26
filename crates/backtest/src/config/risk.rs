@@ -48,4 +48,11 @@ pub enum SlippageModel {
     FixedTick(i64),
     /// Percentage of fill price adverse slippage (e.g. 0.0001 = 1 basis point).
     Percentage(f64),
+    /// Walk the order book depth for realistic fill pricing.
+    DepthBased,
+    /// Volume-impact model: slippage = base_bps * sqrt(qty / adv_pct).
+    VolumeImpact {
+        base_bps: f64,
+        average_daily_volume: f64,
+    },
 }

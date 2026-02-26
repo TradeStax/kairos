@@ -1,20 +1,21 @@
 use iced::{Subscription, keyboard};
 
-use super::super::{DownloadMessage, Message};
-use crate::infra::window;
+use super::super::Message;
+use crate::window;
 
-/// Rithmic streaming event monitor.
+/// DataEngine event monitor.
 /// Blocks on recv() until an event arrives — zero CPU when idle.
-fn rithmic_event_monitor() -> impl futures::stream::Stream<Item = Message> {
-    let receiver = super::globals::take_rithmic_receiver();
+/// Replaces the old rithmic_event_monitor and download_progress_monitor.
+fn data_event_monitor() -> impl futures::stream::Stream<Item = Message> {
+    let receiver = super::globals::take_data_event_receiver();
     futures::stream::unfold(receiver, |maybe_rx| async move {
         match maybe_rx {
-            Some(mut rx) => match rx.recv().await {
-                Some(event) => Some((Message::RithmicStreamEvent(event), Some(rx))),
-                None => None, // sender dropped — channel closed
-            },
+            Some(mut rx) => rx
+                .recv()
+                .await
+                .map(|event| (Message::DataEvent(event), Some(rx))),
             None => {
-                // Receiver already taken or channel not initialized.
+                // Receiver already taken or DataEngine not yet initialized.
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 None
             }
@@ -28,35 +29,10 @@ fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
     let receiver = super::globals::take_replay_receiver();
     futures::stream::unfold(receiver, |maybe_rx| async move {
         match maybe_rx {
-            Some(mut rx) => match rx.recv().await {
-                Some(event) => Some((Message::ReplayEvent(event), Some(rx))),
-                None => None,
-            },
-            None => {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                None
-            }
-        }
-    })
-}
-
-/// Download progress monitoring subscription.
-/// Blocks on recv() until a progress event arrives.
-pub fn download_progress_monitor() -> impl futures::stream::Stream<Item = Message> {
-    let receiver = super::globals::take_download_receiver();
-    futures::stream::unfold(receiver, |maybe_rx| async move {
-        match maybe_rx {
-            Some(mut rx) => match rx.recv().await {
-                Some(event) => Some((
-                    Message::Download(DownloadMessage::DataDownloadProgress {
-                        pane_id: event.pane_id,
-                        current: event.current,
-                        total: event.total,
-                    }),
-                    Some(rx),
-                )),
-                None => None,
-            },
+            Some(mut rx) => rx
+                .recv()
+                .await
+                .map(|event| (Message::ReplayEvent(event), Some(rx))),
             None => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 None
@@ -71,15 +47,14 @@ fn backtest_event_monitor() -> impl futures::stream::Stream<Item = Message> {
     let receiver = super::globals::take_backtest_receiver();
     futures::stream::unfold(receiver, |maybe_rx| async move {
         match maybe_rx {
-            Some(mut rx) => match rx.recv().await {
-                Some(event) => Some((
-                    Message::Backtest(
-                        super::super::messages::BacktestMessage::ProgressEvent(event),
-                    ),
+            Some(mut rx) => rx.recv().await.map(|event| {
+                (
+                    Message::Backtest(super::super::messages::BacktestMessage::ProgressEvent(
+                        event,
+                    )),
                     Some(rx),
-                )),
-                None => None,
-            },
+                )
+            }),
             None => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 None
@@ -94,10 +69,10 @@ fn ai_stream_monitor() -> impl futures::stream::Stream<Item = Message> {
     let receiver = super::globals::take_ai_receiver();
     futures::stream::unfold(receiver, |maybe_rx| async move {
         match maybe_rx {
-            Some(mut rx) => match rx.recv().await {
-                Some(event) => Some((Message::AiStreamEvent(event), Some(rx))),
-                None => None,
-            },
+            Some(mut rx) => rx
+                .recv()
+                .await
+                .map(|event| (Message::AiStreamEvent(event), Some(rx))),
             None => {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 None
@@ -131,11 +106,8 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
     let status_poll = iced::time::every(std::time::Duration::from_millis(500))
         .map(|_| Message::Chart(super::super::ChartMessage::UpdateLoadingStatus));
 
-    // Download progress monitoring subscription
-    let download_poll = Subscription::run(download_progress_monitor);
-
-    // Rithmic streaming event subscription
-    let rithmic_poll = Subscription::run(rithmic_event_monitor);
+    // DataEngine event subscription (replaces rithmic_poll and download_poll)
+    let data_event_poll = Subscription::run(data_event_monitor);
 
     // Replay engine event subscription
     let replay_poll = Subscription::run(replay_event_monitor);
@@ -147,10 +119,7 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
     let ai_poll = Subscription::run(ai_stream_monitor);
 
     let hotkeys = keyboard::listen().filter_map(|event| {
-        let keyboard::Event::KeyPressed {
-            key, modifiers, ..
-        } = event
-        else {
+        let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
             return None;
         };
         match key {
@@ -161,7 +130,7 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
             {
                 Some(Message::Dashboard {
                     layout_id: None,
-                    event: crate::screen::dashboard::Message::DrawingRedo,
+                    event: Box::new(crate::screen::dashboard::Message::DrawingRedo),
                 })
             }
             // Ctrl+Z → Undo drawing
@@ -170,22 +139,20 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
             {
                 Some(Message::Dashboard {
                     layout_id: None,
-                    event: crate::screen::dashboard::Message::DrawingUndo,
+                    event: Box::new(crate::screen::dashboard::Message::DrawingUndo),
                 })
             }
             // Ctrl+D → Duplicate selected drawing
-            keyboard::Key::Character(ref c)
-                if c.as_str() == "d" && modifiers.command() =>
-            {
+            keyboard::Key::Character(ref c) if c.as_str() == "d" && modifiers.command() => {
                 Some(Message::Dashboard {
                     layout_id: None,
-                    event: crate::screen::dashboard::Message::DrawingDuplicate,
+                    event: Box::new(crate::screen::dashboard::Message::DrawingDuplicate),
                 })
             }
             // Home → Scroll to latest
             keyboard::Key::Named(keyboard::key::Named::Home) => Some(Message::Dashboard {
                 layout_id: None,
-                event: crate::screen::dashboard::Message::ScrollToLatest,
+                event: Box::new(crate::screen::dashboard::Message::ScrollToLatest),
             }),
             // + → Zoom in
             keyboard::Key::Character(ref c)
@@ -193,16 +160,14 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
             {
                 Some(Message::Dashboard {
                     layout_id: None,
-                    event: crate::screen::dashboard::Message::ZoomStep(0.5),
+                    event: Box::new(crate::screen::dashboard::Message::ZoomStep(0.5)),
                 })
             }
             // - → Zoom out
-            keyboard::Key::Character(ref c)
-                if c.as_str() == "-" && !modifiers.command() =>
-            {
+            keyboard::Key::Character(ref c) if c.as_str() == "-" && !modifiers.command() => {
                 Some(Message::Dashboard {
                     layout_id: None,
-                    event: crate::screen::dashboard::Message::ZoomStep(-0.5),
+                    event: Box::new(crate::screen::dashboard::Message::ZoomStep(-0.5)),
                 })
             }
             _ => None,
@@ -213,8 +178,7 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
         window_events,
         tick,
         status_poll,
-        download_poll,
-        rithmic_poll,
+        data_event_poll,
         replay_poll,
         backtest_poll,
         ai_poll,

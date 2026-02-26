@@ -6,84 +6,53 @@ use crate::components::input::slider_field::labeled_slider;
 use crate::screen::dashboard::pane::Message;
 use crate::style::tokens;
 
-use data::state::pane::{
-    ProfileConfig, ProfileDisplayType, ProfileSplitUnit,
-};
+use crate::screen::dashboard::pane::config::{ProfileConfig, ProfileDisplayType, ProfileSplitUnit};
 
 use iced::{
     Alignment, Element, Length,
     widget::{column, pane_grid, pick_list, radio, row},
 };
 
-fn cfg_msg(
-    pane: pane_grid::Pane,
-    cfg: ProfileConfig,
-) -> Message {
-    use data::state::pane::VisualConfig;
-    Message::VisualConfigChanged(
-        pane,
-        VisualConfig::Profile(cfg),
-        false,
-    )
+fn cfg_msg(pane: pane_grid::Pane, cfg: ProfileConfig) -> Message {
+    use crate::screen::dashboard::pane::config::VisualConfig;
+    Message::VisualConfigChanged(pane, VisualConfig::Profile(Box::new(cfg)), false)
 }
 
-pub(super) fn data_tab<'a>(
-    cfg: ProfileConfig,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
+pub(super) fn data_tab<'a>(cfg: ProfileConfig, pane: pane_grid::Pane) -> Element<'a, Message> {
     // Display type
     let display_section = {
-        let make_radio =
-            |label: &str, dt: ProfileDisplayType| {
-                let c = cfg.clone();
-                radio(
-                    label,
-                    dt,
-                    Some(cfg.display_type),
-                    move |value| {
-                        let mut new = c.clone();
-                        new.display_type = value;
-                        cfg_msg(pane, new)
-                    },
-                )
-                .spacing(tokens::spacing::XS)
-            };
+        let make_radio = |label: &str, dt: ProfileDisplayType| {
+            let c = cfg.clone();
+            radio(label, dt, Some(cfg.display_type), move |value| {
+                let mut new = c.clone();
+                new.display_type = value;
+                cfg_msg(pane, new)
+            })
+            .spacing(tokens::spacing::XS)
+        };
 
         FormSectionBuilder::new("Display Type")
-            .push(make_radio(
-                "Volume",
-                ProfileDisplayType::Volume,
-            ))
+            .push(make_radio("Volume", ProfileDisplayType::Volume))
             .push(make_radio(
                 "Bid/Ask Volume",
                 ProfileDisplayType::BidAskVolume,
             ))
-            .push(make_radio(
-                "Delta",
-                ProfileDisplayType::Delta,
-            ))
+            .push(make_radio("Delta", ProfileDisplayType::Delta))
             .push(make_radio(
                 "Delta & Total",
                 ProfileDisplayType::DeltaAndTotal,
             ))
-            .push(make_radio(
-                "Delta %",
-                ProfileDisplayType::DeltaPercentage,
-            ))
+            .push(make_radio("Delta %", ProfileDisplayType::DeltaPercentage))
     };
 
     // Split interval
     let split_section = {
         let c = cfg.clone();
-        let unit_picker = pick_list(
-            ProfileSplitUnit::ALL,
-            Some(cfg.split_unit),
-            move |value| {
-                let mut new = c.clone();
-                new.split_unit = value;
-                cfg_msg(pane, new)
-            },
-        )
+        let unit_picker = pick_list(ProfileSplitUnit::ALL, Some(cfg.split_unit), move |value| {
+            let mut new = c.clone();
+            new.split_unit = value;
+            cfg_msg(pane, new)
+        })
         .width(Length::Fixed(120.0));
 
         let c2 = cfg.clone();
@@ -100,12 +69,11 @@ pub(super) fn data_tab<'a>(
             Some(1.0),
         );
 
-        FormSectionBuilder::new("Split Interval")
-            .push(
-                row![unit_picker, value_slider]
-                    .spacing(tokens::spacing::MD)
-                    .align_y(Alignment::End),
-            )
+        FormSectionBuilder::new("Split Interval").push(
+            row![unit_picker, value_slider]
+                .spacing(tokens::spacing::MD)
+                .align_y(Alignment::End),
+        )
     };
 
     // Max profiles
@@ -130,18 +98,14 @@ pub(super) fn data_tab<'a>(
     // Tick Grouping
     let grouping_section = {
         let c = cfg.clone();
-        let auto_toggle = CheckboxFieldBuilder::new(
-            "Automatic grouping",
-            cfg.auto_grouping,
-            move |value| {
+        let auto_toggle =
+            CheckboxFieldBuilder::new("Automatic grouping", cfg.auto_grouping, move |value| {
                 let mut new = c.clone();
                 new.auto_grouping = value;
                 cfg_msg(pane, new)
-            },
-        );
+            });
 
-        let mut section = FormSectionBuilder::new("Tick Grouping")
-            .push(auto_toggle);
+        let mut section = FormSectionBuilder::new("Tick Grouping").push(auto_toggle);
 
         if cfg.auto_grouping {
             let c = cfg.clone();
@@ -151,8 +115,7 @@ pub(super) fn data_tab<'a>(
                 cfg.auto_group_factor as f32,
                 move |value| {
                     let mut new = c.clone();
-                    new.auto_group_factor =
-                        value.round() as i64;
+                    new.auto_group_factor = value.round() as i64;
                     cfg_msg(pane, new)
                 },
                 |value| format!("{}x", value.round()),

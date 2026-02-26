@@ -8,16 +8,16 @@ use crate::chart::{
     Chart, PlotLimits, ViewState,
     drawing::{ChartDrawingAccess, DrawingManager},
 };
-use data::state::pane::ProfileConfig;
+use crate::screen::dashboard::pane::config::ProfileConfig;
+use data::FuturesTickerInfo;
 use data::{Candle, ChartBasis, ChartData};
-use exchange::FuturesTickerInfo;
-use exchange::util::{Price, PriceStep};
+use data::{Price, PriceStep};
 use iced::Vector;
 use iced::widget::canvas::Cache;
 use study::Study as _;
 use study::config::ParameterValue;
-use study::orderflow::VbpStudy;
 use study::output::{ProfileOutput, StudyOutput};
+use study::studies::orderflow::VbpStudy;
 
 use std::time::Instant;
 
@@ -73,9 +73,8 @@ impl Chart for ProfileChart {
 
     fn autoscaled_coords(&self) -> Vector {
         let chart = self.state();
-        let x_translation = 0.5
-            * (chart.bounds.width / chart.scaling)
-            - (8.0 * chart.cell_width / chart.scaling);
+        let x_translation =
+            0.5 * (chart.bounds.width / chart.scaling) - (8.0 * chart.cell_width / chart.scaling);
         Vector::new(x_translation, chart.translation.y)
     }
 
@@ -84,8 +83,7 @@ impl Chart for ProfileChart {
     }
 
     fn is_empty(&self) -> bool {
-        self.chart_data.candles.is_empty()
-            && self.chart_data.trades.is_empty()
+        self.chart_data.candles.is_empty() && self.chart_data.trades.is_empty()
     }
 
     fn plot_limits(&self) -> PlotLimits {
@@ -131,41 +129,18 @@ impl ProfileChart {
 
     // ── Study output accessors ──────────────────────────────────
 
-    /// Extract the `ProfileOutput` from the study, if computed.
-    pub(super) fn profile_output(
-        &self,
-    ) -> Option<&ProfileOutput> {
-        match self.profile_study.output() {
-            StudyOutput::Profile(profiles, _) => {
-                profiles.first()
-            }
-            _ => None,
-        }
-    }
-
     /// Extract all profiles and the render config.
     fn profiles_and_config(
         &self,
-    ) -> Option<(
-        &[ProfileOutput],
-        &study::output::ProfileRenderConfig,
-    )> {
+    ) -> Option<(&[ProfileOutput], &study::output::ProfileRenderConfig)> {
         match self.profile_study.output() {
-            StudyOutput::Profile(profiles, config)
-                if !profiles.is_empty() =>
-            {
-                Some((profiles.as_slice(), &config))
+            StudyOutput::Profile(profiles, config) if !profiles.is_empty() => {
+                Some((profiles.as_slice(), config))
             }
             _ => None,
         }
     }
 
-    /// Convenience: borrow the levels slice from the study output.
-    fn profile_levels(
-        &self,
-    ) -> Option<&[study::output::ProfileLevel]> {
-        self.profile_output().map(|o| o.levels.as_slice())
-    }
 }
 
 impl ChartDrawingAccess for ProfileChart {
@@ -201,8 +176,7 @@ pub(super) fn apply_profile_config_to_study(
     cfg: &ProfileConfig,
     _info: &FuturesTickerInfo,
 ) {
-    use data::state::pane::ProfileDisplayType as DT;
-    use data::state::pane::ProfileNodeDetectionMethod as NM;
+    use crate::screen::dashboard::pane::config::ProfileDisplayType as DT;
 
     // Helper — ignore set_parameter errors (param names are known)
     macro_rules! set {
@@ -222,13 +196,10 @@ pub(super) fn apply_profile_config_to_study(
     set!("vbp_type", ParameterValue::Choice(vbp_type.into()));
 
     // ── Period — always Split mode ──────────────────────────────
-    set!(
-        "period",
-        ParameterValue::Choice("Split".into())
-    );
+    set!("period", ParameterValue::Choice("Split".into()));
 
     // Map ProfileSplitUnit + split_value to VBP study params
-    use data::state::pane::ProfileSplitUnit;
+    use crate::screen::dashboard::pane::config::ProfileSplitUnit;
     let interval_str = match (cfg.split_unit, cfg.split_value) {
         (ProfileSplitUnit::Days, 1) => "1 Day",
         (ProfileSplitUnit::Hours, 4) => "4 Hours",
@@ -250,10 +221,7 @@ pub(super) fn apply_profile_config_to_study(
             ProfileSplitUnit::Hours => "Hours",
             ProfileSplitUnit::Minutes => "Minutes",
         };
-        set!(
-            "split_unit",
-            ParameterValue::Choice(unit_str.into())
-        );
+        set!("split_unit", ParameterValue::Choice(unit_str.into()));
         set!(
             "split_value",
             ParameterValue::Integer(cfg.split_value.max(1))
@@ -272,21 +240,13 @@ pub(super) fn apply_profile_config_to_study(
     // reproduce the old behaviour we set "Manual" mode with the
     // effective tick count already multiplied.
     if cfg.auto_grouping {
-        set!(
-            "auto_grouping",
-            ParameterValue::Choice("Manual".into())
-        );
+        set!("auto_grouping", ParameterValue::Choice("Manual".into()));
         set!(
             "manual_ticks",
-            ParameterValue::Integer(
-                cfg.auto_group_factor.max(1),
-            )
+            ParameterValue::Integer(cfg.auto_group_factor.max(1),)
         );
     } else {
-        set!(
-            "auto_grouping",
-            ParameterValue::Choice("Manual".into())
-        );
+        set!("auto_grouping", ParameterValue::Choice("Manual".into()));
         set!(
             "manual_ticks",
             ParameterValue::Integer(cfg.manual_ticks.max(1))
@@ -294,34 +254,25 @@ pub(super) fn apply_profile_config_to_study(
     }
 
     // ── Opacity / width (profile fills whole pane) ────────────
-    set!(
-        "opacity",
-        ParameterValue::Float(cfg.opacity as f64)
-    );
+    set!("opacity", ParameterValue::Float(cfg.opacity as f64));
     // Profile fills most of the pane width.
     set!("width_pct", ParameterValue::Float(0.90));
 
     // ── Colors ────────────────────────────────────────────────
     if let Some(c) = cfg.volume_color {
-        set!(
-            "volume_color",
-            ParameterValue::Color(c.into())
-        );
+        set!("volume_color", ParameterValue::Color(c));
     }
     if let Some(c) = cfg.bid_color {
-        set!("bid_color", ParameterValue::Color(c.into()));
+        set!("bid_color", ParameterValue::Color(c));
     }
     if let Some(c) = cfg.ask_color {
-        set!("ask_color", ParameterValue::Color(c.into()));
+        set!("ask_color", ParameterValue::Color(c));
     }
 
     // ── POC ───────────────────────────────────────────────────
-    set!(
-        "poc_show",
-        ParameterValue::Boolean(cfg.show_poc)
-    );
+    set!("poc_show", ParameterValue::Boolean(cfg.show_poc));
     if let Some(c) = cfg.poc_color {
-        set!("poc_color", ParameterValue::Color(c.into()));
+        set!("poc_color", ParameterValue::Color(c));
     }
     set!(
         "poc_line_width",
@@ -329,15 +280,11 @@ pub(super) fn apply_profile_config_to_study(
     );
     set!(
         "poc_line_style",
-        ParameterValue::LineStyle(
-            to_study_line_style(cfg.poc_line_style),
-        )
+        ParameterValue::LineStyle(to_study_line_style(cfg.poc_line_style),)
     );
     set!(
         "poc_extend",
-        ParameterValue::Choice(
-            extend_to_str(cfg.poc_extend).into(),
-        )
+        ParameterValue::Choice(extend_to_str(cfg.poc_extend).into(),)
     );
     set!(
         "poc_show_label",
@@ -345,10 +292,7 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // ── Value Area ────────────────────────────────────────────
-    set!(
-        "va_show",
-        ParameterValue::Boolean(cfg.show_va_highlight)
-    );
+    set!("va_show", ParameterValue::Boolean(cfg.show_va_highlight));
     set!(
         "value_area_pct",
         ParameterValue::Float(cfg.value_area_pct as f64)
@@ -358,7 +302,7 @@ pub(super) fn apply_profile_config_to_study(
         ParameterValue::Boolean(cfg.show_va_highlight)
     );
     if let Some(c) = cfg.vah_color {
-        set!("va_vah_color", ParameterValue::Color(c.into()));
+        set!("va_vah_color", ParameterValue::Color(c));
     }
     set!(
         "va_vah_line_width",
@@ -366,12 +310,10 @@ pub(super) fn apply_profile_config_to_study(
     );
     set!(
         "va_vah_line_style",
-        ParameterValue::LineStyle(
-            to_study_line_style(cfg.vah_line_style),
-        )
+        ParameterValue::LineStyle(to_study_line_style(cfg.vah_line_style),)
     );
     if let Some(c) = cfg.val_color {
-        set!("va_val_color", ParameterValue::Color(c.into()));
+        set!("va_val_color", ParameterValue::Color(c));
     }
     set!(
         "va_val_line_width",
@@ -379,15 +321,11 @@ pub(super) fn apply_profile_config_to_study(
     );
     set!(
         "va_val_line_style",
-        ParameterValue::LineStyle(
-            to_study_line_style(cfg.val_line_style),
-        )
+        ParameterValue::LineStyle(to_study_line_style(cfg.val_line_style),)
     );
     set!(
         "va_extend",
-        ParameterValue::Choice(
-            extend_to_str(cfg.va_extend).into(),
-        )
+        ParameterValue::Choice(extend_to_str(cfg.va_extend).into(),)
     );
     set!(
         "va_show_labels",
@@ -395,15 +333,9 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // VA fill
-    set!(
-        "va_show_fill",
-        ParameterValue::Boolean(cfg.show_va_fill)
-    );
+    set!("va_show_fill", ParameterValue::Boolean(cfg.show_va_fill));
     if let Some(c) = cfg.va_fill_color {
-        set!(
-            "va_fill_color",
-            ParameterValue::Color(c.into())
-        );
+        set!("va_fill_color", ParameterValue::Color(c));
     }
     set!(
         "va_fill_opacity",
@@ -411,19 +343,9 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // ── Node detection ────────────────────────────────────────
-    let hvn_method = match cfg.hvn_method {
-        NM::Percentile => "Percentile",
-        NM::Relative => "Relative",
-        NM::StdDev => "Std Dev",
-    };
-    let lvn_method = match cfg.lvn_method {
-        NM::Percentile => "Percentile",
-        NM::Relative => "Relative",
-        NM::StdDev => "Std Dev",
-    };
     set!(
         "node_hvn_method",
-        ParameterValue::Choice(hvn_method.into())
+        ParameterValue::Choice(cfg.hvn_method.to_string())
     );
     set!(
         "node_hvn_threshold",
@@ -431,7 +353,7 @@ pub(super) fn apply_profile_config_to_study(
     );
     set!(
         "node_lvn_method",
-        ParameterValue::Choice(lvn_method.into())
+        ParameterValue::Choice(cfg.lvn_method.to_string())
     );
     set!(
         "node_lvn_threshold",
@@ -439,15 +361,9 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // HVN zones
-    set!(
-        "hvn_zone_show",
-        ParameterValue::Boolean(cfg.show_hvn_zones)
-    );
+    set!("hvn_zone_show", ParameterValue::Boolean(cfg.show_hvn_zones));
     if let Some(c) = cfg.hvn_zone_color {
-        set!(
-            "hvn_zone_color",
-            ParameterValue::Color(c.into())
-        );
+        set!("hvn_zone_color", ParameterValue::Color(c));
     }
     set!(
         "hvn_zone_opacity",
@@ -455,15 +371,9 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // LVN zones
-    set!(
-        "lvn_zone_show",
-        ParameterValue::Boolean(cfg.show_lvn_zones)
-    );
+    set!("lvn_zone_show", ParameterValue::Boolean(cfg.show_lvn_zones));
     if let Some(c) = cfg.lvn_zone_color {
-        set!(
-            "lvn_zone_color",
-            ParameterValue::Color(c.into())
-        );
+        set!("lvn_zone_color", ParameterValue::Color(c));
     }
     set!(
         "lvn_zone_opacity",
@@ -471,18 +381,13 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // Peak
-    set!(
-        "peak_show",
-        ParameterValue::Boolean(cfg.show_peak_line)
-    );
+    set!("peak_show", ParameterValue::Boolean(cfg.show_peak_line));
     if let Some(c) = cfg.peak_color {
-        set!("peak_color", ParameterValue::Color(c.into()));
+        set!("peak_color", ParameterValue::Color(c));
     }
     set!(
         "peak_line_style",
-        ParameterValue::LineStyle(
-            to_study_line_style(cfg.peak_line_style),
-        )
+        ParameterValue::LineStyle(to_study_line_style(cfg.peak_line_style),)
     );
     set!(
         "peak_line_width",
@@ -494,21 +399,13 @@ pub(super) fn apply_profile_config_to_study(
     );
 
     // Valley
-    set!(
-        "valley_show",
-        ParameterValue::Boolean(cfg.show_valley_line)
-    );
+    set!("valley_show", ParameterValue::Boolean(cfg.show_valley_line));
     if let Some(c) = cfg.valley_color {
-        set!(
-            "valley_color",
-            ParameterValue::Color(c.into())
-        );
+        set!("valley_color", ParameterValue::Color(c));
     }
     set!(
         "valley_line_style",
-        ParameterValue::LineStyle(
-            to_study_line_style(cfg.valley_line_style),
-        )
+        ParameterValue::LineStyle(to_study_line_style(cfg.valley_line_style),)
     );
     set!(
         "valley_line_width",
@@ -522,9 +419,9 @@ pub(super) fn apply_profile_config_to_study(
 
 /// Convert a `ProfileLineStyle` to `study::config::LineStyleValue`.
 pub(super) fn to_study_line_style(
-    s: data::state::pane::ProfileLineStyle,
+    s: crate::screen::dashboard::pane::config::ProfileLineStyle,
 ) -> study::config::LineStyleValue {
-    use data::state::pane::ProfileLineStyle as P;
+    use crate::screen::dashboard::pane::config::ProfileLineStyle as P;
     match s {
         P::Solid => study::config::LineStyleValue::Solid,
         P::Dashed => study::config::LineStyleValue::Dashed,
@@ -535,9 +432,9 @@ pub(super) fn to_study_line_style(
 /// Convert a `ProfileExtendDirection` to the string the VBP study
 /// understands.
 pub(super) fn extend_to_str(
-    e: data::state::pane::ProfileExtendDirection,
+    e: crate::screen::dashboard::pane::config::ProfileExtendDirection,
 ) -> &'static str {
-    use data::state::pane::ProfileExtendDirection as E;
+    use crate::screen::dashboard::pane::config::ProfileExtendDirection as E;
     match e {
         E::None => "None",
         E::Left => "Left",

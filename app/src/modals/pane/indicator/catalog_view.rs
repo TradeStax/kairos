@@ -11,9 +11,7 @@ use crate::style::{self, tokens};
 
 use iced::{
     Alignment, Element, Length,
-    widget::{
-        button, column, container, row, rule, scrollable, space, text, toggler,
-    },
+    widget::{button, column, container, row, rule, scrollable, space, text, toggler},
 };
 
 use super::helpers::category_badge;
@@ -22,8 +20,7 @@ impl IndicatorManagerModal {
     // ── View ─────────────────────────────────────────────────────────
 
     pub fn view(&self) -> Element<'_, Message> {
-        let header = ModalHeaderBuilder::new("Indicators")
-            .on_close(Message::Close);
+        let header = ModalHeaderBuilder::new("Indicators").on_close(Message::Close);
         let search_and_filter = self.view_search_and_filter();
         let body = self.view_body();
 
@@ -52,9 +49,7 @@ impl IndicatorManagerModal {
             .into()
     }
 
-    pub(super) fn view_search_and_filter(
-        &self,
-    ) -> Element<'_, Message> {
+    pub(super) fn view_search_and_filter(&self) -> Element<'_, Message> {
         let search = SearchFieldBuilder::new(
             "Search indicators...",
             &self.search_query,
@@ -71,9 +66,7 @@ impl IndicatorManagerModal {
             .iter()
             .position(|c| c == &self.category_filter)
             .unwrap_or(0);
-        let filter_tabs =
-            ButtonGroupBuilder::new(filter_items, selected_idx)
-                .tab_style();
+        let filter_tabs = ButtonGroupBuilder::new(filter_items, selected_idx).tab_style();
 
         column![search, filter_tabs]
             .spacing(tokens::spacing::MD)
@@ -93,10 +86,7 @@ impl IndicatorManagerModal {
             container(right_panel)
                 .width(Length::FillPortion(6))
                 .height(Length::Fill)
-                .padding(
-                    iced::padding::left(tokens::spacing::LG)
-                        .right(tokens::spacing::LG),
-                ),
+                .padding(iced::padding::left(tokens::spacing::LG).right(tokens::spacing::LG),),
         ]
         .spacing(tokens::spacing::MD)
         .height(Length::Fill)
@@ -112,9 +102,7 @@ impl IndicatorManagerModal {
         // Filter studies by search and category
         let filtered_studies: Vec<&study::StudyInfo> = all_studies
             .iter()
-            .filter(|info| {
-                self.category_filter.matches(info.category)
-            })
+            .filter(|info| self.category_filter.matches(info.category))
             .filter(|info| {
                 if self.search_query.is_empty() {
                     return true;
@@ -150,24 +138,13 @@ impl IndicatorManagerModal {
         let mut content = column![].spacing(tokens::spacing::MD);
 
         if has_active {
-            content = content.push(
-                text("Active")
-                    .size(tokens::text::TINY)
-                    .style(|theme: &iced::Theme| {
-                        text::Style {
-                            color: Some(
-                                theme
-                                    .extended_palette()
-                                    .background
-                                    .weak
-                                    .text,
-                            ),
-                        }
-                    }),
-            );
+            content = content.push(text("Active").size(tokens::text::TINY).style(
+                |theme: &iced::Theme| text::Style {
+                    color: Some(theme.extended_palette().background.weak.text),
+                },
+            ));
 
-            let mut active_col =
-                column![].spacing(tokens::spacing::XXS);
+            let mut active_col = column![].spacing(tokens::spacing::XXS);
             for row in active_study_rows {
                 active_col = active_col.push(row);
             }
@@ -175,24 +152,13 @@ impl IndicatorManagerModal {
         }
 
         if has_available {
-            content = content.push(
-                text("Available")
-                    .size(tokens::text::TINY)
-                    .style(|theme: &iced::Theme| {
-                        text::Style {
-                            color: Some(
-                                theme
-                                    .extended_palette()
-                                    .background
-                                    .weak
-                                    .text,
-                            ),
-                        }
-                    }),
-            );
+            content = content.push(text("Available").size(tokens::text::TINY).style(
+                |theme: &iced::Theme| text::Style {
+                    color: Some(theme.extended_palette().background.weak.text),
+                },
+            ));
 
-            let mut avail_col =
-                column![].spacing(tokens::spacing::XXS);
+            let mut avail_col = column![].spacing(tokens::spacing::XXS);
             for row in available_studies {
                 avail_col = avail_col.push(row);
             }
@@ -201,10 +167,7 @@ impl IndicatorManagerModal {
 
         if !has_active && !has_available {
             let empty = container(
-                EmptyStateBuilder::new(
-                    "No indicators match your search",
-                )
-                .icon(Icon::Search),
+                EmptyStateBuilder::new("No indicators match your search").icon(Icon::Search),
             )
             .center_x(Length::Fill)
             .center_y(Length::Fill);
@@ -226,8 +189,7 @@ impl IndicatorManagerModal {
         let study_id = info.id.clone();
         let name = info.name.clone();
         let category = info.category;
-        let is_selected = self.selected
-            == Some(SelectedIndicator::Study(info.id.clone()));
+        let is_selected = self.selected == Some(SelectedIndicator::Study(info.id.clone()));
 
         let cat_badge = category_badge(category);
 
@@ -239,25 +201,16 @@ impl IndicatorManagerModal {
                 move |_| Message::ToggleStudy(sid.clone())
             });
 
-        let content_row = row![
-            name_text,
-            space::horizontal(),
-            cat_badge,
-            toggle,
-        ]
-        .spacing(tokens::spacing::SM)
-        .align_y(Alignment::Center)
-        .width(Length::Fill);
+        let content_row = row![name_text, space::horizontal(), cat_badge, toggle,]
+            .spacing(tokens::spacing::SM)
+            .align_y(Alignment::Center)
+            .width(Length::Fill);
 
         button(content_row)
-            .on_press(Message::SelectIndicator(
-                SelectedIndicator::Study(study_id),
-            ))
+            .on_press(Message::SelectIndicator(SelectedIndicator::Study(study_id)))
             .width(Length::Fill)
             .padding([tokens::spacing::SM, tokens::spacing::MD])
-            .style(move |theme, status| {
-                style::button::modifier(theme, status, is_selected)
-            })
+            .style(move |theme, status| style::button::modifier(theme, status, is_selected))
             .into()
     }
 }

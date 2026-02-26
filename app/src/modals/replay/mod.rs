@@ -8,12 +8,13 @@ mod controller_view;
 mod setup_view;
 pub mod volume_trackbar;
 
+use crate::config::UserTimezone;
+use crate::services::VolumeBucket;
 use chrono::{Datelike, NaiveDate};
-use data::domain::TimeRange;
-use data::feed::{DataFeedManager, FeedId, FeedProvider};
-use data::services::VolumeBucket;
-use data::state::replay::{PlaybackStatus, SpeedPreset};
-use data::{DateRange, FuturesTicker, FuturesTickerInfo, UserTimezone};
+use data::{
+    ConnectionManager, ConnectionProvider, DateRange, FeedId, FuturesTicker, FuturesTickerInfo,
+    PlaybackStatus, SpeedPreset, TimeRange,
+};
 
 /// Which popup is currently open (only one at a time).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,7 +31,7 @@ pub struct StreamEntry {
     pub ticker: FuturesTicker,
     pub ticker_info: FuturesTickerInfo,
     pub date_range: DateRange,
-    pub provider: FeedProvider,
+    pub provider: ConnectionProvider,
     pub feed_name: String,
     pub label: String,
 }
@@ -159,45 +160,45 @@ impl ReplayManager {
     /// and downloaded tickers.
     pub fn refresh_streams(
         &mut self,
-        feed_manager: &DataFeedManager,
+        feed_manager: &ConnectionManager,
         downloaded_tickers: &data::DownloadedTickersRegistry,
         ticker_infos: &std::collections::HashMap<String, FuturesTickerInfo>,
     ) {
         self.available_streams.clear();
 
         for feed in feed_manager
-            .feeds()
+            .connections()
             .iter()
             .filter(|f| f.status.is_connected() && !f.is_realtime())
         {
             for ticker_str in downloaded_tickers.list_tickers() {
-                if let Some(range) = downloaded_tickers.get_range_by_ticker_str(&ticker_str) {
-                    if let Some(info) = ticker_infos.get(&ticker_str) {
-                        let label = format!(
-                            "{} {} {}-{}",
-                            ticker_str,
-                            feed.provider.display_name(),
-                            range.start.format("%m/%d"),
-                            range.end.format("%m/%d"),
-                        );
-                        self.available_streams.push(StreamEntry {
-                            feed_id: feed.id,
-                            ticker: info.ticker,
-                            ticker_info: *info,
-                            date_range: range,
-                            provider: feed.provider,
-                            feed_name: feed.name.clone(),
-                            label,
-                        });
-                    }
+                if let Some(range) = downloaded_tickers.get_range_by_ticker_str(&ticker_str)
+                    && let Some(info) = ticker_infos.get(&ticker_str)
+                {
+                    let label = format!(
+                        "{} {} {}-{}",
+                        ticker_str,
+                        feed.provider.display_name(),
+                        range.start.format("%m/%d"),
+                        range.end.format("%m/%d"),
+                    );
+                    self.available_streams.push(StreamEntry {
+                        feed_id: feed.id,
+                        ticker: info.ticker,
+                        ticker_info: *info,
+                        date_range: range,
+                        provider: feed.provider,
+                        feed_name: feed.name.clone(),
+                        label,
+                    });
                 }
             }
         }
 
-        if let Some(ref selected) = self.selected_stream {
-            if !self.available_streams.contains(selected) {
-                self.selected_stream = None;
-            }
+        if let Some(ref selected) = self.selected_stream
+            && !self.available_streams.contains(selected)
+        {
+            self.selected_stream = None;
         }
     }
 

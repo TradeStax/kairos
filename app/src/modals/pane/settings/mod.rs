@@ -1,8 +1,14 @@
 mod charts;
 mod common;
+#[cfg(feature = "heatmap")]
 mod panel;
+#[cfg(feature = "heatmap")]
 pub mod study_config;
 
-pub use charts::{comparison_cfg_view, heatmap_cfg_view, kline_cfg_view, profile_cfg_view};
-pub use panel::{ladder_cfg_view, timesales_cfg_view};
-pub use study_config::{Action, Configurator, Message, Study, StudyMessage};
+#[cfg(feature = "heatmap")]
+pub use charts::heatmap_cfg_view;
+pub use charts::{comparison_cfg_view, kline_cfg_view, profile_cfg_view};
+#[cfg(feature = "heatmap")]
+pub use panel::ladder_cfg_view;
+#[cfg(feature = "heatmap")]
+pub use study_config::StudyMessage;

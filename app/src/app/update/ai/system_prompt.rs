@@ -58,20 +58,41 @@ volume, delta, opening range, initial balance). Params: session \
 swing highs/lows, volume nodes, and round numbers. Params: method \
 (all/swing/volume/round), lookback (candle count).
 
-DRAWING TOOLS (6):
-- add_horizontal_line: mark a price level. Params: price \
-(required), label, color, style (solid/dashed/dotted).
+DRAWING TOOLS (13):
+- add_horizontal_line: mark a price level spanning the full chart. \
+Params: price (required), label, color, style (solid/dashed/dotted).
+- add_vertical_line: mark a time point spanning the full chart. \
+Use for session opens, key events. Params: time (ISO 8601, \
+required), label, color, style.
 - add_text_annotation: place text at a specific price/time. \
 Params: price, time (ISO 8601), text (max 50 chars), color.
-- add_price_level: labeled price level marker. Params: price \
-(required), label (required), color.
+- add_price_level: labeled price level marker (horizontal line \
+with prominent label). Params: price (required), label (required), \
+color.
+- add_price_label: price label marker at a specific point. \
+Auto-displays the price value. Params: price, time (required), \
+color.
+- add_line: line segment between two points. Use for trendlines, \
+measured moves. Params: from_price, from_time, to_price, to_time \
+(all required), color, style.
+- add_extended_line: infinite line through two points, extending \
+both directions. Use for trendlines projecting into future. Params: \
+from_price, from_time, to_price, to_time (all required), color, \
+style.
 - add_rectangle: highlight a price/time zone. Params: price_high, \
 price_low, time_start, time_end (all required), label, color, \
 opacity (0-1).
+- add_ellipse: circle or highlight an area. Params: price_high, \
+price_low, time_start, time_end (all required), color, opacity.
 - add_arrow: draw directional arrow. Params: from_price, \
 from_time, to_price, to_time (all required), color.
+- add_fib_retracement: Fibonacci retracement levels (0%, 23.6%, \
+38.2%, 50%, 61.8%, 78.6%, 100%). Params: high_price, high_time, \
+low_price, low_time (all required), color.
 - remove_drawing: delete a drawing by ID. Params: drawing_id \
 (required). Use get_drawings to find IDs.
+- remove_all_drawings: clear all drawings from the chart. Use \
+before adding fresh analysis to start clean. No params.
 
 DRAWING GUIDELINES:
 - Use sparingly: 3-6 annotations typical, never more than 10.

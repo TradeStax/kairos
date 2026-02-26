@@ -1,18 +1,15 @@
 //! ReturnsGrid canvas program.
 
-use super::{
-    ChartHoverState, draw_tooltip_box,
-    handle_cursor_event, position_tooltip, tooltip_size,
-};
 use super::super::ManagerMessage;
+use super::{
+    ChartHoverState, draw_tooltip_box, handle_cursor_event, position_tooltip, tooltip_size,
+};
 use crate::style::tokens;
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke, Text};
 use iced::{Color, Point, Rectangle, Size};
 
-const MONTH_LABELS: [&str; 12] = [
-    "J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D",
-];
+const MONTH_LABELS: [&str; 12] = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
 pub struct ReturnsGrid<'a> {
     /// (year, month 1-12, return_pct)
@@ -93,8 +90,7 @@ impl<'a> ReturnsGrid<'a> {
         let n_years = (max_year - min_year + 1) as usize;
 
         let mut max_abs = 0.0_f64;
-        let mut lookup =
-            std::collections::HashMap::<(u16, u8), f64>::new();
+        let mut lookup = std::collections::HashMap::<(u16, u8), f64>::new();
         for &(year, month, ret) in &self.monthly_returns {
             max_abs = max_abs.max(ret.abs());
             lookup.insert((year, month), ret);
@@ -126,11 +122,7 @@ impl<'a> ReturnsGrid<'a> {
         }
     }
 
-    fn hovered_cell(
-        &self,
-        state: &ChartHoverState,
-        bounds: Rectangle,
-    ) -> Option<(u16, u8, f64)> {
+    fn hovered_cell(&self, state: &ChartHoverState, bounds: Rectangle) -> Option<(u16, u8, f64)> {
         let cursor = state.cursor?;
         let gp = self.grid_params(bounds);
 
@@ -140,16 +132,13 @@ impl<'a> ReturnsGrid<'a> {
 
             for m in 0..12_u8 {
                 let month = m + 1;
-                let cell_x =
-                    gp.left_margin + m as f32 * gp.cell_w;
+                let cell_x = gp.left_margin + m as f32 * gp.cell_w;
 
                 let in_cell = cursor.x >= cell_x
                     && cursor.x <= cell_x + gp.cell_w
                     && cursor.y >= row_y
                     && cursor.y <= row_y + gp.cell_h;
-                if let Some(&ret) =
-                    in_cell.then(|| gp.lookup.get(&(year, month))).flatten()
-                {
+                if let Some(&ret) = in_cell.then(|| gp.lookup.get(&(year, month))).flatten() {
                     return Some((year, month, ret));
                 }
             }
@@ -161,9 +150,7 @@ impl<'a> ReturnsGrid<'a> {
         let gp = self.grid_params(bounds);
 
         for (m, &month_label) in MONTH_LABELS.iter().enumerate() {
-            let x = gp.left_margin
-                + m as f32 * gp.cell_w
-                + gp.cell_w * 0.3;
+            let x = gp.left_margin + m as f32 * gp.cell_w + gp.cell_w * 0.3;
             let label = Text {
                 content: month_label.to_string(),
                 position: Point::new(x, 2.0),
@@ -189,38 +176,19 @@ impl<'a> ReturnsGrid<'a> {
 
             for m in 0..12_u8 {
                 let month = m + 1;
-                let cell_x =
-                    gp.left_margin + m as f32 * gp.cell_w;
+                let cell_x = gp.left_margin + m as f32 * gp.cell_w;
 
                 if let Some(&ret) = gp.lookup.get(&(year, month)) {
-                    let intensity = (ret.abs() / gp.max_abs)
-                        .clamp(0.0, 1.0)
-                        as f32;
+                    let intensity = (ret.abs() / gp.max_abs).clamp(0.0, 1.0) as f32;
                     let color = if ret >= 0.0 {
-                        Color::from_rgba(
-                            0.1,
-                            0.6 * intensity + 0.15,
-                            0.15,
-                            0.3 + intensity * 0.5,
-                        )
+                        Color::from_rgba(0.1, 0.6 * intensity + 0.15, 0.15, 0.3 + intensity * 0.5)
                     } else {
-                        Color::from_rgba(
-                            0.6 * intensity + 0.15,
-                            0.1,
-                            0.1,
-                            0.3 + intensity * 0.5,
-                        )
+                        Color::from_rgba(0.6 * intensity + 0.15, 0.1, 0.1, 0.3 + intensity * 0.5)
                     };
 
                     frame.fill_rectangle(
-                        Point::new(
-                            cell_x + gp.cell_gap * 0.5,
-                            row_y + gp.cell_gap * 0.5,
-                        ),
-                        Size::new(
-                            gp.cell_w - gp.cell_gap,
-                            gp.cell_h - gp.cell_gap,
-                        ),
+                        Point::new(cell_x + gp.cell_gap * 0.5, row_y + gp.cell_gap * 0.5),
+                        Size::new(gp.cell_w - gp.cell_gap, gp.cell_h - gp.cell_gap),
                         Fill {
                             style: color.into(),
                             ..Default::default()
@@ -244,19 +212,10 @@ impl<'a> ReturnsGrid<'a> {
                     frame.fill_text(cell_text);
                 } else {
                     frame.fill_rectangle(
-                        Point::new(
-                            cell_x + gp.cell_gap * 0.5,
-                            row_y + gp.cell_gap * 0.5,
-                        ),
-                        Size::new(
-                            gp.cell_w - gp.cell_gap,
-                            gp.cell_h - gp.cell_gap,
-                        ),
+                        Point::new(cell_x + gp.cell_gap * 0.5, row_y + gp.cell_gap * 0.5),
+                        Size::new(gp.cell_w - gp.cell_gap, gp.cell_h - gp.cell_gap),
                         Fill {
-                            style: Color::from_rgba(
-                                1.0, 1.0, 1.0, 0.02,
-                            )
-                            .into(),
+                            style: Color::from_rgba(1.0, 1.0, 1.0, 0.02).into(),
                             ..Default::default()
                         },
                     );
@@ -265,36 +224,22 @@ impl<'a> ReturnsGrid<'a> {
         }
     }
 
-    fn draw_overlay(
-        &self,
-        frame: &mut Frame,
-        cursor: Point,
-        bounds: Rectangle,
-    ) {
+    fn draw_overlay(&self, frame: &mut Frame, cursor: Point, bounds: Rectangle) {
         let state = ChartHoverState {
             cursor: Some(cursor),
         };
-        let Some((year, month, ret)) =
-            self.hovered_cell(&state, bounds)
-        else {
+        let Some((year, month, ret)) = self.hovered_cell(&state, bounds) else {
             return;
         };
 
         let gp = self.grid_params(bounds);
         let yr_idx = (year - gp.min_year) as usize;
         let row_y = gp.top_margin + yr_idx as f32 * gp.cell_h;
-        let cell_x =
-            gp.left_margin + (month - 1) as f32 * gp.cell_w;
+        let cell_x = gp.left_margin + (month - 1) as f32 * gp.cell_w;
 
         let rect = Path::rectangle(
-            Point::new(
-                cell_x + gp.cell_gap * 0.5,
-                row_y + gp.cell_gap * 0.5,
-            ),
-            Size::new(
-                gp.cell_w - gp.cell_gap,
-                gp.cell_h - gp.cell_gap,
-            ),
+            Point::new(cell_x + gp.cell_gap * 0.5, row_y + gp.cell_gap * 0.5),
+            Size::new(gp.cell_w - gp.cell_gap, gp.cell_h - gp.cell_gap),
         );
         frame.stroke(
             &rect,

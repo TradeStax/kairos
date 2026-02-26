@@ -4,7 +4,7 @@
 
 use super::super::coord;
 use crate::chart::ViewState;
-use exchange::util::Price;
+use data::Price;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::StudyPlacement;
@@ -50,8 +50,7 @@ fn render_single_line(
     let color: Color = crate::style::theme::rgba_to_iced_color(series.color);
     // Divide width by scaling so lines maintain a consistent
     // screen-pixel thickness regardless of zoom level.
-    let effective_width =
-        coord::effective_line_width(series.width, state.scaling).max(0.5);
+    let effective_width = coord::effective_line_width(series.width, state.scaling).max(0.5);
     let stroke = Stroke {
         width: effective_width,
         line_dash: coord::line_dash_for_style(&series.style),
@@ -67,9 +66,7 @@ fn render_single_line(
             StudyPlacement::Overlay
             | StudyPlacement::Background
             | StudyPlacement::CandleReplace
-            | StudyPlacement::SidePanel => {
-                state.price_to_y(Price::from_f32(y_val))
-            }
+            | StudyPlacement::SidePanel => state.price_to_y(Price::from_f32(y_val)),
             StudyPlacement::Panel => {
                 if let Some((min, max)) = panel_range {
                     coord::value_to_panel_y(y_val, min, max, bounds.height)
