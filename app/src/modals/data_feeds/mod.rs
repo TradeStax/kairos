@@ -62,6 +62,7 @@ pub(super) struct EditForm {
     pub(super) password: String,
     pub(super) auto_reconnect: bool,
     pub(super) subscribed_tickers: Vec<String>,
+    pub(super) backfill_days: i64,
     pub(super) tickers_dropdown_open: bool,
     pub(super) system_names_loading: bool,
     pub(super) available_system_names: Vec<String>,
@@ -86,6 +87,7 @@ impl Default for EditForm {
             password: String::new(),
             auto_reconnect: true,
             subscribed_tickers: Vec::new(),
+            backfill_days: 1,
             tickers_dropdown_open: false,
             system_names_loading: false,
             available_system_names: Vec::new(),
@@ -117,6 +119,7 @@ impl EditForm {
                 form.user_id = cfg.user_id.clone();
                 form.auto_reconnect = cfg.auto_reconnect;
                 form.subscribed_tickers = cfg.subscribed_tickers.clone();
+                form.backfill_days = cfg.backfill_days;
             }
         }
 
@@ -170,6 +173,7 @@ pub enum DataFeedsMessage {
     SetPassword(String),
     SetAutoReconnect(bool),
     SetAutoConnect(bool),
+    SetBackfillDays(i64),
     ToggleTicker(String),
     ToggleTickersExpanded,
     SystemNamesLoaded(RithmicServer, Result<Vec<String>, String>),
@@ -334,6 +338,7 @@ impl DataFeedsModal {
                             self.edit_form.password = String::new();
                             self.edit_form.auto_reconnect = true;
                             self.edit_form.subscribed_tickers = Vec::new();
+                            self.edit_form.backfill_days = 1;
                             self.edit_form.available_system_names = Vec::new();
                             self.edit_form.available_tickers = Vec::new();
                             self.edit_form.system_names_loading = true;
@@ -491,6 +496,10 @@ impl DataFeedsModal {
                 self.edit_form.password = v;
                 self.has_changes = true;
             }
+            DataFeedsMessage::SetBackfillDays(days) => {
+                self.edit_form.backfill_days = days;
+                self.has_changes = true;
+            }
             DataFeedsMessage::SetAutoReconnect(v) => {
                 self.edit_form.auto_reconnect = v;
                 self.has_changes = true;
@@ -584,6 +593,7 @@ impl DataFeedsModal {
                 cfg.user_id = self.edit_form.user_id.clone();
                 cfg.auto_reconnect = self.edit_form.auto_reconnect;
                 cfg.subscribed_tickers = self.edit_form.subscribed_tickers.clone();
+                cfg.backfill_days = self.edit_form.backfill_days;
             }
         }
     }

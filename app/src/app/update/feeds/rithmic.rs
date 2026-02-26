@@ -135,10 +135,10 @@ impl Kairos {
         let mut feed_manager = data::lock_or_recover(&self.connections.connection_manager);
         feed_manager.set_status(feed_id, data::ConnectionStatus::Connected);
 
-        let subscribed_tickers = feed_manager
+        let (subscribed_tickers, backfill_days) = feed_manager
             .get(feed_id)
             .and_then(|f| f.rithmic_config())
-            .map(|cfg| cfg.subscribed_tickers.clone())
+            .map(|cfg| (cfg.subscribed_tickers.clone(), cfg.backfill_days))
             .unwrap_or_default();
 
         self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
@@ -180,7 +180,7 @@ impl Kairos {
         self.rebuild_ticker_data();
 
         // Re-affiliate disconnected panes and collect any that need reloading
-        let fallback_days = self.ui.sidebar.date_range_preset().days();
+        let fallback_days = backfill_days;
         let main_window = self.main_window.id;
         let mut reload_tasks: Vec<Task<Message>> = Vec::new();
         for layout in &mut self.persistence.layout_manager.layouts {

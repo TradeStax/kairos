@@ -186,7 +186,6 @@ impl Kairos {
                         preferences::Action::OpenModal(page) => {
                             let draft = preferences::SettingsPanel::create_draft(
                                 self.ui.timezone,
-                                self.ui.sidebar.date_range_preset(),
                                 self.ui.theme.clone(),
                                 self.ui.ui_scale_factor,
                                 self.modals.theme_editor.custom_theme.clone(),
@@ -203,7 +202,6 @@ impl Kairos {
                             self.ui.timezone = draft.timezone;
                             self.ui.theme = draft.theme;
                             self.ui.ui_scale_factor = draft.scale_factor;
-                            self.ui.sidebar.state.date_range_preset = draft.date_range_preset;
                             let main_window = self.main_window.id;
                             if let Some(dashboard) = self.active_dashboard_mut() {
                                 dashboard.invalidate_all_panes(main_window);

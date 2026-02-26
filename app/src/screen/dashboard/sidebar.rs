@@ -361,7 +361,4 @@ impl Sidebar {
         self.state.active_menu = menu;
     }
 
-    pub fn date_range_preset(&self) -> sidebar::DateRangePreset {
-        self.state.date_range_preset
-    }
 }

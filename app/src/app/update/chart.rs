@@ -297,7 +297,16 @@ impl Kairos {
         let main_window = self.main_window.id;
         let mut reload_tasks = Vec::new();
 
-        let fallback_days = self.ui.sidebar.date_range_preset().days();
+        let fallback_days = {
+            let feed_manager =
+                data::lock_or_recover(&self.connections.connection_manager);
+            self.services
+                .rithmic_feed_id
+                .and_then(|fid| feed_manager.get(fid))
+                .and_then(|f| f.rithmic_config())
+                .map(|cfg| cfg.backfill_days)
+                .unwrap_or(1)
+        };
 
         for layout in &mut self.persistence.layout_manager.layouts {
             for (_, _, state) in layout.dashboard.iter_all_panes(main_window) {

@@ -7,7 +7,6 @@ use crate::components::display::tooltip::button_with_tooltip;
 use crate::components::form::form_field::FormFieldBuilder;
 use crate::components::form::form_section::FormSectionBuilder;
 use crate::components::primitives::{Icon, icon_text};
-use crate::config::sidebar;
 use crate::config::{ScaleFactor, Theme, UserTimezone};
 use crate::style;
 use crate::style::tokens;
@@ -44,7 +43,6 @@ pub enum Message {
     SaveModal,
     // Draft mutations
     SetTimezone(UserTimezone),
-    SetDateRangePreset(sidebar::DateRangePreset),
     SetTheme(Theme),
     ScaleFactorChanged(ScaleFactor),
     // Immediate actions
@@ -67,7 +65,6 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub struct SettingsDraft {
     pub timezone: UserTimezone,
-    pub date_range_preset: sidebar::DateRangePreset,
     pub theme: Theme,
     pub scale_factor: ScaleFactor,
     /// Snapshot of the custom iced theme for pick_list display.
@@ -91,14 +88,12 @@ impl SettingsPanel {
 
     pub fn create_draft(
         timezone: UserTimezone,
-        date_range_preset: sidebar::DateRangePreset,
         theme: Theme,
         scale_factor: ScaleFactor,
         custom_iced_theme: Option<iced::Theme>,
     ) -> SettingsDraft {
         SettingsDraft {
             timezone,
-            date_range_preset,
             theme,
             scale_factor,
             custom_iced_theme,
@@ -132,12 +127,6 @@ impl SettingsPanel {
             Message::SetTimezone(tz) => {
                 if let Some((_, ref mut draft)) = self.active_modal {
                     draft.timezone = tz;
-                }
-                None
-            }
-            Message::SetDateRangePreset(preset) => {
-                if let Some((_, ref mut draft)) = self.active_modal {
-                    draft.date_range_preset = preset;
                 }
                 None
             }
@@ -226,16 +215,7 @@ impl SettingsPanel {
         Some((*page, body))
     }
 
-    fn view_general_page(draft: &SettingsDraft) -> Element<'_, Message> {
-        let date_range_field = FormFieldBuilder::new(
-            "Date range",
-            pick_list(
-                sidebar::DateRangePreset::ALL,
-                Some(draft.date_range_preset),
-                Message::SetDateRangePreset,
-            ),
-        );
-
+    fn view_general_page(_draft: &SettingsDraft) -> Element<'_, Message> {
         let open_folder_btn = button(
             row![icon_text(Icon::Folder, 14), text("Open data folder"),]
                 .spacing(tokens::spacing::SM)
@@ -245,7 +225,6 @@ impl SettingsPanel {
         .style(|theme, status| style::button::transparent(theme, status, false));
 
         FormSectionBuilder::new("")
-            .push(date_range_field)
             .push(open_folder_btn)
             .into_element()
     }

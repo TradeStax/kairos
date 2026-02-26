@@ -590,6 +590,25 @@ impl DataFeedsModal {
             tickers_field = tickers_field.push(self.view_tickers_dropdown());
         }
 
+        let current_preset = crate::config::sidebar::DateRangePreset::ALL
+            .iter()
+            .find(|p| p.days() == self.edit_form.backfill_days)
+            .copied()
+            .unwrap_or(crate::config::sidebar::DateRangePreset::Day1);
+
+        let backfill_field = column![
+            components::primitives::body("Backfill range"),
+            pick_list(
+                crate::config::sidebar::DateRangePreset::ALL,
+                Some(current_preset),
+                |preset: crate::config::sidebar::DateRangePreset| {
+                    DataFeedsMessage::SetBackfillDays(preset.days())
+                },
+            )
+            .text_size(tokens::text::BODY),
+        ]
+        .spacing(tokens::spacing::XS);
+
         let reconnect_toggle = components::input::toggle_switch::toggle_switch(
             "Auto-reconnect",
             self.edit_form.auto_reconnect,
@@ -602,6 +621,7 @@ impl DataFeedsModal {
             user_id,
             password_field,
             tickers_field,
+            backfill_field,
             reconnect_toggle,
         ]
         .spacing(tokens::spacing::MD)
