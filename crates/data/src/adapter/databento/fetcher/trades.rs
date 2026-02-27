@@ -73,13 +73,14 @@ impl DatabentoAdapter {
             )));
         }
 
-        let filtered: Vec<_> = all_trades
+        let mut filtered: Vec<_> = all_trades
             .into_iter()
             .filter(|t| {
                 let tms = t.time.to_millis() as i64;
                 tms >= start.timestamp_millis() && tms <= end.timestamp_millis()
             })
             .collect();
+        filtered.sort_by_key(|t| t.time.0);
 
         log::info!("get_trades: {} trades for {}", filtered.len(), symbol);
         Ok(filtered)
@@ -160,13 +161,14 @@ impl DatabentoAdapter {
             )));
         }
 
-        let filtered: Vec<_> = all_trades
+        let mut filtered: Vec<_> = all_trades
             .into_iter()
             .filter(|t| {
                 let tms = t.time.to_millis() as i64;
                 tms >= start.timestamp_millis() && tms <= end.timestamp_millis()
             })
             .collect();
+        filtered.sort_by_key(|t| t.time.0);
 
         log::info!(
             "get_trades_with_progress complete: {} trades for {}",

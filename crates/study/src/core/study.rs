@@ -11,6 +11,8 @@
 //! 4. Call [`reset()`](Study::reset) when the chart is cleared or the
 //!    instrument changes.
 
+use std::any::Any;
+
 use data::Trade;
 
 use super::input::StudyInput;
@@ -127,6 +129,46 @@ pub trait Study: Send + Sync {
     /// Returns (label, tab) pairs. When None, default tab names are used.
     fn tab_labels(&self) -> Option<&[(&'static str, ParameterTab)]> {
         None
+    }
+
+    /// Structured data for interactive UI features (e.g. level detail modal).
+    ///
+    /// The UI layer downcasts the returned `&dyn Any` to a concrete type
+    /// (e.g. `LevelAnalyzerData`) to populate modals and overlays.
+    /// Default: `None` (no interactive data available).
+    fn interactive_data(&self) -> Option<&dyn Any> {
+        None
+    }
+
+    /// Whether this study has a detail modal accessible from the overlay.
+    ///
+    /// When `true`, the chart overlay renders an icon button next to the
+    /// study label that opens the detail modal on click.
+    fn has_detail_modal(&self) -> bool {
+        false
+    }
+
+    /// Whether this study depends on the visible range and should
+    /// recompute when the user scrolls, pans, or zooms.
+    ///
+    /// Default: `false`. Override to `true` for studies like VBP that
+    /// compute over the visible window.
+    fn needs_visible_range(&self) -> bool {
+        false
+    }
+
+    /// Accept externally-provided data (e.g. user-defined manual levels).
+    ///
+    /// Type-erased via `Box<dyn Any + Send>`; the study downcasts internally
+    /// to its expected payload type. Default: returns an error.
+    fn accept_external_data(
+        &mut self,
+        _data: Box<dyn Any + Send>,
+    ) -> Result<(), StudyError> {
+        Err(StudyError::InvalidParameter {
+            key: "external_data".into(),
+            reason: "not supported".into(),
+        })
     }
 
     /// Clone this study into a new heap-allocated instance.

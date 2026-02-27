@@ -16,6 +16,7 @@
 //! | Order Flow  | Big Trades           | Overlay        |
 //! | Order Flow  | Footprint            | CandleReplace  |
 //! | Order Flow  | Volume by Price      | Background     |
+//! | Order Flow  | Speed of Tape        | Panel          |
 //! | Trend       | SMA                  | Overlay        |
 //! | Trend       | EMA                  | Overlay        |
 //! | Trend       | VWAP                 | Overlay        |
@@ -231,5 +232,31 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
             description: "Stochastic oscillator with %K and %D lines".to_string(),
         },
         || Box::new(crate::studies::momentum::stochastic::StochasticStudy::new()),
+    );
+
+    registry.register(
+        "speed_of_tape",
+        StudyInfo {
+            id: "speed_of_tape".to_string(),
+            name: "Speed of Tape".to_string(),
+            category: StudyCategory::OrderFlow,
+            placement: StudyPlacement::Panel,
+            description: "Trade activity per time bucket as OHLC mini-candlesticks"
+                .to_string(),
+        },
+        || Box::new(crate::studies::orderflow::SpeedOfTapeStudy::new()),
+    );
+
+    // ── Level Analyzer ──────────────────────────────────
+    registry.register(
+        "level_analyzer",
+        StudyInfo {
+            id: "level_analyzer".to_string(),
+            name: "Level Analyzer".to_string(),
+            category: StudyCategory::OrderFlow,
+            placement: StudyPlacement::Background,
+            description: "Auto-detects key price levels and monitors real-time interaction".to_string(),
+        },
+        || Box::new(crate::studies::orderflow::LevelAnalyzerStudy::new()),
     );
 }

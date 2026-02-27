@@ -22,6 +22,12 @@ impl Kairos {
             return Task::none();
         }
 
+        // Remove sentinel entries to prevent cross-provider date inflation
+        {
+            let mut idx = data::lock_or_recover(&self.persistence.data_index);
+            idx.remove_feed(crate::app::Kairos::REGISTRY_SENTINEL_FEED);
+        }
+
         // Immediately seed DataIndex from feed's dataset info (if available)
         // so tickers and ranges are available before the async scan completes.
         if let Some(feed) = feed_manager.get(feed_id)
@@ -51,14 +57,25 @@ impl Kairos {
         self.sync_feed_snapshots(&feed_manager);
         drop(feed_manager);
 
-        log::info!("Databento feed connected - triggering cache scan");
+        log::info!("Databento feed connected - triggering adapter init + cache scan");
 
-        // Scan the Databento cache to build the DataIndex.
-        // Use the DataEngine if available, otherwise scan the cache directly.
+        // Initialize the Databento adapter in the DataEngine so downloads work.
+        let api_key = self
+            .secrets
+            .get_api_key(crate::config::secrets::ApiProvider::Databento)
+            .key()
+            .unwrap_or_default()
+            .to_string();
+        let config = data::DatabentoConfig::with_api_key(api_key);
+
         if let Some(engine) = self.services.engine.clone() {
             Task::perform(
                 async move {
-                    let index = engine.lock().await.scan_cache().await;
+                    let mut eng = engine.lock().await;
+                    if let Err(e) = eng.connect_databento(config).await {
+                        log::error!("Failed to init Databento adapter: {}", e);
+                    }
+                    let index = eng.scan_cache().await;
                     Ok(index)
                 },
                 Message::DataIndexRebuilt,

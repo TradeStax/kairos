@@ -29,7 +29,7 @@ impl backtest::TradeProvider for EngineTradeProvider {
             engine
                 .lock()
                 .await
-                .get_trades(&ticker, &date_range)
+                .get_trades(&ticker, &date_range, None)
                 .await
                 .map_err(|e| e.to_string())
         })

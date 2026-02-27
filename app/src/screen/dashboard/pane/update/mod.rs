@@ -91,6 +91,9 @@ impl State {
             Event::IndicatorManagerInteraction(message) => {
                 return self.handle_indicator_manager(message);
             }
+            Event::LevelDetailInteraction(message) => {
+                return self.handle_level_detail(message);
+            }
             Event::AiAssistant(ai_event) => {
                 return self.handle_ai_assistant_event(ai_event);
             }

@@ -31,7 +31,7 @@ impl Dashboard {
             .resolve_chart_range(
                 ticker_info.ticker.as_str(),
                 content_kind.to_chart_type(),
-                None,
+                self.max_backfill_days,
             )
             .unwrap_or_else(|| {
                 log::warn!(
@@ -160,7 +160,7 @@ impl Dashboard {
                 .resolve_chart_range(
                     ticker_info.ticker.as_str(),
                     content_kind.to_chart_type(),
-                    None,
+                    self.max_backfill_days,
                 )
                 .unwrap_or_else(|| {
                     log::warn!(

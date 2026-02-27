@@ -21,7 +21,10 @@ pub mod volatility;
 pub mod volume;
 
 pub use momentum::{MacdStudy, RsiStudy, StochasticStudy};
-pub use orderflow::{BigTradesStudy, FootprintStudy, ImbalanceStudy, VbpStudy};
+pub use orderflow::{
+    BigTradesStudy, FootprintStudy, ImbalanceStudy, SpeedOfTapeStudy,
+    VbpStudy,
+};
 pub use trend::{EmaStudy, SmaStudy, VwapStudy};
 pub use volatility::{AtrStudy, BollingerStudy};
 pub use volume::{CvdStudy, DeltaStudy, ObvStudy, VolumeStudy};

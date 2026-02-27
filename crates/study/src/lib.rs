@@ -51,9 +51,10 @@ pub use output::{
     FootprintCandlePosition, FootprintData, FootprintDataType, FootprintGroupingMode,
     FootprintLevel, FootprintRenderMode, FootprintScaling, HistogramBar, LineSeries, MarkerData,
     MarkerRenderConfig, MarkerShape, NodeDetectionMethod, OutsideBarStyle, PriceLevel,
-    ProfileLevel, ProfileOutput, ProfileRenderConfig, ProfileSide, StudyOutput, TextFormat,
-    TradeMarker, TradeMarkerDebug, VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig,
-    VbpSplitPeriod, VbpType, VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
+    ProfileLevel, ProfileOutput, ProfileRenderConfig, ProfileSide, StudyCandlePoint,
+    StudyCandleSeries, StudyOutput, TextFormat, TradeMarker, TradeMarkerDebug, VbpGroupingMode,
+    VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpSplitPeriod, VbpType, VbpValueAreaConfig,
+    VbpVwapConfig, VolumeNode,
 };
 
 // --- Registry re-exports ---

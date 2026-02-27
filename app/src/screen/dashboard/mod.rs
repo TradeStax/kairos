@@ -85,6 +85,10 @@ pub struct Dashboard {
     pub(crate) crosshair_positions:
         HashMap<crate::screen::dashboard::pane::config::LinkGroup, (u64, f32)>,
     pub(crate) data_index: std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
+    /// Cap for `resolve_chart_range` — set when a real-time feed is
+    /// connected so that old Databento cache history doesn't inflate
+    /// the loaded range.
+    pub(crate) max_backfill_days: Option<i64>,
 }
 
 impl Dashboard {
@@ -95,6 +99,7 @@ impl Dashboard {
             popout: HashMap::new(),
             crosshair_positions: HashMap::new(),
             data_index,
+            max_backfill_days: None,
         }
     }
 }
@@ -178,6 +183,7 @@ impl Dashboard {
             popout,
             crosshair_positions: HashMap::new(),
             data_index,
+            max_backfill_days: None,
         }
     }
 }

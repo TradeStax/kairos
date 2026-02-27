@@ -49,7 +49,11 @@ impl Dashboard {
             {
                 let chart_type = state.content.kind().to_chart_type();
                 let date_range = data::lock_or_recover(&self.data_index)
-                    .resolve_chart_range(ticker_info.ticker.as_str(), chart_type, None)
+                    .resolve_chart_range(
+                        ticker_info.ticker.as_str(),
+                        chart_type,
+                        Some(fallback_days),
+                    )
                     .unwrap_or_else(|| DateRange::last_n_days(fallback_days));
 
                 let config = ChartConfig {

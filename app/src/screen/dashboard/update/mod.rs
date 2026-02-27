@@ -216,7 +216,7 @@ impl Dashboard {
                                     .resolve_chart_range(
                                         ticker_info.ticker.as_str(),
                                         config.chart_type,
-                                        None,
+                                        self.max_backfill_days,
                                     )
                                 {
                                     config.date_range = range;

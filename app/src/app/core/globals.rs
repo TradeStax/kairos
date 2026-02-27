@@ -85,9 +85,15 @@ pub(crate) fn take_data_event_receiver()
 /// Shared handle to a `RithmicClient` behind async + sync mutexes.
 type RithmicClientHandle = std::sync::Arc<tokio::sync::Mutex<data::RithmicClient>>;
 
+/// Staged result from Rithmic connect: the client handle plus the
+/// cache-scanned DataIndex (so the app layer can merge it synchronously
+/// before resolving chart ranges — avoids a race with the async event).
+type RithmicStagedResult = (RithmicClientHandle, data::DataIndex);
+
 /// Staging slot: an `Arc<Mutex<Option<...>>>` so the async connect task
-/// can deposit a connected client for the main thread to pick up.
-type RithmicClientSlot = std::sync::Arc<std::sync::Mutex<Option<RithmicClientHandle>>>;
+/// can deposit a connected client + cache index for the main thread to
+/// pick up.
+type RithmicClientSlot = std::sync::Arc<std::sync::Mutex<Option<RithmicStagedResult>>>;
 
 static RITHMIC_CLIENT_STAGING: OnceLock<RithmicClientSlot> = OnceLock::new();
 

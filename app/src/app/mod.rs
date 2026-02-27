@@ -175,8 +175,13 @@ impl Kairos {
         };
 
         // Kick off async DataEngine init; the UI is responsive in the meantime.
+        let api_key = state
+            .secrets
+            .get_api_key(crate::config::secrets::ApiProvider::Databento)
+            .key()
+            .map(|s| s.to_string());
         let init_services = Task::perform(
-            init::services::initialize_data_engine(),
+            init::services::initialize_data_engine(api_key),
             Message::DataEngineReady,
         );
 

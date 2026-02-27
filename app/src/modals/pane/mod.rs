@@ -2,6 +2,7 @@ use iced::{Alignment, Element, padding};
 
 pub mod calendar;
 pub mod indicator;
+pub mod level_detail;
 pub mod settings;
 pub mod stream;
 pub mod tickers;
@@ -13,6 +14,7 @@ pub enum Modal {
     DataManagement(super::download::data_management::DataManagementPanel),
     DrawingProperties(Box<super::drawing::properties::DrawingPropertiesModal>),
     IndicatorManager(indicator::IndicatorManagerModal),
+    LevelDetail(level_detail::LevelDetailModal),
     Settings,
     LinkGroup,
     Controls,

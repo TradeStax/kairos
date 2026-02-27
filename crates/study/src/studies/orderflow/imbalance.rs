@@ -334,7 +334,9 @@ impl Study for ImbalanceStudy {
                     show_label: false,
                     fill_above: None,
                     fill_below: None,
+                    width: 1.0,
                     start_x: Some(key),
+                    zone_half_width: None,
                 });
             }
         }

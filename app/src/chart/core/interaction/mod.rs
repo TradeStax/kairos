@@ -347,6 +347,16 @@ pub fn canvas_interaction<T: Chart>(
                             | Interaction::Panning { .. }
                             | Interaction::Zoomin { .. }
                             | Interaction::Decelerating { .. } => {
+                                // Hit-test study detail icon buttons first
+                                if let Some(idx) = chart.hit_test_study_detail_button(canvas_pos) {
+                                    return Some(
+                                        canvas::Action::publish(
+                                            Message::StudyDetailClick(idx),
+                                        )
+                                        .and_capture(),
+                                    );
+                                }
+
                                 // Hit-test study overlay labels
                                 if let Some(idx) = chart.hit_test_study_overlay(canvas_pos) {
                                     use std::time::Instant;

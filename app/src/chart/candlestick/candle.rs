@@ -113,9 +113,10 @@ pub fn draw_candle(
     } else {
         colors.bear_wick
     };
+    let wick_width = (candle_width / 8.0).max(1.0);
     frame.fill_rectangle(
-        Point::new(x_position - (candle_width / 8.0), y_high),
-        Size::new(candle_width / 4.0, (y_high - y_low).abs()),
+        Point::new(x_position - (wick_width / 2.0), y_high),
+        Size::new(wick_width, (y_high - y_low).abs()),
         wick_color,
     );
 }

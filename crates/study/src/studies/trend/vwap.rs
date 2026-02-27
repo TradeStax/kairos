@@ -224,6 +224,10 @@ impl Study for VwapStudy {
                     lower_points.push((key, (vwap - std_dev * band_mult) as f32));
                 }
             } else {
+                // Zero cumulative volume: VWAP is undefined, so we fall back
+                // to the typical price as a reasonable default. This avoids a
+                // division-by-zero and keeps the line continuous through
+                // zero-volume candles (e.g. pre-market placeholder bars).
                 vwap_points.push((key, typical_price as f32));
                 if show_bands {
                     upper_points.push((key, typical_price as f32));

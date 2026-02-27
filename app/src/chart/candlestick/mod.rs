@@ -33,7 +33,11 @@ impl Chart for KlineChart {
     }
 
     fn invalidate_all(&mut self) {
-        self.invalidate();
+        self.invalidate_inner(true);
+    }
+
+    fn invalidate_view(&mut self) {
+        self.invalidate_inner(false);
     }
 
     fn interval_keys(&self) -> Option<Vec<u64>> {
@@ -95,6 +99,14 @@ impl Chart for KlineChart {
             .find(|(_, rect)| rect.contains(point))
             .map(|(idx, _)| *idx)
     }
+
+    fn hit_test_study_detail_button(&self, point: iced::Point) -> Option<usize> {
+        self.study_detail_button_rects
+            .borrow()
+            .iter()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(idx, _)| *idx)
+    }
 }
 
 /// Reason studies need recomputation.
@@ -141,6 +153,8 @@ pub struct KlineChart {
     last_frame_time_ms: Cell<f32>,
     /// Hit-test rectangles for study overlay labels (populated during draw)
     pub(crate) study_overlay_rects: RefCell<Vec<(usize, iced::Rectangle)>>,
+    /// Hit-test rectangles for study detail icon buttons (populated during draw)
+    pub(crate) study_detail_button_rects: RefCell<Vec<(usize, iced::Rectangle)>>,
 }
 
 impl KlineChart {
@@ -213,6 +227,7 @@ impl KlineChart {
             last_draw_instant: Cell::new(Instant::now()),
             last_frame_time_ms: Cell::new(0.0),
             study_overlay_rects: RefCell::new(Vec::new()),
+            study_detail_button_rects: RefCell::new(Vec::new()),
         }
     }
 
@@ -335,6 +350,15 @@ impl KlineChart {
     }
 
     pub fn invalidate(&mut self) {
+        self.invalidate_inner(true);
+    }
+
+    /// Core invalidation with optional study recomputation.
+    ///
+    /// When `recompute_studies` is false (view-only changes like zoom/pan),
+    /// skips the expensive visible-range check, study recompute, and VBP
+    /// drawing computation. This avoids per-scroll-event study recalculation.
+    fn invalidate_inner(&mut self, recompute_studies: bool) {
         let x_cells = self
             .candle_replace_config()
             .map(|c| c.autoscale_x_cells)
@@ -439,34 +463,34 @@ impl KlineChart {
         self.side_panel_cache.clear();
         self.side_panel_crosshair_cache.clear();
 
-        // Check if visible range changed (triggers VBP recompute)
-        if chart.bounds.width > 0.0 {
-            let region = chart.visible_region(chart.bounds.size());
-            let (earliest, latest) = chart.interval_range(&region);
-            let new_range = if earliest < latest {
-                Some((earliest, latest))
-            } else {
-                None
-            };
-            if new_range != self.last_visible_range {
-                self.last_visible_range = new_range;
-                // Only mark dirty if studies depend on visible_range
-                let has_range_dependent = self
-                    .studies
-                    .iter()
-                    .any(|s| s.placement() == study::StudyPlacement::Background);
-                if has_range_dependent {
-                    self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
+        if recompute_studies {
+            // Check if visible range changed (triggers VBP recompute)
+            if chart.bounds.width > 0.0 {
+                let region = chart.visible_region(chart.bounds.size());
+                let (earliest, latest) = chart.interval_range(&region);
+                let new_range = if earliest < latest {
+                    Some((earliest, latest))
+                } else {
+                    None
+                };
+                if new_range != self.last_visible_range {
+                    self.last_visible_range = new_range;
+                    // Only mark dirty if studies depend on visible_range
+                    let has_range_dependent =
+                        self.studies.iter().any(|s| s.needs_visible_range());
+                    if has_range_dependent {
+                        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
+                    }
                 }
             }
-        }
 
-        if let Some(reason) = self.studies_dirty.take() {
-            self.recompute_studies(reason);
-        }
+            if let Some(reason) = self.studies_dirty.take() {
+                self.recompute_studies(reason);
+            }
 
-        // Compute any pending VBP drawing profiles
-        self.compute_vbp_drawings();
+            // Compute any pending VBP drawing profiles
+            self.compute_vbp_drawings();
+        }
 
         self.last_tick = Instant::now();
     }
@@ -566,36 +590,9 @@ impl ChartDrawingAccess for KlineChart {
 }
 
 impl KlineChart {
-    /// Rebuild the chart from scratch with the given trades.
-    ///
-    /// Clears all existing trades and candles, then replays the
-    /// trades through `append_trade`. Used during replay seek to
-    /// ensure the chart exactly represents `[start, position]`.
-    pub fn rebuild_from_trades(&mut self, trades: &[Trade]) {
-        self.chart_data.trades.clear();
-        self.chart_data.candles.clear();
-
-        // Reset incremental study state for full recompute
-        for s in &mut self.studies {
-            s.reset();
-        }
-
-        for trade in trades {
-            self.append_trade(trade);
-        }
-
-        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
-        self.invalidate();
-    }
-
-    /// Append a single trade during replay.
-    ///
-    /// Pushes the trade to internal `chart_data`, updates candles
-    /// (or creates new ones), updates `latest_x` for autoscroll,
-    /// and incrementally updates the footprint cache.
-    pub fn append_trade(&mut self, trade: &Trade) {
-        self.chart_data.trades.push(*trade);
-
+    /// Pure candle aggregation — no coordinate updates, no cache clears,
+    /// no study updates. Trade must already be pushed to `chart_data.trades`.
+    fn aggregate_trade_into_candle(&mut self, trade: &Trade) {
         let (buy_vol, sell_vol) = match trade.side {
             Side::Buy | Side::Bid => (data::Volume(trade.quantity.0), data::Volume(0.0)),
             Side::Sell | Side::Ask => (data::Volume(0.0), data::Volume(trade.quantity.0)),
@@ -660,7 +657,30 @@ impl KlineChart {
                 }
             }
         }
+    }
 
+    /// Rebuild the chart from scratch with the given trades.
+    ///
+    /// Clears all existing trades and candles, then replays the
+    /// trades through aggregation. Used during replay seek to
+    /// ensure the chart exactly represents `[start, position]`.
+    pub fn rebuild_from_trades(&mut self, trades: &[Trade]) {
+        self.chart_data.trades.clear();
+        self.chart_data.candles.clear();
+
+        // Reset incremental study state for full recompute
+        for s in &mut self.studies {
+            s.reset();
+        }
+
+        for trade in trades {
+            self.chart_data.trades.push(*trade);
+            self.aggregate_trade_into_candle(trade);
+        }
+
+        if let Some(first) = self.chart_data.candles.first() {
+            self.chart.base_price_y = domain_to_exchange_price(first.close);
+        }
         self.chart.latest_x = self
             .chart_data
             .candles
@@ -668,30 +688,92 @@ impl KlineChart {
             .map(|c| c.time.0)
             .unwrap_or(0);
 
-        // Update last price for the price axis label
-        self.chart.base_price_y = Price::from_units(trade.price.units());
-        self.chart.last_price =
-            Some(PriceInfoLabel::Neutral(Price::from_units(trade.price.units())));
+        self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
+        self.invalidate();
+    }
 
-        // Incrementally update studies with the new trade
-        if !self.studies.is_empty() {
-            let input = study::StudyInput {
-                candles: &self.chart_data.candles,
-                trades: Some(&self.chart_data.trades),
-                basis: self.basis,
-                tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
-                visible_range: None,
-            };
-            let trade_slice = std::slice::from_ref(trade);
-            for s in &mut self.studies {
-                if let Err(e) = s.append_trades(trade_slice, &input) {
-                    log::warn!("Study '{}' append error: {}", s.id(), e);
-                }
-            }
+    /// Append a single trade (live data or replay).
+    ///
+    /// Detects whether the trade creates a new candle or updates the
+    /// current one, and branches accordingly:
+    /// - First candle: initializes coordinate system + full invalidate
+    /// - New candle: compensates X translation + full invalidate
+    /// - Same candle: incremental study update + cache clears only
+    pub fn append_trade(&mut self, trade: &Trade) {
+        self.chart_data.trades.push(*trade);
+
+        let candle_count_before = self.chart_data.candles.len();
+        let old_latest_x = self.chart.latest_x;
+
+        self.aggregate_trade_into_candle(trade);
+
+        let new_candle_created =
+            self.chart_data.candles.len() > candle_count_before;
+        let is_first_candle = candle_count_before == 0 && new_candle_created;
+
+        // Only set base_price_y for the very first candle (empty chart).
+        // Otherwise base_price_y is managed by invalidate() (FitAll) or
+        // stays fixed (CenterLatest/Disabled).
+        if is_first_candle {
+            self.chart.base_price_y =
+                Price::from_units(trade.price.units());
         }
 
-        // Always invalidate the main cache so the chart redraws
-        self.chart.cache.clear_main();
+        // Update latest_x to the last candle's timestamp
+        self.chart.latest_x = self
+            .chart_data
+            .candles
+            .last()
+            .map(|c| c.time.0)
+            .unwrap_or(0);
+
+        // Update last price label (cosmetic — doesn't affect coordinates)
+        self.chart.last_price = Some(PriceInfoLabel::Neutral(
+            Price::from_units(trade.price.units()),
+        ));
+
+        if is_first_candle {
+            // First candle: initialize coordinate system + full invalidate
+            self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
+            self.invalidate();
+        } else if new_candle_created {
+            // New candle: compensate X shift when autoscale is off.
+            // CenterLatest/FitAll handle translation in invalidate().
+            let has_auto_x = matches!(
+                self.chart.layout.autoscale,
+                Some(Autoscale::CenterLatest) | Some(Autoscale::FitAll)
+            );
+            if !has_auto_x && old_latest_x != 0 {
+                // Only time-based charts use latest_x in interval_to_x;
+                // tick-based charts index by position, not timestamp.
+                if let ChartBasis::Time(_) = self.basis {
+                    let shift = self.chart.interval_to_x(old_latest_x);
+                    self.chart.translation.x -= shift;
+                }
+            }
+            self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
+            self.invalidate();
+        } else {
+            // Same candle updated: incremental study update + cache clears
+            if !self.studies.is_empty() {
+                let input = study::StudyInput {
+                    candles: &self.chart_data.candles,
+                    trades: Some(&self.chart_data.trades),
+                    basis: self.basis,
+                    tick_size: DomainPrice::from_f32(self.ticker_info.tick_size),
+                    visible_range: None,
+                };
+                let trade_slice = std::slice::from_ref(trade);
+                for s in &mut self.studies {
+                    if let Err(e) = s.append_trades(trade_slice, &input) {
+                        log::warn!("Study '{}' append error: {}", s.id(), e);
+                    }
+                }
+            }
+            self.chart.cache.clear_main();
+            self.panel_cache.clear();
+            self.panel_crosshair_cache.clear();
+        }
     }
 }
 

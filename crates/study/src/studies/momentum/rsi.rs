@@ -251,7 +251,9 @@ impl Study for RsiStudy {
                 show_label: true,
                 fill_above: None,
                 fill_below: None,
+                width: 1.0,
                 start_x: None,
+                zone_half_width: None,
             },
             PriceLevel {
                 price: os,
@@ -262,7 +264,9 @@ impl Study for RsiStudy {
                 show_label: true,
                 fill_above: None,
                 fill_below: None,
+                width: 1.0,
                 start_x: None,
+                zone_half_width: None,
             },
         ];
 

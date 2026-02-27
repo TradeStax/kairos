@@ -127,4 +127,34 @@ impl State {
         }
         None
     }
+
+    /// Open the level detail modal for a study at the given index.
+    ///
+    /// Reads `interactive_data()` from the study, downcasts to
+    /// `LevelAnalyzerData`, and creates a `LevelDetailModal`.
+    pub(in super::super) fn open_level_detail_modal(&mut self, study_index: usize) {
+        use crate::modals::pane::level_detail::LevelDetailModal;
+
+        let data = match &self.content {
+            Content::Candlestick { chart, .. } => {
+                let c = match (**chart).as_ref() {
+                    Some(c) => c,
+                    None => return,
+                };
+                let study = match c.studies().get(study_index) {
+                    Some(s) => s,
+                    None => return,
+                };
+                study.interactive_data().and_then(|any| {
+                    any.downcast_ref::<study::orderflow::level_analyzer::types::LevelAnalyzerData>()
+                })
+            }
+            _ => None,
+        };
+
+        if let Some(data) = data {
+            let modal = LevelDetailModal::new(study_index, data);
+            self.modal = Some(Modal::LevelDetail(modal));
+        }
+    }
 }

@@ -45,6 +45,11 @@ pub struct VbpStudy {
     /// Format: (candle_count, first_ts, last_ts, trade_count,
     /// split_hash).
     pub(super) last_input_fingerprint: (usize, u64, u64, usize, u64),
+    /// Number of trades at last full recompute. Used by
+    /// `append_trades()` to batch updates — only triggers a full
+    /// recompute every 100 new trades to avoid per-trade O(N) work
+    /// during live streaming.
+    last_recompute_trade_count: usize,
 }
 
 impl VbpStudy {
@@ -62,6 +67,7 @@ impl VbpStudy {
             output: StudyOutput::Empty,
             params,
             last_input_fingerprint: (0, 0, 0, 0, 0),
+            last_recompute_trade_count: 0,
         }
     }
 
@@ -261,6 +267,10 @@ impl Study for VbpStudy {
         } else {
             StudyPlacement::Background
         }
+    }
+
+    fn needs_visible_range(&self) -> bool {
+        true
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -487,9 +497,31 @@ impl Study for VbpStudy {
         &self.output
     }
 
+    fn append_trades(
+        &mut self,
+        _new_trades: &[data::Trade],
+        input: &StudyInput,
+    ) -> Result<(), StudyError> {
+        // Batch trade updates: only trigger a full recompute every
+        // 100 new trades to avoid per-trade O(N) profile rebuilds
+        // during live streaming.
+        const BATCH_SIZE: usize = 100;
+        let current_count =
+            input.trades.map(|t| t.len()).unwrap_or(0);
+        let since_last =
+            current_count.saturating_sub(self.last_recompute_trade_count);
+        if since_last < BATCH_SIZE {
+            return Ok(());
+        }
+        self.last_recompute_trade_count = current_count;
+        self.last_input_fingerprint = (0, 0, 0, 0, 0);
+        self.compute(input)
+    }
+
     fn reset(&mut self) {
         self.output = StudyOutput::Empty;
         self.last_input_fingerprint = (0, 0, 0, 0, 0);
+        self.last_recompute_trade_count = 0;
     }
 
     fn clone_study(&self) -> Box<dyn Study> {
@@ -498,6 +530,7 @@ impl Study for VbpStudy {
             output: self.output.clone(),
             params: self.params.clone(),
             last_input_fingerprint: (0, 0, 0, 0, 0),
+            last_recompute_trade_count: 0,
         })
     }
 }

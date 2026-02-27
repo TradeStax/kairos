@@ -140,13 +140,13 @@ impl DataFeedsModal {
         let add_area: Element<'_, DataFeedsMessage> = if self.add_popup_open {
             let popup = container(
                 column![
-                    button(components::primitives::body("Historical"))
+                    button(components::primitives::body("Databento"))
                         .width(Length::Fill)
-                        .on_press(DataFeedsMessage::OpenHistoricalDownload,)
+                        .on_press(DataFeedsMessage::AddDatabento)
                         .padding([tokens::spacing::XS, tokens::spacing::LG]),
-                    button(components::primitives::body("Realtime"))
+                    button(components::primitives::body("Rithmic"))
                         .width(Length::Fill)
-                        .on_press(DataFeedsMessage::AddRealtime)
+                        .on_press(DataFeedsMessage::AddRithmic)
                         .padding([tokens::spacing::XS, tokens::spacing::LG]),
                 ]
                 .spacing(tokens::spacing::XXS),

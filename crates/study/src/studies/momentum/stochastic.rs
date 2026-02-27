@@ -10,6 +10,8 @@
 //!
 //! Output: `StudyOutput::Lines` with two series (%K solid, %D dashed).
 
+use std::collections::VecDeque;
+
 use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
     ParameterValue, StudyConfig, Visibility,
@@ -215,27 +217,67 @@ impl Study for StochasticStudy {
             return Ok(());
         }
 
-        // Step 1: Compute raw %K (fast stochastic)
-        let mut raw_k = Vec::with_capacity(candles.len() - k_period + 1);
-        for i in (k_period - 1)..candles.len() {
-            let window = &candles[(i + 1 - k_period)..=i];
-            let lowest = window
-                .iter()
-                .map(|c| c.low.to_f32())
-                .fold(f32::MAX, f32::min);
-            let highest = window
-                .iter()
-                .map(|c| c.high.to_f32())
-                .fold(f32::MIN, f32::max);
+        // Step 1: Compute raw %K (fast stochastic) using O(N)
+        // monotonic deques for sliding-window min/max.
+        let highs: Vec<f32> =
+            candles.iter().map(|c| c.high.to_f32()).collect();
+        let lows: Vec<f32> =
+            candles.iter().map(|c| c.low.to_f32()).collect();
 
-            let close = candles[i].close.to_f32();
-            let range = highest - lowest;
-            let k_val = if range > 0.0 {
-                100.0 * (close - lowest) as f64 / range as f64
-            } else {
-                50.0 // Flat market, default to midpoint
-            };
-            raw_k.push(k_val);
+        let mut raw_k =
+            Vec::with_capacity(candles.len() - k_period + 1);
+
+        // max_deque: indices of decreasing highs (front = max)
+        let mut max_deque: VecDeque<usize> = VecDeque::new();
+        // min_deque: indices of increasing lows (front = min)
+        let mut min_deque: VecDeque<usize> = VecDeque::new();
+
+        for i in 0..candles.len() {
+            // Maintain max deque (decreasing highs)
+            while max_deque
+                .back()
+                .is_some_and(|&j| highs[j] <= highs[i])
+            {
+                max_deque.pop_back();
+            }
+            max_deque.push_back(i);
+
+            // Maintain min deque (increasing lows)
+            while min_deque
+                .back()
+                .is_some_and(|&j| lows[j] >= lows[i])
+            {
+                min_deque.pop_back();
+            }
+            min_deque.push_back(i);
+
+            // Remove elements outside the window
+            let window_start = i + 1 - k_period.min(i + 1);
+            while max_deque
+                .front()
+                .is_some_and(|&j| j < window_start)
+            {
+                max_deque.pop_front();
+            }
+            while min_deque
+                .front()
+                .is_some_and(|&j| j < window_start)
+            {
+                min_deque.pop_front();
+            }
+
+            if i >= k_period - 1 {
+                let highest = highs[max_deque[0]];
+                let lowest = lows[min_deque[0]];
+                let close = candles[i].close.to_f32();
+                let range = highest - lowest;
+                let k_val = if range > 0.0 {
+                    100.0 * (close - lowest) as f64 / range as f64
+                } else {
+                    50.0 // Flat market, default to midpoint
+                };
+                raw_k.push(k_val);
+            }
         }
 
         // Step 2: Smooth %K with SMA
@@ -258,11 +300,27 @@ impl Study for StochasticStudy {
             return Ok(());
         }
 
-        // Build points for %K (aligned with %D)
+        // Build points for %K (aligned with %D).
+        //
+        // Offset derivation (candle indices, 0-based):
+        //   raw_k[0]     → candle index (k_period - 1)
+        //   smoothed_k   = SMA(raw_k, smooth) → first valid at
+        //                   raw_k index (smooth - 1), which is
+        //                   candle index (k_period - 1) + (smooth - 1)
+        //   k_offset     = k_period - 1 + (smooth - 1)
+        //
+        //   d_values     = SMA(smoothed_k, d_period) → first valid at
+        //                   smoothed_k index (d_period - 1), which is
+        //                   candle index k_offset + (d_period - 1)
+        //   d_offset     = k_offset + (d_period - 1)
+        //
+        // Example: k_period=14, smooth=3, d_period=3
+        //   k_offset = 13 + 2 = 15
+        //   d_offset = 15 + 2 = 17
+        //   → first output at candle index 17
         let k_offset = k_period - 1 + (smooth.max(1) - 1);
         let d_offset = k_offset + (d_period - 1);
 
-        // %K starts at k_offset, %D starts at d_offset
         // We output %K from d_offset onward so both lines are aligned
         let k_start_in_smoothed = d_period - 1; // index into smoothed_k
 

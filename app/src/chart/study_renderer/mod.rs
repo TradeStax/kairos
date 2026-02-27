@@ -71,6 +71,11 @@ pub fn render_study_output(
                 }
             }
         }
+        StudyOutput::StudyCandles(candles) => {
+            primitives::study_candle::render_study_candles(
+                frame, candles, state, bounds, placement,
+            );
+        }
         StudyOutput::Markers(data) => {
             primitives::markers::render_markers(
                 frame,

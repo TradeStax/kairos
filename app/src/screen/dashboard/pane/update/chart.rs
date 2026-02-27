@@ -21,6 +21,9 @@ impl State {
                     study_index: idx,
                 });
             }
+            chart::Message::StudyDetailClick(idx) => {
+                self.open_level_detail_modal(idx);
+            }
             chart::Message::DrawingClick(point, shift_held) => {
                 if self.handle_drawing_click(point, shift_held) {
                     return Some(Action::DrawingToolChanged(

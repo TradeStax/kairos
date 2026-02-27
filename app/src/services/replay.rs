@@ -208,7 +208,7 @@ impl ReplayEngine {
 
         let trades = {
             let mut eng = self.engine.lock().await;
-            eng.get_trades(&ticker_info.ticker, &date_range)
+            eng.get_trades(&ticker_info.ticker, &date_range, None)
                 .await
                 .map_err(|e| {
                     let error = format!("Failed to load trades: {:?}", e);

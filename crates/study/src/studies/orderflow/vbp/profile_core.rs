@@ -36,20 +36,21 @@ fn compute_volume_stats(volumes: &[f32]) -> Option<VolumeStats> {
     if volumes.is_empty() {
         return None;
     }
+    // Pass 1: compute total, max, and mean
     let mut total = 0.0_f32;
     let mut max = 0.0_f32;
-    let mut sum_sq = 0.0_f32;
     for &v in volumes {
         total += v;
         max = max.max(v);
-        sum_sq += v * v;
     }
     if total <= 0.0 {
         return None;
     }
     let mean = total / volumes.len() as f32;
-    let variance = sum_sq / volumes.len() as f32 - mean * mean;
-    let std_dev = variance.max(0.0).sqrt();
+    // Pass 2: numerically stable variance via sum of squared deviations
+    let sum_sq_dev: f32 =
+        volumes.iter().map(|&v| (v - mean).powi(2)).sum();
+    let std_dev = (sum_sq_dev / volumes.len() as f32).sqrt();
     Some(VolumeStats {
         max,
         mean,

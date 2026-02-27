@@ -77,6 +77,43 @@ impl DatabentoAdapter {
             .await
     }
 
+    /// Queries the Databento API for the estimated cost in USD of a
+    /// historical data request.
+    pub async fn get_cost(
+        &mut self,
+        symbol: &str,
+        schema: databento::dbn::Schema,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+    ) -> Result<f64, super::DatabentoError> {
+        use time::OffsetDateTime;
+
+        let start_time =
+            OffsetDateTime::from_unix_timestamp(start.timestamp())
+                .map_err(|e| {
+                    super::DatabentoError::Config(e.to_string())
+                })?;
+        let end_time =
+            OffsetDateTime::from_unix_timestamp(end.timestamp())
+                .map_err(|e| {
+                    super::DatabentoError::Config(e.to_string())
+                })?;
+
+        let stype = super::mapper::determine_stype(symbol);
+
+        let params =
+            databento::historical::metadata::GetCostParams::builder()
+                .dataset(self.config.dataset)
+                .symbols(vec![symbol])
+                .schema(schema)
+                .stype_in(stype)
+                .date_time_range((start_time, end_time))
+                .build();
+
+        let cost = self.client.metadata().get_cost(&params).await?;
+        Ok(cost)
+    }
+
     /// Returns the list of dates with cached trade data for a symbol
     pub async fn cached_trade_dates(&self, symbol: &str) -> Vec<chrono::NaiveDate> {
         self.cache

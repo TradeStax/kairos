@@ -12,6 +12,12 @@ use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Size};
 use study::output::PriceLevel;
 
+/// Width fractions of zone_half_width for each strip (outermost
+/// first).
+const ZONE_STRIP_WIDTHS: [f32; 3] = [1.0, 0.65, 0.3];
+/// Alpha multipliers for each strip (outermost = most transparent).
+const ZONE_STRIP_ALPHAS: [f32; 3] = [0.04, 0.07, 0.12];
+
 /// Render horizontal price levels.
 pub fn render_levels(
     frame: &mut Frame,
@@ -68,15 +74,47 @@ pub fn render_levels(
             );
         }
 
-        // Draw the horizontal line
+        // Zone rendering: concentric shaded strips
+        if let Some(zone_hw) = level.zone_half_width {
+            let y_above = state.price_to_y(Price::from_f32(
+                (level.price + zone_hw) as f32,
+            ));
+            let full_half = (y - y_above).abs();
+
+            for i in 0..ZONE_STRIP_WIDTHS.len() {
+                let strip_half =
+                    full_half * ZONE_STRIP_WIDTHS[i];
+                // `color` already includes level.opacity — apply
+                // only the per-strip alpha to avoid double scaling.
+                let fill_color =
+                    color.scale_alpha(ZONE_STRIP_ALPHAS[i]);
+                frame.fill_rectangle(
+                    Point::new(left, y - strip_half),
+                    Size::new(
+                        right - left,
+                        strip_half * 2.0,
+                    ),
+                    fill_color,
+                );
+            }
+        }
+
+        // When zone is active the shaded area carries the visual
+        // weight — draw a very thin, semi-transparent center line.
+        let (line_width, line_color) =
+            if level.zone_half_width.is_some() {
+                (0.5_f32, color.scale_alpha(0.35))
+            } else {
+                (level.width, color)
+            };
         let dash = line_dash_for_style(&level.style);
         let stroke = Stroke::with_color(
             Stroke {
-                width: 1.0,
+                width: line_width,
                 line_dash: dash,
                 ..Stroke::default()
             },
-            color,
+            line_color,
         );
 
         frame.stroke(

@@ -242,10 +242,20 @@ impl Study for MacdStudy {
         let fast_ema = compute_ema(&closes, fast_period);
         let slow_ema = compute_ema(&closes, slow_period);
 
-        // Align fast and slow EMAs
-        // fast_ema starts at index (fast_period - 1)
-        // slow_ema starts at index (slow_period - 1)
-        // MACD line starts at index (slow_period - 1) in candle space
+        // Align fast and slow EMAs.
+        // compute_ema() returns (N - period + 1) values, so:
+        //   fast_ema[0] corresponds to candle index (fast_period - 1)
+        //   slow_ema[0] corresponds to candle index (slow_period - 1)
+        // To subtract element-wise we need to align them. Since
+        // slow_period >= fast_period, fast_ema has more elements.
+        // We skip the first `fast_offset` entries of fast_ema so
+        // that fast_ema[fast_offset + i] and slow_ema[i] both
+        // correspond to the same candle index (slow_period - 1 + i).
+        //
+        // Example: fast=12, slow=26
+        //   fast_ema has (N - 11) values, slow_ema has (N - 25)
+        //   fast_offset = 26 - 12 = 14
+        //   fast_ema[14] = candle index 25, slow_ema[0] = candle index 25
         let fast_offset = slow_period.saturating_sub(fast_period);
         let macd_len = fast_ema
             .len()

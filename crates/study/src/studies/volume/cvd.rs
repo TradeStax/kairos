@@ -108,45 +108,6 @@ impl CvdStudy {
         }
     }
 
-    /// Returns `true` when the candle crosses a period boundary
-    /// (daily or weekly) relative to the previous candle, indicating
-    /// the cumulative sum should be reset.
-    fn should_reset(
-        &self,
-        prev_millis: u64,
-        curr_millis: u64,
-        reset_period: &str,
-    ) -> bool {
-        match reset_period {
-            "Daily" => {
-                let prev_secs = (prev_millis / 1000) as i64;
-                let curr_secs = (curr_millis / 1000) as i64;
-                let prev_dt = chrono::DateTime::from_timestamp(prev_secs, 0);
-                let curr_dt = chrono::DateTime::from_timestamp(curr_secs, 0);
-                match (prev_dt, curr_dt) {
-                    (Some(p), Some(c)) => p.date_naive() != c.date_naive(),
-                    _ => false,
-                }
-            }
-            "Weekly" => {
-                // Reset when the ISO week changes (weeks start Monday)
-                use chrono::Datelike;
-                let prev_secs = (prev_millis / 1000) as i64;
-                let curr_secs = (curr_millis / 1000) as i64;
-                let prev_dt = chrono::DateTime::from_timestamp(prev_secs, 0);
-                let curr_dt = chrono::DateTime::from_timestamp(curr_secs, 0);
-                match (prev_dt, curr_dt) {
-                    (Some(p), Some(c)) => {
-                        let prev_week = (p.iso_week().year(), p.iso_week().week());
-                        let curr_week = (c.iso_week().year(), c.iso_week().week());
-                        curr_week != prev_week
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
 }
 
 impl Default for CvdStudy {
@@ -199,13 +160,42 @@ impl Study for CvdStudy {
         let mut cum_delta: f64 = 0.0;
         let mut points = Vec::with_capacity(candles.len());
 
+        // Cache the previous candle's date/week to avoid redundant
+        // chrono::DateTime::from_timestamp() calls. Each candle's
+        // "current" becomes the next candle's "previous", halving
+        // the number of datetime conversions.
+        let needs_reset = reset_period != "None";
+        let is_daily = reset_period == "Daily";
+
+        // prev_day: cached NaiveDate of the previous candle
+        // prev_week: cached (iso_year, iso_week) of the previous candle
+        let mut prev_day: Option<chrono::NaiveDate> = None;
+        let mut prev_week: Option<(i32, u32)> = None;
+
         for (i, candle) in candles.iter().enumerate() {
-            // Check for period reset
-            if i > 0 && reset_period != "None" {
-                let prev_time = candles[i - 1].time.to_millis();
-                let curr_time = candle.time.to_millis();
-                if self.should_reset(prev_time, curr_time, &reset_period) {
-                    cum_delta = 0.0;
+            if needs_reset {
+                let curr_secs = (candle.time.to_millis() / 1000) as i64;
+                if let Some(curr_dt) =
+                    chrono::DateTime::from_timestamp(curr_secs, 0)
+                {
+                    if is_daily {
+                        let curr_date = curr_dt.date_naive();
+                        if prev_day.is_some_and(|pd| curr_date != pd) {
+                            cum_delta = 0.0;
+                        }
+                        prev_day = Some(curr_date);
+                    } else {
+                        // Weekly
+                        use chrono::Datelike;
+                        let curr_wk = (
+                            curr_dt.iso_week().year(),
+                            curr_dt.iso_week().week(),
+                        );
+                        if prev_week.is_some_and(|pw| curr_wk != pw) {
+                            cum_delta = 0.0;
+                        }
+                        prev_week = Some(curr_wk);
+                    }
                 }
             }
 

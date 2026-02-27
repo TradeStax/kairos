@@ -75,9 +75,49 @@ pub struct PriceLevel {
     pub fill_above: Option<(SerializableColor, f32)>,
     /// Fill color and opacity for the region below this level.
     pub fill_below: Option<(SerializableColor, f32)>,
+    /// Line width in logical pixels. Defaults to 1.0 when absent.
+    #[serde(default = "default_level_width")]
+    pub width: f32,
     /// Ray anchor X coordinate. When `Some`, the level renders as a ray
     /// from this point rightward. When `None`, renders as a full-width
     /// line.
     #[serde(default)]
     pub start_x: Option<u64>,
+    /// Half-width of the zone in price-domain units. When `Some`, the
+    /// level renders as a shaded area from `price - hw` to `price + hw`
+    /// instead of a single line. The center line is still drawn.
+    #[serde(default)]
+    pub zone_half_width: Option<f64>,
+}
+
+fn default_level_width() -> f32 {
+    1.0
+}
+
+/// A single OHLC candle point for study output (e.g. Speed of Tape).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct StudyCandlePoint {
+    /// X coordinate: timestamp_ms or candle index.
+    pub x: u64,
+    /// Opening value of the study candle.
+    pub open: f32,
+    /// Highest value of the study candle.
+    pub high: f32,
+    /// Lowest value of the study candle.
+    pub low: f32,
+    /// Closing value of the study candle.
+    pub close: f32,
+    /// Body fill color (semi-transparent).
+    pub body_color: SerializableColor,
+    /// Wick and body outline color.
+    pub border_color: SerializableColor,
+}
+
+/// A series of OHLC candle points for study output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyCandleSeries {
+    /// Display label for legends and tooltips.
+    pub label: String,
+    /// Individual candle data points.
+    pub points: Vec<StudyCandlePoint>,
 }

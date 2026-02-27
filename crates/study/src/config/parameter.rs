@@ -29,6 +29,8 @@ pub enum ParameterTab {
     Nodes,
     /// Session VWAP bands and anchoring (VWAP studies).
     Vwap,
+    /// Absorption detection parameters (Big Trades study).
+    Absorption,
 }
 
 impl std::fmt::Display for ParameterTab {
@@ -41,6 +43,7 @@ impl std::fmt::Display for ParameterTab {
             ParameterTab::ValueArea => write!(f, "Value Area"),
             ParameterTab::Nodes => write!(f, "Nodes"),
             ParameterTab::Vwap => write!(f, "VWAP"),
+            ParameterTab::Absorption => write!(f, "Absorption"),
         }
     }
 }

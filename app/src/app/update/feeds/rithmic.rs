@@ -52,6 +52,11 @@ impl Kairos {
         // Clear the Rithmic client
         self.services.rithmic_client = None;
 
+        // Clear backfill cap on all dashboards
+        for layout in &mut self.persistence.layout_manager.layouts {
+            layout.dashboard.max_backfill_days = None;
+        }
+
         let client_was_some = self.services.rithmic_feed_id == Some(feed_id);
 
         let main_window = self.main_window.id;
@@ -120,13 +125,25 @@ impl Kairos {
             staging.take()
         };
 
-        let Some(client) = service_result else {
+        let Some((client, cache_index)) = service_result else {
             log::error!("Rithmic client not found in staging after connect");
             self.ui.push_notification(Toast::error(
                 "Internal error: Rithmic client result lost".to_string(),
             ));
             return Task::none();
         };
+
+        // Remove sentinel entries to prevent cross-provider date inflation
+        // (old Databento dates from the registry would otherwise widen the
+        // range beyond what this feed can serve)
+        {
+            let mut idx = data::lock_or_recover(&self.persistence.data_index);
+            idx.remove_feed(Kairos::REGISTRY_SENTINEL_FEED);
+        }
+
+        // Merge cache index BEFORE resolving chart ranges — avoids a race
+        // where the async DataIndexUpdated event arrives too late
+        data::lock_or_recover(&self.persistence.data_index).merge(cache_index);
 
         self.services.rithmic_client = Some(client.clone());
         self.services.rithmic_feed_id = Some(feed_id);
@@ -179,8 +196,14 @@ impl Kairos {
         data::lock_or_recover(&self.persistence.data_index).merge(rithmic_index);
         self.rebuild_ticker_data();
 
-        // Re-affiliate disconnected panes and collect any that need reloading
+        // Propagate backfill cap to all dashboards so that
+        // resolve_chart_range() doesn't load the full Databento history.
         let fallback_days = backfill_days;
+        for layout in &mut self.persistence.layout_manager.layouts {
+            layout.dashboard.max_backfill_days = Some(fallback_days);
+        }
+
+        // Re-affiliate disconnected panes and collect any that need reloading
         let main_window = self.main_window.id;
         let mut reload_tasks: Vec<Task<Message>> = Vec::new();
         for layout in &mut self.persistence.layout_manager.layouts {
@@ -371,10 +394,10 @@ async fn rithmic_init_and_stage(
     .await;
 
     match result {
-        Ok(Ok((_feed_id, client))) => {
+        Ok(Ok((_feed_id, client, cache_index))) => {
             let mut staging =
                 data::lock_or_recover(crate::app::core::globals::get_rithmic_client_staging());
-            *staging = Some(client);
+            *staging = Some((client, cache_index));
             Ok(())
         }
         Ok(Err(e)) => Err(e.to_string()),

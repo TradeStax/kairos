@@ -28,11 +28,29 @@ impl std::fmt::Debug for DataEngineInit {
 }
 
 /// Initialize the DataEngine asynchronously — called via Task::perform at startup.
-pub(crate) async fn initialize_data_engine() -> Result<DataEngineInit, String> {
+///
+/// If a Databento API key is provided, the adapter is connected eagerly so
+/// that downloads and cost estimation work immediately without a separate
+/// connect step.
+pub(crate) async fn initialize_data_engine(
+    databento_key: Option<String>,
+) -> Result<DataEngineInit, String> {
     let cache_root = crate::infra::platform::data_path(Some("cache"));
     match data::engine::DataEngine::new(cache_root).await {
-        Ok((engine, event_rx)) => {
+        Ok((mut engine, event_rx)) => {
             log::info!("DataEngine initialized successfully");
+
+            // Eagerly connect Databento adapter when an API key is available
+            if let Some(key) = databento_key {
+                let config = data::DatabentoConfig::with_api_key(key);
+                if let Err(e) = engine.connect_databento(config).await {
+                    log::warn!(
+                        "Databento adapter init failed (non-fatal): {}",
+                        e
+                    );
+                }
+            }
+
             Ok(DataEngineInit {
                 engine: std::sync::Arc::new(tokio::sync::Mutex::new(engine)),
                 event_rx: std::sync::Arc::new(std::sync::Mutex::new(Some(event_rx))),

@@ -29,7 +29,10 @@ pub use profile::{
     VbpPeriod, VbpPocConfig, VbpResolvedCache, VbpSplitPeriod, VbpType,
     VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
 };
-pub use series::{BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel};
+pub use series::{
+    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel,
+    StudyCandlePoint, StudyCandleSeries,
+};
 
 /// Top-level enum of all study output variants.
 ///
@@ -72,6 +75,9 @@ pub enum StudyOutput {
 
     /// Trade marker bubbles (Big Trades) with render configuration.
     Markers(MarkerData),
+
+    /// OHLC mini-candlesticks (e.g. Speed of Tape).
+    StudyCandles(Vec<StudyCandleSeries>),
 
     /// Multiple outputs combined (e.g. MACD: Lines + Histogram).
     Composite(Vec<StudyOutput>),

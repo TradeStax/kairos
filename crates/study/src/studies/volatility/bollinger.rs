@@ -278,7 +278,7 @@ impl Study for BollingerStudy {
             let window = &values[start..=i];
 
             let avg = math::mean(window);
-            let stddev = math::standard_deviation(window);
+            let stddev = math::standard_deviation_with_mean(window, avg);
 
             let key = candle_key(
                 &candles[i], i, candles.len(), &input.basis,

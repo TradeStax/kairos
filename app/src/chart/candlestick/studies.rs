@@ -43,6 +43,10 @@ impl KlineChart {
         &self.studies
     }
 
+    pub fn studies_mut(&mut self) -> &mut Vec<Box<dyn study::Study>> {
+        &mut self.studies
+    }
+
     pub fn update_study_parameter(
         &mut self,
         study_id: &str,

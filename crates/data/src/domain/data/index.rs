@@ -91,14 +91,19 @@ impl DataIndex {
     /// Resolve the best available date range for a chart.
     ///
     /// Combines dates across all feeds and extends to today if any feed
-    /// has real-time data. For heatmap charts (with the `heatmap` feature),
-    /// the range is truncated to a single day.
+    /// has real-time data. When `max_backfill_days` is `Some(N)` and a
+    /// realtime feed is active, the start date is capped to `today - N`
+    /// so cached data from earlier sessions doesn't inflate the range
+    /// beyond the configured backfill window.
+    ///
+    /// For heatmap charts (with the `heatmap` feature), the range is
+    /// truncated to a single day.
     #[must_use]
     pub fn resolve_chart_range(
         &self,
         ticker: &str,
         _chart_type: ChartType,
-        realtime_fallback_days: Option<i64>,
+        max_backfill_days: Option<i64>,
     ) -> Option<DateRange> {
         let trade_key = DataKey {
             ticker: ticker.to_string(),
@@ -125,20 +130,30 @@ impl DataIndex {
         if all_dates.is_empty() {
             if any_realtime {
                 let today = DateRange::today_et();
-                let days = realtime_fallback_days.unwrap_or(DEFAULT_REALTIME_FALLBACK_DAYS);
+                let days = max_backfill_days.unwrap_or(DEFAULT_REALTIME_FALLBACK_DAYS);
                 let start = today - chrono::Duration::days(days);
                 return DateRange::new(start, today).ok();
             }
             return None;
         }
 
-        let start = *all_dates.iter().next().expect("all_dates non-empty");
+        let mut start = *all_dates.iter().next().expect("all_dates non-empty");
         let mut end = *all_dates.iter().next_back().expect("all_dates non-empty");
 
         if any_realtime {
             let today = DateRange::today_et();
             if today > end {
                 end = today;
+            }
+            // Cap the start date so the backfill range doesn't exceed
+            // the configured limit (e.g. backfill_days from feed config).
+            // Without this, old cached dates would inflate the range
+            // beyond what the user expects from their backfill setting.
+            if let Some(days) = max_backfill_days {
+                let min_start = today - chrono::Duration::days(days);
+                if start < min_start {
+                    start = min_start;
+                }
             }
         }
 
@@ -386,6 +401,83 @@ mod tests {
                 .is_none()
         );
         assert!(!index.has_data("ES.c.0"));
+    }
+
+    #[test]
+    fn test_realtime_caps_start_to_backfill_days() {
+        let mut index = DataIndex::new();
+        let feed_id = uuid::Uuid::new_v4();
+
+        // Add cached dates spanning a wide range (30+ days old)
+        let today = DateRange::today_et();
+        let mut dates = BTreeSet::new();
+        for offset in [30, 25, 20, 15, 10, 5, 3, 1] {
+            dates.insert(today - chrono::Duration::days(offset));
+        }
+
+        index.add_contribution(
+            DataKey {
+                ticker: "ES.c.0".into(),
+                schema: "trades".into(),
+            },
+            feed_id,
+            dates,
+            true, // realtime feed
+        );
+
+        // With max_backfill_days=5, start should be capped to today-5
+        let range = index
+            .resolve_chart_range("ES.c.0", ChartType::Candlestick, Some(5))
+            .unwrap();
+        let expected_start = today - chrono::Duration::days(5);
+        assert_eq!(range.start, expected_start);
+        assert_eq!(range.end, today);
+
+        // Without cap (None), the full cached range is used
+        let range_uncapped = index
+            .resolve_chart_range("ES.c.0", ChartType::Candlestick, None)
+            .unwrap();
+        assert_eq!(
+            range_uncapped.start,
+            today - chrono::Duration::days(30)
+        );
+        assert_eq!(range_uncapped.end, today);
+    }
+
+    #[test]
+    fn test_realtime_no_cache_uses_fallback() {
+        let mut index = DataIndex::new();
+        let feed_id = uuid::Uuid::new_v4();
+
+        // Realtime feed with empty dates
+        index.add_contribution(
+            DataKey {
+                ticker: "NQ.c.0".into(),
+                schema: "trades".into(),
+            },
+            feed_id,
+            BTreeSet::new(),
+            true,
+        );
+
+        let today = DateRange::today_et();
+
+        // With explicit backfill_days=7, uses that as fallback
+        let range = index
+            .resolve_chart_range("NQ.c.0", ChartType::Candlestick, Some(7))
+            .unwrap();
+        assert_eq!(range.start, today - chrono::Duration::days(7));
+        assert_eq!(range.end, today);
+
+        // Without backfill_days, uses default 4-day fallback
+        let range_default = index
+            .resolve_chart_range("NQ.c.0", ChartType::Candlestick, None)
+            .unwrap();
+        assert_eq!(
+            range_default.start,
+            today - chrono::Duration::days(4)
+        );
+        assert_eq!(range_default.end, today);
     }
 
     #[test]

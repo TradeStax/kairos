@@ -33,6 +33,9 @@ pub struct TradeMarker {
     pub label: Option<String>,
     /// Debug info for inspecting the underlying trade aggregation.
     pub debug: Option<TradeMarkerDebug>,
+    /// Per-marker shape override. When `Some`, overrides the
+    /// config-level shape for this specific marker.
+    pub shape_override: Option<MarkerShape>,
 }
 
 /// Debug information for a trade marker's aggregation window.
@@ -69,6 +72,8 @@ pub enum MarkerShape {
     Square,
     /// Label text only, no shape.
     TextOnly,
+    /// Small crosshair mark (horizontal + vertical lines).
+    Cross,
 }
 
 impl std::fmt::Display for MarkerShape {
@@ -77,6 +82,7 @@ impl std::fmt::Display for MarkerShape {
             MarkerShape::Circle => write!(f, "Circle"),
             MarkerShape::Square => write!(f, "Square"),
             MarkerShape::TextOnly => write!(f, "Text Only"),
+            MarkerShape::Cross => write!(f, "Cross"),
         }
     }
 }

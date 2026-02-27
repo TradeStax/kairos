@@ -329,6 +329,17 @@ fn extract_from_output(
                 });
             }
         }
+        study::StudyOutput::StudyCandles(series) => {
+            for s in series {
+                let n = s.points.len();
+                let start = n.saturating_sub(MAX_STUDY_POINTS);
+                let points: Vec<(u64, f32)> = s.points[start..]
+                    .iter()
+                    .map(|p| (p.x, p.close))
+                    .collect();
+                snap.bar_values.push((s.label.clone(), points));
+            }
+        }
         study::StudyOutput::Composite(children) => {
             for child in children {
                 extract_from_output(

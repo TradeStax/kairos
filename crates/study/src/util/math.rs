@@ -29,6 +29,24 @@ pub fn standard_deviation(values: &[f64]) -> f64 {
     variance(values).sqrt()
 }
 
+/// Population variance given a pre-computed mean.
+///
+/// Avoids recomputing the mean when the caller already has it
+/// (e.g. Bollinger Bands computes `mean` for the SMA, then needs
+/// the standard deviation over the same window).
+pub fn variance_with_mean(values: &[f64], avg: f64) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let sum_sq: f64 = values.iter().map(|v| (v - avg).powi(2)).sum();
+    sum_sq / values.len() as f64
+}
+
+/// Population standard deviation given a pre-computed mean.
+pub fn standard_deviation_with_mean(values: &[f64], avg: f64) -> f64 {
+    variance_with_mean(values, avg).sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,5 +75,40 @@ mod tests {
     #[test]
     fn test_variance_single_value() {
         assert_eq!(variance(&[5.0]), 0.0);
+    }
+
+    #[test]
+    fn test_variance_with_mean() {
+        let vals = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let avg = mean(&vals);
+        let v = variance_with_mean(&vals, avg);
+        assert!((v - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_standard_deviation_with_mean() {
+        let vals = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let avg = mean(&vals);
+        let sd = standard_deviation_with_mean(&vals, avg);
+        assert!((sd - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_with_mean_matches_without() {
+        let vals = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0];
+        let avg = mean(&vals);
+        let v1 = variance(&vals);
+        let v2 = variance_with_mean(&vals, avg);
+        assert!((v1 - v2).abs() < 1e-10);
+        let sd1 = standard_deviation(&vals);
+        let sd2 = standard_deviation_with_mean(&vals, avg);
+        assert!((sd1 - sd2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_with_mean_edge_cases() {
+        assert_eq!(variance_with_mean(&[], 0.0), 0.0);
+        assert_eq!(variance_with_mean(&[5.0], 5.0), 0.0);
+        assert_eq!(standard_deviation_with_mean(&[], 0.0), 0.0);
     }
 }

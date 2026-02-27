@@ -86,6 +86,12 @@ impl DataEngine {
         Ok((engine, event_rx))
     }
 
+    /// Returns `true` if the Databento adapter is initialized.
+    #[cfg(feature = "databento")]
+    pub fn has_databento(&self) -> bool {
+        self.databento.is_some()
+    }
+
     // ── Connection lifecycle ──────────────────────────────────────────
 
     #[cfg(feature = "databento")]
@@ -146,17 +152,22 @@ impl DataEngine {
 
     /// Get trades for a date range — routes to the best available adapter.
     ///
-    /// Priority: Databento (highest fidelity historical) → Rithmic (tick replay).
+    /// When `provider` is `None`, uses default priority:
+    /// Databento (highest fidelity historical) → Rithmic (tick replay).
+    /// When `provider` is `Some(p)`, only uses that specific adapter.
     pub async fn get_trades(
         &mut self,
         ticker: &FuturesTicker,
         date_range: &DateRange,
+        provider: Option<ConnectionProvider>,
     ) -> Result<Vec<Trade>, crate::Error> {
         let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
         let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
 
         #[cfg(feature = "databento")]
-        if let Some(adapter) = &mut self.databento {
+        if provider != Some(ConnectionProvider::Rithmic)
+            && let Some(adapter) = &mut self.databento
+        {
             return adapter
                 .get_trades(ticker.as_str(), (start, end))
                 .await
@@ -164,7 +175,9 @@ impl DataEngine {
         }
 
         #[cfg(feature = "rithmic")]
-        if let Some(rithmic) = self.rithmic.clone() {
+        if provider != Some(ConnectionProvider::Databento)
+            && let Some(rithmic) = self.rithmic.clone()
+        {
             use chrono::Datelike;
 
             let product = ticker.product().to_string();
@@ -274,6 +287,7 @@ impl DataEngine {
                         let cache = self.cache.clone();
                         let completed = completed.clone();
                         let day = *day;
+                        let is_today = day == today;
 
                         async move {
                             let guard = rithmic.lock().await;
@@ -287,8 +301,20 @@ impl DataEngine {
 
                             let day_start =
                                 day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() as i32;
-                            let day_end =
-                                day.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp() as i32;
+                            // For today's date, extend to now_utc to cover
+                            // the UTC/ET offset (ET lags UTC by 4-5h, so
+                            // trades after midnight UTC are still part of
+                            // "today" in ET but would be missed with a
+                            // strict end-of-day UTC cutoff).
+                            let day_end = if is_today {
+                                chrono::Utc::now().timestamp() as i32
+                            } else {
+                                day.and_hms_opt(23, 59, 59)
+                                    .unwrap()
+                                    .and_utc()
+                                    .timestamp()
+                                    as i32
+                            };
 
                             let responses = handle
                                 .load_ticks(&product, "CME", day_start, day_end)
@@ -384,6 +410,10 @@ impl DataEngine {
             for (_, trades) in day_results {
                 all_trades.extend(trades);
             }
+            // Ensure global sort — Rithmic tick replay doesn't guarantee
+            // intra-day order and CME sessions span UTC day boundaries.
+            // Timsort is O(n) on nearly-sorted data.
+            all_trades.sort_by_key(|t| t.time.0);
 
             let elapsed = total_start.elapsed();
             log::info!(
@@ -432,15 +462,19 @@ impl DataEngine {
         Ok(Vec::new())
     }
 
-    /// Get chart data — fetch trades + aggregate
+    /// Get chart data — fetch trades + aggregate.
+    ///
+    /// When `provider` is `Some(p)`, routes exclusively to that adapter.
+    /// When `None`, uses default priority (Databento → Rithmic).
     pub async fn get_chart_data(
         &mut self,
         ticker: &FuturesTicker,
         basis: ChartBasis,
         date_range: &DateRange,
         ticker_info: &FuturesTickerInfo,
+        provider: Option<ConnectionProvider>,
     ) -> Result<ChartData, crate::Error> {
-        let trades = self.get_trades(ticker, date_range).await?;
+        let trades = self.get_trades(ticker, date_range, provider).await?;
 
         if trades.is_empty() {
             return Ok(ChartData::from_trades(Vec::new(), Vec::new()));
@@ -470,6 +504,42 @@ impl DataEngine {
         &self.data_index
     }
 
+    // ── Cost estimation ─────────────────────────────────────────────
+
+    /// Estimate the Databento API cost (in USD) for downloading the given
+    /// symbol / schema / date range.  Returns `Err` if the Databento
+    /// adapter is not connected.
+    #[cfg(feature = "databento")]
+    pub async fn estimate_cost(
+        &mut self,
+        symbol: &str,
+        schema: crate::stream::DownloadSchema,
+        date_range: &DateRange,
+    ) -> Result<f64, crate::Error> {
+        let adapter = self
+            .databento
+            .as_mut()
+            .ok_or_else(|| {
+                crate::Error::Config(
+                    "Databento adapter not connected".to_string(),
+                )
+            })?;
+
+        let start =
+            date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let end = date_range
+            .end
+            .and_hms_opt(23, 59, 59)
+            .unwrap()
+            .and_utc();
+
+        let db_schema = schema.to_databento_schema();
+        adapter
+            .get_cost(symbol, db_schema, start, end)
+            .await
+            .map_err(crate::Error::from)
+    }
+
     // ── Cache ─────────────────────────────────────────────────────────
 
     /// Scans all provider cache directories and returns a merged data index
@@ -493,8 +563,10 @@ impl DataEngine {
             index.merge(db_index);
         }
 
-        // Scan Rithmic cache
-        {
+        // Scan Rithmic cache (only if connected — prevents orphaned entries
+        // with random feed IDs from accumulating)
+        #[cfg(feature = "rithmic")]
+        if self.rithmic.is_some() {
             let feed_id = self
                 .connections
                 .iter()
@@ -570,28 +642,26 @@ impl DataEngine {
 
         #[cfg(feature = "databento")]
         if let Some(adapter) = &mut self.databento {
-            let dates: Vec<_> = date_range.dates().collect();
-            let total_days = dates.len();
-
             let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
             let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
 
-            // Emit progress for each day
-            for (i, _date) in dates.iter().enumerate() {
-                let _ = self.event_tx.send(DataEvent::DownloadProgress {
-                    request_id,
-                    current_day: i + 1,
-                    total_days,
-                });
-            }
-
-            // Fetch trades (which caches them per-day)
+            let event_tx = self.event_tx.clone();
             let trades = adapter
-                .get_trades(ticker.as_str(), (start, end))
+                .get_trades_with_progress(
+                    ticker.as_str(),
+                    (start, end),
+                    |current_day, total_days, _date, _cached| {
+                        let _ = event_tx.send(DataEvent::DownloadProgress {
+                            request_id,
+                            current_day,
+                            total_days,
+                        });
+                    },
+                )
                 .await
                 .map_err(crate::Error::from)?;
 
-            let days_cached = total_days;
+            let days_cached = date_range.num_days() as usize;
 
             // Re-scan cache to update index
             let feed_id = self
@@ -627,7 +697,7 @@ impl DataEngine {
                 });
             }));
 
-            let trades = self.get_trades(ticker, date_range).await?;
+            let trades = self.get_trades(ticker, date_range, None).await?;
             self.progress_callback = None;
 
             // Re-scan cache to update index
@@ -662,6 +732,7 @@ impl DataEngine {
         (
             FeedId,
             std::sync::Arc<tokio::sync::Mutex<crate::adapter::rithmic::RithmicClient>>,
+            DataIndex,
         ),
         crate::Error,
     > {
@@ -707,7 +778,11 @@ impl DataEngine {
             provider: ConnectionProvider::Rithmic,
         });
 
-        // Scan Rithmic cache and merge previously cached data into index
+        // Scan Rithmic cache and merge previously cached data into
+        // the engine's internal index.  The cache index is also returned
+        // so the app layer can merge it synchronously — avoids a race
+        // where chart ranges are resolved before the async
+        // DataIndexUpdated event arrives.
         let rithmic_cache_index = self
             .cache
             .scan_to_index(CacheProvider::Rithmic, feed_id)
@@ -722,14 +797,11 @@ impl DataEngine {
                 .lock()
                 .await
                 .merge(rithmic_cache_index.clone());
-            let _ = self
-                .event_tx
-                .send(DataEvent::DataIndexUpdated(rithmic_cache_index));
         }
 
         log::info!("DataEngine: Rithmic connected (feed_id: {})", feed_id);
 
-        Ok((feed_id, client))
+        Ok((feed_id, client, rithmic_cache_index))
     }
 }
 

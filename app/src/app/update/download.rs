@@ -11,11 +11,20 @@ use crate::screen::dashboard;
 pub(crate) const GLOBAL_PANE_ID: uuid::Uuid = uuid::Uuid::nil();
 
 impl Kairos {
+    /// Get the Databento API key if available, for passing into async blocks
+    /// that need to lazily initialize the adapter.
+    fn databento_api_key(&self) -> Option<String> {
+        self.secrets
+            .get_api_key(crate::config::secrets::ApiProvider::Databento)
+            .key()
+            .map(|k| k.to_string())
+    }
+
     pub(crate) fn handle_estimate_data_cost(
         &mut self,
         pane_id: uuid::Uuid,
         ticker: data::FuturesTicker,
-        _schema: data::DownloadSchema,
+        schema: data::DownloadSchema,
         date_range: data::DateRange,
     ) -> Task<Message> {
         let Some(engine) = self.require_data_engine() else {
@@ -26,8 +35,8 @@ impl Kairos {
 
         Task::perform(
             async move {
-                let engine = engine.lock().await;
-                let cached = engine
+                let mut eng = engine.lock().await;
+                let cached = eng
                     .list_cached_dates(
                         &symbol,
                         data::cache::CacheSchema::Trades,
@@ -37,7 +46,24 @@ impl Kairos {
                     .into_iter()
                     .filter(|d| date_range.contains(*d))
                     .collect();
-                Ok((date_range.num_days() as usize, cached_in_range))
+
+                // Query real USD cost from Databento API
+                let cost = match eng
+                    .estimate_cost(&symbol, schema, &date_range)
+                    .await
+                {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        log::warn!("Cost estimation failed: {}", e);
+                        None
+                    }
+                };
+
+                Ok((
+                    date_range.num_days() as usize,
+                    cached_in_range,
+                    cost,
+                ))
             },
             move |result| {
                 Message::Download(DownloadMessage::DataCostEstimated {
@@ -51,13 +77,27 @@ impl Kairos {
     pub(crate) fn handle_data_cost_estimated(
         &mut self,
         pane_id: uuid::Uuid,
-        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>, Option<f64>), String>,
     ) -> Task<Message> {
         match result {
-            Ok((total_days, cached_dates)) => {
+            Ok((total_days, cached_dates, cost_usd)) => {
                 let cached_days = cached_dates.len();
                 let uncached_days = total_days.saturating_sub(cached_days);
-                log::info!("Cost estimated: {}/{} days cached", cached_days, total_days,);
+                if let Some(cost) = cost_usd {
+                    log::info!(
+                        "Cost estimated: {}/{} days cached, \
+                         ~${:.2} USD",
+                        cached_days,
+                        total_days,
+                        cost,
+                    );
+                } else {
+                    log::info!(
+                        "Cost estimated: {}/{} days cached",
+                        cached_days,
+                        total_days,
+                    );
+                }
 
                 if pane_id == GLOBAL_PANE_ID {
                     self.modals.data_management_panel.set_cache_status(
@@ -66,6 +106,7 @@ impl Kairos {
                             cached_days,
                             uncached_days,
                             gaps_description: None,
+                            estimated_cost_usd: cost_usd,
                         },
                         cached_dates,
                     );
@@ -98,15 +139,15 @@ impl Kairos {
             return Task::none();
         };
 
+        let api_key = self.databento_api_key();
         let ticker_clone = ticker;
         let date_range_clone = date_range;
 
         Task::perform(
             async move {
-                engine
-                    .lock()
-                    .await
-                    .download_to_cache(&ticker, schema, &date_range)
+                let mut eng = engine.lock().await;
+                ensure_databento_adapter(&mut eng, api_key).await?;
+                eng.download_to_cache(&ticker, schema, &date_range)
                     .await
                     .map_err(|e| e.to_string())
             },
@@ -328,7 +369,7 @@ impl Kairos {
             match action {
                 crate::modals::download::historical::Action::EstimateRequested {
                     ticker,
-                    schema: _schema,
+                    schema,
                     date_range,
                 } => {
                     let Some(engine) = self.require_data_engine() else {
@@ -338,8 +379,8 @@ impl Kairos {
 
                     return Task::perform(
                         async move {
-                            let engine = engine.lock().await;
-                            let cached = engine
+                            let mut eng = engine.lock().await;
+                            let cached = eng
                                 .list_cached_dates(
                                     &symbol,
                                     data::cache::CacheSchema::Trades,
@@ -349,9 +390,29 @@ impl Kairos {
                                 .into_iter()
                                 .filter(|d| date_range.contains(*d))
                                 .collect();
+
+                            let cost = match eng
+                                .estimate_cost(
+                                    &symbol,
+                                    schema,
+                                    &date_range,
+                                )
+                                .await
+                            {
+                                Ok(c) => Some(c),
+                                Err(e) => {
+                                    log::warn!(
+                                        "Cost estimation failed: {}",
+                                        e
+                                    );
+                                    None
+                                }
+                            };
+
                             Ok((
                                 date_range.num_days() as usize,
                                 cached_in_range,
+                                cost,
                             ))
                         },
                         move |result| {
@@ -371,16 +432,17 @@ impl Kairos {
                     let Some(engine) = self.require_data_engine() else {
                         return Task::none();
                     };
+                    let api_key = self.databento_api_key();
                     let download_id = uuid::Uuid::new_v4();
                     self.modals.historical_download_id = Some(download_id);
                     let ticker_clone = ticker;
                     let date_range_clone = date_range;
                     return Task::perform(
                         async move {
-                            engine
-                                .lock()
-                                .await
-                                .download_to_cache(&ticker, schema, &date_range)
+                            let mut eng = engine.lock().await;
+                            ensure_databento_adapter(&mut eng, api_key)
+                                .await?;
+                            eng.download_to_cache(&ticker, schema, &date_range)
                                 .await
                                 .map_err(|e| e.to_string())
                         },
@@ -404,11 +466,11 @@ impl Kairos {
 
     pub(crate) fn handle_historical_download_cost_estimated(
         &mut self,
-        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>, Option<f64>), String>,
     ) {
         if let Some(modal) = &mut self.modals.historical_download_modal {
             match result {
-                Ok((total_days, cached_dates)) => {
+                Ok((total_days, cached_dates, cost_usd)) => {
                     let cached_days = cached_dates.len();
                     let uncached_days = total_days.saturating_sub(cached_days);
                     modal.set_cache_status(
@@ -417,6 +479,7 @@ impl Kairos {
                             cached_days,
                             uncached_days,
                             gaps_description: None,
+                            estimated_cost_usd: cost_usd,
                         },
                         cached_dates,
                     );
@@ -515,4 +578,25 @@ impl Kairos {
         }
         Task::none()
     }
+}
+
+/// Lazily initialize the Databento adapter in the engine if it isn't
+/// already connected. Called inside async download blocks so the first
+/// download works even before a Databento feed has been explicitly
+/// connected (the normal flow for new historical datasets).
+async fn ensure_databento_adapter(
+    engine: &mut data::engine::DataEngine,
+    api_key: Option<String>,
+) -> Result<(), String> {
+    if !engine.has_databento() {
+        let key = api_key.ok_or_else(|| {
+            "Databento API key not configured".to_string()
+        })?;
+        let config = data::DatabentoConfig::with_api_key(key);
+        engine
+            .connect_databento(config)
+            .await
+            .map_err(|e| format!("Failed to initialize Databento: {}", e))?;
+    }
+    Ok(())
 }

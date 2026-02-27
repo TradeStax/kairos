@@ -145,8 +145,11 @@ pub fn render_markers(
 
         let center = Point::new(x, y);
 
+        // Per-marker shape override or config-level default
+        let shape = marker.shape_override.unwrap_or(config.shape);
+
         // Shape rendering
-        match config.shape {
+        match shape {
             MarkerShape::Circle => {
                 let circle = Path::circle(center, radius);
                 if config.hollow {
@@ -191,6 +194,30 @@ pub fn render_markers(
                     };
                     frame.stroke(&rect, Stroke::with_color(stroke, border_color));
                 }
+            }
+            MarkerShape::Cross => {
+                // Small crosshair: horizontal + vertical lines
+                let arm = radius * 0.7;
+                let stroke = Stroke {
+                    width: (1.5 / state.scaling).max(0.5),
+                    ..Stroke::default()
+                };
+                let h_line = Path::line(
+                    Point::new(center.x - arm, center.y),
+                    Point::new(center.x + arm, center.y),
+                );
+                let v_line = Path::line(
+                    Point::new(center.x, center.y - arm),
+                    Point::new(center.x, center.y + arm),
+                );
+                frame.stroke(
+                    &h_line,
+                    Stroke::with_color(stroke, color),
+                );
+                frame.stroke(
+                    &v_line,
+                    Stroke::with_color(stroke, color),
+                );
             }
             MarkerShape::TextOnly => {
                 // No shape drawn, only the text label below

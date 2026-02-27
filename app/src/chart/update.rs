@@ -247,6 +247,14 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
             chart.state().crosshair.y.set(None);
             return chart.invalidate_crosshair();
         }
+        Message::CenterOnPrice(price) => {
+            let price = data::Price::from_f64(*price);
+            let state = chart.mut_state();
+            let chart_y = state.price_to_y(price);
+            let center_screen_y = state.bounds.height / 2.0;
+            state.translation.y = center_screen_y / state.scaling - chart_y;
+            state.layout.autoscale = None;
+        }
         // Drawing messages are handled at the pane level where we have mutable access
         Message::DrawingClick(_, _)
         | Message::DrawingMove(_, _)
@@ -264,10 +272,22 @@ pub fn update<T: Chart>(chart: &mut T, message: &Message) {
         | Message::DrawingDoubleClick(_)
         | Message::StudyOverlaySelect(_)
         | Message::StudyOverlayDoubleClick(_)
-        | Message::StudyOverlayContextMenu(_, _) => {
+        | Message::StudyOverlayContextMenu(_, _)
+        | Message::StudyDetailClick(_) => {
             // These are handled by the pane/dashboard, not the chart itself
             return;
         }
     }
-    chart.invalidate_all();
+
+    // High-frequency viewport changes (zoom, pan) use the lighter
+    // invalidate_view() which skips study recomputation.
+    // Infrequent structural changes use the full invalidate_all().
+    match message {
+        Message::XScaling(..) | Message::YScaling(..) | Message::Translated(..) => {
+            chart.invalidate_view();
+        }
+        _ => {
+            chart.invalidate_all();
+        }
+    }
 }

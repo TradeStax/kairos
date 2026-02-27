@@ -71,6 +71,7 @@ pub enum SettingsTab {
     ValueArea,
     Nodes,
     Vwap,
+    Absorption,
 }
 
 impl SettingsTab {
@@ -82,6 +83,7 @@ impl SettingsTab {
         SettingsTab::ValueArea,
         SettingsTab::Nodes,
         SettingsTab::Vwap,
+        SettingsTab::Absorption,
     ];
 }
 
@@ -95,6 +97,7 @@ impl std::fmt::Display for SettingsTab {
             SettingsTab::ValueArea => write!(f, "Value Area"),
             SettingsTab::Nodes => write!(f, "Nodes"),
             SettingsTab::Vwap => write!(f, "VWAP"),
+            SettingsTab::Absorption => write!(f, "Absorption"),
         }
     }
 }

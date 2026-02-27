@@ -62,7 +62,7 @@ pub enum DownloadMessage {
     },
     DataCostEstimated {
         pane_id: uuid::Uuid,
-        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>, Option<f64>), String>,
     },
     DownloadData {
         pane_id: uuid::Uuid,
@@ -84,7 +84,7 @@ pub enum DownloadMessage {
     ApiKeySetup(modals::download::ApiKeySetupMessage),
     HistoricalDownload(modals::download::HistoricalDownloadMessage),
     HistoricalDownloadCostEstimated {
-        result: Result<(usize, Vec<chrono::NaiveDate>), String>,
+        result: Result<(usize, Vec<chrono::NaiveDate>, Option<f64>), String>,
     },
     HistoricalDownloadComplete {
         ticker: data::FuturesTicker,

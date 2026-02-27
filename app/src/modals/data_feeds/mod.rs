@@ -155,8 +155,8 @@ pub enum DataFeedsMessage {
     // "+" popup
     ToggleAddPopup,
     CloseAddPopup,
-    AddRealtime,
-    OpenHistoricalDownload,
+    AddRithmic,
+    AddDatabento,
     // Right panel - form
     SetProvider(ConnectionProvider),
     SetName(String),
@@ -298,7 +298,7 @@ impl DataFeedsModal {
             DataFeedsMessage::CloseAddPopup => {
                 self.add_popup_open = false;
             }
-            DataFeedsMessage::AddRealtime => {
+            DataFeedsMessage::AddRithmic => {
                 self.add_popup_open = false;
                 let feed = Connection::new_rithmic("New Connection");
                 let id = feed.id;
@@ -313,7 +313,7 @@ impl DataFeedsModal {
                     Action::ProbeSystemNames(self.edit_form.server),
                 ];
             }
-            DataFeedsMessage::OpenHistoricalDownload => {
+            DataFeedsMessage::AddDatabento => {
                 self.add_popup_open = false;
                 return vec![Action::OpenHistoricalDownload];
             }

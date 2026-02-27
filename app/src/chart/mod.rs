@@ -107,6 +107,10 @@ pub enum Message {
     StudyOverlaySelect(usize),
     StudyOverlayDoubleClick(usize),
     StudyOverlayContextMenu(Point, usize),
+    /// Open the detail modal for a study that has one.
+    StudyDetailClick(usize),
+    /// Center the chart vertically on the given price.
+    CenterOnPrice(f64),
 }
 
 /// Chart action for side effects

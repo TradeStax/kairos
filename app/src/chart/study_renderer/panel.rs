@@ -15,7 +15,7 @@ use crate::style;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Event, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
-use study::output::{BarSeries, HistogramBar, LineSeries, StudyOutput};
+use study::output::{BarSeries, HistogramBar, LineSeries, StudyCandleSeries, StudyOutput};
 
 /// Canvas program that renders panel studies in screen coordinates.
 pub struct StudyPanelCanvas<'a> {
@@ -322,6 +322,15 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
                 .chain(middle.iter().flat_map(|m| m.points.iter()))
                 .map(|(_, v)| *v),
         ),
+        StudyOutput::StudyCandles(series) => {
+            coord::value_range(
+                series
+                    .iter()
+                    .flat_map(|s| s.points.iter())
+                    .flat_map(|p| [p.low, p.high]),
+            )
+            .map(|(lo, hi)| (lo.min(0.0), hi))
+        }
         StudyOutput::Composite(outputs) => {
             let mut min = f32::MAX;
             let mut max = f32::MIN;
@@ -365,6 +374,9 @@ fn render_panel_content(
         }
         StudyOutput::Histogram(bars) => {
             render_panel_histogram(frame, bars, state, w, y_off, h);
+        }
+        StudyOutput::StudyCandles(series) => {
+            render_panel_study_candles(frame, series, state, w, y_off, h);
         }
         StudyOutput::Band {
             upper,
@@ -604,6 +616,73 @@ fn draw_histogram_bars(
 
         if height > 0.0 && bar_w > 0.0 {
             frame.fill_rectangle(Point::new(left, top), Size::new(bar_w, height), color);
+        }
+    }
+}
+
+// ── Study Candles ─────────────────────────────────────────────────────
+
+fn render_panel_study_candles(
+    frame: &mut canvas::Frame,
+    series: &[StudyCandleSeries],
+    state: &ViewState,
+    canvas_width: f32,
+    y_offset: f32,
+    panel_height: f32,
+) {
+    if series.is_empty() {
+        return;
+    }
+
+    let range = match coord::value_range(
+        series
+            .iter()
+            .flat_map(|s| s.points.iter())
+            .flat_map(|p| [p.low, p.high]),
+    ) {
+        Some(r) => (r.0.min(0.0), r.1),
+        None => return,
+    };
+
+    let bar_w = state.cell_width * state.scaling * 0.8;
+    let half_w = bar_w / 2.0;
+
+    for s in series {
+        for pt in &s.points {
+            let sx = interval_to_screen_x(state, pt.x, canvas_width);
+
+            // Screen-space culling — skip off-screen candles (MEDIUM-4)
+            if sx < -bar_w || sx > canvas_width + bar_w {
+                continue;
+            }
+
+            let y_high = value_to_y(pt.high, range.0, range.1, panel_height, y_offset);
+            let y_low = value_to_y(pt.low, range.0, range.1, panel_height, y_offset);
+            let y_open = value_to_y(pt.open, range.0, range.1, panel_height, y_offset);
+            let y_close = value_to_y(pt.close, range.0, range.1, panel_height, y_offset);
+
+            let body_color: Color = crate::style::theme::rgba_to_iced_color(pt.body_color);
+            let border_color: Color = crate::style::theme::rgba_to_iced_color(pt.border_color);
+
+            // Wick: high → low
+            if (y_low - y_high).abs() > 0.0 {
+                frame.stroke(
+                    &Path::line(Point::new(sx, y_high), Point::new(sx, y_low)),
+                    Stroke::default().with_color(border_color).with_width(1.0),
+                );
+            }
+
+            // Body: open → close (no outline stroke — fill + wick is sufficient)
+            let body_top = y_open.min(y_close);
+            let body_h = (y_open - y_close).abs().max(1.0);
+
+            if bar_w > 0.0 {
+                frame.fill_rectangle(
+                    Point::new(sx - half_w, body_top),
+                    Size::new(bar_w, body_h),
+                    body_color,
+                );
+            }
         }
     }
 }

@@ -70,7 +70,8 @@ impl Kairos {
             }));
         }
 
-        log::info!("Chart load: provider={:?}", resolved.provider,);
+        let provider = resolved.provider;
+        log::info!("Chart load: provider={:?}", provider);
 
         let Some(engine) = self.services.engine.clone() else {
             log::warn!("No data engine available");
@@ -115,6 +116,7 @@ impl Kairos {
                         config.basis,
                         &config.date_range,
                         &ticker_info,
+                        Some(provider),
                     )
                     .await;
 

@@ -47,6 +47,15 @@ pub trait Chart: canvas::Program<Message> {
     /// Invalidate all rendering caches (main, labels, crosshair)
     fn invalidate_all(&mut self);
 
+    /// Invalidate rendering caches for view-only changes (zoom, pan).
+    ///
+    /// Lighter than [`invalidate_all`] — clears caches and handles
+    /// autoscale but skips study recomputation. Use for high-frequency
+    /// viewport changes where the underlying data hasn't changed.
+    fn invalidate_view(&mut self) {
+        self.invalidate_all();
+    }
+
     /// Invalidate only the crosshair cache
     fn invalidate_crosshair(&mut self);
 
@@ -144,6 +153,12 @@ pub trait Chart: canvas::Program<Message> {
     /// Hit-test the study overlay text labels at the given screen
     /// point. Returns the study index if a label was hit.
     fn hit_test_study_overlay(&self, _point: Point) -> Option<usize> {
+        None
+    }
+
+    /// Hit-test the detail icon buttons next to study overlay labels.
+    /// Returns the study index if a detail button was hit.
+    fn hit_test_study_detail_button(&self, _point: Point) -> Option<usize> {
         None
     }
 

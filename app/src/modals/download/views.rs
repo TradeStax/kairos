@@ -67,31 +67,50 @@ pub fn cache_status_display<'a, Message: 'a>(
         let cached = status.cached_days;
         let uncached = status.uncached_days;
 
-        if cached == total {
-            text(format!("All {} days already downloaded", total))
-                .size(tokens::text::BODY)
-                .style(|theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(theme.extended_palette().success.base.color),
-                })
-                .into()
+        let cache_line = if cached == total {
+            format!("All {} days already downloaded", total)
         } else if cached > 0 {
-            text(format!(
+            format!(
                 "{}/{} days cached ({} to download)",
                 cached, total, uncached
-            ))
-            .size(tokens::text::BODY)
-            .style(|theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(theme.extended_palette().primary.base.color),
-            })
-            .into()
+            )
         } else {
-            text(format!("Need to download all {} days", total))
-                .size(tokens::text::BODY)
-                .style(|theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(theme.extended_palette().secondary.base.color),
-                })
-                .into()
-        }
+            format!("Need to download all {} days", total)
+        };
+
+        let cost_suffix = match status.estimated_cost_usd {
+            Some(cost) if cost < 0.01 => " \u{2014} Est. cost: <$0.01".to_string(),
+            Some(cost) => format!(" \u{2014} Est. cost: ${:.2}", cost),
+            None => String::new(),
+        };
+
+        let display = format!("{}{}", cache_line, cost_suffix);
+
+        let text_style: fn(&iced::Theme) -> iced::widget::text::Style =
+            if cached == total {
+                |theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(
+                        theme.extended_palette().success.base.color,
+                    ),
+                }
+            } else if cached > 0 {
+                |theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(
+                        theme.extended_palette().primary.base.color,
+                    ),
+                }
+            } else {
+                |theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(
+                        theme.extended_palette().secondary.base.color,
+                    ),
+                }
+            };
+
+        text(display)
+            .size(tokens::text::BODY)
+            .style(text_style)
+            .into()
     } else {
         text("Select date range to see cache status")
             .size(tokens::text::SMALL)
@@ -185,6 +204,16 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
         .unwrap_or(0);
     let uncached_days = (total_days as usize).saturating_sub(cached_days);
 
+    let cost_label = cache_status
+        .and_then(|s| s.estimated_cost_usd)
+        .map(|c| {
+            if c < 0.01 {
+                "Estimated cost: <$0.01".to_string()
+            } else {
+                format!("Estimated cost: ${:.2}", c)
+            }
+        });
+
     let status_text = if cached_days == total_days as usize {
         text("All data already cached — no download needed")
             .size(tokens::text::TITLE)
@@ -198,52 +227,70 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
         text(format!("{} days total", total_days)).size(tokens::text::TITLE)
     };
 
+    let mut confirm_items = column![
+        text("Confirm Download").size(tokens::text::HEADING),
+        space::vertical().height(Length::Fixed(12.0)),
+        text(format!("{} - {}", symbol, name)).size(tokens::text::TITLE),
+        text(format!("Schema: {}", schema_name)).size(tokens::text::LABEL),
+        text(format!(
+            "Date Range: {} to {}",
+            start_date.format("%b %d, %Y"),
+            end_date.format("%b %d, %Y")
+        ))
+        .size(tokens::text::LABEL),
+        space::vertical().height(Length::Fixed(8.0)),
+        text(format!(
+            "{} days total ({} cached, {} to download)",
+            total_days, cached_days, uncached_days
+        ))
+        .size(tokens::text::BODY),
+    ]
+    .spacing(tokens::spacing::SM)
+    .align_x(Alignment::Center);
+
+    if let Some(label) = cost_label {
+        confirm_items = confirm_items.push(
+            text(label)
+                .size(tokens::text::BODY)
+                .style(|theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(
+                        theme.extended_palette().primary.base.color,
+                    ),
+                }),
+        );
+    }
+
+    confirm_items = confirm_items
+        .push(space::vertical().height(Length::Fixed(12.0)))
+        .push(status_text)
+        .push(space::vertical().height(Length::Fixed(16.0)));
+
     let confirm_content = container(
-        column![
-            text("Confirm Download").size(tokens::text::HEADING),
-            space::vertical().height(Length::Fixed(12.0)),
-            text(format!("{} - {}", symbol, name)).size(tokens::text::TITLE),
-            text(format!("Schema: {}", schema_name)).size(tokens::text::LABEL),
-            text(format!(
-                "Date Range: {} to {}",
-                start_date.format("%b %d, %Y"),
-                end_date.format("%b %d, %Y")
-            ))
-            .size(tokens::text::LABEL),
-            space::vertical().height(Length::Fixed(8.0)),
-            text(format!(
-                "{} days total ({} cached, {} to download)",
-                total_days, cached_days, uncached_days
-            ))
-            .size(tokens::text::BODY),
-            space::vertical().height(Length::Fixed(12.0)),
-            status_text,
-            space::vertical().height(Length::Fixed(16.0)),
-            row![
-                button(
-                    text("Cancel")
-                        .size(tokens::text::LABEL)
-                        .align_x(Alignment::Center)
-                )
-                .on_press(on_cancel.clone())
-                .width(Length::Fill)
-                .padding([tokens::spacing::MD, tokens::spacing::XL])
-                .style(style::button::secondary),
-                button(
-                    text("Confirm")
-                        .size(tokens::text::LABEL)
-                        .align_x(Alignment::Center)
-                )
-                .on_press(on_confirm)
-                .width(Length::Fill)
-                .padding([tokens::spacing::MD, tokens::spacing::XL])
-                .style(style::button::primary),
-            ]
-            .spacing(tokens::spacing::MD)
-        ]
-        .spacing(tokens::spacing::SM)
-        .padding(tokens::spacing::XXL)
-        .align_x(Alignment::Center),
+        confirm_items
+            .push(
+                row![
+                    button(
+                        text("Cancel")
+                            .size(tokens::text::LABEL)
+                            .align_x(Alignment::Center)
+                    )
+                    .on_press(on_cancel.clone())
+                    .width(Length::Fill)
+                    .padding([tokens::spacing::MD, tokens::spacing::XL])
+                    .style(style::button::secondary),
+                    button(
+                        text("Confirm")
+                            .size(tokens::text::LABEL)
+                            .align_x(Alignment::Center)
+                    )
+                    .on_press(on_confirm)
+                    .width(Length::Fill)
+                    .padding([tokens::spacing::MD, tokens::spacing::XL])
+                    .style(style::button::primary),
+                ]
+                .spacing(tokens::spacing::MD),
+            )
+            .padding(tokens::spacing::XXL),
     )
     .width(Length::Fixed(tokens::layout::CONFIRM_DIALOG_WIDTH))
     .style(style::confirm_modal);

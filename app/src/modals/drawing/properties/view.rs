@@ -472,5 +472,6 @@ pub(super) fn vbp_tab_default_label(tab: study::ParameterTab) -> &'static str {
         study::ParameterTab::Nodes => "Peak & Valley",
         study::ParameterTab::Vwap => "VWAP",
         study::ParameterTab::Display => "Display",
+        study::ParameterTab::Absorption => "Absorption",
     }
 }

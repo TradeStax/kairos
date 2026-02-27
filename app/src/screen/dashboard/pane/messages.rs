@@ -47,6 +47,7 @@ pub enum Event {
     DrawingPropertiesChanged(crate::modals::drawing::properties::Message),
     IndicatorManagerInteraction(crate::modals::pane::indicator::Message),
     OpenIndicatorManager,
+    LevelDetailInteraction(crate::modals::pane::level_detail::Message),
     AiAssistant(AiAssistantEvent),
     AiContextBubble(AiContextBubbleEvent),
 }

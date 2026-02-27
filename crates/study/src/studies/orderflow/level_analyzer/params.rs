@@ -1,0 +1,650 @@
+//! Parameter definitions for the Level Analyzer study.
+
+use crate::config::{
+    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab,
+    ParameterValue, Visibility,
+};
+use data::SerializableColor;
+
+// ── Default colors ───────────────────────────────────────────────
+
+pub const POC_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(255, 215, 0);       // #FFD700
+pub const SESSION_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(255, 107, 107);     // #FF6B6B
+pub const PRIOR_DAY_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(255, 159, 67);      // #FF9F43
+pub const HVN_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(34, 211, 238);      // #22D3EE
+pub const LVN_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(244, 114, 182);     // #F472B6
+pub const VAH_VAL_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(74, 158, 255);      // #4A9EFF
+pub const DELTA_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(168, 85, 247);      // #A855F7
+pub const OR_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(16, 185, 129);      // #10B981
+pub const MANUAL_COLOR: SerializableColor =
+    SerializableColor::from_rgb8_const(226, 232, 240);     // #E2E8F0
+
+// ── Tab labels ───────────────────────────────────────────────────
+
+pub const TAB_LABELS: &[(&str, ParameterTab)] = &[
+    ("Detection", ParameterTab::Parameters),
+    ("Sources", ParameterTab::Style),
+    ("Analysis", ParameterTab::ValueArea),
+    ("Style", ParameterTab::Display),
+    ("Display", ParameterTab::PocSettings),
+];
+
+// ── Sections ─────────────────────────────────────────────────────
+
+const SEC_TOLERANCE: ParameterSection = ParameterSection {
+    label: "Tolerance",
+    order: 0,
+};
+const SEC_DETECTION: ParameterSection = ParameterSection {
+    label: "Detection",
+    order: 1,
+};
+const SEC_PROFILE: ParameterSection = ParameterSection {
+    label: "Profile Sources",
+    order: 0,
+};
+const SEC_SESSION: ParameterSection = ParameterSection {
+    label: "Session Sources",
+    order: 1,
+};
+const SEC_OTHER: ParameterSection = ParameterSection {
+    label: "Other Sources",
+    order: 2,
+};
+const SEC_COLORS: ParameterSection = ParameterSection {
+    label: "Level Colors",
+    order: 0,
+};
+const SEC_LINE: ParameterSection = ParameterSection {
+    label: "Line",
+    order: 1,
+};
+const SEC_LABELS: ParameterSection = ParameterSection {
+    label: "Labels",
+    order: 0,
+};
+const SEC_SESSION_CONFIG: ParameterSection = ParameterSection {
+    label: "Sessions",
+    order: 2,
+};
+const SEC_BLOCK: ParameterSection = ParameterSection {
+    label: "Block Detection",
+    order: 0,
+};
+
+/// Build the full parameter definition list.
+pub fn build_params() -> Vec<ParameterDef> {
+    vec![
+        // ── Detection tab (ParameterTab::Parameters) ─────────
+        ParameterDef {
+            key: "tolerance_mode".into(),
+            label: "Tolerance Mode".into(),
+            description: "Fixed ticks or ATR-adaptive tolerance zone".into(),
+            kind: ParameterKind::Choice {
+                options: &["Fixed Ticks", "ATR-Based"],
+            },
+            default: ParameterValue::Choice("Fixed Ticks".into()),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_TOLERANCE),
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "tolerance_ticks".into(),
+            label: "Tolerance Ticks".into(),
+            description: "Number of ticks around level for touch detection"
+                .into(),
+            kind: ParameterKind::Integer { min: 1, max: 20 },
+            default: ParameterValue::Integer(4),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_TOLERANCE),
+            order: 1,
+            format: DisplayFormat::Integer { suffix: " ticks" },
+            visible_when: Visibility::WhenChoice {
+                key: "tolerance_mode",
+                equals: "Fixed Ticks",
+            },
+        },
+        ParameterDef {
+            key: "atr_period".into(),
+            label: "ATR Period".into(),
+            description: "Period for ATR calculation".into(),
+            kind: ParameterKind::Integer { min: 5, max: 50 },
+            default: ParameterValue::Integer(14),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_TOLERANCE),
+            order: 2,
+            format: DisplayFormat::Integer { suffix: "" },
+            visible_when: Visibility::WhenChoice {
+                key: "tolerance_mode",
+                equals: "ATR-Based",
+            },
+        },
+        ParameterDef {
+            key: "atr_multiplier".into(),
+            label: "ATR Multiplier".into(),
+            description: "Fraction of ATR to use as tolerance".into(),
+            kind: ParameterKind::Float {
+                min: 0.1,
+                max: 2.0,
+                step: 0.1,
+            },
+            default: ParameterValue::Float(0.5),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_TOLERANCE),
+            order: 3,
+            format: DisplayFormat::Float { decimals: 1 },
+            visible_when: Visibility::WhenChoice {
+                key: "tolerance_mode",
+                equals: "ATR-Based",
+            },
+        },
+        ParameterDef {
+            key: "break_threshold".into(),
+            label: "Break Threshold".into(),
+            description: "Multiples of tolerance for a level to be broken"
+                .into(),
+            kind: ParameterKind::Float {
+                min: 1.0,
+                max: 5.0,
+                step: 0.1,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 4,
+            format: DisplayFormat::Float { decimals: 1 },
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "va_percentage".into(),
+            label: "Value Area %".into(),
+            description: "Percentage of volume for value area".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 0.95,
+                step: 0.05,
+            },
+            default: ParameterValue::Float(0.7),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 5,
+            format: DisplayFormat::Percent,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "delta_threshold".into(),
+            label: "Delta Threshold".into(),
+            description: "Std dev multiples for delta zone detection".into(),
+            kind: ParameterKind::Float {
+                min: 1.0,
+                max: 4.0,
+                step: 0.1,
+            },
+            default: ParameterValue::Float(2.0),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 6,
+            format: DisplayFormat::Float { decimals: 1 },
+            visible_when: Visibility::WhenTrue("enable_delta_zones"),
+        },
+        ParameterDef {
+            key: "opening_range_minutes".into(),
+            label: "Opening Range".into(),
+            description: "Minutes from RTH open for opening range".into(),
+            kind: ParameterKind::Integer { min: 5, max: 60 },
+            default: ParameterValue::Integer(30),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 7,
+            format: DisplayFormat::Integer { suffix: " min" },
+            visible_when: Visibility::WhenTrue("enable_opening_range"),
+        },
+        ParameterDef {
+            key: "max_levels".into(),
+            label: "Max Levels".into(),
+            description: "Maximum number of levels to display".into(),
+            kind: ParameterKind::Integer { min: 5, max: 100 },
+            default: ParameterValue::Integer(30),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 8,
+            format: DisplayFormat::Integer { suffix: "" },
+            visible_when: Visibility::Always,
+        },
+        // ── Session configuration ─────────────────────────────
+        ParameterDef {
+            key: "session_mode".into(),
+            label: "Level Mode".into(),
+            description: "Per Session detects levels from each \
+                completed session independently. Aggregate builds \
+                one profile from all data."
+                .into(),
+            kind: ParameterKind::Choice {
+                options: &["Per Session", "Aggregate"],
+            },
+            default: ParameterValue::Choice(
+                "Per Session".into(),
+            ),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_SESSION_CONFIG),
+            order: 10,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "session_types".into(),
+            label: "Session Types".into(),
+            description:
+                "Which session types to detect levels from".into(),
+            kind: ParameterKind::Choice {
+                options: &["RTH + ETH", "RTH Only", "ETH Only"],
+            },
+            default: ParameterValue::Choice(
+                "RTH + ETH".into(),
+            ),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_SESSION_CONFIG),
+            order: 11,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::WhenChoice {
+                key: "session_mode",
+                equals: "Per Session",
+            },
+        },
+        ParameterDef {
+            key: "visible_sessions".into(),
+            label: "Sessions to Show".into(),
+            description:
+                "Number of past completed sessions to display \
+                levels from"
+                    .into(),
+            kind: ParameterKind::Integer { min: 1, max: 20 },
+            default: ParameterValue::Integer(3),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_SESSION_CONFIG),
+            order: 12,
+            format: DisplayFormat::Integer { suffix: "" },
+            visible_when: Visibility::WhenChoice {
+                key: "session_mode",
+                equals: "Per Session",
+            },
+        },
+        ParameterDef {
+            key: "hvn_threshold".into(),
+            label: "HVN Threshold".into(),
+            description: "Std dev threshold for HVN detection. \
+                Higher values detect fewer, more significant nodes."
+                .into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 3.0,
+                step: 0.25,
+            },
+            default: ParameterValue::Float(1.5),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 9,
+            format: DisplayFormat::Float { decimals: 2 },
+            visible_when: Visibility::WhenTrue("enable_hvn"),
+        },
+        ParameterDef {
+            key: "hvn_min_prominence".into(),
+            label: "HVN Min Prominence".into(),
+            description: "Minimum prominence for HVN peaks. \
+                Higher values filter out minor peaks near POC."
+                .into(),
+            kind: ParameterKind::Float {
+                min: 0.0,
+                max: 1.0,
+                step: 0.05,
+            },
+            default: ParameterValue::Float(0.25),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 10,
+            format: DisplayFormat::Float { decimals: 2 },
+            visible_when: Visibility::WhenTrue("enable_hvn"),
+        },
+        ParameterDef {
+            key: "hvn_poc_exclusion".into(),
+            label: "HVN POC Exclusion".into(),
+            description: "Number of ticks around POC to exclude \
+                from HVN detection (prevents false positives \
+                clustering near POC)."
+                .into(),
+            kind: ParameterKind::Integer { min: 0, max: 50 },
+            default: ParameterValue::Integer(10),
+            tab: ParameterTab::Parameters,
+            section: Some(SEC_DETECTION),
+            order: 11,
+            format: DisplayFormat::Integer { suffix: " ticks" },
+            visible_when: Visibility::WhenTrue("enable_hvn"),
+        },
+        // ── Sources tab (ParameterTab::Style) ─────────────────
+        ParameterDef {
+            key: "enable_hvn".into(),
+            label: "High Volume Nodes".into(),
+            description: "Detect HVN levels from volume profile".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_PROFILE),
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_lvn".into(),
+            label: "Low Volume Nodes".into(),
+            description: "Detect LVN levels from volume profile".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_PROFILE),
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_poc".into(),
+            label: "Point of Control".into(),
+            description: "Detect POC from volume profile".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_PROFILE),
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_vah_val".into(),
+            label: "Value Area (VAH/VAL)".into(),
+            description: "Detect value area high/low".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_PROFILE),
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_session_hl".into(),
+            label: "Session High/Low".into(),
+            description: "Current session high and low".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_SESSION),
+            order: 4,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_prior_day".into(),
+            label: "Prior Day H/L/C".into(),
+            description: "Prior day high, low, and close".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_SESSION),
+            order: 5,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_opening_range".into(),
+            label: "Opening Range".into(),
+            description: "Opening range high/low".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::Style,
+            section: Some(SEC_SESSION),
+            order: 6,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "enable_delta_zones".into(),
+            label: "Delta Zones".into(),
+            description: "Detect levels with extreme delta imbalance".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::Style,
+            section: Some(SEC_OTHER),
+            order: 7,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        // ── Style tab (ParameterTab::Display) ─────────────────
+        ParameterDef {
+            key: "poc_color".into(),
+            label: "POC".into(),
+            description: "POC level color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(POC_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "session_color".into(),
+            label: "Session H/L".into(),
+            description: "Session high/low level color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(SESSION_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "prior_day_color".into(),
+            label: "Prior Day".into(),
+            description: "Prior day H/L/C level color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(PRIOR_DAY_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "hvn_color".into(),
+            label: "HVN".into(),
+            description: "High volume node color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(HVN_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "lvn_color".into(),
+            label: "LVN".into(),
+            description: "Low volume node color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(LVN_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 4,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "vah_val_color".into(),
+            label: "VAH/VAL".into(),
+            description: "Value area high/low color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(VAH_VAL_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 5,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "delta_color".into(),
+            label: "Delta Zones".into(),
+            description: "Delta zone level color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(DELTA_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 6,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "or_color".into(),
+            label: "Opening Range".into(),
+            description: "Opening range color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(OR_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 7,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "manual_color".into(),
+            label: "Manual".into(),
+            description: "Manual level color".into(),
+            kind: ParameterKind::Color,
+            default: ParameterValue::Color(MANUAL_COLOR),
+            tab: ParameterTab::Display,
+            section: Some(SEC_COLORS),
+            order: 8,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "line_width".into(),
+            label: "Line Width".into(),
+            description: "Width of level lines".into(),
+            kind: ParameterKind::Float {
+                min: 0.5,
+                max: 3.0,
+                step: 0.5,
+            },
+            default: ParameterValue::Float(1.0),
+            tab: ParameterTab::Display,
+            section: Some(SEC_LINE),
+            order: 9,
+            format: DisplayFormat::Float { decimals: 1 },
+            visible_when: Visibility::Always,
+        },
+        // ── Display tab (ParameterTab::PocSettings) ───────────
+        ParameterDef {
+            key: "show_labels".into(),
+            label: "Show Labels".into(),
+            description: "Show source labels next to levels".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::PocSettings,
+            section: Some(SEC_LABELS),
+            order: 0,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "show_broken_levels".into(),
+            label: "Show Broken Levels".into(),
+            description: "Continue showing levels that have been broken"
+                .into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::PocSettings,
+            section: Some(SEC_LABELS),
+            order: 1,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "show_touch_count".into(),
+            label: "Show Touch Count".into(),
+            description: "Append touch count to level labels".into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::PocSettings,
+            section: Some(SEC_LABELS),
+            order: 2,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "show_strength".into(),
+            label: "Show Strength".into(),
+            description: "Append strength percentage to level labels"
+                .into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(false),
+            tab: ParameterTab::PocSettings,
+            section: Some(SEC_LABELS),
+            order: 3,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "show_zones".into(),
+            label: "Show Zones".into(),
+            description:
+                "Render levels as shaded zones instead of lines"
+                    .into(),
+            kind: ParameterKind::Boolean,
+            default: ParameterValue::Boolean(true),
+            tab: ParameterTab::PocSettings,
+            section: Some(SEC_LABELS),
+            order: 4,
+            format: DisplayFormat::Auto,
+            visible_when: Visibility::Always,
+        },
+        // ── Analysis tab (ParameterTab::ValueArea) ──────────
+        ParameterDef {
+            key: "block_min_qty".into(),
+            label: "Block Min Qty".into(),
+            description:
+                "Minimum quantity for a block trade detection"
+                    .into(),
+            kind: ParameterKind::Integer { min: 5, max: 500 },
+            default: ParameterValue::Integer(25),
+            tab: ParameterTab::ValueArea,
+            section: Some(SEC_BLOCK),
+            order: 0,
+            format: DisplayFormat::Integer { suffix: "" },
+            visible_when: Visibility::Always,
+        },
+        ParameterDef {
+            key: "aggregation_window_ms".into(),
+            label: "Aggregation Window".into(),
+            description:
+                "Max ms between fills to aggregate into one block"
+                    .into(),
+            kind: ParameterKind::Integer { min: 10, max: 200 },
+            default: ParameterValue::Integer(40),
+            tab: ParameterTab::ValueArea,
+            section: Some(SEC_BLOCK),
+            order: 1,
+            format: DisplayFormat::Integer { suffix: " ms" },
+            visible_when: Visibility::Always,
+        },
+    ]
+}

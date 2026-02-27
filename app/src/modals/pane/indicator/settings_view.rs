@@ -442,6 +442,7 @@ fn tab_default_label(tab: study::ParameterTab) -> &'static str {
         study::ParameterTab::ValueArea => "Value Area",
         study::ParameterTab::Nodes => "Nodes",
         study::ParameterTab::Vwap => "VWAP",
+        study::ParameterTab::Absorption => "Absorption",
     }
 }
 
@@ -455,6 +456,7 @@ fn param_tab_to_settings_tab(tab: study::ParameterTab) -> SettingsTab {
         study::ParameterTab::ValueArea => SettingsTab::ValueArea,
         study::ParameterTab::Nodes => SettingsTab::Nodes,
         study::ParameterTab::Vwap => SettingsTab::Vwap,
+        study::ParameterTab::Absorption => SettingsTab::Absorption,
     }
 }
 
@@ -468,6 +470,7 @@ fn settings_tab_to_param_tab(tab: SettingsTab) -> study::ParameterTab {
         SettingsTab::ValueArea => study::ParameterTab::ValueArea,
         SettingsTab::Nodes => study::ParameterTab::Nodes,
         SettingsTab::Vwap => study::ParameterTab::Vwap,
+        SettingsTab::Absorption => study::ParameterTab::Absorption,
     }
 }
 

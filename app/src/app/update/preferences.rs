@@ -29,8 +29,45 @@ impl Kairos {
         match provider {
             crate::config::secrets::ApiProvider::Databento => {
                 log::info!("Reinitializing Databento service with new API key...");
-                // Reinitialize the DataEngine with the new API key.
-                return Task::perform(services::initialize_data_engine(), Message::DataEngineReady);
+                // Connect (or reconnect) the Databento adapter on the existing
+                // engine rather than creating a brand-new engine, which would
+                // lose the event channel OnceLock.
+                if let Some(engine) = self.services.engine.clone() {
+                    let key = self
+                        .secrets
+                        .get_api_key(crate::config::secrets::ApiProvider::Databento)
+                        .key()
+                        .unwrap_or_default()
+                        .to_string();
+                    return Task::perform(
+                        async move {
+                            let mut eng = engine.lock().await;
+                            let config =
+                                data::DatabentoConfig::with_api_key(key);
+                            if let Err(e) =
+                                eng.connect_databento(config).await
+                            {
+                                log::error!(
+                                    "Failed to reconnect Databento: {}",
+                                    e
+                                );
+                            }
+                            let index = eng.scan_cache().await;
+                            Ok(index)
+                        },
+                        Message::DataIndexRebuilt,
+                    );
+                }
+                // Fallback: no engine yet — do a full init
+                let api_key = self
+                    .secrets
+                    .get_api_key(crate::config::secrets::ApiProvider::Databento)
+                    .key()
+                    .map(|s| s.to_string());
+                return Task::perform(
+                    services::initialize_data_engine(api_key),
+                    Message::DataEngineReady,
+                );
             }
             crate::config::secrets::ApiProvider::Rithmic => {
                 log::info!("Reinitializing Rithmic service with new password...");

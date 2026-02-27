@@ -46,6 +46,8 @@ pub struct CacheStatus {
     pub uncached_days: usize,
     /// Optional description of gaps (used by data_management panel)
     pub gaps_description: Option<String>,
+    /// Estimated Databento API cost in USD (None if unavailable)
+    pub estimated_cost_usd: Option<f64>,
 }
 
 /// Download progress state shared by both download modals

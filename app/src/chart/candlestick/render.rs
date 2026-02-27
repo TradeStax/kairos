@@ -286,6 +286,7 @@ impl canvas::Program<Message> for KlineChart {
                         palette,
                         y_start,
                         &self.study_overlay_rects,
+                        &self.study_detail_button_rects,
                         state.selected_study_overlay,
                         cursor_position,
                     );
@@ -337,8 +338,16 @@ impl canvas::Program<Message> for KlineChart {
             return i;
         }
         if let Some(cursor_position) = cursor.position_in(bounds) {
-            // Check study overlay labels first
+            // Check study detail buttons first
             if self
+                .study_detail_button_rects
+                .borrow()
+                .iter()
+                .any(|(_, r)| r.contains(cursor_position))
+            {
+                mouse::Interaction::Pointer
+            // Check study overlay labels
+            } else if self
                 .study_overlay_rects
                 .borrow()
                 .iter()
@@ -763,9 +772,49 @@ fn draw_output_entries(
                 );
             }
         }
+        study::StudyOutput::Levels(levels) => {
+            buf.clear();
+            let _ = write!(buf, "{} levels", levels.len());
+            emit_study_line(
+                frame,
+                name,
+                buf,
+                base_color,
+                base_color,
+                x,
+                y,
+                line_height,
+                alpha,
+            );
+        }
+        study::StudyOutput::StudyCandles(series) => {
+            for s in series {
+                let value_color = s
+                    .points
+                    .first()
+                    .map(|p| crate::style::theme::rgba_to_iced_color(p.border_color))
+                    .unwrap_or(base_color);
+
+                buf.clear();
+                if let Some(pt) = s.points.iter().find(|p| p.x == at) {
+                    use std::fmt::Write;
+                    let _ = write!(buf, "{:.1}", pt.close);
+                }
+                emit_study_line(
+                    frame,
+                    &s.label,
+                    buf,
+                    base_color,
+                    value_color,
+                    x,
+                    y,
+                    line_height,
+                    alpha,
+                );
+            }
+        }
         // Non-scalar outputs: show study name only
-        study::StudyOutput::Levels(_)
-        | study::StudyOutput::Profile(_, _)
+        study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
         | study::StudyOutput::Markers(_) => {
             emit_study_line(
@@ -792,6 +841,7 @@ fn study_line_count(output: &study::StudyOutput) -> usize {
         study::StudyOutput::Bars(series) => series.len(),
         study::StudyOutput::Histogram(_) => 1,
         study::StudyOutput::Composite(subs) => subs.iter().map(study_line_count).sum(),
+        study::StudyOutput::StudyCandles(series) => series.len().max(1),
         study::StudyOutput::Levels(_)
         | study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
@@ -818,6 +868,7 @@ fn draw_study_overlay(
     palette: &Extended,
     y_start: f32,
     hit_rects: &RefCell<Vec<(usize, Rectangle)>>,
+    detail_button_rects: &RefCell<Vec<(usize, Rectangle)>>,
     selected: Option<usize>,
     cursor_position: Point,
 ) {
@@ -827,9 +878,12 @@ fn draw_study_overlay(
 
     let hit_width: f32 = 300.0;
     let pad: f32 = 2.0;
+    let detail_icon_size: f32 = 10.0;
+    let detail_icon_pad: f32 = 4.0;
 
     // Pass 1: pre-compute rects to determine hover
     let mut rects: Vec<(usize, Rectangle)> = Vec::new();
+    let mut detail_rects: Vec<(usize, Rectangle)> = Vec::new();
     let mut y = y_start;
     for (index, study) in studies.iter().enumerate() {
         let output = study.output();
@@ -850,6 +904,21 @@ fn draw_study_overlay(
                 height: rect_height + 2.0 * pad,
             },
         ));
+
+        // Detail button rect for studies that have a detail modal
+        if study.has_detail_modal() {
+            let btn_x = x + hit_width + detail_icon_pad;
+            let btn_y = y_before + (line_height - detail_icon_size) / 2.0;
+            detail_rects.push((
+                index,
+                Rectangle {
+                    x: btn_x,
+                    y: btn_y,
+                    width: detail_icon_size + 2.0 * detail_icon_pad,
+                    height: detail_icon_size + 2.0 * detail_icon_pad,
+                },
+            ));
+        }
     }
 
     let hovered_index = rects
@@ -857,7 +926,13 @@ fn draw_study_overlay(
         .find(|(_, r)| r.contains(cursor_position))
         .map(|(idx, _)| *idx);
 
+    let hovered_detail = detail_rects
+        .iter()
+        .find(|(_, r)| r.contains(cursor_position))
+        .map(|(idx, _)| *idx);
+
     *hit_rects.borrow_mut() = rects;
+    *detail_button_rects.borrow_mut() = detail_rects.clone();
 
     // Pass 2: draw with dim for non-hovered studies
     let mut buf = String::with_capacity(64);
@@ -905,6 +980,40 @@ fn draw_study_overlay(
                     .with_width(1.0)
                     .with_color(palette.primary.base.color.scale_alpha(0.4)),
             );
+        }
+
+        // Draw detail icon for studies with a detail modal
+        if study.has_detail_modal() {
+            if let Some((_, btn_rect)) = detail_rects
+                .iter()
+                .find(|(idx, _)| *idx == index)
+            {
+                let icon_alpha = if hovered_detail == Some(index) {
+                    1.0
+                } else {
+                    0.5
+                };
+                let icon_color =
+                    base_color.scale_alpha(icon_alpha * alpha);
+
+                // Draw a simple list/detail icon (three horizontal lines)
+                let cx = btn_rect.x + detail_icon_pad;
+                let cy = btn_rect.y + detail_icon_pad;
+                let line_w = detail_icon_size;
+                let gap = detail_icon_size / 4.0;
+                for i in 0..3 {
+                    let ly = cy + gap * i as f32 + gap * 0.5;
+                    frame.stroke(
+                        &canvas::Path::line(
+                            Point::new(cx, ly),
+                            Point::new(cx + line_w, ly),
+                        ),
+                        Stroke::default()
+                            .with_width(1.5)
+                            .with_color(icon_color),
+                    );
+                }
+            }
         }
     }
 }

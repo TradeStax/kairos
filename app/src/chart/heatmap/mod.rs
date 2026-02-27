@@ -371,10 +371,11 @@ impl HeatmapChart {
         self.invalidate(Some(Instant::now()));
     }
 
-    /// Append a single trade during replay.
+    /// Append a single trade during replay or live data.
     ///
     /// Pushes the trade to internal `chart_data`, updates the
-    /// heatmap data structures, and invalidates rendering caches.
+    /// heatmap data structures, and runs full invalidation so
+    /// autoscale (CenterLatest) keeps the view anchored correctly.
     pub fn append_trade(&mut self, trade: &DomainTrade) {
         let tick_size = DataPrice::from_f32(self.ticker_info.tick_size);
 
@@ -388,7 +389,7 @@ impl HeatmapChart {
             trade.price.units(),
         )));
 
-        self.chart.cache.clear_main();
+        self.invalidate(Some(Instant::now()));
     }
 
     /// Get current visual configuration
