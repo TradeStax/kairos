@@ -1,4 +1,4 @@
-<img src="./assets/illustrations/header.svg" alt="Header" style="max-width: 300px; width: 100%;" />
+<img src=".gitlab/header.svg" alt="Header" style="max-width: 300px; width: 100%;" />
 
 A native desktop charting platform for futures markets built with Rust and [Iced](https://github.com/iced-rs/iced) (v0.14).
 
@@ -10,7 +10,8 @@ A native desktop charting platform for futures markets built with Rust and [Iced
 - **Real-time and historical data** — CME Globex via Databento (historical) and Rithmic (live)
 - **Multi-window layouts** — Popout panes, saved layouts, link groups for synchronized tickers
 - **Replay** — Replay historical sessions with jump, seek, and speed control
-- **JavaScript indicators** — Custom indicators via QuickJS (see [crates/script/README.md](crates/script/README.md))
+- **AI assistant** — Conversational AI pane with tool use for market data, studies, drawings, and analysis
+- **Backtesting** — Event-driven strategy simulation with walk-forward optimization and Monte Carlo analysis
 
 ## Build & run
 
@@ -24,16 +25,14 @@ cargo run --release
 ```bash
 cargo test
 cargo test --package kairos-data
-cargo test --package kairos-exchange
 cargo test --package kairos-study
+cargo test --package kairos-backtest
 cargo clippy
 cargo fmt --check
 ```
 
 ## Environment
 
-- `DATABENTO_API_KEY` — Required for historical CME futures data
-- `MASSIVE_API_KEY` — Optional for US options (Polygon)
 - `KAIROS_DATA_PATH` — Override data directory (default: platform data dir / kairos)
 - `RUST_LOG` — Log level (e.g. `kairos_data=debug`)
 
@@ -44,10 +43,9 @@ Rithmic credentials are configured via the app (Settings > Data feeds); the app 
 | Crate              | Role |
 |-------------------|------|
 | `app/`            | GUI application (Iced), app state, chart rendering, modals |
-| `crates/data/`    | Domain types, repository traits, services, state persistence |
-| `crates/exchange/`| Adapters (Databento, Rithmic, Massive) and repository implementations |
+| `crates/data/`    | Domain types, adapters (Databento, Rithmic), DataEngine, caching |
 | `crates/study/`   | Technical analysis studies (volume, trend, momentum, volatility, order flow) |
-| `crates/script/`  | JavaScript indicator engine (QuickJS), loader, compiler |
+| `crates/backtest/`| Event-driven strategy simulation, optimization, performance analysis |
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture and conventions.
 
