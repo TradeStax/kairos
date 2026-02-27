@@ -1,13 +1,13 @@
-//! Rithmic Client
+//! Rithmic client facade.
 //!
-//! Manages connections to Rithmic's Ticker Plant and History Plant.
-//! Provides market data subscriptions and historical data retrieval.
+//! [`RithmicClient`] manages connections to Rithmic's Ticker Plant (live
+//! market data) and a pool of History Plant connections (historical data).
+//! Provides subscribe/unsubscribe, front-month lookup, and paginated tick
+//! loading behind a single API surface.
 
 use super::RithmicConfig;
 use super::RithmicError;
-use super::plants::{
-    RithmicHistoryPlantHandle, RithmicTickerPlant, RithmicTickerPlantHandle,
-};
+use super::plants::{RithmicHistoryPlantHandle, RithmicTickerPlant, RithmicTickerPlantHandle};
 use super::protocol::response::RithmicReceiverApi;
 use super::protocol::sender::RithmicSenderApi;
 use super::protocol::ws::{ConnectStrategy, connect_with_strategy};
@@ -17,22 +17,29 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite;
 
-/// Rithmic client wrapping ticker plant and history plant pool
+/// Top-level Rithmic client managing ticker and history plant connections.
+///
+/// Owns the underlying plant actors and exposes high-level methods for
+/// subscribing to real-time data, querying front-month contracts, and
+/// loading historical ticks. Send feed status updates through
+/// `status_tx` so the UI can track connection state.
 pub struct RithmicClient {
-    /// Handle for real-time market data
+    /// Handle for real-time market data subscriptions
     ticker_handle: Option<RithmicTickerPlantHandle>,
     /// Pool of history plant connections for parallel fetching
     history_pool: Option<super::pool::HistoryPlantPool>,
-    /// Connection handle (kept alive to maintain connection)
+    /// Kept alive to maintain the ticker plant WebSocket connection
     _ticker_plant: Option<RithmicTickerPlant>,
-    /// Status update sender
+    /// Channel for emitting connection status updates
     status_tx: mpsc::UnboundedSender<FeedStatus>,
-    /// Configuration
+    /// Adapter configuration
     config: RithmicConfig,
 }
 
 impl RithmicClient {
-    /// Create a new RithmicClient (not yet connected)
+    /// Creates a new client that is not yet connected.
+    ///
+    /// Call [`connect`](Self::connect) to establish WebSocket sessions.
     pub fn new(config: RithmicConfig, status_tx: mpsc::UnboundedSender<FeedStatus>) -> Self {
         Self {
             ticker_handle: None,
@@ -43,7 +50,10 @@ impl RithmicClient {
         }
     }
 
-    /// Connect to Rithmic ticker plant and history plant
+    /// Connects to the Rithmic ticker plant and history plant pool.
+    ///
+    /// Authenticates both plants. On history pool failure, the ticker
+    /// plant is cleaned up before returning the error.
     pub async fn connect(
         &mut self,
         rithmic_config: &RithmicConnectionConfig,
@@ -95,10 +105,7 @@ impl RithmicClient {
             }
         };
 
-        log::info!(
-            "Rithmic history pool connected ({} plants)",
-            pool.size(),
-        );
+        log::info!("Rithmic history pool connected ({} plants)", pool.size(),);
 
         self._ticker_plant = Some(ticker_plant);
         self.ticker_handle = Some(ticker_handle);
@@ -109,7 +116,7 @@ impl RithmicClient {
         Ok(())
     }
 
-    /// Subscribe to real-time market data for a symbol
+    /// Subscribes to real-time market data for a symbol on an exchange
     pub async fn subscribe(&mut self, symbol: &str, exchange: &str) -> Result<(), RithmicError> {
         let handle = self
             .ticker_handle
@@ -128,7 +135,7 @@ impl RithmicClient {
         Ok(())
     }
 
-    /// Unsubscribe from real-time market data
+    /// Unsubscribes from real-time market data for a symbol
     pub async fn unsubscribe(&mut self, symbol: &str, exchange: &str) -> Result<(), RithmicError> {
         let handle = self
             .ticker_handle
@@ -143,7 +150,10 @@ impl RithmicClient {
         Ok(())
     }
 
-    /// Get the front-month contract for a product
+    /// Returns the front-month contract symbol for a product.
+    ///
+    /// Falls back to the input symbol if the response does not contain
+    /// the expected `trading_symbol` or `symbol` field.
     pub async fn get_front_month(
         &self,
         symbol: &str,
@@ -200,25 +210,21 @@ impl RithmicClient {
         let pool = self
             .history_pool
             .as_ref()
-            .ok_or_else(|| {
-                RithmicError::Connection(
-                    "History pool not connected".to_string(),
-                )
-            })?;
+            .ok_or_else(|| RithmicError::Connection("History pool not connected".to_string()))?;
 
         let handle = pool.acquire().await?;
-        handle.load_ticks(symbol, exchange, start_secs, end_secs).await
+        handle
+            .load_ticks(symbol, exchange, start_secs, end_secs)
+            .await
     }
 
-    /// Get a reference to the history plant pool for direct
-    /// parallel access from the DataEngine.
-    pub fn history_pool(
-        &self,
-    ) -> Option<&super::pool::HistoryPlantPool> {
+    /// Returns a reference to the history plant pool for direct
+    /// parallel access from the `DataEngine`
+    pub fn history_pool(&self) -> Option<&super::pool::HistoryPlantPool> {
         self.history_pool.as_ref()
     }
 
-    /// Fetch available product codes from an exchange
+    /// Fetches available product codes from an exchange
     pub async fn get_product_codes(
         &self,
         exchange: Option<&str>,
@@ -247,15 +253,15 @@ impl RithmicClient {
         Ok(codes)
     }
 
-    /// Take the ticker handle's subscription receiver for streaming
+    /// Takes the ticker plant handle for streaming.
     ///
-    /// This consumes the receiver - only call once to create a streaming
-    /// subscription.
+    /// This consumes the handle -- call only once to create a
+    /// [`RithmicStream`](super::streaming::RithmicStream).
     pub fn take_ticker_handle(&mut self) -> Option<RithmicTickerPlantHandle> {
         self.ticker_handle.take()
     }
 
-    /// Disconnect from Rithmic
+    /// Disconnects from all Rithmic plants and emits a status update
     pub async fn disconnect(&mut self) {
         if let Some(handle) = &self.ticker_handle
             && let Err(e) = handle.disconnect().await
@@ -274,17 +280,18 @@ impl RithmicClient {
         log::info!("Rithmic client disconnected");
     }
 
-    /// Check if connected
+    /// Returns `true` if both the ticker handle and history pool are present
+    #[must_use]
     pub fn is_connected(&self) -> bool {
         self.ticker_handle.is_some() && self.history_pool.is_some()
     }
 }
 
-/// Load historical ticks with automatic pagination via a history
+/// Loads historical ticks with automatic pagination via a history
 /// plant handle.
 ///
-/// Tracks batch boundaries so that `extract_resume_key` only
-/// examines the latest batch — preventing stale resume keys from
+/// Tracks batch boundaries so that [`extract_resume_key`] only
+/// examines the latest batch -- preventing stale resume keys from
 /// earlier pages from being reused after the final page.
 pub async fn load_ticks_paginated(
     handle: &RithmicHistoryPlantHandle,
@@ -303,12 +310,7 @@ pub async fn load_ticks_paginated(
             end_secs,
         )
         .await
-        .map_err(|e| {
-            RithmicError::Data(format!(
-                "Failed to load ticks for {}: {}",
-                symbol, e
-            ))
-        })?;
+        .map_err(|e| RithmicError::Data(format!("Failed to load ticks for {}: {}", symbol, e)))?;
 
     // Paginate: track batch boundaries so we only inspect the
     // latest batch for a resume key — prevents stale keys from
@@ -333,10 +335,7 @@ pub async fn load_ticks_paginated(
 
         batch_start = all_responses.len();
         let resumed = handle.resume_bars(key).await.map_err(|e| {
-            RithmicError::Data(format!(
-                "Failed to resume bars for {}: {}",
-                symbol, e
-            ))
+            RithmicError::Data(format!("Failed to resume bars for {}: {}", symbol, e))
         })?;
 
         if resumed.is_empty() {
@@ -358,9 +357,11 @@ pub async fn load_ticks_paginated(
     Ok(all_responses)
 }
 
-/// Check if a batch was truncated and extract the pagination
-/// `request_key`. Only examines the provided slice (should be the
-/// latest batch, not all accumulated responses).
+/// Checks if a batch was truncated and extracts the pagination
+/// `request_key`.
+///
+/// Only examines the provided slice (should be the latest batch,
+/// not all accumulated responses).
 fn extract_resume_key(batch: &[RithmicResponse]) -> Option<String> {
     let data_count = batch.iter().filter(|r| r.has_more).count();
 
@@ -390,7 +391,7 @@ fn extract_resume_key(batch: &[RithmicResponse]) -> Option<String> {
     None
 }
 
-/// Probe a Rithmic server for available system names (pre-login).
+/// Probes a Rithmic server for available system names (pre-login).
 ///
 /// Opens a WebSocket, sends `RequestRithmicSystemInfo`, reads the
 /// response, and returns the list of `system_name` values.

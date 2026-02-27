@@ -1,11 +1,17 @@
-//! Chart data operations — get_chart_data, rebuild_chart_data
+//! Chart data aggregation operations.
+//!
+//! Pure functions for building [`ChartData`] from trades. No I/O — these
+//! operate on in-memory trade slices and return aggregated candles.
 
 use crate::aggregation::{
     AggregationError, aggregate_trades_to_candles, aggregate_trades_to_ticks,
 };
 use crate::domain::{Candle, ChartBasis, ChartData, FuturesTickerInfo, Price, Trade};
 
-/// Rebuild chart data from existing trades (instant — no I/O)
+/// Rebuilds chart data from existing trades (instant, no I/O).
+///
+/// Aggregates `trades` into candles according to `basis` (time or tick),
+/// using the tick size from `ticker_info` for price rounding.
 pub fn rebuild_chart_data(
     trades: &[Trade],
     basis: ChartBasis,
@@ -16,7 +22,9 @@ pub fn rebuild_chart_data(
     Ok(ChartData::from_trades(trades.to_vec(), candles))
 }
 
-/// Aggregate trades to the specified basis
+/// Aggregates trades into candles for the specified chart basis.
+///
+/// Dispatches to time-based or tick-based aggregation depending on `basis`.
 pub fn aggregate_to_basis(
     trades: &[Trade],
     basis: ChartBasis,

@@ -1,36 +1,63 @@
+//! Walk-forward optimization with rolling in-sample / out-of-sample
+//! window splits.
+//!
+//! Walk-forward analysis divides the historical date range into
+//! consecutive windows, each containing an in-sample period for
+//! parameter fitting and an out-of-sample period for validation.
+//! This guards against curve-fitting by ensuring the strategy is
+//! always evaluated on unseen data.
+
 use crate::optimization::objective::ObjectiveFunction;
 use crate::optimization::parameter_space::ParameterGrid;
 use kairos_data::DateRange;
 
-/// Configuration for walk-forward optimization.
+/// Configuration for a walk-forward optimization run.
 pub struct WalkForwardConfig {
-    /// Full date range to optimize over.
+    /// Full calendar date range to partition into windows.
     pub date_range: DateRange,
-    /// Fraction of each window used for in-sample
-    /// (e.g. 0.7 = 70%).
+    /// Fraction of each window allocated to in-sample training
+    /// (e.g. 0.7 means 70% in-sample, 30% out-of-sample).
     pub in_sample_ratio: f64,
-    /// Number of windows.
+    /// Number of rolling windows to create.
     pub num_windows: usize,
-    /// Objective function to maximize.
+    /// Objective function used to select the best parameters
+    /// in each in-sample period.
     pub objective: ObjectiveFunction,
-    /// Parameter grid to search.
+    /// Parameter grid to search exhaustively within each window.
     pub grid: ParameterGrid,
 }
 
-/// A single time window (in-sample + out-of-sample
-/// date ranges).
+/// A single time window consisting of an in-sample training period
+/// and a contiguous out-of-sample validation period.
 #[derive(Debug, Clone)]
 pub struct TimeWindow {
+    /// Date range used for parameter optimization (training).
     pub in_sample: DateRange,
+    /// Date range used for unbiased performance evaluation.
     pub out_of_sample: DateRange,
 }
 
-/// Walk-forward optimizer that splits date ranges into
-/// rolling in-sample / out-of-sample windows.
+/// Splits a date range into rolling walk-forward windows.
+///
+/// The optimizer itself does not run backtests — it only partitions
+/// the time axis. The caller is responsible for executing backtests
+/// on each window's in-sample and out-of-sample periods.
 pub struct WalkForwardOptimizer;
 
 impl WalkForwardOptimizer {
-    /// Split the full date range into walk-forward windows.
+    /// Divides `date_range` into `num_windows` consecutive
+    /// walk-forward windows.
+    ///
+    /// Each window has length `total_days / num_windows`. Within
+    /// each window, the first `in_sample_ratio` fraction is
+    /// assigned to in-sample and the remainder to out-of-sample.
+    ///
+    /// Returns an empty vec if:
+    /// - `num_windows` is 0
+    /// - the total span is less than 2 days
+    /// - per-window size is less than 2 days
+    /// - the out-of-sample portion would be 0 days
+    #[must_use]
     pub fn split_windows(
         date_range: &DateRange,
         num_windows: usize,
@@ -67,7 +94,7 @@ impl WalkForwardOptimizer {
             let oos_start = is_end + chrono::Duration::days(1);
             let oos_end = oos_start + chrono::Duration::days(oos_days as i64 - 1);
 
-            // Don't exceed the overall date range
+            // Clamp to the overall date range
             let oos_end = oos_end.min(date_range.end);
 
             windows.push(TimeWindow {

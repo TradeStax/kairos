@@ -1,60 +1,136 @@
+//! Performance metrics computed from backtest trade results.
+//!
+//! [`PerformanceMetrics`] aggregates P&L, win/loss statistics, drawdown,
+//! risk-adjusted ratios (Sharpe, Sortino, Calmar), and trade excursion
+//! data from a set of completed [`TradeRecord`]s and an [`EquityCurve`].
+
 use crate::output::trade_record::TradeRecord;
 use crate::portfolio::equity::EquityCurve;
 use serde::{Deserialize, Serialize};
 
 /// Aggregated performance statistics for a completed backtest run.
+///
+/// All monetary values are denominated in USD. Percentage values are
+/// expressed as percentages (e.g. `50.0` means 50%). Tick values use
+/// the instrument's minimum tick size as the unit.
+///
+/// Construct via [`PerformanceMetrics::compute`] after a backtest
+/// completes, or obtain from
+/// [`BacktestResult::metrics`](super::result::BacktestResult::metrics).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceMetrics {
-    // ── P&L ────────────────────────────────────────────────────────────
+    // ── P&L ──────────────────────────────────────────────────────────
+    /// Net profit/loss after commissions, in USD.
     pub net_pnl_usd: f64,
+    /// Gross profit/loss before commissions, in USD.
     pub gross_pnl_usd: f64,
+    /// Total commissions paid across all trades, in USD.
     pub total_commission_usd: f64,
+    /// Net profit/loss measured in instrument ticks.
     pub net_pnl_ticks: i64,
 
-    // ── Trade counts ───────────────────────────────────────────────────
+    // ── Trade counts ─────────────────────────────────────────────────
+    /// Total number of completed round-trip trades.
     pub total_trades: usize,
+    /// Number of trades with positive net P&L.
     pub winning_trades: usize,
+    /// Number of trades with negative net P&L.
     pub losing_trades: usize,
+    /// Number of trades with exactly zero net P&L.
     pub breakeven_trades: usize,
 
-    // ── Win/loss statistics ────────────────────────────────────────────
+    // ── Win/loss statistics ──────────────────────────────────────────
+    /// Fraction of trades that were profitable (0.0..=1.0).
+    ///
+    /// Formula: `winning_trades / total_trades`.
     pub win_rate: f64,
+    /// Average net P&L of winning trades, in USD.
     pub avg_win_usd: f64,
+    /// Average net P&L of losing trades, in USD (negative value).
     pub avg_loss_usd: f64,
+    /// Ratio of gross wins to gross losses.
+    ///
+    /// Formula: `sum(winning_pnl) / abs(sum(losing_pnl))`.
+    /// Returns [`f64::MAX`] when there are no losing trades but
+    /// wins exist, and `0.0` when there are no trades.
     pub profit_factor: f64,
+    /// Average risk-reward ratio across all trades.
+    ///
+    /// Each trade's R:R is `pnl_ticks / stop_distance_ticks`.
     pub avg_rr: f64,
+    /// Largest single-trade net profit, in USD.
     pub best_trade_usd: f64,
+    /// Largest single-trade net loss, in USD.
     pub worst_trade_usd: f64,
+    /// Longest consecutive run of winning trades.
     pub largest_win_streak: usize,
+    /// Longest consecutive run of non-winning trades.
     pub largest_loss_streak: usize,
 
-    // ── Drawdown ───────────────────────────────────────────────────────
+    // ── Drawdown ─────────────────────────────────────────────────────
+    /// Maximum peak-to-trough drawdown, in USD.
     pub max_drawdown_usd: f64,
+    /// Maximum peak-to-trough drawdown as a percentage of the peak
+    /// equity value.
     pub max_drawdown_pct: f64,
 
-    // ── Risk-adjusted ─────────────────────────────────────────────────
-    /// Annualized Sharpe: mean(excess_daily) / std(daily) x sqrt(252)
+    // ── Risk-adjusted ────────────────────────────────────────────────
+    /// Annualized Sharpe ratio.
+    ///
+    /// Formula: `mean(excess_daily_returns) / std(daily_returns)
+    /// * sqrt(252)`.
+    ///
+    /// Uses sample standard deviation (Bessel's correction, N-1
+    /// divisor). A risk-free rate is subtracted from daily returns
+    /// to compute excess returns.
     pub sharpe_ratio: f64,
-    /// Annualized Sortino: mean(excess_daily) / downside_std x sqrt(252)
+    /// Annualized Sortino ratio.
+    ///
+    /// Formula: `mean(excess_daily_returns) / downside_deviation
+    /// * sqrt(252)`.
+    ///
+    /// Downside deviation only penalizes returns below the
+    /// risk-free rate, making this more appropriate than Sharpe
+    /// for strategies with asymmetric return distributions.
     pub sortino_ratio: f64,
-    /// Calmar: annualized_return / abs(max_drawdown_pct)
+    /// Calmar ratio: annualized return divided by maximum drawdown.
+    ///
+    /// Formula: `annualized_return_pct / abs(max_drawdown_pct)`.
+    /// Returns `0.0` when drawdown is effectively zero.
     pub calmar_ratio: f64,
 
-    // ── MAE / MFE ─────────────────────────────────────────────────────
+    // ── MAE / MFE ────────────────────────────────────────────────────
+    /// Average Maximum Adverse Excursion across all trades, in ticks.
+    ///
+    /// MAE measures how far a trade moved against the position before
+    /// closing. Useful for evaluating stop-loss placement.
     pub avg_mae_ticks: f64,
+    /// Average Maximum Favorable Excursion across all trades, in
+    /// ticks.
+    ///
+    /// MFE measures how far a trade moved in the position's favor
+    /// before closing. Useful for evaluating take-profit placement.
     pub avg_mfe_ticks: f64,
 
-    // ── Equity ─────────────────────────────────────────────────────────
+    // ── Equity ────────────────────────────────────────────────────────
+    /// Starting account balance, in USD.
     pub initial_capital_usd: f64,
+    /// Account balance after all trades, in USD.
+    ///
+    /// Equal to `initial_capital_usd + net_pnl_usd`.
     pub final_equity_usd: f64,
+    /// Total return as a percentage of initial capital.
+    ///
+    /// Formula: `net_pnl_usd / initial_capital_usd * 100`.
     pub total_return_pct: f64,
+    /// Number of distinct trading days in the backtest period.
     pub trading_days: usize,
 
     // ── Benchmark comparison ─────────────────────────────────────────
-    /// Buy-and-hold return for the same period.
+    /// Buy-and-hold return for the same period, as a percentage.
     #[serde(default)]
     pub benchmark_return_pct: f64,
-    /// Strategy alpha = strategy return - benchmark return.
+    /// Strategy alpha: `total_return_pct - benchmark_return_pct`.
     #[serde(default)]
     pub alpha_pct: f64,
 
@@ -62,14 +138,34 @@ pub struct PerformanceMetrics {
     /// Average trade duration in milliseconds.
     #[serde(default)]
     pub avg_trade_duration_ms: f64,
-    /// Expectancy per trade in USD =
-    /// win_rate * avg_win + (1 - win_rate) * avg_loss.
+    /// Expectancy per trade in USD.
+    ///
+    /// Formula: `net_pnl_usd / total_trades`. Represents the average
+    /// dollar amount you can expect to win (or lose) per trade.
     #[serde(default)]
     pub expectancy_usd: f64,
 }
 
 impl PerformanceMetrics {
-    /// Compute all metrics from completed trades and the equity curve.
+    /// Compute all performance metrics from completed trades and
+    /// the equity curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `trades` — completed round-trip trades in chronological
+    ///   order.
+    /// * `initial_capital_usd` — starting account balance in USD.
+    /// * `trading_days` — number of distinct trading sessions in
+    ///   the backtest period.
+    /// * `risk_free_annual` — annualized risk-free rate as a
+    ///   decimal (e.g. `0.05` for 5%). Used for Sharpe and Sortino
+    ///   calculations.
+    /// * `equity_curve` — equity curve sampled throughout the run,
+    ///   used for drawdown computation.
+    ///
+    /// Returns a zeroed-out [`PerformanceMetrics`] when `trades`
+    /// is empty.
+    #[must_use]
     pub fn compute(
         trades: &[TradeRecord],
         initial_capital_usd: f64,
@@ -91,11 +187,7 @@ impl PerformanceMetrics {
         let losing_trades = trades.iter().filter(|t| t.pnl_net_usd < 0.0).count();
         let breakeven_trades = total_trades - winning_trades - losing_trades;
 
-        let win_rate = if total_trades > 0 {
-            winning_trades as f64 / total_trades as f64
-        } else {
-            0.0
-        };
+        let win_rate = winning_trades as f64 / total_trades as f64;
 
         let wins: Vec<f64> = trades
             .iter()
@@ -127,11 +219,7 @@ impl PerformanceMetrics {
             gross_wins / gross_losses
         };
 
-        let avg_rr = if total_trades > 0 {
-            trades.iter().map(|t| t.rr_ratio).sum::<f64>() / total_trades as f64
-        } else {
-            0.0
-        };
+        let avg_rr = trades.iter().map(|t| t.rr_ratio).sum::<f64>() / total_trades as f64;
 
         let best_trade_usd = trades
             .iter()
@@ -173,21 +261,19 @@ impl PerformanceMetrics {
         let avg_mfe_ticks =
             trades.iter().map(|t| t.mfe_ticks as f64).sum::<f64>() / total_trades as f64;
 
-        let avg_trade_duration_ms = if total_trades > 0 {
-            trades
+        let avg_trade_duration_ms = {
+            let durations: Vec<f64> = trades
                 .iter()
                 .filter_map(|t| t.duration_ms)
                 .map(|d| d as f64)
-                .sum::<f64>()
-                / total_trades as f64
-        } else {
-            0.0
+                .collect();
+            if durations.is_empty() {
+                0.0
+            } else {
+                durations.iter().sum::<f64>() / durations.len() as f64
+            }
         };
-        let expectancy_usd = if total_trades > 0 {
-            net_pnl_usd / total_trades as f64
-        } else {
-            0.0
-        };
+        let expectancy_usd = net_pnl_usd / total_trades as f64;
 
         Self {
             net_pnl_usd,
@@ -225,6 +311,9 @@ impl PerformanceMetrics {
         }
     }
 
+    /// Returns a zeroed-out metrics struct for a backtest with no
+    /// trades.
+    #[must_use]
     fn empty(initial_capital_usd: f64, trading_days: usize) -> Self {
         Self {
             net_pnl_usd: 0.0,
@@ -263,14 +352,21 @@ impl PerformanceMetrics {
     }
 }
 
+/// Group trade P&L by UTC calendar day and compute sequential
+/// daily returns relative to a running equity balance.
+///
+/// Days are derived by flooring exit timestamps to 86,400,000 ms
+/// boundaries. Returns are computed as `daily_pnl / equity` where
+/// equity rolls forward each day.
 fn compute_daily_returns(trades: &[TradeRecord], initial_capital_usd: f64) -> Vec<f64> {
     use std::collections::BTreeMap;
-    // Group net PnL by UTC day (floored to 86_400_000 ms)
+
     let mut daily_pnl: BTreeMap<u64, f64> = BTreeMap::new();
     for trade in trades {
         let day = trade.exit_time.0 / 86_400_000;
         *daily_pnl.entry(day).or_insert(0.0) += trade.pnl_net_usd;
     }
+
     let mut equity = initial_capital_usd;
     let mut returns = Vec::with_capacity(daily_pnl.len());
     for pnl in daily_pnl.values() {
@@ -282,6 +378,9 @@ fn compute_daily_returns(trades: &[TradeRecord], initial_capital_usd: f64) -> Ve
     returns
 }
 
+/// Arithmetic mean of a slice of values.
+///
+/// Returns `0.0` for an empty slice.
 fn mean(data: &[f64]) -> f64 {
     if data.is_empty() {
         return 0.0;
@@ -289,11 +388,15 @@ fn mean(data: &[f64]) -> f64 {
     data.iter().sum::<f64>() / data.len() as f64
 }
 
-/// Sample standard deviation (N-1 divisor, Bessel's correction).
+/// Sample standard deviation using Bessel's correction (N-1
+/// divisor).
 ///
-/// Uses sample variance (divides by N-1) which is the standard convention
-/// for performance statistics like Sharpe ratio where the data represents
-/// a sample of returns, not the full population.
+/// The sample variance formula (`sum((x - mean)^2) / (N - 1)`)
+/// is the standard convention for performance statistics like the
+/// Sharpe ratio, where daily returns represent a sample rather
+/// than a complete population.
+///
+/// Returns `0.0` when fewer than two data points are available.
 fn std_dev(data: &[f64]) -> f64 {
     if data.len() < 2 {
         return 0.0;
@@ -303,6 +406,14 @@ fn std_dev(data: &[f64]) -> f64 {
     variance.sqrt()
 }
 
+/// Compute the annualized Sharpe ratio from daily returns.
+///
+/// Formula: `mean(excess) / std(excess) * sqrt(252)`
+///
+/// where `excess = daily_return - risk_free_daily`.
+///
+/// Returns `0.0` when fewer than two return observations exist or
+/// when standard deviation is zero.
 fn compute_sharpe(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     if daily_returns.len() < 2 {
         return 0.0;
@@ -315,13 +426,23 @@ fn compute_sharpe(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     mean(&excess) / sd * 252_f64.sqrt()
 }
 
+/// Compute the annualized Sortino ratio from daily returns.
+///
+/// Formula: `mean(excess) / downside_dev * sqrt(252)`
+///
+/// Downside deviation is computed as
+/// `sqrt(mean(min(r - rf, 0)^2))`, using all observations in the
+/// denominator (zero contribution for non-negative excess returns).
+/// This "continuous" downside deviation variant avoids inflating
+/// the ratio when only a few days have negative returns.
+///
+/// Returns `0.0` when fewer than two return observations exist or
+/// when downside deviation is zero (no negative excess returns).
 fn compute_sortino(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     if daily_returns.len() < 2 {
         return 0.0;
     }
     let excess: Vec<f64> = daily_returns.iter().map(|r| r - risk_free_daily).collect();
-    // Downside deviation: sqrt(mean of squared negative excess returns)
-    // Uses all observations in denominator (zero for non-negative returns)
     let sum_sq_downside: f64 = daily_returns
         .iter()
         .map(|r| {
@@ -336,6 +457,12 @@ fn compute_sortino(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     mean(&excess) / downside_dev * 252_f64.sqrt()
 }
 
+/// Walk the equity curve to find the maximum peak-to-trough
+/// drawdown.
+///
+/// Returns `(max_drawdown_usd, max_drawdown_pct)` where the
+/// percentage is relative to the peak equity at the time of the
+/// drawdown.
 fn compute_max_drawdown(curve: &EquityCurve, initial_capital: f64) -> (f64, f64) {
     let mut peak = initial_capital;
     let mut max_dd_usd: f64 = 0.0;
@@ -361,11 +488,16 @@ fn compute_max_drawdown(curve: &EquityCurve, initial_capital: f64) -> (f64, f64)
     (max_dd_usd, max_dd_pct)
 }
 
+/// Compute the longest consecutive winning and losing streaks.
+///
+/// A trade with `pnl_net_usd > 0` is counted as a win; anything
+/// else (including breakeven) increments the loss streak. Returns
+/// `(max_win_streak, max_loss_streak)`.
 fn compute_streaks(trades: &[TradeRecord]) -> (usize, usize) {
-    let mut max_win = 0usize;
-    let mut max_loss = 0usize;
-    let mut cur_win = 0usize;
-    let mut cur_loss = 0usize;
+    let mut max_win = 0_usize;
+    let mut max_loss = 0_usize;
+    let mut cur_win = 0_usize;
+    let mut cur_loss = 0_usize;
 
     for trade in trades {
         if trade.pnl_net_usd > 0.0 {

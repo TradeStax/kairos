@@ -1,11 +1,34 @@
 //! Simple Moving Average (SMA).
 //!
-//! Computes an equal-weight average of the last `period` candle values.
-//! Formula: `SMA(t) = (P(t) + P(t-1) + ... + P(t-n+1)) / n`
-//! where `P` is the chosen price source (Close by default).
+//! The Simple Moving Average smooths price data by computing an equal-weight
+//! arithmetic mean of the last `period` candle values. Because every value in
+//! the window contributes equally, the SMA changes only when a new value
+//! enters or an old value leaves the window -- making it a stable, low-noise
+//! trend filter.
+//!
+//! # Formula
+//!
+//! ```text
+//! SMA(t) = (P(t) + P(t-1) + ... + P(t-n+1)) / n
+//! ```
+//!
+//! where `P` is the chosen price source (Close by default) and `n` is the
+//! period.
+//!
+//! # Trading use
+//!
+//! - **Trend direction**: a rising SMA suggests an uptrend; a falling SMA
+//!   suggests a downtrend.
+//! - **Dynamic support/resistance**: price often bounces off the SMA line,
+//!   especially on longer periods (50, 100, 200).
+//! - **Crossover signals**: a short-period SMA crossing above a long-period
+//!   SMA is a classic bullish signal (and vice versa).
+//! - Common periods: 20 (short-term), 50 (medium), 200 (long-term).
+//!
+//! # Implementation
 //!
 //! Implemented as an efficient O(n) sliding-window sum. Output starts at
-//! index `period - 1` (the first candle for which a full window is available).
+//! index `period - 1` (the first candle for which a full window exists).
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
@@ -83,6 +106,15 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// Simple Moving Average study.
+///
+/// Renders a single line on the price chart showing the equal-weight
+/// average of the last `period` candle values. Configurable parameters
+/// include the look-back period, the price source (Close, Open, High,
+/// Low, HL2, HLC3, OHLC4), and visual styling (color, line width).
+///
+/// The study produces [`StudyOutput::Lines`] with a single
+/// [`LineSeries`] labeled `SMA(<period>)`.
 pub struct SmaStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -90,14 +122,15 @@ pub struct SmaStudy {
 }
 
 impl SmaStudy {
+    /// Create a new SMA study with default parameters.
+    ///
+    /// Defaults: period = 20, source = Close, color = blue, width = 1.5.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("sma");
         for p in &params {
             config.set(p.key.clone(), p.default.clone());
         }
-        // Set the actual default for source (can't use String::new in const)
-        config.set("source", ParameterValue::Choice("Close".to_string()));
 
         Self {
             config,

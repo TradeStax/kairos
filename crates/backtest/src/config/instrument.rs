@@ -1,22 +1,45 @@
+//! Instrument specification for backtest fill simulation.
+//!
+//! [`InstrumentSpec`] captures the contract-level details needed to
+//! convert price ticks into dollar P&L: tick size, point multiplier,
+//! and per-contract margin requirements. Known CME products are
+//! pre-populated via [`InstrumentSpec::from_ticker`].
+
 use kairos_data::{FuturesTicker, Price};
 use serde::{Deserialize, Serialize};
 
-/// Contract specification for a single instrument.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Contract specification for a single futures instrument.
+///
+/// Used by the fill simulator and portfolio accounting to convert
+/// price movements into dollar values and enforce margin
+/// requirements.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstrumentSpec {
+    /// The futures ticker this spec describes.
     pub ticker: FuturesTicker,
+    /// Minimum price increment (e.g. 0.25 for ES).
     pub tick_size: Price,
-    /// Dollar value of one full contract point (e.g. ES=50, NQ=20).
+    /// Dollar value of one full contract point (e.g. $50 for ES,
+    /// $20 for NQ).
     pub multiplier: f64,
-    /// Dollar value of one tick move = tick_size.to_f64() * multiplier.
+    /// Dollar value of a single tick move.
+    ///
+    /// Computed as `tick_size.to_f64() * multiplier`.
     pub tick_value: f64,
-    /// Initial margin per contract (optional).
+    /// Initial margin per contract in USD, if known.
     pub initial_margin: Option<f64>,
-    /// Maintenance margin per contract (optional).
+    /// Maintenance margin per contract in USD, if known.
     pub maintenance_margin: Option<f64>,
 }
 
 impl InstrumentSpec {
+    /// Creates a new spec with the given tick size and multiplier.
+    ///
+    /// `tick_value` is computed automatically. Margin fields are
+    /// left as `None`; use [`with_margins`] to set them.
+    ///
+    /// [`with_margins`]: InstrumentSpec::with_margins
+    #[must_use]
     pub fn new(ticker: FuturesTicker, tick_size: Price, multiplier: f64) -> Self {
         let tick_value = tick_size.to_f64() * multiplier;
         Self {
@@ -29,14 +52,20 @@ impl InstrumentSpec {
         }
     }
 
+    /// Sets initial and maintenance margin requirements.
+    #[must_use]
     pub fn with_margins(mut self, initial: f64, maintenance: f64) -> Self {
         self.initial_margin = Some(initial);
         self.maintenance_margin = Some(maintenance);
         self
     }
 
-    /// Build an InstrumentSpec from a FuturesTicker using known
-    /// product defaults.
+    /// Builds an [`InstrumentSpec`] from a [`FuturesTicker`] using
+    /// known CME product defaults.
+    ///
+    /// Supported products: ES, NQ, YM, RTY, GC, SI, CL, NG, HG,
+    /// ZN, ZB, ZF. Unrecognized products fall back to ES defaults.
+    #[must_use]
     pub fn from_ticker(ticker: FuturesTicker) -> Self {
         let product = ticker.product();
         let (tick_size, multiplier, initial, maintenance) = match product {

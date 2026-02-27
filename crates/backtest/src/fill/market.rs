@@ -1,3 +1,19 @@
+//! Standard fill simulator with configurable slippage models.
+//!
+//! [`StandardFillSimulator`] evaluates each active order against
+//! the latest trade price:
+//!
+//! - **Market** orders fill immediately with slippage applied.
+//! - **Limit** orders fill at their limit price when the trade
+//!   crosses the limit.
+//! - **Stop** orders trigger when the trade crosses the stop
+//!   price, then fill as a market order (with slippage).
+//! - **StopLimit** orders trigger like stops but only fill if the
+//!   trade price also satisfies the limit constraint.
+//!
+//! Slippage is controlled by [`SlippageModel`] from the risk
+//! configuration.
+
 use super::{FillResult, FillSimulator};
 use crate::config::instrument::InstrumentSpec;
 use crate::config::risk::SlippageModel;
@@ -6,21 +22,37 @@ use crate::order::types::{OrderSide, OrderType};
 use kairos_data::{Depth, FuturesTicker, Price, Trade};
 use std::collections::HashMap;
 
-/// Standard fill simulator: slippage-based for market orders,
-/// trigger-based for stop/limit.
+/// Standard fill simulator: slippage-based pricing for market and
+/// stop orders, trigger-based fills for limit and stop-limit orders.
+#[derive(Debug, Clone)]
 pub struct StandardFillSimulator {
     slippage: SlippageModel,
 }
 
 impl StandardFillSimulator {
+    /// Create a new simulator with the given slippage model.
+    #[must_use]
     pub fn new(slippage: SlippageModel) -> Self {
         Self { slippage }
     }
 
+    /// Return the slippage model in use.
+    #[must_use]
+    pub fn slippage_model(&self) -> &SlippageModel {
+        &self.slippage
+    }
+
+    /// Apply the configured slippage model to a `base` price.
+    ///
+    /// Slippage is always adverse: buys are pushed up, sells are
+    /// pushed down, simulating the cost of crossing the spread or
+    /// moving the market.
     fn apply_slippage(&self, base: Price, side: OrderSide, instrument: &InstrumentSpec) -> Price {
         match &self.slippage {
             SlippageModel::None => base,
             SlippageModel::FixedTick(n) => {
+                // Positive = adverse: buy gets worse (higher),
+                // sell gets worse (lower).
                 let steps = match side {
                     OrderSide::Buy => *n,
                     OrderSide::Sell => -n,
@@ -41,6 +73,10 @@ impl StandardFillSimulator {
                 if *average_daily_volume <= 0.0 {
                     return base;
                 }
+                // Square-root market impact model:
+                //   impact = base_bps * sqrt(1 / ADV)
+                // The idea is that thinner markets (lower ADV)
+                // produce more slippage per unit traded.
                 let impact_bps = base_bps * (1.0_f64 / average_daily_volume).sqrt();
                 let factor = match side {
                     OrderSide::Buy => 1.0 + impact_bps / 10_000.0,
@@ -48,7 +84,8 @@ impl StandardFillSimulator {
                 };
                 Price::from_f64(base.to_f64() * factor)
             }
-            // DepthBased is handled by DepthBasedFillSimulator
+            // DepthBased slippage is handled by
+            // DepthBasedFillSimulator; a no-op here.
             SlippageModel::DepthBased => base,
         }
     }
@@ -86,6 +123,8 @@ impl FillSimulator for StandardFillSimulator {
                     });
                 }
                 OrderType::Limit { price: limit_price } => {
+                    // Limit buy triggers when market trades at or
+                    // below the limit; limit sell when at or above.
                     let triggered = match order.side {
                         OrderSide::Buy => price <= limit_price,
                         OrderSide::Sell => price >= limit_price,
@@ -100,6 +139,10 @@ impl FillSimulator for StandardFillSimulator {
                     }
                 }
                 OrderType::Stop { trigger } => {
+                    // Stop buy triggers when market trades at or
+                    // above the trigger; stop sell when at or below.
+                    // Once triggered the order becomes a market
+                    // order and incurs slippage.
                     let triggered = match order.side {
                         OrderSide::Buy => price >= trigger,
                         OrderSide::Sell => price <= trigger,
@@ -115,6 +158,9 @@ impl FillSimulator for StandardFillSimulator {
                     }
                 }
                 OrderType::StopLimit { trigger, limit } => {
+                    // Two-phase check: first the stop trigger must
+                    // fire, then the trade price must also satisfy
+                    // the limit constraint.
                     let triggered = match order.side {
                         OrderSide::Buy => price >= trigger,
                         OrderSide::Sell => price <= trigger,
@@ -152,8 +198,6 @@ impl FillSimulator for StandardFillSimulator {
     }
 
     fn clone_simulator(&self) -> Box<dyn FillSimulator> {
-        Box::new(StandardFillSimulator {
-            slippage: self.slippage.clone(),
-        })
+        Box::new(self.clone())
     }
 }

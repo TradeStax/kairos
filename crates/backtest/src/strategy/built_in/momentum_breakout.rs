@@ -1,10 +1,11 @@
 //! Momentum Breakout strategy.
 //!
-//! Uses a Donchian channel entry: buy when price exceeds the highest
-//! high of the last `entry_periods` candles, sell when below the
-//! lowest low. Stop loss: entry +/- ATR * atr_stop_multiplier.
-//! Trailing exit: closes when price crosses back through the
-//! `exit_periods` Donchian channel.
+//! Uses a Donchian channel for entry: goes long when price exceeds
+//! the highest high of the last `entry_periods` candles, goes short
+//! when below the lowest low. Stop loss is placed at entry price
+//! +/- ATR * `atr_stop_multiplier`. Trailing exit closes the
+//! position when price crosses back through the `exit_periods`
+//! Donchian channel.
 
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::{OrderSide, OrderType, TimeInForce};
@@ -18,7 +19,9 @@ use kairos_study::{
     Visibility,
 };
 
-/// Compute ATR(n) for the last `period` completed candles.
+/// Computes ATR(n) from the last `period` completed candles.
+///
+/// Returns 0.0 if there are fewer than 2 candles or `period` is 0.
 fn compute_atr(candles: &[Candle], period: usize) -> f64 {
     if candles.len() < 2 || period == 0 {
         return 0.0;
@@ -26,7 +29,7 @@ fn compute_atr(candles: &[Candle], period: usize) -> f64 {
     let n = candles.len().min(period + 1);
     let slice = &candles[(candles.len() - n)..];
     let mut tr_sum = 0.0;
-    let mut count = 0;
+    let mut count = 0usize;
     for i in 1..slice.len() {
         let high = slice[i].high.to_f64();
         let low = slice[i].low.to_f64();
@@ -44,8 +47,11 @@ fn compute_atr(candles: &[Candle], period: usize) -> f64 {
     }
 }
 
-/// Donchian channel: highest high and lowest low over `periods`
-/// candles.
+/// Computes the Donchian channel (highest high, lowest low) over
+/// the most recent `periods` candles.
+///
+/// Returns `None` if there are fewer candles than `periods` or
+/// `periods` is 0.
 fn donchian(candles: &[Candle], periods: usize) -> Option<(f64, f64)> {
     if candles.len() < periods || periods == 0 {
         return None;
@@ -62,25 +68,31 @@ fn donchian(candles: &[Candle], periods: usize) -> Option<(f64, f64)> {
     Some((high, low))
 }
 
+/// Momentum Breakout strategy.
+///
+/// Enters on Donchian channel breakouts and uses ATR-scaled initial
+/// stops with trailing exit via a shorter-period Donchian channel.
+/// See the [module docs](self) for full details.
 pub struct MomentumBreakoutStrategy {
     config: StudyConfig,
     params: Vec<ParameterDef>,
+    /// Number of trades taken in the current session.
     trades_taken: usize,
-    /// Trailing exit Donchian levels (updated each candle close).
+    /// Trailing exit Donchian high (updated each candle close).
     trailing_exit_high: Option<f64>,
+    /// Trailing exit Donchian low (updated each candle close).
     trailing_exit_low: Option<f64>,
-    /// Direction of open trade (for trailing logic).
+    /// Direction of the currently open trade for trailing logic.
     open_side: Option<Side>,
 }
 
+/// Builds the parameter definitions for this strategy.
 fn make_params() -> Vec<ParameterDef> {
     vec![
         ParameterDef {
             key: "entry_periods".into(),
             label: "Entry Periods".into(),
-            description: "Donchian channel lookback for breakout \
-                          entry."
-                .into(),
+            description: "Donchian channel lookback for breakout entry.".into(),
             kind: ParameterKind::Integer { min: 5, max: 200 },
             default: ParameterValue::Integer(20),
             tab: ParameterTab::Parameters,
@@ -92,9 +104,7 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "exit_periods".into(),
             label: "Exit Periods".into(),
-            description: "Donchian channel lookback for trailing \
-                          stop exit."
-                .into(),
+            description: "Donchian channel lookback for trailing exit.".into(),
             kind: ParameterKind::Integer { min: 3, max: 100 },
             default: ParameterValue::Integer(10),
             tab: ParameterTab::Parameters,
@@ -134,8 +144,8 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "allow_reentry".into(),
             label: "Allow Re-entry".into(),
-            description: "Allow entering new trades after \
-                          previous one closes."
+            description: "Allow entering new trades after the previous \
+                 one closes."
                 .into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(true),
@@ -161,6 +171,8 @@ fn make_params() -> Vec<ParameterDef> {
 }
 
 impl MomentumBreakoutStrategy {
+    /// Creates a new instance with default parameter values.
+    #[must_use]
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("momentum_breakout");
@@ -200,6 +212,31 @@ impl MomentumBreakoutStrategy {
     fn max_trades(&self) -> usize {
         self.config.get_int("max_trades", 5) as usize
     }
+
+    /// Builds a trailing stop order that cancels existing orders
+    /// and submits a new stop at the given price.
+    fn trailing_stop_orders(
+        &self,
+        instrument: FuturesTicker,
+        side: OrderSide,
+        trigger: Price,
+        quantity: f64,
+    ) -> Vec<OrderRequest> {
+        vec![
+            OrderRequest::CancelAll {
+                instrument: Some(instrument),
+            },
+            OrderRequest::Submit(NewOrder {
+                instrument,
+                side,
+                order_type: OrderType::Stop { trigger },
+                quantity,
+                time_in_force: TimeInForce::GTC,
+                label: Some("Trailing Stop".into()),
+                reduce_only: true,
+            }),
+        ]
+    }
 }
 
 impl Default for MomentumBreakoutStrategy {
@@ -238,8 +275,6 @@ impl Strategy for MomentumBreakoutStrategy {
     }
 
     fn on_session_open(&mut self, _ctx: &StrategyContext) -> Vec<OrderRequest> {
-        // Reset per-session state but keep candle history for
-        // Donchian/ATR
         self.trades_taken = 0;
         self.open_side = None;
         self.trailing_exit_high = None;
@@ -272,12 +307,12 @@ impl Strategy for MomentumBreakoutStrategy {
                 if let Some((ex_high, ex_low)) = self.trailing_exit_high.zip(self.trailing_exit_low)
                 {
                     let close = candle.close.to_f64();
-                    let exit = match side {
+                    let should_exit = match side {
                         Side::Buy => close < ex_low,
                         Side::Sell => close > ex_high,
-                        _ => false,
+                        Side::Bid | Side::Ask => false,
                     };
-                    if exit {
+                    if should_exit {
                         self.open_side = None;
                         return vec![OrderRequest::Flatten {
                             instrument: ctx.primary_instrument,
@@ -286,56 +321,35 @@ impl Strategy for MomentumBreakoutStrategy {
                     }
                 }
 
-                // Update trailing stop: cancel all existing
-                // orders, submit new stop order
+                // Update trailing stop order
                 let pos_qty = ctx.primary_position().map(|p| p.quantity).unwrap_or(1.0);
 
-                if let Some(ex_low) = self.trailing_exit_low
-                    && side == Side::Buy
+                if side == Side::Buy {
+                    if let Some(ex_low) = self.trailing_exit_low {
+                        return self.trailing_stop_orders(
+                            ctx.primary_instrument,
+                            OrderSide::Sell,
+                            Price::from_f64(ex_low),
+                            pos_qty,
+                        );
+                    }
+                } else if side == Side::Sell
+                    && let Some(ex_high) = self.trailing_exit_high
                 {
-                    let new_stop = Price::from_f64(ex_low);
-                    return vec![
-                        OrderRequest::CancelAll {
-                            instrument: Some(ctx.primary_instrument),
-                        },
-                        OrderRequest::Submit(NewOrder {
-                            instrument: ctx.primary_instrument,
-                            side: OrderSide::Sell,
-                            order_type: OrderType::Stop { trigger: new_stop },
-                            quantity: pos_qty,
-                            time_in_force: TimeInForce::GTC,
-                            label: Some("Trailing Stop".into()),
-                            reduce_only: true,
-                        }),
-                    ];
-                }
-                if let Some(ex_high) = self.trailing_exit_high
-                    && side == Side::Sell
-                {
-                    let new_stop = Price::from_f64(ex_high);
-                    return vec![
-                        OrderRequest::CancelAll {
-                            instrument: Some(ctx.primary_instrument),
-                        },
-                        OrderRequest::Submit(NewOrder {
-                            instrument: ctx.primary_instrument,
-                            side: OrderSide::Buy,
-                            order_type: OrderType::Stop { trigger: new_stop },
-                            quantity: pos_qty,
-                            time_in_force: TimeInForce::GTC,
-                            label: Some("Trailing Stop".into()),
-                            reduce_only: true,
-                        }),
-                    ];
+                    return self.trailing_stop_orders(
+                        ctx.primary_instrument,
+                        OrderSide::Buy,
+                        Price::from_f64(ex_high),
+                        pos_qty,
+                    );
                 }
             } else {
                 // Position was closed externally (SL/TP)
                 self.open_side = None;
-                if self.allow_reentry() && self.trades_taken < self.max_trades() {
-                    // Fall through to entry check below
-                } else {
+                if !self.allow_reentry() || self.trades_taken >= self.max_trades() {
                     return vec![];
                 }
+                // Fall through to entry check below
             }
         }
 
@@ -346,7 +360,8 @@ impl Strategy for MomentumBreakoutStrategy {
         if self.trades_taken >= self.max_trades() {
             return vec![];
         }
-        if candles.len() < self.entry_periods().max(self.atr_period() + 1) {
+        let min_candles = self.entry_periods().max(self.atr_period() + 1);
+        if candles.len() < min_candles {
             return vec![];
         }
 
@@ -362,13 +377,12 @@ impl Strategy for MomentumBreakoutStrategy {
         }
 
         let close = candle.close.to_f64();
+        let stop_dist = atr * self.atr_stop_multiplier();
+        let exit_periods = self.exit_periods();
 
         // Long breakout: close above channel high
         if close > channel_high {
-            let entry = candle.close;
-            let stop_dist = atr * self.atr_stop_multiplier();
-            let sl = Price::from_f64(entry.to_f64() - stop_dist);
-            let exit_periods = self.exit_periods();
+            let sl = Price::from_f64(close - stop_dist);
             self.trades_taken += 1;
             self.open_side = Some(Side::Buy);
             if let Some((_, ex_low)) = donchian(candles, exit_periods) {
@@ -391,10 +405,7 @@ impl Strategy for MomentumBreakoutStrategy {
 
         // Short breakout: close below channel low
         if close < channel_low {
-            let entry = candle.close;
-            let stop_dist = atr * self.atr_stop_multiplier();
-            let sl = Price::from_f64(entry.to_f64() + stop_dist);
-            let exit_periods = self.exit_periods();
+            let sl = Price::from_f64(close + stop_dist);
             self.trades_taken += 1;
             self.open_side = Some(Side::Sell);
             if let Some((ex_high, _)) = donchian(candles, exit_periods) {
@@ -419,7 +430,7 @@ impl Strategy for MomentumBreakoutStrategy {
     }
 
     fn on_tick(&mut self, _ctx: &StrategyContext) -> Vec<OrderRequest> {
-        // Momentum breakout uses candle-close logic only
+        // Momentum breakout uses candle-close logic only.
         vec![]
     }
 

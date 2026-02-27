@@ -1,34 +1,70 @@
+//! Individual position tracking with scale-in and MAE/MFE support.
+//!
+//! A [`Position`] represents an open directional exposure in a single
+//! instrument. It supports:
+//!
+//! - **Scaling in** -- multiple fills on the same side compute a
+//!   volume-weighted average entry price.
+//! - **Partial closes** -- opposite-side fills reduce quantity
+//!   without exceeding the position size.
+//! - **MAE/MFE tracking** -- records the worst and best
+//!   mark-to-market prices seen while the position was open.
+
 use crate::order::types::OrderSide;
 use kairos_data::{FuturesTicker, Price, Timestamp};
 
-/// A single position entry (one fill event).
+/// A single fill that contributed to a position.
 #[derive(Debug, Clone)]
 pub struct PositionEntry {
+    /// Fill price.
     pub price: Price,
+    /// Number of contracts filled.
     pub quantity: f64,
+    /// Timestamp of the fill event.
     pub timestamp: Timestamp,
 }
 
 /// An open position for a single instrument.
-/// Supports multiple entries (scaling in), partial closes.
+///
+/// Supports multiple entries (scaling in) and partial closes.
+/// Tracks maximum adverse and favorable excursion for post-trade
+/// analytics.
 #[derive(Debug, Clone)]
 pub struct Position {
+    /// Instrument this position is in.
     pub instrument: FuturesTicker,
+    /// Direction of the position (long = Buy, short = Sell).
     pub side: OrderSide,
+    /// Individual fills that built up this position.
     pub entries: Vec<PositionEntry>,
+    /// Current open quantity (contracts).
     pub quantity: f64,
+    /// Volume-weighted average entry price across all fills.
     pub avg_entry_price: Price,
+    /// Last mark-to-market price.
     pub mark_price: Price,
+    /// Maximum Adverse Excursion price -- worst mark seen.
+    ///
+    /// For longs this is the lowest price; for shorts the highest.
     pub mae_price: Price,
+    /// Maximum Favorable Excursion price -- best mark seen.
+    ///
+    /// For longs this is the highest price; for shorts the lowest.
     pub mfe_price: Price,
+    /// Timestamp when the position was first opened.
     pub opened_at: Timestamp,
+    /// Optional strategy label for grouping trades in analytics.
     pub label: Option<String>,
-    /// Stop loss set by the strategy (used for R:R calculation).
+    /// Stop-loss price set by the strategy at entry time.
+    ///
+    /// Used to compute the risk-reward ratio (R:R) on the resulting
+    /// [`TradeRecord`](crate::output::trade_record::TradeRecord).
     pub initial_stop_loss: Option<Price>,
 }
 
 impl Position {
-    /// Create a new position from a first fill.
+    /// Create a new position from an initial fill.
+    #[must_use]
     pub fn new(
         instrument: FuturesTicker,
         side: OrderSide,
@@ -57,15 +93,27 @@ impl Position {
     }
 
     /// Apply a fill to this position.
-    /// Returns: how much was consumed by this position (may be less
-    /// than fill_qty if it closes or reverses).
     ///
-    /// - Same-side fill: adds to position (scale in).
-    /// - Opposite-side fill: reduces position. If fill_qty >
-    ///   position qty, only position qty is consumed (caller handles
-    ///   reversal).
+    /// # Same-side fills (scale in)
     ///
-    /// Returns (consumed_qty, closed: bool).
+    /// Adds to the position and recomputes the volume-weighted
+    /// average entry price:
+    ///
+    /// ```text
+    /// new_avg = (old_avg * old_qty + fill_price * fill_qty)
+    ///         / (old_qty + fill_qty)
+    /// ```
+    ///
+    /// # Opposite-side fills (reduce / close)
+    ///
+    /// Reduces the position quantity. If `fill_qty >= position qty`
+    /// the position is fully closed. Only the consumed portion
+    /// (up to position size) is applied -- the caller handles any
+    /// reversal.
+    ///
+    /// Returns `(consumed_qty, closed)` where `consumed_qty` is
+    /// the number of contracts actually applied and `closed` is
+    /// true if the position is now flat.
     pub fn apply_fill(
         &mut self,
         fill_side: OrderSide,
@@ -74,7 +122,7 @@ impl Position {
         timestamp: Timestamp,
     ) -> (f64, bool) {
         if fill_side == self.side {
-            // Scale in: add to position
+            // Scale in: recompute VWAP entry price
             let prev_value = self.avg_entry_price.to_f64() * self.quantity;
             let fill_value = fill_price.to_f64() * fill_qty;
             self.quantity += fill_qty;
@@ -97,7 +145,10 @@ impl Position {
         }
     }
 
-    /// Update MAE/MFE with current market price.
+    /// Update the mark price and refresh MAE/MFE tracking.
+    ///
+    /// Should be called on every price update (tick or bar close)
+    /// while the position is open.
     pub fn update_mark(&mut self, current_price: Price) {
         self.mark_price = current_price;
         match self.side {
@@ -120,7 +171,16 @@ impl Position {
         }
     }
 
-    /// Compute unrealized PnL in USD.
+    /// Compute unrealized PnL in USD at the current mark price.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// ticks = (mark - entry) / tick_size   [long]
+    /// ticks = (entry - mark) / tick_size   [short]
+    /// pnl   = ticks * tick_value * quantity
+    /// ```
+    #[must_use]
     pub fn unrealized_pnl(&self, tick_size: Price, tick_value: f64) -> f64 {
         if tick_size.units() == 0 {
             return 0.0;
@@ -133,7 +193,11 @@ impl Position {
         ticks * tick_value * self.quantity
     }
 
-    /// MAE in ticks (always non-negative).
+    /// Maximum Adverse Excursion in ticks (always non-negative).
+    ///
+    /// Measures how far the market moved *against* the position
+    /// from entry before exiting or recovering.
+    #[must_use]
     pub fn mae_ticks(&self, tick_size: Price) -> i64 {
         if tick_size.units() == 0 {
             return 0;
@@ -145,7 +209,11 @@ impl Position {
         (diff / tick_size.units()).max(0)
     }
 
-    /// MFE in ticks (always non-negative).
+    /// Maximum Favorable Excursion in ticks (always non-negative).
+    ///
+    /// Measures how far the market moved *in favor of* the position
+    /// from entry before exiting or pulling back.
+    #[must_use]
     pub fn mfe_ticks(&self, tick_size: Price) -> i64 {
         if tick_size.units() == 0 {
             return 0;
@@ -157,7 +225,7 @@ impl Position {
         (diff / tick_size.units()).max(0)
     }
 
-    /// Set the initial stop loss price (used for R:R calculation).
+    /// Set the initial stop-loss price for R:R calculation.
     pub fn set_stop_loss(&mut self, price: Price) {
         self.initial_stop_loss = Some(price);
     }

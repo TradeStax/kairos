@@ -33,16 +33,15 @@ pub mod event;
 pub mod stream;
 pub mod util;
 
-// Re-export error
+// ── Re-exports ──────────────────────────────────────────────────────────
+
 pub use error::Error;
 
-// Re-export aggregation
 pub use aggregation::{
     AggregationError, aggregate_candles_to_timeframe, aggregate_trades_to_candles,
     aggregate_trades_to_ticks,
 };
 
-// Re-export domain types
 #[cfg(feature = "heatmap")]
 pub use domain::HeatmapIndicator;
 pub use domain::{
@@ -56,17 +55,14 @@ pub use domain::{
     ViewConfig, Volume, hex_to_rgba, ms_to_datetime, rgba_to_hex,
 };
 
-// Re-export connection types
 pub use connection::{
     Connection, ConnectionCapability, ConnectionConfig, ConnectionKind, ConnectionManager,
     ConnectionProvider, ConnectionStatus, DatabentoConnectionConfig, HistoricalDatasetInfo,
     ResolvedConnection, RithmicConnectionConfig, RithmicEnvironment, RithmicServer,
 };
 
-// Re-export event types
 pub use event::DataEvent;
 
-// Re-export stream types
 #[cfg(feature = "heatmap")]
 pub use stream::PersistDepth;
 pub use stream::{
@@ -74,7 +70,6 @@ pub use stream::{
     StreamKind, StreamSpecs, StreamTicksize, UniqueStreams,
 };
 
-// Re-export adapter types needed by app
 #[cfg(feature = "rithmic")]
 pub use adapter::rithmic::client::probe_system_names;
 #[cfg(feature = "rithmic")]
@@ -85,14 +80,12 @@ pub use adapter::rithmic::{
 #[cfg(feature = "databento")]
 pub use adapter::databento::DatabentoConfig;
 
-// Re-export logging util for convenience
 pub use util::logging as log;
 
-/// Scan the Databento cache directory and build a DataIndex.
+/// Scans the Databento cache directory and builds a [`DataIndex`].
 ///
-/// This is a free-function wrapper around `CacheStore::scan_to_index` for
-/// use by the application layer after a Databento feed connects or data
-/// download completes.
+/// Free-function wrapper around `CacheStore::scan_to_index` for use by the
+/// application layer after a Databento feed connects or data download completes.
 #[cfg(feature = "databento")]
 pub async fn scan_databento_cache(
     cache_root: &std::path::Path,
@@ -105,6 +98,7 @@ pub async fn scan_databento_cache(
     Ok(index)
 }
 
+/// No-op fallback when the `databento` feature is disabled.
 #[cfg(not(feature = "databento"))]
 pub async fn scan_databento_cache(
     _cache_root: &std::path::Path,
@@ -113,7 +107,10 @@ pub async fn scan_databento_cache(
     Ok(domain::index::DataIndex::new())
 }
 
-/// Safely lock a mutex and recover from poisoned locks.
+/// Safely locks a mutex, recovering from poisoned locks.
+///
+/// Logs an error and returns the inner value if the mutex was poisoned.
+/// Use when the alternative to recovery is a full application crash.
 pub fn lock_or_recover<T>(
     mutex: &std::sync::Arc<std::sync::Mutex<T>>,
 ) -> std::sync::MutexGuard<'_, T> {

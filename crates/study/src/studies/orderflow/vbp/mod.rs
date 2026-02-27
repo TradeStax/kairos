@@ -10,9 +10,9 @@
 //! standard deviation bands.
 //!
 //! Split into focused submodules:
-//! - [`params`] -- parameter definitions and default colors
-//! - [`compute`] -- core computation and helpers
-//! - [`config`] -- config import/export and builder helpers
+//! - `params` -- parameter definitions and default colors
+//! - `compute` -- core computation and helpers
+//! - `config` -- config import/export and builder helpers
 
 mod compute;
 mod config;
@@ -28,18 +28,27 @@ use crate::output::{
 
 use params::*;
 
+/// Volume-by-Price study that renders horizontal volume distribution
+/// bars at each price level on the chart background.
+///
+/// Supports five visualization types (Volume, Bid/Ask Volume, Delta,
+/// Delta & Total Volume, Delta Percentage), configurable time periods
+/// (split or custom), and overlays including POC, developing POC,
+/// value area, HVN/LVN zones, peak/valley lines, and anchored VWAP
+/// with standard deviation bands.
 pub struct VbpStudy {
     pub(super) config: StudyConfig,
     output: StudyOutput,
     pub(super) params: Vec<ParameterDef>,
     /// Fingerprint of the last computed input to skip redundant
     /// recomputation when the underlying data hasn't changed.
-    /// (candle_count, first_candle_ts, last_candle_ts,
-    /// trade_count, split_hash)
+    /// Format: (candle_count, first_ts, last_ts, trade_count,
+    /// split_hash).
     pub(super) last_input_fingerprint: (usize, u64, u64, usize, u64),
 }
 
 impl VbpStudy {
+    /// Create a new VBP study with default parameters.
     pub fn new() -> Self {
         let params = params::build_params();
 
@@ -227,6 +236,10 @@ impl VbpStudy {
     }
 }
 
+/// Study trait implementation for Volume-by-Price.
+///
+/// Placement is `Background` by default, or `SidePanel` when the user
+/// configures the `display_location` parameter to "Side Panel".
 impl Study for VbpStudy {
     fn id(&self) -> &str {
         "vbp"
@@ -240,6 +253,8 @@ impl Study for VbpStudy {
         StudyCategory::OrderFlow
     }
 
+    /// Returns `Background` or `SidePanel` based on the
+    /// `display_location` parameter.
     fn placement(&self) -> StudyPlacement {
         if self.config.get_choice("display_location", "In Chart") == "Side Panel" {
             StudyPlacement::SidePanel

@@ -1,15 +1,25 @@
-//! Trade fetch methods
+//! Trade fetch methods for [`DatabentoAdapter`].
+//!
+//! Implements cache-first fetching: identifies which days are already cached,
+//! fetches only the gaps from the Databento API, then loads and filters
+//! results to the exact requested time range.
+
+use std::collections::HashSet;
+
+use databento::dbn::Schema;
 
 use super::DatabentoAdapter;
 use super::find_uncached_gaps;
 use crate::adapter::databento::DatabentoError;
 use crate::cache::store::{CacheProvider, CacheSchema};
 use crate::domain::Trade;
-use databento::dbn::Schema;
-use std::collections::HashSet;
 
 impl DatabentoAdapter {
-    /// Fetch trades for a date range — cache-first, gap-fill from API
+    /// Fetches trades for a date range using a cache-first strategy.
+    ///
+    /// Cached days are served directly; uncached gaps are fetched from the
+    /// API and persisted before the combined result is filtered to the
+    /// exact `range` boundaries.
     pub async fn get_trades(
         &mut self,
         symbol: &str,
@@ -20,7 +30,6 @@ impl DatabentoAdapter {
         let end_date = end.date_naive();
         let schema = Schema::Trades;
 
-        // Identify cached days
         let mut cached_days = HashSet::new();
         let mut current = start_date;
         while current <= end_date {
@@ -39,20 +48,20 @@ impl DatabentoAdapter {
             current += chrono::Duration::days(1);
         }
 
-        // Fetch gaps
         let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
         for gap in &gaps {
             self.fetch_and_cache_range(symbol, schema, gap.start, gap.end)
                 .await?;
         }
 
-        // Load all days from cache
         let mut all_trades = Vec::new();
         let mut current = start_date;
         while current <= end_date {
             match self.load_trades_day(symbol, current).await {
                 Ok(day_trades) => all_trades.extend(day_trades),
-                Err(e) => log::warn!("Could not load trades {} on {}: {:?}", symbol, current, e),
+                Err(e) => {
+                    log::warn!("Could not load trades {} on {}: {:?}", symbol, current, e);
+                }
             }
             current += chrono::Duration::days(1);
         }
@@ -64,7 +73,6 @@ impl DatabentoAdapter {
             )));
         }
 
-        // Filter to exact range
         let filtered: Vec<_> = all_trades
             .into_iter()
             .filter(|t| {
@@ -77,7 +85,9 @@ impl DatabentoAdapter {
         Ok(filtered)
     }
 
-    /// Fetch trades with progress callback
+    /// Fetches trades with a progress callback for UI feedback.
+    ///
+    /// The callback receives `(days_processed, total_days, current_date, was_cached)`.
     pub async fn get_trades_with_progress<F>(
         &mut self,
         symbol: &str,
@@ -132,7 +142,9 @@ impl DatabentoAdapter {
             let was_cached = cached_days.contains(&current);
             match self.load_trades_day(symbol, current).await {
                 Ok(day_trades) => all_trades.extend(day_trades),
-                Err(e) => log::warn!("Could not load {} on {}: {:?}", symbol, current, e),
+                Err(e) => {
+                    log::warn!("Could not load {} on {}: {:?}", symbol, current, e);
+                }
             }
             if was_cached {
                 days_processed += 1;

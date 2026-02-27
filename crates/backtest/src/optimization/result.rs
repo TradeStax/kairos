@@ -1,38 +1,56 @@
+//! Result types for walk-forward optimization.
+//!
+//! Stores per-window and aggregate outcomes so the caller can
+//! inspect in-sample vs out-of-sample performance and detect
+//! overfitting.
+
 use crate::optimization::objective::ObjectiveFunction;
 use crate::output::metrics::PerformanceMetrics;
 use kairos_study::ParameterValue;
 use std::collections::HashMap;
 
-/// Result of a single optimization window.
+/// Performance result for a single walk-forward window.
 #[derive(Debug, Clone)]
 pub struct WindowResult {
-    /// In-sample metrics.
+    /// Metrics computed on the in-sample (training) period using
+    /// the best parameter set.
     pub in_sample_metrics: PerformanceMetrics,
-    /// Out-of-sample metrics.
+    /// Metrics computed on the out-of-sample (validation) period
+    /// using the same parameter set selected in-sample.
     pub out_of_sample_metrics: PerformanceMetrics,
-    /// Best parameter set found in-sample.
+    /// The parameter combination that scored highest in-sample.
     pub best_params: HashMap<String, ParameterValue>,
-    /// Objective value achieved in-sample.
+    /// Objective value achieved on the in-sample period.
     pub in_sample_objective: f64,
-    /// Objective value achieved out-of-sample.
+    /// Objective value achieved on the out-of-sample period.
     pub out_of_sample_objective: f64,
 }
 
-/// Aggregate result of walk-forward optimization.
+/// Aggregate result across all walk-forward windows.
+///
+/// Provides summary statistics to evaluate whether the strategy
+/// generalizes beyond its training data or is overfit.
 #[derive(Debug, Clone)]
 pub struct WalkForwardResult {
+    /// The objective function that was maximized.
     pub objective: ObjectiveFunction,
+    /// Per-window results in chronological order.
     pub windows: Vec<WindowResult>,
-    /// Aggregate out-of-sample objective
-    /// (mean across windows).
+    /// Mean out-of-sample objective value across all windows.
     pub aggregate_oos_objective: f64,
-    /// Aggregate out-of-sample net PnL.
+    /// Total out-of-sample net PnL (USD) summed across windows.
     pub aggregate_oos_pnl: f64,
-    /// Total parameter combinations tested per window.
+    /// Number of parameter combinations tested in each window.
     pub combinations_per_window: usize,
 }
 
 impl WalkForwardResult {
+    /// Computes aggregate statistics from individual window
+    /// results.
+    ///
+    /// The aggregate out-of-sample objective is the arithmetic
+    /// mean across windows, and the aggregate PnL is the sum.
+    #[must_use]
     pub fn compute_aggregate(
         windows: Vec<WindowResult>,
         objective: ObjectiveFunction,

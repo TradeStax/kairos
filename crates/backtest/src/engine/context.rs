@@ -1,10 +1,22 @@
+//! Strategy context construction from cached engine state.
+//!
+//! The engine maintains a cache of completed candles and partial
+//! candles from the aggregator. Before each strategy callback, the
+//! cache is refreshed (if stale) and a [`StrategyContext`] is built
+//! by borrowing from the cached data and current engine state.
+
 use crate::engine::kernel::Engine;
 use crate::strategy::context::StrategyContext;
 use kairos_data::{FuturesTicker, Trade};
 
 impl Engine {
-    /// Populate cached candles and partial candles from the
-    /// aggregator. Must be called before `build_context`.
+    /// Refreshes the candle and partial-candle caches from the
+    /// aggregator.
+    ///
+    /// Uses a generation counter to skip redundant rebuilds — if
+    /// the aggregator has not produced new candles since the last
+    /// rebuild, this is a no-op. Must be called before
+    /// [`build_context`](Self::build_context).
     pub(crate) fn rebuild_context_cache(&mut self, primary: FuturesTicker) {
         let current_gen = self.aggregator.generation();
         if current_gen == self.cache_generation && !self.cached_candles.is_empty() {
@@ -15,25 +27,25 @@ impl Engine {
         self.cached_candles.clear();
         self.cached_partials.clear();
 
-        // Primary timeframe
+        // Primary instrument + primary timeframe
         let candles = self.aggregator.candles(primary, self.config.timeframe);
         self.cached_candles
             .insert((primary, self.config.timeframe), candles.to_vec());
 
-        // Additional timeframes
-        for tf in self.config.additional_timeframes.clone() {
+        // Additional timeframes for the primary instrument
+        for &tf in &self.config.additional_timeframes {
             let c = self.aggregator.candles(primary, tf);
             self.cached_candles.insert((primary, tf), c.to_vec());
         }
 
-        // Additional instruments
-        for inst in self.config.additional_instruments.clone() {
+        // Additional instruments at the primary timeframe
+        for &inst in &self.config.additional_instruments {
             let c = self.aggregator.candles(inst, self.config.timeframe);
             self.cached_candles
                 .insert((inst, self.config.timeframe), c.to_vec());
         }
 
-        // Partial candles
+        // Partial (in-progress) candle for the primary pair
         if let Some(p) = self
             .aggregator
             .partial_candle(primary, self.config.timeframe)
@@ -43,8 +55,13 @@ impl Engine {
         }
     }
 
-    /// Build a `StrategyContext` from cached state.
-    /// `rebuild_context_cache` must be called before this method.
+    /// Builds a [`StrategyContext`] from the engine's cached state.
+    ///
+    /// The context borrows from cached candles, the portfolio, the
+    /// order book, and session state — providing the strategy with
+    /// a read-only view of the simulation. Call
+    /// [`rebuild_context_cache`](Self::rebuild_context_cache) before
+    /// this method.
     pub(crate) fn build_context<'a>(
         &'a self,
         primary: FuturesTicker,

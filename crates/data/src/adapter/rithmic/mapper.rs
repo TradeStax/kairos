@@ -1,12 +1,17 @@
-//! Rithmic Message Mapper
+//! Rithmic-to-domain type mapping.
 //!
-//! Converts Rithmic protocol messages to domain types (Trade, Depth).
-//! All output uses domain types directly — no intermediate exchange types.
+//! Converts Rithmic protobuf wire messages into domain types ([`Trade`],
+//! [`Depth`]). All output uses domain types directly -- no intermediate
+//! exchange types. Handles timestamp conversion (ssboe + usecs to millis)
+//! and aggressor side mapping.
 
 use super::protocol::{RithmicMessage, RithmicResponse};
 use crate::domain::{Depth, Price, Quantity, Side, Timestamp, Trade};
 
-/// Convert a Rithmic LastTrade message to a domain Trade
+/// Converts a Rithmic `LastTrade` message to a domain [`Trade`].
+///
+/// Returns `None` if the message is not a `LastTrade` variant or if
+/// required fields (timestamp, price, size) are missing.
 pub fn map_last_trade(msg: &RithmicMessage) -> Option<Trade> {
     match msg {
         RithmicMessage::LastTrade(lt) => {
@@ -42,7 +47,9 @@ pub fn map_last_trade(msg: &RithmicMessage) -> Option<Trade> {
     }
 }
 
-/// Convert a Rithmic BestBidOffer message to a domain Depth
+/// Converts a Rithmic `BestBidOffer` message to a domain [`Depth`].
+///
+/// Produces a single-level depth snapshot from the top-of-book quote.
 pub fn map_bbo_to_depth(msg: &RithmicMessage) -> Option<Depth> {
     match msg {
         RithmicMessage::BestBidOffer(bbo) => {
@@ -68,7 +75,10 @@ pub fn map_bbo_to_depth(msg: &RithmicMessage) -> Option<Depth> {
     }
 }
 
-/// Convert a Rithmic OrderBook message to a domain Depth
+/// Converts a Rithmic `OrderBook` message to a domain [`Depth`].
+///
+/// Returns `None` if price/size arrays are mismatched or both sides
+/// are empty.
 pub fn map_orderbook_to_depth(msg: &RithmicMessage) -> Option<Depth> {
     match msg {
         RithmicMessage::OrderBook(ob) => {
@@ -116,34 +126,38 @@ pub fn map_orderbook_to_depth(msg: &RithmicMessage) -> Option<Depth> {
     }
 }
 
-/// Convert historical tick bar replay responses to domain trades.
+/// Converts historical tick bar replay responses to domain [`Trade`]s.
+///
+/// Handles both `ResponseTickBarReplay` bars and `LastTrade` messages
+/// that may appear in the response stream. Infers trade side from
+/// bid/ask volume split.
 pub fn map_tick_replay_to_trades(responses: &[RithmicResponse]) -> Vec<Trade> {
     let mut trades = Vec::with_capacity(responses.len());
     trades.extend(responses.iter().filter_map(|r| match &r.message {
-            RithmicMessage::ResponseTickBarReplay(bar) => {
-                let ssboe = bar.data_bar_ssboe.first().copied()? as u64;
-                let usecs = bar.data_bar_usecs.first().copied().unwrap_or(0) as u64;
-                let time_ms = ssboe * 1000 + (usecs + 500) / 1000;
+        RithmicMessage::ResponseTickBarReplay(bar) => {
+            let ssboe = bar.data_bar_ssboe.first().copied()? as u64;
+            let usecs = bar.data_bar_usecs.first().copied().unwrap_or(0) as u64;
+            let time_ms = ssboe * 1000 + (usecs + 500) / 1000;
 
-                let price = bar.close_price?;
-                let volume = bar.volume.unwrap_or(0) as f64;
+            let price = bar.close_price?;
+            let volume = bar.volume.unwrap_or(0) as f64;
 
-                let side = match (bar.bid_volume, bar.ask_volume) {
-                    (Some(b), Some(a)) if a > b => Side::Buy,
-                    (Some(b), Some(a)) if b > a => Side::Sell,
-                    _ => Side::Sell,
-                };
+            let side = match (bar.bid_volume, bar.ask_volume) {
+                (Some(b), Some(a)) if a > b => Side::Buy,
+                (Some(b), Some(a)) if b > a => Side::Sell,
+                _ => Side::Sell,
+            };
 
-                Some(Trade {
-                    time: Timestamp::from_millis(time_ms),
-                    price: Price::from_f64(price),
-                    quantity: Quantity(volume),
-                    side,
-                })
-            }
-            RithmicMessage::LastTrade(_) => map_last_trade(&r.message),
-            _ => None,
-        }));
+            Some(Trade {
+                time: Timestamp::from_millis(time_ms),
+                price: Price::from_f64(price),
+                quantity: Quantity(volume),
+                side,
+            })
+        }
+        RithmicMessage::LastTrade(_) => map_last_trade(&r.message),
+        _ => None,
+    }));
     trades
 }
 

@@ -25,6 +25,12 @@ const DEFAULT_NEG_COLOR: SerializableColor = BEARISH_COLOR;
 
 const DEFAULT_OPACITY: f64 = 0.8;
 
+/// Per-candle volume delta (buy volume minus sell volume).
+///
+/// Positive delta means more contracts traded at the ask (aggressive
+/// buyers); negative delta means more traded at the bid (aggressive
+/// sellers). Renders as colored bars in a separate panel below the
+/// price chart.
 pub struct DeltaStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -32,6 +38,8 @@ pub struct DeltaStudy {
 }
 
 impl DeltaStudy {
+    /// Create a new Delta study with default bullish/bearish colors
+    /// and 80% opacity.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {

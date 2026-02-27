@@ -1,3 +1,9 @@
+//! Rithmic connection configuration and environment selection.
+//!
+//! [`RithmicConnectionConfig`] holds account credentials and server URLs.
+//! Configs can be built from environment variables ([`from_env`](RithmicConnectionConfig::from_env))
+//! or programmatically via [`RithmicConnectionConfigBuilder`].
+
 use std::{env, fmt, str::FromStr};
 
 /// Trading environment selector.
@@ -71,59 +77,36 @@ impl std::error::Error for ConfigError {}
 
 /// Configuration for Rithmic connections.
 ///
-/// Contains both account information and connection details.
-///
-/// # Fields
-/// - Account-related: `account_id`, `fcm_id`, `ib_id`
-/// - Connection-related: `url`, `beta_url`, `user`, `password`,
-///   `system_name`, `env`
+/// Contains both account information (IDs) and connection details
+/// (URLs, credentials, environment).
 #[derive(Clone, Debug)]
 pub struct RithmicConnectionConfig {
-    // Account fields
+    /// Rithmic account identifier
     pub account_id: String,
+    /// Futures Commission Merchant identifier
     pub fcm_id: String,
+    /// Introducing Broker identifier
     pub ib_id: String,
-
-    // Connection fields
+    /// Primary WebSocket URL
     pub url: String,
+    /// Alternate/beta WebSocket URL for failover
     pub beta_url: String,
+    /// Login username
     pub user: String,
+    /// Login password
     pub password: String,
+    /// Rithmic system name (e.g. "Rithmic Paper Trading")
     pub system_name: String,
+    /// Target environment
     pub env: RithmicEnv,
 }
 
 impl RithmicConnectionConfig {
-    /// Create a configuration by loading values from environment variables.
+    /// Creates a configuration by loading values from environment
+    /// variables prefixed with `RITHMIC_{DEMO,LIVE,TEST}_`.
     ///
-    /// # Required environment variables
-    ///
-    /// For Demo environment:
-    /// - `RITHMIC_DEMO_ACCOUNT_ID`: Demo account ID
-    /// - `RITHMIC_DEMO_FCM_ID`: Demo FCM (Futures Commission Merchant) ID
-    /// - `RITHMIC_DEMO_IB_ID`: Demo IB (Introducing Broker) ID
-    /// - `RITHMIC_DEMO_USER`: Demo username
-    /// - `RITHMIC_DEMO_PW`: Demo password
-    /// - `RITHMIC_DEMO_URL`: Demo WebSocket URL
-    /// - `RITHMIC_DEMO_ALT_URL`: Demo alternative/beta WebSocket URL
-    ///
-    /// For Live environment:
-    /// - `RITHMIC_LIVE_ACCOUNT_ID`: Live account ID
-    /// - `RITHMIC_LIVE_FCM_ID`: Live FCM (Futures Commission Merchant) ID
-    /// - `RITHMIC_LIVE_IB_ID`: Live IB (Introducing Broker) ID
-    /// - `RITHMIC_LIVE_USER`: Live username
-    /// - `RITHMIC_LIVE_PW`: Live password
-    /// - `RITHMIC_LIVE_URL`: Live WebSocket URL
-    /// - `RITHMIC_LIVE_ALT_URL`: Live alternative/beta WebSocket URL
-    ///
-    /// For Test environment:
-    /// - `RITHMIC_TEST_ACCOUNT_ID`: Test account ID
-    /// - `RITHMIC_TEST_FCM_ID`: Test FCM (Futures Commission Merchant) ID
-    /// - `RITHMIC_TEST_IB_ID`: Test IB (Introducing Broker) ID
-    /// - `RITHMIC_TEST_USER`: Test username
-    /// - `RITHMIC_TEST_PW`: Test password
-    /// - `RITHMIC_TEST_URL`: Test WebSocket URL
-    /// - `RITHMIC_TEST_ALT_URL`: Test alternative/beta WebSocket URL
+    /// Required vars per environment: `ACCOUNT_ID`, `FCM_ID`,
+    /// `IB_ID`, `USER`, `PW`, `URL`, `ALT_URL`.
     pub fn from_env(env: RithmicEnv) -> Result<Self, ConfigError> {
         let (account_id, fcm_id, ib_id, url, beta_url, user, password, system_name) = match &env {
             RithmicEnv::Demo => (
@@ -195,15 +178,14 @@ impl RithmicConnectionConfig {
         })
     }
 
-    /// Create a builder for programmatic configuration.
-    ///
-    /// Use this to set configuration values directly in code.
+    /// Creates a builder for programmatic configuration
+    #[must_use]
     pub fn builder(env: RithmicEnv) -> RithmicConnectionConfigBuilder {
         RithmicConnectionConfigBuilder::new(env)
     }
 }
 
-/// Builder for constructing a RithmicConnectionConfig with custom values.
+/// Builder for constructing a [`RithmicConnectionConfig`] with custom values.
 #[derive(Default)]
 pub struct RithmicConnectionConfigBuilder {
     env: Option<RithmicEnv>,
@@ -282,9 +264,8 @@ impl RithmicConnectionConfigBuilder {
         self
     }
 
-    /// Build the configuration.
-    ///
-    /// Returns an error if any required fields are missing.
+    /// Builds the configuration, returning an error if any required
+    /// fields are missing
     pub fn build(self) -> Result<RithmicConnectionConfig, ConfigError> {
         Ok(RithmicConnectionConfig {
             env: self

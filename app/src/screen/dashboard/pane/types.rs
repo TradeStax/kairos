@@ -1,5 +1,6 @@
 use super::Content;
 use crate::components::display::toast::Toast;
+use crate::config::UserTimezone;
 use crate::modals::pane::Modal;
 use crate::screen::dashboard::pane::config::{LinkGroup, Settings};
 use super::context_menu::ContextMenuKind;
@@ -36,6 +37,10 @@ pub struct State {
     pub(crate) loaded_date_range: Option<data::DateRange>,
     /// Floating AI context bubble (shown after AiContext drawing completes)
     pub(crate) ai_context_bubble: Option<AiContextBubble>,
+    /// Live trades received while chart was still loading (drained on chart init)
+    pub(crate) pending_live_trades: Vec<data::Trade>,
+    /// User timezone (synced from Kairos before update dispatch)
+    pub(crate) timezone: UserTimezone,
 }
 
 impl State {
@@ -154,6 +159,8 @@ impl Default for State {
             context_menu: None,
             loaded_date_range: None,
             ai_context_bubble: None,
+            pending_live_trades: Vec::new(),
+            timezone: UserTimezone::Utc,
         }
     }
 }

@@ -1,10 +1,15 @@
 //! Opening Range Breakout (ORB) strategy.
 //!
-//! Accumulates the high/low of the first `or_minutes` of RTH session,
-//! then watches for a breakout above or below that range.
+//! Accumulates the high and low of the first `or_minutes` of the RTH
+//! session, then watches for a breakout above or below that range.
+//! Stop loss is placed at the opposite side of the OR. Take profit
+//! is a configurable multiple of the OR range. An optional wick
+//! filter requires a candle *close* beyond the level rather than
+//! just a tick touch.
 
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
-use crate::order::types::{OrderSide, OrderType};
+use crate::order::types::OrderSide;
+use crate::order::types::OrderType;
 use crate::output::trade_record::ExitReason;
 use crate::strategy::Strategy;
 use crate::strategy::context::{SessionState, StrategyContext};
@@ -15,38 +20,48 @@ use kairos_study::{
     Visibility,
 };
 
+/// Internal state machine for the ORB strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OrbState {
-    /// Waiting for first trade of RTH session.
+    /// Waiting for the first trade of the RTH session.
     WaitingForOpen,
-    /// Accumulating the opening range.
+    /// Accumulating the opening range high/low.
     AccumulatingOR,
-    /// OR complete, watching for breakout.
+    /// OR period complete; watching for a breakout.
     WatchingForBreakout,
-    /// In a trade.
+    /// Currently in a trade.
     InTrade,
-    /// Max trades reached or time exit triggered.
+    /// Session complete (max trades reached or time exit).
     Done,
 }
 
 /// Opening Range Breakout strategy.
+///
+/// Trades breakouts above or below the first N minutes of the RTH
+/// session. See the [module docs](self) for full details.
 pub struct OrbStrategy {
     config: StudyConfig,
     params: Vec<ParameterDef>,
+    /// Current state machine state.
     state: OrbState,
+    /// Highest price observed during the opening range period.
     or_high: Option<Price>,
+    /// Lowest price observed during the opening range period.
     or_low: Option<Price>,
+    /// Timestamp (ms) of the first trade in the session.
     or_start_ms: u64,
+    /// Number of trades taken in the current session.
     trades_taken: usize,
 }
 
+/// Builds the parameter definitions for this strategy.
 fn make_params() -> Vec<ParameterDef> {
     vec![
         ParameterDef {
             key: "or_minutes".into(),
             label: "OR Minutes".into(),
-            description: "Number of minutes to accumulate the \
-                          opening range."
+            description: "Number of minutes to accumulate the opening \
+                 range."
                 .into(),
             kind: ParameterKind::Integer { min: 5, max: 120 },
             default: ParameterValue::Integer(30),
@@ -59,8 +74,8 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "tp_multiple".into(),
             label: "TP Multiple".into(),
-            description: "Take-profit distance as a multiple of \
-                          the OR range."
+            description: "Take-profit distance as a multiple of the \
+                 OR range."
                 .into(),
             kind: ParameterKind::Float {
                 min: 0.5,
@@ -89,8 +104,8 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "wick_filter".into(),
             label: "Wick Filter".into(),
-            description: "Require a candle close beyond the OR \
-                          level (reduces false breakouts)."
+            description: "Require a candle close beyond the OR level \
+                 (reduces false breakouts)."
                 .into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(true),
@@ -103,8 +118,8 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "time_exit_hhmm".into(),
             label: "Time Exit".into(),
-            description: "Close any open position at this local \
-                          time (HHMM)."
+            description: "Close any open position at this local time \
+                 (HHMM)."
                 .into(),
             kind: ParameterKind::Integer {
                 min: 1200,
@@ -120,8 +135,8 @@ fn make_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "gap_skip".into(),
             label: "Skip Gap Days".into(),
-            description: "Skip sessions that open with a gap > \
-                          1 OR range."
+            description: "Skip sessions that open with a gap > 1 OR \
+                 range."
                 .into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(true),
@@ -135,6 +150,8 @@ fn make_params() -> Vec<ParameterDef> {
 }
 
 impl OrbStrategy {
+    /// Creates a new instance with default parameter values.
+    #[must_use]
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("orb");
@@ -171,6 +188,75 @@ impl OrbStrategy {
     fn time_exit_hhmm(&self) -> u32 {
         self.config.get_int("time_exit_hhmm", 1500) as u32
     }
+
+    /// Checks if it is past the configured time exit and flattens
+    /// any open position. Returns `Some(orders)` if time exit was
+    /// triggered, `None` otherwise.
+    fn check_time_exit(&mut self, ctx: &StrategyContext) -> Option<Vec<OrderRequest>> {
+        if ctx.local_hhmm < self.time_exit_hhmm() {
+            return None;
+        }
+        self.state = OrbState::Done;
+        if ctx.primary_position().is_some() {
+            Some(vec![OrderRequest::Flatten {
+                instrument: ctx.primary_instrument,
+                reason: ExitReason::SessionClose,
+            }])
+        } else {
+            Some(vec![])
+        }
+    }
+
+    /// Creates a bracket order for a breakout entry in the given
+    /// direction. `or_high` / `or_low` define the opening range,
+    /// and the entry price determines SL/TP placement.
+    fn breakout_bracket(
+        &mut self,
+        ctx: &StrategyContext,
+        side: OrderSide,
+        entry_price: Price,
+        or_high: Price,
+        or_low: Price,
+    ) -> Vec<OrderRequest> {
+        let tick_size = ctx.tick_size();
+        let or_range = or_high - or_low;
+        let tp_offset = Price::from_f64(or_range.to_f64() * self.tp_multiple());
+
+        let (sl, tp) = match side {
+            OrderSide::Buy => {
+                let sl = or_low - tick_size;
+                let tp = entry_price + tp_offset;
+                (sl, tp)
+            }
+            OrderSide::Sell => {
+                let sl = or_high + tick_size;
+                let tp = entry_price - tp_offset;
+                (sl, tp)
+            }
+        };
+
+        let label = match side {
+            OrderSide::Buy => "ORB Long",
+            OrderSide::Sell => "ORB Short",
+        };
+
+        self.trades_taken += 1;
+        self.state = OrbState::InTrade;
+
+        vec![OrderRequest::SubmitBracket(BracketOrder {
+            entry: NewOrder {
+                instrument: ctx.primary_instrument,
+                side,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: Default::default(),
+                label: Some(label.to_string()),
+                reduce_only: false,
+            },
+            stop_loss: sl,
+            take_profit: Some(tp),
+        })]
+    }
 }
 
 impl Default for OrbStrategy {
@@ -188,8 +274,8 @@ impl Strategy for OrbStrategy {
         StrategyMetadata {
             id: "orb".to_string(),
             name: "Opening Range Breakout".to_string(),
-            description: "Trades breakouts above/below the first \
-                          N minutes of the RTH session."
+            description: "Trades breakouts above/below the \
+                          first N minutes of the RTH session."
                 .to_string(),
             category: StrategyCategory::BreakoutMomentum,
             version: "1.0.0",
@@ -228,85 +314,38 @@ impl Strategy for OrbStrategy {
             return vec![];
         }
 
-        let tick_size = ctx.tick_size();
-
         // Time exit check
-        if ctx.local_hhmm >= self.time_exit_hhmm() {
-            if ctx.primary_position().is_some() {
-                self.state = OrbState::Done;
-                return vec![OrderRequest::Flatten {
-                    instrument: ctx.primary_instrument,
-                    reason: ExitReason::SessionClose,
-                }];
-            }
-            self.state = OrbState::Done;
+        if let Some(orders) = self.check_time_exit(ctx) {
+            return orders;
+        }
+
+        // Wick-filter breakout: triggered on candle close beyond
+        // OR level
+        if self.state != OrbState::WatchingForBreakout
+            || !self.wick_filter()
+            || ctx.primary_position().is_some()
+            || self.trades_taken >= self.max_trades()
+        {
             return vec![];
         }
 
-        // Wick-filter breakout entry: triggered on candle close
-        // beyond OR level
-        if self.state == OrbState::WatchingForBreakout
-            && self.wick_filter()
-            && ctx.primary_position().is_none()
-            && self.trades_taken < self.max_trades()
-        {
-            let or_high = match self.or_high {
-                Some(h) => h,
-                None => return vec![],
-            };
-            let or_low = match self.or_low {
-                Some(l) => l,
-                None => return vec![],
-            };
+        let or_high = match self.or_high {
+            Some(h) => h,
+            None => return vec![],
+        };
+        let or_low = match self.or_low {
+            Some(l) => l,
+            None => return vec![],
+        };
+        if (or_high - or_low).units() <= 0 {
+            return vec![];
+        }
 
-            let or_range = or_high - or_low;
-            if or_range.units() <= 0 {
-                return vec![];
-            }
-
-            if candle.close > or_high {
-                // Long breakout
-                let entry = candle.close;
-                let sl = or_low - tick_size;
-                let tp = entry + Price::from_f64(or_range.to_f64() * self.tp_multiple());
-                self.trades_taken += 1;
-                self.state = OrbState::InTrade;
-                return vec![OrderRequest::SubmitBracket(BracketOrder {
-                    entry: NewOrder {
-                        instrument: ctx.primary_instrument,
-                        side: OrderSide::Buy,
-                        order_type: OrderType::Market,
-                        quantity: 1.0,
-                        time_in_force: Default::default(),
-                        label: Some("ORB Long".to_string()),
-                        reduce_only: false,
-                    },
-                    stop_loss: sl,
-                    take_profit: Some(tp),
-                })];
-            }
-
-            if candle.close < or_low {
-                // Short breakout
-                let entry = candle.close;
-                let sl = or_high + tick_size;
-                let tp = entry - Price::from_f64(or_range.to_f64() * self.tp_multiple());
-                self.trades_taken += 1;
-                self.state = OrbState::InTrade;
-                return vec![OrderRequest::SubmitBracket(BracketOrder {
-                    entry: NewOrder {
-                        instrument: ctx.primary_instrument,
-                        side: OrderSide::Sell,
-                        order_type: OrderType::Market,
-                        quantity: 1.0,
-                        time_in_force: Default::default(),
-                        label: Some("ORB Short".to_string()),
-                        reduce_only: false,
-                    },
-                    stop_loss: sl,
-                    take_profit: Some(tp),
-                })];
-            }
+        if candle.close > or_high {
+            return self.breakout_bracket(ctx, OrderSide::Buy, candle.close, or_high, or_low);
+        }
+        if candle.close < or_low {
+            return self.breakout_bracket(ctx, OrderSide::Sell, candle.close, or_high, or_low);
         }
 
         vec![]
@@ -317,22 +356,12 @@ impl Strategy for OrbStrategy {
             return vec![];
         }
 
-        let tick_size = ctx.tick_size();
-
         // Time exit check
-        if ctx.local_hhmm >= self.time_exit_hhmm() {
-            if ctx.primary_position().is_some() {
-                self.state = OrbState::Done;
-                return vec![OrderRequest::Flatten {
-                    instrument: ctx.primary_instrument,
-                    reason: ExitReason::SessionClose,
-                }];
-            }
-            self.state = OrbState::Done;
-            return vec![];
+        if let Some(orders) = self.check_time_exit(ctx) {
+            return orders;
         }
 
-        // Accumulate OR
+        // Accumulate opening range
         if self.state == OrbState::AccumulatingOR {
             let elapsed_ms = ctx.trade.time.0.saturating_sub(self.or_start_ms);
             let or_ms = self.or_minutes() * 60_000;
@@ -369,76 +398,39 @@ impl Strategy for OrbStrategy {
                 Some(l) => l,
                 None => return vec![],
             };
-
-            let or_range = or_high - or_low;
-            if or_range.units() <= 0 {
+            if (or_high - or_low).units() <= 0 {
                 return vec![];
             }
 
             let price = ctx.trade.price;
-
             if price > or_high {
-                let sl = or_low - tick_size;
-                let tp = price + Price::from_f64(or_range.to_f64() * self.tp_multiple());
-                self.trades_taken += 1;
-                self.state = OrbState::InTrade;
-                return vec![OrderRequest::SubmitBracket(BracketOrder {
-                    entry: NewOrder {
-                        instrument: ctx.primary_instrument,
-                        side: OrderSide::Buy,
-                        order_type: OrderType::Market,
-                        quantity: 1.0,
-                        time_in_force: Default::default(),
-                        label: Some("ORB Long".to_string()),
-                        reduce_only: false,
-                    },
-                    stop_loss: sl,
-                    take_profit: Some(tp),
-                })];
+                return self.breakout_bracket(ctx, OrderSide::Buy, price, or_high, or_low);
             }
-
             if price < or_low {
-                let sl = or_high + tick_size;
-                let tp = price - Price::from_f64(or_range.to_f64() * self.tp_multiple());
-                self.trades_taken += 1;
-                self.state = OrbState::InTrade;
-                return vec![OrderRequest::SubmitBracket(BracketOrder {
-                    entry: NewOrder {
-                        instrument: ctx.primary_instrument,
-                        side: OrderSide::Sell,
-                        order_type: OrderType::Market,
-                        quantity: 1.0,
-                        time_in_force: Default::default(),
-                        label: Some("ORB Short".to_string()),
-                        reduce_only: false,
-                    },
-                    stop_loss: sl,
-                    take_profit: Some(tp),
-                })];
+                return self.breakout_bracket(ctx, OrderSide::Sell, price, or_high, or_low);
             }
         }
 
         // If trade finished, allow re-entry up to max_trades
         if self.state == OrbState::InTrade && ctx.primary_position().is_none() {
-            if self.trades_taken < self.max_trades() {
-                self.state = OrbState::WatchingForBreakout;
+            self.state = if self.trades_taken < self.max_trades() {
+                OrbState::WatchingForBreakout
             } else {
-                self.state = OrbState::Done;
-            }
+                OrbState::Done
+            };
         }
 
         vec![]
     }
 
     fn on_session_close(&mut self, ctx: &StrategyContext) -> Vec<OrderRequest> {
+        self.state = OrbState::Done;
         if ctx.primary_position().is_some() {
-            self.state = OrbState::Done;
             return vec![OrderRequest::Flatten {
                 instrument: ctx.primary_instrument,
                 reason: ExitReason::SessionClose,
             }];
         }
-        self.state = OrbState::Done;
         vec![]
     }
 

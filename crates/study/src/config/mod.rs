@@ -4,10 +4,10 @@
 //! At runtime, the current parameter values live in a [`StudyConfig`] and are
 //! validated against the definitions before being applied.
 //!
-//! - [`display`] — Formatting and conditional visibility rules for the UI.
-//! - [`parameter`] — Parameter definitions, kinds, tabs, and sections.
-//! - [`store`] — Runtime config storage with typed getters.
-//! - [`value`] — Concrete parameter value types (int, float, color, etc.).
+//! - `display` — Formatting and conditional visibility rules for the UI.
+//! - `parameter` — Parameter definitions, kinds, tabs, and sections.
+//! - `store` — Runtime config storage with typed getters.
+//! - `value` — Concrete parameter value types (int, float, color, etc.).
 
 mod display;
 mod parameter;

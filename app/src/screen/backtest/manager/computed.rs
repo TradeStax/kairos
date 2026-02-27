@@ -3,6 +3,7 @@
 //! All analytics are derived purely from the result's trades and
 //! equity curve — no external data needed.
 
+use crate::config::UserTimezone;
 use std::sync::Arc;
 
 /// Three-state status for prop firm simulation.
@@ -79,12 +80,16 @@ pub struct ComputedAnalytics {
 }
 
 impl ComputedAnalytics {
-    pub fn from_result(result: &Arc<backtest::BacktestResult>) -> Self {
+    pub fn from_result(
+        result: &Arc<backtest::BacktestResult>,
+        timezone: UserTimezone,
+    ) -> Self {
         let trades = &result.trades;
         let metrics = &result.metrics;
 
         // ── Monthly returns ──────────────────────────────────
-        let monthly_returns = Self::compute_monthly_returns(result);
+        let monthly_returns =
+            Self::compute_monthly_returns(result, timezone);
 
         // ── P&L histogram ────────────────────────────────────
         let pnl_histogram = Self::compute_pnl_histogram(trades);
@@ -144,7 +149,8 @@ impl ComputedAnalytics {
         let max_consecutive_losses = Self::compute_max_consecutive_losses(trades);
 
         // ── P&L by hour ──────────────────────────────────────
-        let pnl_by_hour = Self::compute_pnl_by_hour(trades);
+        let pnl_by_hour =
+            Self::compute_pnl_by_hour(trades, timezone);
 
         // ── MAE/MFE scatter ──────────────────────────────────
         let mae_mfe_scatter: Vec<(i64, i64, bool, usize)> = trades
@@ -154,7 +160,8 @@ impl ComputedAnalytics {
             .collect();
 
         // ── Daily P&L ────────────────────────────────────────
-        let daily_pnl = Self::compute_daily_pnl(trades);
+        let daily_pnl =
+            Self::compute_daily_pnl(trades, timezone);
         let max_daily_loss = daily_pnl
             .iter()
             .map(|(_, p)| *p)
@@ -162,11 +169,13 @@ impl ComputedAnalytics {
             .abs();
 
         // ── Prop firm simulation ─────────────────────────────
-        let prop_firm_results = Self::compute_prop_firm_results(
-            trades,
-            &result.equity_curve,
-            result.config.initial_capital_usd,
-        );
+        let prop_firm_results =
+            Self::compute_prop_firm_results(
+                trades,
+                &result.equity_curve,
+                result.config.initial_capital_usd,
+                timezone,
+            );
 
         Self {
             monthly_returns,
@@ -191,7 +200,10 @@ impl ComputedAnalytics {
         }
     }
 
-    fn compute_monthly_returns(result: &backtest::BacktestResult) -> Vec<(u16, u8, f64)> {
+    fn compute_monthly_returns(
+        result: &backtest::BacktestResult,
+        tz: UserTimezone,
+    ) -> Vec<(u16, u8, f64)> {
         use chrono::Datelike;
 
         let points = &result.equity_curve.points;
@@ -199,18 +211,35 @@ impl ComputedAnalytics {
             return vec![];
         }
 
-        let mut monthly: std::collections::BTreeMap<(u16, u8), (f64, f64)> =
-            std::collections::BTreeMap::new();
+        let mut monthly: std::collections::BTreeMap<
+            (u16, u8),
+            (f64, f64),
+        > = std::collections::BTreeMap::new();
 
         for point in points {
             let secs = (point.timestamp.0 / 1000) as i64;
-            let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) else {
+            let Some(dt) =
+                chrono::DateTime::from_timestamp(secs, 0)
+            else {
                 continue;
             };
-            let key = (dt.year() as u16, dt.month() as u8);
-            let entry = monthly
-                .entry(key)
-                .or_insert((point.total_equity_usd, point.total_equity_usd));
+            let key = match tz {
+                UserTimezone::Local => {
+                    let local =
+                        dt.with_timezone(&chrono::Local);
+                    (
+                        local.year() as u16,
+                        local.month() as u8,
+                    )
+                }
+                UserTimezone::Utc => {
+                    (dt.year() as u16, dt.month() as u8)
+                }
+            };
+            let entry = monthly.entry(key).or_insert((
+                point.total_equity_usd,
+                point.total_equity_usd,
+            ));
             entry.1 = point.total_equity_usd;
         }
 
@@ -410,14 +439,28 @@ impl ComputedAnalytics {
         max_streak
     }
 
-    fn compute_pnl_by_hour(trades: &[backtest::TradeRecord]) -> Vec<(u8, f64)> {
+    fn compute_pnl_by_hour(
+        trades: &[backtest::TradeRecord],
+        tz: UserTimezone,
+    ) -> Vec<(u8, f64)> {
+        use chrono::Timelike;
         let mut hourly = [0.0f64; 24];
         for trade in trades {
-            let secs = trade.entry_time.0 / 1000;
-            let hour = ((secs / 3600) % 24) as usize;
-            hourly[hour] += trade.pnl_net_usd;
+            if let Some(dt) =
+                chrono::DateTime::from_timestamp_millis(
+                    trade.entry_time.0 as i64,
+                )
+            {
+                let hour = match tz {
+                    UserTimezone::Local => {
+                        dt.with_timezone(&chrono::Local)
+                            .hour()
+                    }
+                    UserTimezone::Utc => dt.hour(),
+                } as usize;
+                hourly[hour] += trade.pnl_net_usd;
+            }
         }
-        // Return all 24 hours (including zeros)
         hourly
             .iter()
             .enumerate()
@@ -425,26 +468,28 @@ impl ComputedAnalytics {
             .collect()
     }
 
-    fn compute_daily_pnl(trades: &[backtest::TradeRecord]) -> Vec<(String, f64)> {
-        let mut daily: std::collections::BTreeMap<u64, f64> = std::collections::BTreeMap::new();
-
+    fn compute_daily_pnl(
+        trades: &[backtest::TradeRecord],
+        tz: UserTimezone,
+    ) -> Vec<(String, f64)> {
+        let mut daily: std::collections::BTreeMap<
+            (i32, u32, u32),
+            f64,
+        > = std::collections::BTreeMap::new();
         for trade in trades {
-            let day = trade.exit_time.0 / 86_400_000;
-            *daily.entry(day).or_insert(0.0) += trade.pnl_net_usd;
+            let secs =
+                (trade.exit_time.0 / 1000) as i64;
+            if let Some(components) =
+                tz.date_components(secs)
+            {
+                *daily.entry(components).or_insert(0.0) +=
+                    trade.pnl_net_usd;
+            }
         }
-
         daily
             .into_iter()
-            .map(|(day, pnl)| {
-                let secs = day * 86400;
-                let date =
-                    chrono::NaiveDate::from_num_days_from_ce_opt(719163 + secs as i32 / 86400);
-                let label = if let Some(d) = date {
-                    format!("{}", d.format("%m/%d"))
-                } else {
-                    format!("D{}", day)
-                };
-                (label, pnl)
+            .map(|((_, m, d), pnl)| {
+                (format!("{:02}/{:02}", m, d), pnl)
             })
             .collect()
     }
@@ -453,6 +498,7 @@ impl ComputedAnalytics {
         trades: &[backtest::TradeRecord],
         _equity_curve: &backtest::EquityCurve,
         initial_capital: f64,
+        tz: UserTimezone,
     ) -> Vec<PropFirmResult> {
         struct AccountSpec {
             name: &'static str,
@@ -539,15 +585,20 @@ impl ComputedAnalytics {
                 equity_curve.push(acct.size);
 
                 // Track daily P&L
-                let mut current_day = 0u64;
+                let mut current_day: Option<(i32, u32, u32)> =
+                    None;
                 let mut daily_pnl = 0.0_f64;
 
                 for (i, trade) in trades.iter().enumerate() {
-                    let trade_day = trade.exit_time.0 / 86_400_000;
+                    let trade_day = tz.date_components(
+                        (trade.exit_time.0 / 1000) as i64,
+                    );
                     let scaled_pnl = trade.pnl_net_usd * scale;
 
                     // New day: check daily loss limit
-                    if trade_day != current_day && current_day != 0 {
+                    if trade_day != current_day
+                        && current_day.is_some()
+                    {
                         let daily_loss_pct = if daily_pnl < 0.0 {
                             daily_pnl.abs() / acct.size * 100.0
                         } else {

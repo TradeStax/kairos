@@ -7,7 +7,25 @@
 //! - Every token adds latency and cost; keep tight
 //! - Coordinate changes with the tool definitions in tools/mod.rs
 
-pub(super) const SYSTEM_PROMPT: &str = "\
+/// Build the system prompt with user timezone information injected.
+pub(super) fn build_system_prompt(
+    timezone: crate::config::UserTimezone,
+) -> String {
+    format!(
+        "{SYSTEM_PROMPT}\n\n\
+        USER TIMEZONE: {timezone}\n\
+        - The chart date range is displayed in the user's timezone.\n\
+        - When the user mentions times (e.g. \"at 9:30\"), \
+        interpret in their timezone.\n\
+        - Use ISO 8601 with explicit timezone offset for tool \
+        time parameters, or naive timestamps will be interpreted \
+        in the user's timezone.\n\
+        - Present all times in your analysis in the user's \
+        timezone.",
+    )
+}
+
+const SYSTEM_PROMPT: &str = "\
 You are an expert CME Globex futures order flow analyst embedded in \
 Kairos, a professional charting platform.
 

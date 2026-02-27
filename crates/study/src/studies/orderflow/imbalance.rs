@@ -1,13 +1,15 @@
-//! Imbalance Study
+//! Imbalance study — diagonal bid/ask volume imbalance detection.
 //!
 //! Highlights price levels where there is a significant imbalance between
-//! buying and selling pressure, comparing diagonal bid/ask levels.
+//! buying and selling pressure by comparing diagonal bid/ask volumes at
+//! adjacent price levels within each candle's footprint profile.
 //!
-//! Each imbalance is detected per-candle and emitted as a ray extending
+//! Each detected imbalance is emitted as a [`PriceLevel`] ray extending
 //! rightward from the detection candle. Subsequent candles whose high-low
 //! range includes the level price count as "hits", each multiplying the
 //! ray's opacity by the `hit_decay` factor. Levels that fade below
-//! [`MIN_OPACITY`] are pruned from the output entirely.
+//! `MIN_OPACITY` are pruned from the output, and total output is capped
+//! at `MAX_OUTPUT_LEVELS` to bound renderer draw calls.
 
 use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
@@ -34,10 +36,12 @@ const MIN_OPACITY: f32 = 0.03;
 /// When exceeded, oldest (leftmost) levels are discarded.
 const MAX_OUTPUT_LEVELS: usize = 1500;
 
-/// Type of imbalance detected at a price level.
+/// Type and strength of imbalance detected at a price level.
 #[derive(Debug, Clone, Copy)]
 pub enum ImbalanceType {
+    /// Buy imbalance: diagonal buy volume exceeds sell volume by `ratio`.
     Buy { ratio: f32 },
+    /// Sell imbalance: sell volume exceeds diagonal buy volume by `ratio`.
     Sell { ratio: f32 },
 }
 
@@ -90,13 +94,28 @@ fn max_visible_hits(base_opacity: f32, decay: f32) -> u32 {
     (n.ceil() as u32).max(1)
 }
 
+/// Detects diagonal bid/ask imbalances within each candle's footprint
+/// and renders them as decaying price-level rays.
+///
+/// For each candle, builds a footprint profile and performs the diagonal
+/// comparison: sell volume at price level `i` versus buy volume at level
+/// `i + 1`. When the ratio exceeds the configured threshold, a
+/// [`PriceLevel`] ray is emitted starting at the detection candle.
+/// Subsequent candles whose high-low range covers the level count as
+/// "hits", each multiplying the ray's opacity by `hit_decay`. Levels
+/// that fade below `MIN_OPACITY` are pruned, and total output is
+/// capped at `MAX_OUTPUT_LEVELS`.
 pub struct ImbalanceStudy {
+    /// Persisted user-configurable parameter values.
     config: StudyConfig,
+    /// Most recently computed output (levels or empty).
     output: StudyOutput,
+    /// Schema of user-adjustable parameters for the settings UI.
     params: Vec<ParameterDef>,
 }
 
 impl ImbalanceStudy {
+    /// Create a new imbalance study with default parameters.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {

@@ -12,7 +12,7 @@ pub mod databento;
 #[cfg(feature = "rithmic")]
 pub mod rithmic;
 
-/// Validate API key format (non-empty, >= 10 chars)
+/// Returns `true` if the API key is non-empty and at least 10 characters
 pub(crate) fn validate_api_key(key: &str) -> bool {
     !key.is_empty() && key.len() >= 10
 }

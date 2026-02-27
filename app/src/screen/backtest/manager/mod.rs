@@ -11,12 +11,17 @@ pub mod overview;
 pub mod sidebar;
 pub mod trades;
 
-use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
+use crate::app::backtest_history::{
+    BacktestHistory, BacktestStatus,
+};
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::Icon;
+use crate::config::UserTimezone;
 use crate::style::{self, tokens};
-use iced::widget::{button, canvas, column, container, row, rule, text};
+use iced::widget::{
+    button, canvas, column, container, row, rule, text,
+};
 use iced::{Element, Length};
 
 // ── Tab Enum ────────────────────────────────────────────────────────
@@ -132,12 +137,27 @@ impl BacktestManager {
         }
     }
 
-    /// Programmatically select a backtest (used by app-level handlers).
-    pub fn select(&mut self, id: uuid::Uuid, history: &BacktestHistory) {
-        self.update(ManagerMessage::SelectBacktest(id), history);
+    /// Programmatically select a backtest (used by
+    /// app-level handlers).
+    pub fn select(
+        &mut self,
+        id: uuid::Uuid,
+        history: &BacktestHistory,
+        timezone: UserTimezone,
+    ) {
+        self.update(
+            ManagerMessage::SelectBacktest(id),
+            history,
+            timezone,
+        );
     }
 
-    pub fn update(&mut self, message: ManagerMessage, history: &BacktestHistory) -> ManagerAction {
+    pub fn update(
+        &mut self,
+        message: ManagerMessage,
+        history: &BacktestHistory,
+        timezone: UserTimezone,
+    ) -> ManagerAction {
         match message {
             ManagerMessage::SelectBacktest(id) => {
                 self.selected_id = Some(id);
@@ -148,7 +168,11 @@ impl BacktestManager {
                 if let Some(entry) = history.get(id) {
                     if entry.status == BacktestStatus::Completed {
                         if let Some(ref result) = entry.result {
-                            self.analytics = Some(computed::ComputedAnalytics::from_result(result));
+                            self.analytics = Some(
+                                computed::ComputedAnalytics::from_result(
+                                    result, timezone,
+                                ),
+                            );
                             let n = result.trades.len();
                             self.sorted_indices = (0..n).collect();
                             self.sort_column = TradeListSortColumn::Index;
@@ -262,7 +286,11 @@ impl BacktestManager {
             .unwrap_or(false)
     }
 
-    pub fn view<'a>(&'a self, history: &'a BacktestHistory) -> Element<'a, ManagerMessage> {
+    pub fn view<'a>(
+        &'a self,
+        history: &'a BacktestHistory,
+        timezone: UserTimezone,
+    ) -> Element<'a, ManagerMessage> {
         let header = ModalHeaderBuilder::new("Backtest Manager")
             .on_close(ManagerMessage::Close)
             .into_element();
@@ -274,7 +302,7 @@ impl BacktestManager {
             .height(Length::Fill);
 
         // ── Main content ────────────────────────────────────────
-        let main_area = self.view_main_area(history);
+        let main_area = self.view_main_area(history, timezone);
 
         let body = row![
             sidebar_col,
@@ -305,7 +333,11 @@ impl BacktestManager {
             .into()
     }
 
-    fn view_main_area<'a>(&'a self, history: &'a BacktestHistory) -> Element<'a, ManagerMessage> {
+    fn view_main_area<'a>(
+        &'a self,
+        history: &'a BacktestHistory,
+        timezone: UserTimezone,
+    ) -> Element<'a, ManagerMessage> {
         let Some(id) = self.selected_id else {
             return Self::view_empty_state();
         };
@@ -322,9 +354,17 @@ impl BacktestManager {
 
         // Tab content
         let tab_content = match self.active_tab {
-            ManagerTab::Overview => overview::view_overview(self, history),
-            ManagerTab::Trades => trades::view(self, history),
-            ManagerTab::Analytics => analytics::view(self, history),
+            ManagerTab::Overview => {
+                overview::view_overview(
+                    self, history, timezone,
+                )
+            }
+            ManagerTab::Trades => {
+                trades::view(self, history, timezone)
+            }
+            ManagerTab::Analytics => {
+                analytics::view(self, history, timezone)
+            }
         };
 
         column![tab_bar, tab_content]

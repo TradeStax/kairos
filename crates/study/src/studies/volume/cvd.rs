@@ -1,6 +1,20 @@
+//! Cumulative Volume Delta (CVD).
+//!
+//! Running sum of per-candle delta (buy volume minus sell volume). A
+//! rising CVD line indicates sustained buying pressure; a falling line
+//! indicates sustained selling pressure.
+//!
+//! Divergences between CVD and price are a key signal: price making new
+//! highs while CVD trends lower suggests weakening demand, and vice versa.
+//!
+//! Supports optional daily or weekly resets to isolate intraday or
+//! intraweek order flow patterns.
+//!
+//! Output: `StudyOutput::Lines` — a single cumulative line.
+
 use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
-    Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -17,6 +31,15 @@ const DEFAULT_COLOR: SerializableColor = SerializableColor {
 
 const RESET_OPTIONS: &[&str] = &["None", "Daily", "Weekly"];
 
+/// Cumulative Volume Delta line study.
+///
+/// Maintains a running sum of per-candle delta (buy minus sell volume).
+/// A rising CVD line confirms buying pressure behind a price advance;
+/// divergence (price rising while CVD falls) warns of weakening demand.
+///
+/// Renders as a single line in a separate panel. Supports optional
+/// daily or weekly resets via the `reset_period` parameter so that
+/// intraday or intraweek order flow can be analysed in isolation.
 pub struct CvdStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -24,6 +47,8 @@ pub struct CvdStudy {
 }
 
 impl CvdStudy {
+    /// Create a new CVD study with a blue line, 1.5px width, and no
+    /// reset period (cumulates across the entire visible range).
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
@@ -83,10 +108,15 @@ impl CvdStudy {
         }
     }
 
-    /// Check if we should reset the cumulative sum based on the reset period.
-    /// Returns true if the candle crosses a period boundary relative to the
-    /// previous candle.
-    fn should_reset(&self, prev_millis: u64, curr_millis: u64, reset_period: &str) -> bool {
+    /// Returns `true` when the candle crosses a period boundary
+    /// (daily or weekly) relative to the previous candle, indicating
+    /// the cumulative sum should be reset.
+    fn should_reset(
+        &self,
+        prev_millis: u64,
+        curr_millis: u64,
+        reset_period: &str,
+    ) -> bool {
         match reset_period {
             "Daily" => {
                 let prev_secs = (prev_millis / 1000) as i64;
@@ -190,7 +220,7 @@ impl Study for CvdStudy {
             label: "CVD".to_string(),
             color,
             width,
-            style: crate::config::LineStyleValue::Solid,
+            style: LineStyleValue::Solid,
             points,
         }]);
         Ok(())

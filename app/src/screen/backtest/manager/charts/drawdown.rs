@@ -2,9 +2,11 @@
 
 use super::super::ManagerMessage;
 use super::{
-    ChartHoverState, draw_crosshair_lines, draw_snap_dot, draw_tooltip_box, format_date,
-    grid_lines, handle_cursor_event, position_tooltip, tooltip_size,
+    ChartHoverState, draw_crosshair_lines, draw_snap_dot,
+    draw_tooltip_box, format_date, grid_lines,
+    handle_cursor_event, position_tooltip, tooltip_size,
 };
+use crate::config::UserTimezone;
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke};
 use iced::{Color, Point, Rectangle};
@@ -13,6 +15,7 @@ use std::sync::Arc;
 pub struct DrawdownChart<'a> {
     pub result: Arc<backtest::BacktestResult>,
     pub cache: &'a canvas::Cache,
+    pub timezone: UserTimezone,
 }
 
 impl<'a> canvas::Program<ManagerMessage> for DrawdownChart<'a> {
@@ -184,7 +187,10 @@ impl<'a> DrawdownChart<'a> {
         draw_crosshair_lines(frame, Point::new(snap_x, cursor.y), bounds.size(), pad);
         draw_snap_dot(frame, Point::new(snap_x, snap_y), 3.5);
 
-        let lines = vec![format_date(snap_ts), format!("DD: {:.2}%", snap_dd)];
+        let lines = vec![
+            format_date(snap_ts, self.timezone),
+            format!("DD: {:.2}%", snap_dd),
+        ];
         let (tw, th) = tooltip_size(&lines);
         let pos = position_tooltip(cursor, tw, th, bounds.size());
         draw_tooltip_box(frame, pos, &lines);

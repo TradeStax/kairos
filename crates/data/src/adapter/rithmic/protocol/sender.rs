@@ -1,3 +1,10 @@
+//! Rithmic request serialization.
+//!
+//! [`RithmicSenderApi`] builds protobuf request messages and serializes
+//! them into length-prefixed byte buffers ready for WebSocket transmission.
+//! Each request is tagged with a monotonically increasing message ID for
+//! response correlation.
+
 use prost::Message;
 
 use super::config::{RithmicConnectionConfig, RithmicEnv};
@@ -17,6 +24,11 @@ use super::rti::{
     request_tick_bar_update, request_time_bar_replay, request_time_bar_update,
 };
 
+/// Builds and serializes Rithmic protobuf request messages.
+///
+/// Maintains a monotonic message ID counter for request-response
+/// correlation. Each `request_*` method returns a `(Vec<u8>, String)`
+/// tuple of the serialized buffer and the request ID.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct RithmicSenderApi {
@@ -28,6 +40,7 @@ pub(crate) struct RithmicSenderApi {
 }
 
 impl RithmicSenderApi {
+    /// Creates a new sender initialized from connection config
     pub(crate) fn new(config: &RithmicConnectionConfig) -> Self {
         RithmicSenderApi {
             account_id: config.account_id.clone(),
@@ -38,11 +51,13 @@ impl RithmicSenderApi {
         }
     }
 
+    /// Returns the next monotonic message ID as a string
     fn get_next_message_id(&mut self) -> String {
         self.message_id_counter += 1;
         self.message_id_counter.to_string()
     }
 
+    /// Serializes a protobuf message with a 4-byte big-endian length header
     fn request_to_buf(&self, req: impl Message, id: String) -> (Vec<u8>, String) {
         let mut buf = Vec::new();
         let len = req.encoded_len() as u32;
@@ -55,6 +70,7 @@ impl RithmicSenderApi {
         (buf, id)
     }
 
+    /// Builds a `RequestRithmicSystemInfo` message (template 16)
     pub fn request_rithmic_system_info(&mut self) -> (Vec<u8>, String) {
         let id = self.get_next_message_id();
 
@@ -66,6 +82,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestLogin` message (template 10)
     pub fn request_login(
         &mut self,
         system_name: &str,
@@ -91,6 +108,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestLogout` message (template 12)
     pub fn request_logout(&mut self) -> (Vec<u8>, String) {
         let id = self.get_next_message_id();
 
@@ -102,6 +120,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestHeartbeat` message (template 18)
     pub fn request_heartbeat(&mut self) -> (Vec<u8>, String) {
         let id = self.get_next_message_id();
 
@@ -138,6 +157,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestMarketDataUpdate` message (template 100)
     pub fn request_market_data_update(
         &mut self,
         symbol: &str,
@@ -341,6 +361,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestDepthByOrderSnapshot` message (template 115)
     pub fn request_depth_by_order_snapshot(
         &mut self,
         symbol: &str,
@@ -359,6 +380,7 @@ impl RithmicSenderApi {
         self.request_to_buf(req, id)
     }
 
+    /// Builds a `RequestDepthByOrderUpdates` message (template 117)
     pub fn request_depth_by_order_update(
         &mut self,
         symbol: &str,

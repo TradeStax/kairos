@@ -1,4 +1,8 @@
 //! Footprint computation and output building helpers.
+//!
+//! Contains typed config accessors (mode, data type, scaling, etc.),
+//! tick grouping quantum calculation, trade aggregation per candle,
+//! and `FootprintData` output construction from internal state.
 
 use crate::config::ParameterValue;
 use crate::output::{
@@ -14,6 +18,7 @@ use super::FootprintStudy;
 impl FootprintStudy {
     // ── Typed accessors ─────────────────────────────────────────────
 
+    /// Parse the render mode from config ("Box" or "Profile").
     pub(super) fn mode(&self) -> FootprintRenderMode {
         match self.config.get_choice("mode", "Profile") {
             "Box" => FootprintRenderMode::Box,
@@ -21,6 +26,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the data display type from config.
     pub(super) fn data_type(&self) -> FootprintDataType {
         match self.config.get_choice("data_type", "Volume") {
             "Bid/Ask Split" => FootprintDataType::BidAskSplit,
@@ -30,6 +36,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the bar width scaling method from config.
     pub(super) fn scaling(&self) -> FootprintScaling {
         match self.config.get_choice("scaling", "Square Root") {
             "Linear" => FootprintScaling::Linear,
@@ -41,6 +48,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the candle body marker alignment from config.
     pub(super) fn marker_alignment(&self) -> FootprintCandlePosition {
         match self.config.get_choice("marker_alignment", "Left") {
             "None" => FootprintCandlePosition::None,
@@ -50,6 +58,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the outside bar marker style from config.
     pub(super) fn outside_bar_style(&self) -> OutsideBarStyle {
         match self.config.get_choice("outside_bar_style", "Body") {
             "Candle" => OutsideBarStyle::Candle,
@@ -58,6 +67,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the numeric text display format from config.
     pub(super) fn text_format(&self) -> TextFormat {
         match self.config.get_choice("text_format", "Automatic") {
             "Normal" => TextFormat::Normal,
@@ -66,6 +76,7 @@ impl FootprintStudy {
         }
     }
 
+    /// Parse the background cell coloring mode from config.
     pub(super) fn bg_color_mode(&self) -> BackgroundColorMode {
         match self.config.get_choice("bg_color_mode", "Volume Intensity") {
             "Delta Intensity" => BackgroundColorMode::DeltaIntensity,

@@ -1,23 +1,37 @@
 //! Scaling strategies for footprint bar width computation.
+//!
+//! Each variant defines how raw volume values map to horizontal bar width
+//! within a footprint candle.
 
 use serde::{Deserialize, Serialize};
 
-/// Cluster scaling strategy for footprint bar widths.
+/// Scaling strategy for footprint bar widths.
+///
+/// Controls how volume values at each price level are mapped to the
+/// horizontal width of footprint bars.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum FootprintScaling {
+    /// Direct proportional scaling: width = volume / max_volume.
     Linear,
+    /// Square root scaling for reduced visual dominance of outliers.
     #[default]
     Sqrt,
+    /// Logarithmic scaling for wide-range volume distributions.
     Log,
+    /// Scale relative to the maximum volume in the visible range.
     VisibleRange,
+    /// Each level gets equal width (useful for highlighting presence).
     Datapoint,
+    /// Blend of sqrt and visible-range scaling.
     Hybrid {
+        /// Blend weight in `[0.0, 1.0]`: 0.0 = pure sqrt,
+        /// 1.0 = pure visible-range.
         weight: f32,
     },
 }
 
-// SAFETY: Manual Eq is sound -- `weight` is always finite
-// (0.0..=1.0).
+// SAFETY: Manual Eq is sound — `weight` is always finite ([0.0, 1.0]),
+// enforced by the `hybrid()` constructor.
 impl Eq for FootprintScaling {}
 
 impl std::fmt::Display for FootprintScaling {
@@ -29,9 +43,7 @@ impl std::fmt::Display for FootprintScaling {
             FootprintScaling::VisibleRange => {
                 write!(f, "Visible Range")
             }
-            FootprintScaling::Datapoint => {
-                write!(f, "Datapoint")
-            }
+            FootprintScaling::Datapoint => write!(f, "Datapoint"),
             FootprintScaling::Hybrid { weight } => {
                 write!(f, "Hybrid ({weight:.1})")
             }
@@ -40,13 +52,15 @@ impl std::fmt::Display for FootprintScaling {
 }
 
 impl FootprintScaling {
-    /// Construct a `Hybrid` variant with a validated weight in `[0.0, 1.0]`.
+    /// Construct a `Hybrid` variant with a validated weight.
     ///
     /// Returns `Err` if `weight` is non-finite or outside `[0.0, 1.0]`.
-    /// The `// SAFETY` comment on the manual `Eq` impl assumes finite weights;
-    /// this constructor is the enforcement point for that invariant.
+    /// This constructor enforces the invariant assumed by the manual
+    /// `Eq` impl.
     pub fn hybrid(weight: f32) -> Result<Self, &'static str> {
-        if !weight.is_finite() || !(0.0..=1.0).contains(&weight) {
+        if !weight.is_finite()
+            || !(0.0..=1.0).contains(&weight)
+        {
             return Err("Hybrid weight must be in [0.0, 1.0]");
         }
         Ok(Self::Hybrid { weight })

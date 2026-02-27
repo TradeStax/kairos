@@ -3,7 +3,8 @@ pub(crate) mod feed_ops;
 
 use super::{Dashboard, Event, Message, pane};
 use crate::{
-    components::display::toast::Toast, modals::download::DownloadProgress, modals::pane::Modal,
+    components::display::toast::Toast, config::UserTimezone,
+    modals::download::DownloadProgress, modals::pane::Modal,
     window::Window,
 };
 use data::LoadingStatus;
@@ -15,6 +16,7 @@ impl Dashboard {
         &mut self,
         message: Message,
         main_window: &Window,
+        timezone: UserTimezone,
     ) -> (Task<Message>, Option<Event>) {
         match message {
             Message::SavePopoutSpecs(specs) => {
@@ -195,6 +197,7 @@ impl Dashboard {
                 }
                 pane::Message::PaneEvent(pane, local) => {
                     if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                        state.timezone = timezone;
                         let Some(effect) = state.update(*local) else {
                             return (Task::none(), None);
                         };
@@ -568,7 +571,11 @@ impl Dashboard {
                                 .ticker_info
                                 .is_some_and(|ti| ti.ticker == event_ticker)
                             {
-                                state.content.append_trade(&trade);
+                                if state.content.initialized() {
+                                    state.content.append_trade(&trade);
+                                } else {
+                                    state.pending_live_trades.push(trade.clone());
+                                }
                             }
                         }
                         for (_, (popout_panes, _)) in self.popout.iter_mut() {
@@ -577,7 +584,11 @@ impl Dashboard {
                                     .ticker_info
                                     .is_some_and(|ti| ti.ticker == event_ticker)
                                 {
-                                    state.content.append_trade(&trade);
+                                    if state.content.initialized() {
+                                        state.content.append_trade(&trade);
+                                    } else {
+                                        state.pending_live_trades.push(trade.clone());
+                                    }
                                 }
                             }
                         }

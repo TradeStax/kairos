@@ -1,6 +1,22 @@
+//! Relative Strength Index (RSI).
+//!
+//! RSI measures the speed and magnitude of recent price changes to evaluate
+//! overbought or oversold conditions. It oscillates between 0 and 100.
+//!
+//! Uses Wilder's smoothed moving average: after seeding from the first
+//! `period` price changes, each subsequent value blends the previous average
+//! with the current gain or loss using the factor `(period - 1) / period`.
+//!
+//! Traders typically watch for readings above 70 (overbought) or below 30
+//! (oversold), divergences between RSI and price, and centerline (50)
+//! crossovers for trend confirmation.
+//!
+//! Output: `StudyOutput::Composite` containing a line series and two
+//! horizontal levels (overbought / oversold).
+
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
-    StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -8,6 +24,7 @@ use crate::output::{LineSeries, PriceLevel, StudyOutput};
 use crate::util::candle_key;
 use data::SerializableColor;
 
+/// Build the default parameter definitions for the RSI study.
 fn make_params() -> Vec<ParameterDef> {
     vec![
         ParameterDef {
@@ -74,6 +91,12 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// Relative Strength Index oscillator.
+///
+/// Computes the ratio of average gains to average losses over the
+/// configured lookback period using Wilder's smoothing, then maps the
+/// result to a 0--100 scale. Renders as a single line in a separate
+/// panel with configurable overbought and oversold reference levels.
 pub struct RsiStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -81,6 +104,8 @@ pub struct RsiStudy {
 }
 
 impl RsiStudy {
+    /// Create a new RSI study with the standard default parameters:
+    /// 14-period lookback, overbought level at 70, oversold level at 30.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("rsi");

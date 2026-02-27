@@ -20,17 +20,22 @@ pub use client::RithmicClient;
 pub use pool::HistoryPlantPool;
 pub use streaming::RithmicStream;
 
-/// Rithmic error types
+/// Errors originating from the Rithmic adapter layer.
 #[derive(Debug, thiserror::Error)]
 pub enum RithmicError {
+    /// WebSocket or network-level connection failure
     #[error("Rithmic connection error: {0}")]
     Connection(String),
+    /// Login or credential rejection
     #[error("Rithmic authentication error: {0}")]
     Auth(String),
+    /// Market data subscription failure
     #[error("Rithmic subscription error: {0}")]
     Subscription(String),
+    /// Data retrieval or decoding failure
     #[error("Rithmic data error: {0}")]
     Data(String),
+    /// Invalid or missing configuration
     #[error("Rithmic configuration error: {0}")]
     Config(String),
 }
@@ -47,15 +52,22 @@ impl From<RithmicError> for crate::Error {
     }
 }
 
-/// Rithmic configuration
+/// High-level Rithmic adapter configuration.
+///
+/// Controls environment selection, reconnect behavior, cache location,
+/// and history plant pool sizing.
 #[derive(Debug, Clone)]
 pub struct RithmicConfig {
+    /// Target Rithmic environment (Demo, Live, Test)
     pub env: protocol::RithmicEnv,
+    /// WebSocket connection strategy (simple, retry, alternate)
     pub connect_strategy: protocol::ConnectStrategy,
+    /// Whether to automatically reconnect on disconnect
     pub auto_reconnect: bool,
+    /// Directory for local Rithmic data cache
     pub cache_dir: std::path::PathBuf,
-    /// Number of parallel history plant connections (default: 3).
-    /// Set to `Some(1)` to disable parallel fetching.
+    /// Number of parallel history plant connections.
+    /// Defaults to pool default (1) when `None`.
     pub history_pool_size: Option<usize>,
 }
 
@@ -74,6 +86,10 @@ impl Default for RithmicConfig {
 }
 
 impl RithmicConfig {
+    /// Creates a config pair by loading credentials from environment variables.
+    ///
+    /// Returns both the adapter config and the low-level connection config
+    /// needed to authenticate with the Rithmic server.
     pub fn from_env(
         env: protocol::RithmicEnv,
     ) -> Result<(Self, protocol::RithmicConnectionConfig), RithmicError> {
@@ -89,6 +105,11 @@ impl RithmicConfig {
         ))
     }
 
+    /// Creates a config pair from an application-level connection config
+    /// and a plaintext password.
+    ///
+    /// Validates that user ID, password, and system name are non-empty
+    /// before constructing the protocol-level config.
     pub fn from_connection_config(
         connection_config: &crate::connection::config::RithmicConnectionConfig,
         password: &str,
@@ -131,7 +152,8 @@ impl RithmicConfig {
     }
 }
 
-/// Build a `DataIndex` contribution for Rithmic realtime subscriptions.
+/// Builds a [`DataIndex`](crate::domain::index::DataIndex) contribution
+/// for Rithmic real-time trade subscriptions.
 pub fn build_rithmic_contribution(
     feed_id: crate::domain::types::FeedId,
     subscribed_tickers: &[String],

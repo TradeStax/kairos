@@ -5,7 +5,7 @@ pub(crate) mod tools;
 
 pub(crate) use tools::drawings::AiDrawingAction;
 
-use system_prompt::SYSTEM_PROMPT;
+use system_prompt::build_system_prompt;
 
 use iced::{Task, widget::scrollable};
 
@@ -460,8 +460,12 @@ impl Kairos {
         };
 
         // Build initial API messages
-        let initial_messages =
-            streaming::build_api_messages(SYSTEM_PROMPT, &api_history, &chart_snapshot);
+        let prompt = build_system_prompt(user_tz);
+        let initial_messages = streaming::build_api_messages(
+            &prompt,
+            &api_history,
+            &chart_snapshot,
+        );
 
         let ai_sender = globals::get_ai_sender();
 
@@ -477,6 +481,7 @@ impl Kairos {
                     chart_snapshot,
                     temperature,
                     max_tokens,
+                    user_tz,
                 )
                 .await;
             },

@@ -1,10 +1,34 @@
 //! Exponential Moving Average (EMA).
 //!
-//! Applies a decreasing weight to older values using the multiplier
-//! `k = 2 / (period + 1)`. Formula: `EMA(t) = P(t) * k + EMA(t-1) * (1 - k)`.
+//! The Exponential Moving Average gives progressively more weight to recent
+//! prices, allowing it to react faster to new information than an equal-weight
+//! SMA. The smoothing factor `k = 2 / (period + 1)` controls how quickly old
+//! data decays: a shorter period means a larger `k` and a more responsive
+//! line.
 //!
-//! Seeded with the SMA of the first `period` values. Output starts at
-//! index `period - 1`. Responds faster to recent price changes than SMA.
+//! # Formula
+//!
+//! ```text
+//! EMA(t) = P(t) * k + EMA(t-1) * (1 - k)
+//! ```
+//!
+//! The first EMA value is seeded with the Simple Moving Average of the first
+//! `period` values. Output starts at index `period - 1`.
+//!
+//! # Trading use
+//!
+//! - **Trend detection**: the slope and position of the EMA relative to
+//!   price quickly reveals the short-term trend direction.
+//! - **Crossover systems**: MACD is built on EMA crossovers (12 vs 26).
+//!   A fast EMA crossing above a slow EMA signals bullish momentum.
+//! - **Dynamic support/resistance**: like the SMA, the EMA acts as a
+//!   moving reference level, but hugs price more closely.
+//! - Common periods: 9 (very short-term), 12, 21, 26 (MACD components).
+//!
+//! # Implementation
+//!
+//! Seeded with SMA, then iteratively applies the multiplier. O(n) time
+//! complexity.
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
@@ -82,6 +106,16 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// Exponential Moving Average study.
+///
+/// Renders a single line on the price chart showing the
+/// exponentially-weighted average of the last `period` candle values.
+/// Configurable parameters include the look-back period, the price
+/// source (Close, Open, High, Low, HL2, HLC3, OHLC4), and visual
+/// styling (color, line width).
+///
+/// The study produces [`StudyOutput::Lines`] with a single
+/// [`LineSeries`] labeled `EMA(<period>)`.
 pub struct EmaStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -89,13 +123,15 @@ pub struct EmaStudy {
 }
 
 impl EmaStudy {
+    /// Create a new EMA study with default parameters.
+    ///
+    /// Defaults: period = 9, source = Close, color = orange, width = 1.5.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("ema");
         for p in &params {
             config.set(p.key.clone(), p.default.clone());
         }
-        config.set("source", ParameterValue::Choice("Close".to_string()));
 
         Self {
             config,

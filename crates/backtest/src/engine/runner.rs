@@ -1,13 +1,20 @@
+//! High-level backtest runner facade.
+//!
+//! [`BacktestRunner`] wraps data loading and engine initialization
+//! into a simple `run()` API. It validates configuration, loads
+//! historical trades from a [`TradeProvider`], builds the data feed
+//! and instrument map, and delegates to [`Engine::run`].
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::feed::provider::TradeProvider;
 use uuid::Uuid;
 
 use crate::config::backtest::BacktestConfig;
 use crate::config::instrument::InstrumentSpec;
 use crate::engine::kernel::Engine;
 use crate::feed::data_feed::DataFeed;
+use crate::feed::provider::TradeProvider;
 use crate::fill::FillSimulator;
 use crate::fill::depth::DepthBasedFillSimulator;
 use crate::fill::market::StandardFillSimulator;
@@ -17,20 +24,31 @@ use crate::output::result::BacktestResult;
 use crate::portfolio::equity::EquityCurve;
 use crate::strategy::{BacktestError, Strategy};
 
-/// Backward-compatible facade over the event-driven Engine.
+/// High-level facade over the event-driven [`Engine`].
 ///
-/// Loads historical data from a TradeProvider, builds a DataFeed
-/// and InstrumentSpec map, then delegates to [`Engine::run`].
+/// Loads historical data from a [`TradeProvider`], builds a
+/// [`DataFeed`] and instrument spec map, then delegates to
+/// [`Engine::run`]. This is the primary entry point for running
+/// backtests from application code.
 pub struct BacktestRunner {
+    /// Data source for historical trades.
     trade_provider: Arc<dyn TradeProvider>,
 }
 
 impl BacktestRunner {
+    /// Creates a new runner with the given trade data provider.
+    #[must_use]
     pub fn new(trade_provider: Arc<dyn TradeProvider>) -> Self {
         Self { trade_provider }
     }
 
-    /// Execute the backtest and return a complete `BacktestResult`.
+    /// Executes the backtest and returns a complete
+    /// [`BacktestResult`].
+    ///
+    /// Validates the config, applies strategy parameters, loads
+    /// trade data, and runs the engine. Returns an empty result
+    /// (with a warning) if no data is found for the configured
+    /// date range.
     pub async fn run(
         &self,
         config: BacktestConfig,
@@ -67,9 +85,12 @@ impl BacktestRunner {
         engine.run(strategy, feed, run_id, None)
     }
 
-    /// Execute the backtest, emitting progress events to a shared
-    /// buffer. The returned `BacktestResult.id` matches the
-    /// supplied `run_id`.
+    /// Executes the backtest, emitting progress events to a channel.
+    ///
+    /// Identical to [`run`](Self::run) but sends
+    /// [`BacktestProgressEvent`]s to the provided sender for
+    /// real-time UI updates. The returned result's `id` matches
+    /// the supplied `run_id`.
     pub async fn run_with_progress(
         &self,
         config: BacktestConfig,
@@ -106,6 +127,8 @@ impl BacktestRunner {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+/// Selects the appropriate fill simulator based on the slippage
+/// model configured in the backtest.
 fn build_fill_simulator(config: &BacktestConfig) -> Box<dyn FillSimulator> {
     use crate::config::risk::SlippageModel;
     match &config.slippage {
@@ -116,6 +139,8 @@ fn build_fill_simulator(config: &BacktestConfig) -> Box<dyn FillSimulator> {
     }
 }
 
+/// Logs warnings for configured features that are not yet
+/// implemented (latency simulation, dynamic position sizing).
 fn log_unimplemented_warnings(config: &BacktestConfig) {
     use crate::config::risk::PositionSizeMode;
     if config.simulated_latency_ms > 0 {
@@ -134,6 +159,7 @@ fn log_unimplemented_warnings(config: &BacktestConfig) {
     }
 }
 
+/// Builds the instrument spec map from the backtest config.
 fn build_instruments(
     config: &BacktestConfig,
 ) -> HashMap<kairos_data::FuturesTicker, InstrumentSpec> {
@@ -145,6 +171,7 @@ fn build_instruments(
     instruments
 }
 
+/// Creates an empty backtest result when no data is available.
 fn empty_result(config: BacktestConfig, strategy_name: String, run_id: Uuid) -> BacktestResult {
     let initial_capital = config.initial_capital_usd;
     let equity_curve = EquityCurve::new(initial_capital);

@@ -1,3 +1,36 @@
+//! Volume Weighted Average Price (VWAP).
+//!
+//! VWAP computes the cumulative ratio of volume-weighted typical price to
+//! total volume across the session. It answers the question: "What is the
+//! average price at which volume has traded today?"
+//!
+//! # Formula
+//!
+//! ```text
+//! VWAP = sum(TP * V) / sum(V)
+//! ```
+//!
+//! where `TP = (High + Low + Close) / 3` (the typical price) and `V` is
+//! the candle volume. The calculation is cumulative from the first candle
+//! in the data set.
+//!
+//! # Trading use
+//!
+//! - **Execution benchmark**: institutional desks measure fill quality
+//!   against VWAP. Buying below VWAP or selling above it is considered
+//!   favorable execution.
+//! - **Intraday bias**: price holding above VWAP signals bullish
+//!   conviction; sustained trading below signals bearish pressure.
+//! - **Mean reversion**: standard-deviation bands around VWAP act as
+//!   overbought/oversold levels. Extreme deviations from VWAP tend to
+//!   revert, especially in range-bound sessions.
+//!
+//! # Output
+//!
+//! Produces [`StudyOutput::Lines`] with the VWAP line and, when the
+//! `show_bands` parameter is enabled, upper and lower standard-deviation
+//! band lines.
+
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
@@ -22,6 +55,14 @@ const BAND_COLOR: SerializableColor = SerializableColor {
     a: 0.4,
 };
 
+/// Volume Weighted Average Price study.
+///
+/// Renders the VWAP line on the price chart with optional upper/lower
+/// standard deviation bands. The bands use a rolling volume-weighted
+/// variance to compute standard deviation at each candle.
+///
+/// Configurable parameters: line color, line width, band visibility,
+/// and band multiplier (number of standard deviations).
 pub struct VwapStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -29,6 +70,9 @@ pub struct VwapStudy {
 }
 
 impl VwapStudy {
+    /// Create a new VWAP study with default parameters.
+    ///
+    /// Defaults: cyan line, width = 1.5, bands disabled, band multiplier = 1.0.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {

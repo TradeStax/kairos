@@ -1,24 +1,90 @@
 //! Shared profile computation functions.
 //!
-//! Reusable logic for building volume profiles from candles or trades,
-//! finding POC, and calculating value area. Used by both
-//! `VolumeProfileStudy` and `VbpStudy`.
+//! Provides reusable logic for building volume profiles from candles
+//! or trades, finding the Point of Control (POC), calculating the
+//! value area, and detecting high/low volume nodes and zones. Used
+//! by both `VolumeProfileStudy` and `VbpStudy`.
 
-use crate::output::ProfileLevel;
+use crate::output::{NodeDetectionMethod, ProfileLevel};
 use data::{Candle, Price, Trade};
 use std::collections::HashMap;
 
-/// A contiguous price zone expressed as `(low_price_units, high_price_units)`.
+/// A contiguous price zone expressed as `(low_price_units,
+/// high_price_units)`.
 type PriceZone = (i64, i64);
 
-/// Result of `detect_volume_zones`: HVN zones, LVN zones, dominant peak,
-/// and deepest valley.
+/// Result of [`detect_volume_zones`]: HVN zones, LVN zones, dominant
+/// peak, and deepest valley.
 pub type VolumeZoneResult = (
     Vec<PriceZone>,
     Vec<PriceZone>,
     Option<crate::output::VolumeNode>,
     Option<crate::output::VolumeNode>,
 );
+
+/// Basic volume distribution statistics for a set of profile levels.
+struct VolumeStats {
+    max: f32,
+    mean: f32,
+    std_dev: f32,
+}
+
+/// Compute volume statistics across a set of per-level volumes.
+///
+/// Returns `None` if total volume is zero or volumes is empty.
+fn compute_volume_stats(volumes: &[f32]) -> Option<VolumeStats> {
+    if volumes.is_empty() {
+        return None;
+    }
+    let mut total = 0.0_f32;
+    let mut max = 0.0_f32;
+    let mut sum_sq = 0.0_f32;
+    for &v in volumes {
+        total += v;
+        max = max.max(v);
+        sum_sq += v * v;
+    }
+    if total <= 0.0 {
+        return None;
+    }
+    let mean = total / volumes.len() as f32;
+    let variance = sum_sq / volumes.len() as f32 - mean * mean;
+    let std_dev = variance.max(0.0).sqrt();
+    Some(VolumeStats {
+        max,
+        mean,
+        std_dev,
+    })
+}
+
+/// Compute a detection cutoff value for a given method and threshold.
+fn detection_cutoff(
+    method: NodeDetectionMethod,
+    threshold: f32,
+    stats: &VolumeStats,
+    volumes: &[f32],
+    is_high: bool,
+) -> f32 {
+    match method {
+        NodeDetectionMethod::Percentile => {
+            percentile_value(volumes, threshold)
+        }
+        NodeDetectionMethod::Relative => stats.max * threshold,
+        NodeDetectionMethod::StdDev => {
+            if stats.std_dev < f32::EPSILON {
+                if is_high {
+                    stats.max + 1.0
+                } else {
+                    -1.0
+                }
+            } else if is_high {
+                stats.mean + stats.std_dev * threshold
+            } else {
+                (stats.mean - stats.std_dev * threshold).max(0.0)
+            }
+        }
+    }
+}
 
 /// Build a volume profile from candle data.
 ///
@@ -261,21 +327,21 @@ pub fn calculate_value_area(
 /// Detect high-volume and low-volume nodes in a profile.
 ///
 /// Uses the specified detection method and threshold for each node
-/// type, plus a minimum prominence filter.
+/// type, plus a minimum prominence filter to avoid noise.
 ///
 /// Returns `(hvn_nodes, lvn_nodes)`.
 pub fn detect_volume_nodes(
     levels: &[ProfileLevel],
-    hvn_method: crate::output::NodeDetectionMethod,
+    hvn_method: NodeDetectionMethod,
     hvn_threshold: f32,
-    lvn_method: crate::output::NodeDetectionMethod,
+    lvn_method: NodeDetectionMethod,
     lvn_threshold: f32,
     min_prominence: f32,
 ) -> (
     Vec<crate::output::VolumeNode>,
     Vec<crate::output::VolumeNode>,
 ) {
-    use crate::output::{NodeDetectionMethod, VolumeNode};
+    use crate::output::VolumeNode;
 
     if levels.len() < 3 {
         return (Vec::new(), Vec::new());
@@ -286,49 +352,15 @@ pub fn detect_volume_nodes(
         .map(|l| l.buy_volume + l.sell_volume)
         .collect();
 
-    let mut total_vol = 0.0_f32;
-    let mut max_vol = 0.0_f32;
-    let mut sum_sq = 0.0_f32;
-    for &v in &volumes {
-        total_vol += v;
-        max_vol = max_vol.max(v);
-        sum_sq += v * v;
-    }
-    if total_vol <= 0.0 {
-        return (Vec::new(), Vec::new());
-    }
-
-    let mean_vol = total_vol / volumes.len() as f32;
-    let variance = sum_sq / volumes.len() as f32 - mean_vol * mean_vol;
-    let std_dev = variance.max(0.0).sqrt();
-
-    // Compute HVN threshold value
-    let hvn_cutoff = match hvn_method {
-        NodeDetectionMethod::Percentile => percentile_value(&volumes, hvn_threshold),
-        NodeDetectionMethod::Relative => max_vol * hvn_threshold,
-        NodeDetectionMethod::StdDev => {
-            // When std_dev is 0 (flat), require strictly above mean
-            if std_dev < f32::EPSILON {
-                max_vol + 1.0
-            } else {
-                mean_vol + std_dev * hvn_threshold
-            }
-        }
+    let stats = match compute_volume_stats(&volumes) {
+        Some(s) => s,
+        None => return (Vec::new(), Vec::new()),
     };
 
-    // Compute LVN threshold value
-    let lvn_cutoff = match lvn_method {
-        NodeDetectionMethod::Percentile => percentile_value(&volumes, lvn_threshold),
-        NodeDetectionMethod::Relative => max_vol * lvn_threshold,
-        NodeDetectionMethod::StdDev => {
-            // When std_dev is 0 (flat), require strictly below mean
-            if std_dev < f32::EPSILON {
-                -1.0
-            } else {
-                (mean_vol - std_dev * lvn_threshold).max(0.0)
-            }
-        }
-    };
+    let hvn_cutoff =
+        detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
+    let lvn_cutoff =
+        detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
 
     let mut hvn = Vec::new();
     let mut lvn = Vec::new();
@@ -336,8 +368,9 @@ pub fn detect_volume_nodes(
     for (i, level) in levels.iter().enumerate() {
         let vol = volumes[i];
 
-        // HVN: volume >= cutoff and passes prominence check
-        if vol >= hvn_cutoff && prominence(i, &volumes) >= min_prominence {
+        if vol >= hvn_cutoff
+            && prominence(i, &volumes) >= min_prominence
+        {
             hvn.push(VolumeNode {
                 price_units: level.price_units,
                 price: level.price,
@@ -345,8 +378,10 @@ pub fn detect_volume_nodes(
             });
         }
 
-        // LVN: volume <= cutoff and passes prominence check
-        if vol <= lvn_cutoff && vol > 0.0 && prominence_inverse(i, &volumes) >= min_prominence {
+        if vol <= lvn_cutoff
+            && vol > 0.0
+            && prominence_inverse(i, &volumes) >= min_prominence
+        {
             lvn.push(VolumeNode {
                 price_units: level.price_units,
                 price: level.price,
@@ -367,14 +402,12 @@ pub fn detect_volume_nodes(
 /// Returns `(hvn_zones, lvn_zones, peak, valley)`.
 pub fn detect_volume_zones(
     levels: &[ProfileLevel],
-    hvn_method: crate::output::NodeDetectionMethod,
+    hvn_method: NodeDetectionMethod,
     hvn_threshold: f32,
-    lvn_method: crate::output::NodeDetectionMethod,
+    lvn_method: NodeDetectionMethod,
     lvn_threshold: f32,
     _min_prominence: f32,
 ) -> VolumeZoneResult {
-    use crate::output::{NodeDetectionMethod, VolumeNode};
-
     if levels.len() < 3 {
         return (Vec::new(), Vec::new(), None, None);
     }
@@ -384,95 +417,77 @@ pub fn detect_volume_zones(
         .map(|l| l.buy_volume + l.sell_volume)
         .collect();
 
-    let mut total_vol = 0.0_f32;
-    let mut max_vol = 0.0_f32;
-    let mut sum_sq = 0.0_f32;
-    for &v in &volumes {
-        total_vol += v;
-        max_vol = max_vol.max(v);
-        sum_sq += v * v;
-    }
-    if total_vol <= 0.0 {
-        return (Vec::new(), Vec::new(), None, None);
-    }
-
-    let mean_vol = total_vol / volumes.len() as f32;
-    let variance = sum_sq / volumes.len() as f32 - mean_vol * mean_vol;
-    let std_dev = variance.max(0.0).sqrt();
-
-    // Compute HVN cutoff
-    let hvn_cutoff = match hvn_method {
-        NodeDetectionMethod::Percentile => percentile_value(&volumes, hvn_threshold),
-        NodeDetectionMethod::Relative => max_vol * hvn_threshold,
-        NodeDetectionMethod::StdDev => {
-            if std_dev < f32::EPSILON {
-                max_vol + 1.0
-            } else {
-                mean_vol + std_dev * hvn_threshold
-            }
-        }
+    let stats = match compute_volume_stats(&volumes) {
+        Some(s) => s,
+        None => return (Vec::new(), Vec::new(), None, None),
     };
 
-    // Compute LVN cutoff
-    let lvn_cutoff = match lvn_method {
-        NodeDetectionMethod::Percentile => percentile_value(&volumes, lvn_threshold),
-        NodeDetectionMethod::Relative => max_vol * lvn_threshold,
-        NodeDetectionMethod::StdDev => {
-            if std_dev < f32::EPSILON {
-                -1.0
-            } else {
-                (mean_vol - std_dev * lvn_threshold).max(0.0)
-            }
-        }
-    };
+    let hvn_cutoff =
+        detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
+    let lvn_cutoff =
+        detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
 
-    // Build HVN zones — contiguous runs of levels above cutoff
-    let mut hvn_zones = Vec::new();
-    let mut zone_start: Option<i64> = None;
-    for (i, level) in levels.iter().enumerate() {
-        if volumes[i] >= hvn_cutoff {
-            if zone_start.is_none() {
-                zone_start = Some(level.price_units);
-            }
-        } else if let Some(start) = zone_start.take() {
-            let end = levels[i - 1].price_units;
-            hvn_zones.push((start, end));
-        }
-    }
-    if let Some(start) = zone_start {
-        hvn_zones.push((start, levels.last().unwrap().price_units));
-    }
-
-    // Build LVN zones — contiguous runs of levels below cutoff
-    let mut lvn_zones = Vec::new();
-    let mut zone_start: Option<i64> = None;
-    for (i, level) in levels.iter().enumerate() {
-        if volumes[i] <= lvn_cutoff && volumes[i] > 0.0 {
-            if zone_start.is_none() {
-                zone_start = Some(level.price_units);
-            }
-        } else if let Some(start) = zone_start.take() {
-            let end = levels[i - 1].price_units;
-            lvn_zones.push((start, end));
-        }
-    }
-    if let Some(start) = zone_start {
-        lvn_zones.push((start, levels.last().unwrap().price_units));
-    }
+    let hvn_zones =
+        build_contiguous_zones(levels, &volumes, |v| v >= hvn_cutoff);
+    let lvn_zones = build_contiguous_zones(levels, &volumes, |v| {
+        v <= lvn_cutoff && v > 0.0
+    });
 
     // Find single dominant peak: max-volume level above HVN
-    // cutoff. No prominence filter — for single-peak selection
-    // the cutoff already ensures "high volume", and prominence
-    // would reject the POC when neighbors are similarly high.
-    let mut peak: Option<VolumeNode> = None;
+    // cutoff. No prominence filter -- the cutoff already ensures
+    // "high volume", and prominence would reject the POC when
+    // neighbors are similarly high.
+    let peak = find_extreme_node(levels, &volumes, |v| v >= hvn_cutoff, true);
+
+    // Find single deepest valley: min-volume interior level
+    // below LVN cutoff that is also a local minimum.
+    let valley = find_valley_node(levels, &volumes, lvn_cutoff);
+
+    (hvn_zones, lvn_zones, peak, valley)
+}
+
+/// Build contiguous zones from levels where `predicate` is true.
+fn build_contiguous_zones(
+    levels: &[ProfileLevel],
+    volumes: &[f32],
+    predicate: impl Fn(f32) -> bool,
+) -> Vec<PriceZone> {
+    let mut zones = Vec::new();
+    let mut zone_start: Option<i64> = None;
     for (i, level) in levels.iter().enumerate() {
-        if volumes[i] >= hvn_cutoff {
-            let better = match &peak {
-                Some(p) => volumes[i] > p.volume,
+        if predicate(volumes[i]) {
+            if zone_start.is_none() {
+                zone_start = Some(level.price_units);
+            }
+        } else if let Some(start) = zone_start.take() {
+            zones.push((start, levels[i - 1].price_units));
+        }
+    }
+    if let Some(start) = zone_start {
+        zones.push((start, levels.last().unwrap().price_units));
+    }
+    zones
+}
+
+/// Find the extreme qualifying node (highest volume if `max`,
+/// lowest if `!max`).
+fn find_extreme_node(
+    levels: &[ProfileLevel],
+    volumes: &[f32],
+    predicate: impl Fn(f32) -> bool,
+    max: bool,
+) -> Option<crate::output::VolumeNode> {
+    use crate::output::VolumeNode;
+    let mut best: Option<VolumeNode> = None;
+    for (i, level) in levels.iter().enumerate() {
+        if predicate(volumes[i]) {
+            let better = match &best {
+                Some(b) if max => volumes[i] > b.volume,
+                Some(b) => volumes[i] < b.volume,
                 None => true,
             };
             if better {
-                peak = Some(VolumeNode {
+                best = Some(VolumeNode {
                     price_units: level.price_units,
                     price: level.price,
                     volume: volumes[i],
@@ -480,16 +495,28 @@ pub fn detect_volume_zones(
             }
         }
     }
+    best
+}
 
-    // Find single deepest valley: min-volume level below LVN
-    // cutoff that is also a local minimum (both neighbors have
-    // strictly higher volume). Skip edge levels — tail levels
-    // naturally have low volume from candle distribution and
-    // are not meaningful valleys.
+/// Find the deepest valley: min-volume interior level below the
+/// LVN cutoff that is also a local minimum (both neighbors have
+/// strictly higher volume). Skips edge levels -- tail levels
+/// naturally have low volume from candle distribution and are
+/// not meaningful valleys.
+fn find_valley_node(
+    levels: &[ProfileLevel],
+    volumes: &[f32],
+    lvn_cutoff: f32,
+) -> Option<crate::output::VolumeNode> {
+    use crate::output::VolumeNode;
     let mut valley: Option<VolumeNode> = None;
-    for i in 1..volumes.len() - 1 {
+    for i in 1..volumes.len().saturating_sub(1) {
         let vol = volumes[i];
-        if vol <= lvn_cutoff && vol > 0.0 && vol < volumes[i - 1] && vol < volumes[i + 1] {
+        if vol <= lvn_cutoff
+            && vol > 0.0
+            && vol < volumes[i - 1]
+            && vol < volumes[i + 1]
+        {
             let better = match &valley {
                 Some(v) => vol < v.volume,
                 None => true,
@@ -503,8 +530,7 @@ pub fn detect_volume_zones(
             }
         }
     }
-
-    (hvn_zones, lvn_zones, peak, valley)
+    valley
 }
 
 /// Compute the Nth percentile value from a set of volumes.

@@ -1,32 +1,49 @@
-//! Price Arithmetic — merged from data::Price + exchange::PriceStep/Power10/PriceExt
+//! Price arithmetic utilities — formatting, stepping, and precision helpers.
 //!
-//! All fixed-point price utilities in one place.
+//! Builds on [`Price`] from the `types` module with display formatting via
+//! [`PriceExt`], tick-step conversion via [`PriceStep`], and configurable
+//! precision via the const-generic [`Power10`] type.
+
+use serde::{Deserialize, Serialize};
 
 use crate::domain::core::types::Price;
-use serde::{Deserialize, Serialize};
 
 // ── Type Aliases ────────────────────────────────────────────────────────
 
+/// Contract size expressed as a power of 10 in the range 10^-4 .. 10^6.
 pub type ContractSize = Power10<-4, 6>;
+
+/// Minimum tick size expressed as a power of 10 in the range 10^-8 .. 10^2.
 pub type MinTicksize = Power10<-8, 2>;
+
+/// Minimum quantity size expressed as a power of 10 in the range 10^-6 .. 10^8.
 pub type MinQtySize = Power10<-6, 8>;
 
 // ── Power10 ─────────────────────────────────────────────────────────────
 
+/// A power-of-10 value clamped to the compile-time range `[MIN, MAX]`.
+///
+/// Used to represent precision and sizing parameters that are always
+/// integral powers of 10 (e.g. tick sizes, contract sizes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Power10<const MIN: i8, const MAX: i8> {
+    /// The exponent, clamped to `[MIN, MAX]`.
     pub power: i8,
 }
 
 impl<const MIN: i8, const MAX: i8> Power10<MIN, MAX> {
+    /// Create with `power` clamped to `[MIN, MAX]`
     #[inline]
+    #[must_use]
     pub fn new(power: i8) -> Self {
         Self {
             power: power.clamp(MIN, MAX),
         }
     }
 
+    /// Convert to `f32` (10^power)
     #[inline]
+    #[must_use]
     pub fn as_f32(self) -> f32 {
         10f32.powi(self.power as i32)
     }
@@ -72,23 +89,29 @@ impl<'de, const MIN: i8, const MAX: i8> Deserialize<'de> for Power10<MIN, MAX> {
 
 // ── PriceStep ───────────────────────────────────────────────────────────
 
+/// A tick step expressed in atomic price units (10^-PRICE_SCALE).
+///
+/// Used for converting between display tick sizes (e.g. 0.25) and the
+/// internal fixed-point representation.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PriceStep {
-    /// Step size in atomic units (10^-PRICE_SCALE)
+    /// Step size in atomic units (10^-PRICE_SCALE).
     pub units: i64,
 }
 
 impl PriceStep {
-    /// Lossy: f32 step for UI
+    /// Convert to `f32` (lossy) for UI display
+    #[must_use]
     pub fn to_f32_lossy(self) -> f32 {
         let scale = 10f32.powi(Price::PRICE_SCALE);
         (self.units as f32) / scale
     }
 
-    /// Lossy: from f32 step (rounds to nearest atomic unit).
+    /// Create from an `f32` step, rounding to the nearest atomic unit.
     ///
-    /// Returns `None` if `step` is not positive or too small for
-    /// the current `PRICE_SCALE`.
+    /// Returns `None` if `step` is not positive or too small for the
+    /// current `PRICE_SCALE`.
+    #[must_use]
     pub fn from_f32_lossy(step: f32) -> Option<Self> {
         if step <= 0.0 {
             return None;
@@ -101,16 +124,18 @@ impl PriceStep {
         Some(Self { units })
     }
 
-    /// Lossy: from f32 step. Panics on non-positive or too-small input.
+    /// Create from an `f32` step. Panics on non-positive or too-small input.
     ///
-    /// Prefer `from_f32_lossy()` at API boundaries. This convenience
-    /// method is for internal use with known-good constants.
+    /// Prefer [`from_f32_lossy`](Self::from_f32_lossy) at API boundaries.
+    /// This convenience method is for internal use with known-good constants.
+    #[must_use]
     pub fn from_f32(step: f32) -> Self {
         Self::from_f32_lossy(step)
             .expect("PriceStep::from_f32: step must be positive and representable")
     }
 
-    /// Convert to a Price with the same units value
+    /// Convert to a [`Price`] with the same atomic units
+    #[must_use]
     pub fn to_price(self) -> Price {
         Price::from_units(self.units)
     }
@@ -124,22 +149,22 @@ impl From<PriceStep> for Price {
 
 // ── PriceExt ────────────────────────────────────────────────────────────
 
-/// Extension trait adding formatting methods to `Price`.
+/// Extension trait adding precision-aware formatting methods to [`Price`].
 pub trait PriceExt {
-    /// Format price as string with the given `Power10` precision
+    /// Format price as a string with the given `Power10` precision
     fn fmt_with_precision<const MIN: i8, const MAX: i8>(
         self,
         precision: Power10<MIN, MAX>,
     ) -> String;
 
-    /// Write formatted price into the given writer
+    /// Write the formatted price into the given writer
     fn fmt_into<const MIN: i8, const MAX: i8, W: core::fmt::Write>(
         self,
         precision: Power10<MIN, MAX>,
         out: &mut W,
     ) -> core::fmt::Result;
 
-    /// Round to the nearest multiple of the provided min ticksize
+    /// Round to the nearest multiple of the provided min tick size
     fn round_to_min_tick(self, min_tick: MinTicksize) -> Self;
 }
 
@@ -215,7 +240,8 @@ impl PriceExt for Price {
     }
 }
 
-/// Convert a millisecond Unix timestamp to a chrono DateTime<Utc>
+/// Convert a millisecond Unix timestamp to a `chrono::DateTime<Utc>`
+#[must_use]
 pub fn ms_to_datetime(ms: u64) -> Option<chrono::DateTime<chrono::Utc>> {
     chrono::DateTime::from_timestamp((ms / 1000) as i64, ((ms % 1000) * 1_000_000) as u32)
 }

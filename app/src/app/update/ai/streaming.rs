@@ -100,6 +100,7 @@ pub(crate) async fn stream_openrouter_agentic(
     snapshot: Option<ChartSnapshot>,
     temperature: f32,
     max_tokens: u32,
+    timezone: crate::config::UserTimezone,
 ) {
     use AiStreamEventClone as Ev;
 
@@ -301,6 +302,7 @@ pub(crate) async fn stream_openrouter_agentic(
                         snapshot: &snapshot,
                         sender,
                         conversation_id,
+                        timezone,
                     };
                     let result = tools::execute_tool(name, args, &tool_ctx);
 

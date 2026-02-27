@@ -1,11 +1,19 @@
 //! Runtime parameter storage with typed getters.
+//!
+//! [`StudyConfig`] holds the current values for all parameters of a study
+//! instance. It is serialized alongside pane state so that study settings
+//! persist across sessions. Typed getters return a caller-supplied default
+//! when a key is absent or the stored type does not match.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use data::SerializableColor;
 
 use super::parameter::ParameterDef;
 use super::value::{LineStyleValue, ParameterValue};
 use crate::error::StudyError;
-use data::SerializableColor;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Runtime snapshot of a study's current parameter values.
 ///
@@ -14,11 +22,14 @@ use std::collections::HashMap;
 /// that return a default when the key is missing or the type doesn't match.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudyConfig {
+    /// Study identifier matching [`super::super::core::Study::id()`].
     pub id: String,
+    /// Current parameter values keyed by parameter name.
     pub values: HashMap<String, ParameterValue>,
 }
 
 impl StudyConfig {
+    /// Create an empty config for the given study ID.
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),

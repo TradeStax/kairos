@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Kairos is a native desktop charting platform for futures markets built with Rust and Iced (v0.14). Provides real-time and historical market data visualization: candlestick/footprint charts, heatmaps, order flow analysis, comparison charts, and options data. Supports multi-window layouts with popout panes.
+Kairos is a native desktop charting platform for futures markets built with Rust and Iced (v0.14). Provides real-time and historical market data visualization: candlestick/footprint/profile charts, heatmaps, order flow analysis, comparison charts, AI assistant, and backtesting. Supports multi-window layouts with popout panes.
 
 ## Build & Test
 
@@ -10,8 +10,8 @@ cargo build --release                # Release build
 cargo run --release                  # Run app
 cargo test                           # All tests
 cargo test --package kairos-data
-cargo test --package kairos-exchange
 cargo test --package kairos-study
+cargo test --package kairos-backtest
 cargo clippy                         # Lint
 cargo fmt --check                    # Format check
 ```
@@ -20,169 +20,212 @@ cargo fmt --check                    # Format check
 
 ```bash
 DATABENTO_API_KEY=your_key           # Required for historical futures data
-MASSIVE_API_KEY=your_polygon_key     # Optional for options data
-RUST_LOG=kairos_data=debug      # Logging level
+RUST_LOG=kairos_data=debug           # Logging level
 ```
 
 Rithmic credentials are managed via `keyring` (OS credential store), configured through the UI.
 
 ## Architecture
 
-Four workspace crates (Rust edition 2024):
+Three workspace crates + one app (Rust edition 2024):
 
 ```
-app/src/                # Application layer — kairos (Iced GUI)
-├── app/               # Kairos struct, message enums, update routing
-│   ├── mod.rs         # Kairos struct, new(), re-exports
-│   ├── messages.rs    # Message, ChartMessage, DownloadMessage, OptionsMessage, WindowMessage, BacktestMessage
-│   ├── backtest/      # Backtest app state
-│   │   ├── mod.rs     # Re-exports
-│   │   └── history.rs # BacktestHistory, BacktestStatus, BacktestHistoryEntry
-│   ├── core/          # App-level globals and subscriptions (distinct from chart/core)
-│   │   ├── globals.rs # OnceLock/AtomicBool statics (download, rithmic, replay, backtest, AI)
-│   │   └── subscriptions.rs # build_subscription(), event monitors
-│   ├── init/          # Startup and service creation
-│   │   ├── bootstrap.rs # seed_data_index_from_registry, auto_connect_feeds, handle_services_ready
-│   │   ├── services.rs   # create_unified_registry, initialize_*_services, AllServicesResult
+app/src/                     # Application layer — kairos v0.8.6 (Iced GUI)
+├── main.rs                  # Entry point, daemon setup
+├── app/                     # Kairos struct, Elm architecture orchestration
+│   ├── mod.rs               # Kairos struct, new(), re-exports
+│   ├── messages.rs          # Message, ChartMessage, DownloadMessage, WindowMessage, BacktestMessage
+│   ├── state/               # Domain-grouped state structs
+│   │   ├── ui.rs            # UiState: theme, sidebar, timezone, preferences, notifications
+│   │   ├── services.rs      # DataEngineState: DataEngine, RithmicClient, ReplayEngine
+│   │   ├── connections.rs   # ConnectionState: ConnectionManager
+│   │   ├── persistence.rs   # PersistenceState: layouts, registry, data index, tickers
+│   │   └── modals.rs        # ModalState: all overlay/panel state, backtest subsystem
+│   ├── backtest/            # Backtest app state (BacktestHistory, BacktestStatus)
+│   ├── core/                # App-level globals and subscriptions
+│   │   ├── globals.rs       # EventChannel<T>, DATA_ENGINE_EVENT_SLOT, RITHMIC_CLIENT_STAGING, REPLAY/BACKTEST/AI channels
+│   │   └── subscriptions.rs # build_subscription(), data_event_monitor, replay/backtest/ai stream monitors
+│   ├── init/                # Startup and service creation
+│   │   ├── bootstrap.rs     # seed_data_index_from_registry, auto_connect_feeds, handle_services_ready
+│   │   ├── services.rs      # initialize_data_engine, DataEngineInit
 │   │   └── ticker_registry.rs # FUTURES_PRODUCTS, build_tickers_info
-│   ├── layout/        # Layout and dashboard operations
-│   │   └── dashboard.rs # active_dashboard, load_layout, save_state_to_disk, handle_layout_*
-│   ├── update/        # Message handlers
-│   │   ├── mod.rs     # Kairos::update() dispatch, with_feed_manager, rebuild_ticker_data
-│   │   ├── ai.rs
-│   │   ├── backtest.rs
-│   │   ├── chart.rs
-│   │   ├── download.rs
-│   │   ├── feeds/      # Data feed connect/disconnect, preview
-│   │   │   ├── mod.rs
+│   ├── layout/              # Layout and dashboard operations
+│   │   └── dashboard.rs     # active_dashboard, load_layout, save_state_to_disk
+│   ├── update/              # Message handlers
+│   │   ├── mod.rs           # Kairos::update() dispatch
+│   │   ├── ai/              # AI assistant handlers
+│   │   │   ├── mod.rs       # AI message dispatch
+│   │   │   ├── streaming.rs # AI stream handling
+│   │   │   ├── snapshot.rs  # Chart context snapshots for AI
+│   │   │   ├── system_prompt.rs # System prompt construction
+│   │   │   └── tools/       # AI tool implementations (market_data, studies, drawings, trades, analysis)
+│   │   ├── backtest.rs      # Backtest run/progress/completion
+│   │   ├── chart.rs         # Chart data loading
+│   │   ├── data_events.rs   # DataEvent processing
+│   │   ├── download.rs      # Historical download handlers
+│   │   ├── feeds/           # Data feed connect/disconnect
 │   │   │   ├── databento.rs
 │   │   │   └── rithmic.rs
-│   │   ├── menu_bar.rs
-│   │   ├── shell.rs    # Tick, window events, exit, go_back, dashboard dispatch, data folder
-│   │   ├── options.rs  # #[cfg(feature = "options")]
-│   │   ├── preferences.rs
-│   │   └── replay.rs
-│   └── view/          # Top-level view
-│       ├── main.rs    # Kairos::view() — root view
-│       └── sidebar.rs # view_with_modal() — sidebar modal overlay
-├── screen/dashboard/  # Main dashboard: pane grid, sidebar, panels (ladder, time&sales)
-│   ├── pane/          # Pane state, content types, lifecycle, view rendering
-│   ├── panel/         # Side panels: Ladder, TimeAndSales
-│   ├── layout/        # Pane grid layout management
-│   └── loading/       # Loading states & feed management
-├── chart/             # Charting engine
-│   ├── core/          # Chart trait, ViewState, Caches, Interaction (pan/zoom/drawing)
-│   ├── candlestick/   # KlineChart — OHLC + footprint rendering
-│   ├── heatmap/       # HeatmapChart — order flow depth heatmap
-│   ├── comparison/    # ComparisonChart — multi-series overlay
-│   ├── study_renderer/ # Renders StudyOutput primitives to canvas (line, band, bar, histogram, profile)
-│   ├── overlay/       # Crosshair, ruler, last price, gap markers
-│   ├── drawing/       # Drawing tools (lines, boxes) with persistence
-│   ├── scale/         # Axis scaling — linear & timeseries
-│   └── perf/          # LOD (level-of-detail) rendering optimization
-├── components/        # Reusable UI component library
-│   ├── display/       # Toast, tooltip, status dot, progress bar, empty state, key-value
-│   ├── input/         # Text, numeric, checkbox, dropdown, color picker, slider, toggle, search, secure, multi-select
-│   ├── layout/        # Card, collapsible, multi-split, reorderable list, toolbar, button grid/group
-│   ├── overlay/       # Confirm dialog, context menu, dropdown menu, form modal, modal shell
-│   ├── form/          # Form field, form row, form section
-│   └── primitives/    # Icon button, icons, badge, label, separator, truncated text
-├── modals/            # Application & pane-level modals
-│   ├── pane/          # Pane modals: tickers, calendar, indicators, stream, settings (kline/heatmap/comparison/panel/study)
-│   ├── connections/   # Data feed connection status
-│   ├── data_feeds/    # Feed management & preview
-│   ├── download/      # Historical data download & data management
-│   ├── drawing_tools/ # Drawing tool selection panel
-│   ├── layout/        # Layout manager (save/load/switch layouts)
-│   ├── replay/        # Replay playback controller
-│   └── theme/         # Theme editor
-├── style/             # Theming: tokens, palette, button/container/canvas/widget styles
-├── platform.rs        # data_path(), open_data_folder() — platform I/O (not in data crate)
-├── secrets.rs         # SecretsManager — API key storage via OS keyring (not in data crate)
-├── layout.rs          # Layout & Dashboard serialization, LayoutId
-├── window.rs          # Multi-window management, WindowSpec, popout support
-├── error.rs           # InternalError (Chart, Data, Rendering variants)
-└── logger.rs          # Async file logging with rotation (50MB max)
+│   │   ├── menu_bar.rs      # Menu bar actions
+│   │   ├── shell.rs         # Tick, window events, exit, go_back, data folder
+│   │   ├── preferences.rs   # User preferences
+│   │   └── replay.rs        # Replay control
+│   └── view/                # Top-level view
+│       ├── main.rs          # Kairos::view() — root view
+│       └── sidebar.rs       # Sidebar modal overlay
+├── screen/                  # Screen modules
+│   ├── dashboard/           # Main dashboard: pane grid, sidebar, ladder
+│   │   ├── pane/            # Pane system
+│   │   │   ├── types.rs     # Pane struct, AiAssistantState
+│   │   │   ├── messages.rs  # Pane message enums
+│   │   │   ├── config/      # ContentKind, CandlestickConfig, HeatmapConfig, ComparisonConfig, ProfileConfig, VisualConfig, LinkGroup
+│   │   │   ├── content/     # Content enum: Starter, Candlestick, Heatmap*, Ladder*, Comparison, Profile, AiAssistant
+│   │   │   ├── ai/          # AI pane state, models, tick actions
+│   │   │   ├── drawing/     # Drawing interaction, properties, rebuild
+│   │   │   ├── update/      # Pane update: chart, indicators, ai, modal
+│   │   │   └── view/        # Pane rendering: header, body, controls, chart views, assistant view
+│   │   ├── ladder/          # Depth ladder panel: config, domain (depth grouping, chase tracker, trade aggregator), render
+│   │   ├── sidebar.rs       # Dashboard sidebar
+│   │   └── update/          # Dashboard update: chart_ops, feed_ops
+│   └── backtest/            # Backtest screens
+│       ├── launch/          # Launch modal: catalog view, settings view
+│       └── manager/         # Results manager: overview, analytics, trades, computed metrics
+│                            #   Charts: equity, drawdown, histogram, bar, scatter, monte_carlo, returns_grid
+├── chart/                   # Chart engine
+│   ├── core/                # Chart trait (definition.rs), ViewState, Caches, Interaction (pan/zoom/drawing/ruler)
+│   ├── candlestick/         # KlineChart — OHLC + footprint rendering
+│   ├── heatmap/             # HeatmapChart — order flow depth heatmap (feature: heatmap)
+│   ├── comparison/          # ComparisonChart — multi-series overlay
+│   ├── profile/             # ProfileChart — volume profile chart
+│   ├── study_renderer/      # StudyOutput → canvas: primitives (line, band, bar, histogram, levels, markers), footprint, vbp
+│   ├── overlay/             # Crosshair, ruler, grid, last price, gap markers
+│   ├── drawing/             # Drawing tools: lines, shapes, channel, fibonacci, annotations, calculator, volume_profile
+│   ├── scale/               # Axis scaling: linear, timeseries, labels, x/y axes
+│   ├── shared/              # Shared chart helpers (study_helper)
+│   └── perf/                # LOD (level-of-detail) rendering optimization
+├── components/              # Reusable UI component library
+│   ├── chrome/              # Custom title bar
+│   ├── display/             # Toast, tooltip, status dot, progress bar, empty state, key-value
+│   ├── input/               # Text, numeric, checkbox, toggle, slider, stepper, search, secure, dropdown, radio, link group
+│   ├── layout/              # Card, interactive card, collapsible, multi-split, reorderable list, button group, section header
+│   ├── overlay/             # Modal shell, modal header, form modal, confirm dialog, context menu
+│   ├── form/                # Form field, form row, form section
+│   └── primitives/          # Icon button, icons, badge, label, separator
+├── modals/                  # Application & pane-level modals
+│   ├── pane/                # Tickers, calendar, indicator manager, stream, settings (candlestick/heatmap/comparison/profile/panel/study)
+│   ├── connections/         # Data feed connection status
+│   ├── data_feeds/          # Feed management & preview
+│   ├── download/            # Historical data download, data management, API key setup
+│   ├── drawing/             # Drawing tool selection, properties (fibonacci, calculator, vbp)
+│   ├── replay/              # Replay setup, controller, volume trackbar
+│   ├── cache_management/    # Cache management modal
+│   └── theme/               # Theme editor
+├── style/                   # Theming system
+│   ├── theme/               # Palette, Iced theme conversion
+│   ├── tokens/              # Typography, spacing, border, shadow, alpha, layout, chart, component, calendar, backtest
+│   └── widgets/             # Button, container, canvas, slider styles
+├── persistence/             # State persistence: AppState, WindowSpec, AiPreferences, Layout, LayoutManager, load/save
+├── config/                  # App config: Theme, UserTimezone, Sidebar, ScaleFactor, secrets (ApiProvider, ApiKeyStatus)
+├── infra/                   # Infrastructure: logger (async file rotation), platform (data_path), secrets (OS keyring)
+├── drawing/                 # Drawing entity types (DrawingTool, SerializableDrawing)
+├── services/                # ReplayEngine, ReplayEvent
+└── window.rs                # Multi-window management, WindowSpec, popout support
 
-crates/data/            # Data layer — kairos-data (pure business logic, no I/O)
-├── domain/            # Core types: Price, Trade, Candle, DepthSnapshot, Options, Futures
-│   ├── error.rs       # ErrorSeverity enum, AppError trait (user_message, is_retriable, severity)
-│   ├── types.rs       # Value objects: Price (i64, 10^-8 precision), Volume, Timestamp, Side
-│   ├── entities.rs    # Trade, Candle, DepthSnapshot, MarketData
-│   ├── chart/         # ChartConfig, ChartData, ChartBasis, ChartType, LoadingStatus (split module)
-│   ├── futures.rs     # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
-│   ├── options.rs     # OptionContract, OptionChain, OptionSnapshot
-│   ├── panel/         # Panel types: depth grouping, trade aggregation, chase tracking
-│   └── aggregation.rs # Trade-to-candle aggregation logic
-├── repository/        # Async trait definitions: TradeRepository, DepthRepository, Option*Repository
-├── services/          # MarketDataService, OptionsDataService, GexCalculationService, ReplayEngine, FeedMerger, CacheManager
-├── state/             # Persistence & state types
-│   ├── app.rs         # AppState (persisted): layout manager, theme, timezone, feed configs, downloaded tickers registry
-│   ├── chart.rs       # ChartState (in-memory only): config, data, loading status
-│   ├── layout.rs      # Layout, Dashboard, LayoutManager types
-│   ├── pane.rs        # Pane configuration (serializable)
-│   ├── registry.rs    # DownloadedTickersRegistry — tracks downloaded ticker date ranges
-│   ├── replay.rs      # ReplayState, PlaybackStatus, SpeedPreset
-│   └── persistence.rs # Versioned serialization & migrations (load/save take base_dir from caller)
-├── config/            # Theme, timezone, sidebar, panel configuration; config/secrets: ApiProvider, ApiKeyStatus (domain only)
-├── feed/              # DataFeedManager, FeedConfig, FeedKind (Databento/Rithmic)
-├── drawing/           # Drawing entity types (SerializableColor etc.)
-├── error.rs           # DataError
-└── util/              # Formatting, time, math, logging helpers
+crates/data/                 # Data layer — kairos-data v0.2.0 (domain types + adapters)
+├── domain/                  # Pure value objects and entities — no I/O
+│   ├── core/                # Price (i64, 10^-8), PriceStep, PriceExt, FeedId, Timestamp, Volume, Side, SerializableColor
+│   ├── instrument/          # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
+│   ├── market/              # Trade, Candle, Depth (BTreeMap<i64, f32>)
+│   ├── chart/               # ChartConfig, ChartData, ChartBasis, ChartType, ViewConfig, Autoscale, LoadingStatus, KlineDataPoint, HeatmapIndicator
+│   ├── data/                # DataIndex, DownloadedTickersRegistry
+│   ├── replay/              # ReplayState, PlaybackStatus
+│   └── assistant.rs         # Assistant metadata
+├── adapter/                 # Exchange adapters (feature-gated)
+│   ├── databento/           # CME Globex historical — Databento API (client, decoder, mapper, symbology, fetcher)
+│   └── rithmic/             # CME Globex real-time — R|Protocol WebSockets (client, plants, protocol, streaming, pool)
+├── aggregation/             # Trade-to-candle: time-based, tick-based, re-aggregation
+├── cache/                   # Per-day file caching: bincode + zstd (store, format, live_buffer, stats)
+├── connection/              # ConnectionManager, Connection, ConnectionProvider, ConnectionStatus, ConnectionCapability, config types
+├── engine/                  # DataEngine facade: routes requests, manages cache, emits DataEvents via mpsc
+├── stream/                  # PersistStreamKind, StreamKind, ResolvedStream, UniqueStreams, DownloadSchema
+├── event.rs                 # DataEvent enum (connection lifecycle, market data, downloads, data index)
+├── error.rs                 # Error enum (Fetch, Config, Cache, Symbol, Connection, Validation, NoData, Aggregation, Io) with AppError trait
+└── util/                    # Formatting, time, math, serde, logging helpers
 
-crates/exchange/        # Exchange layer — kairos-exchange (adapters & repository impls)
-├── adapter/
-│   ├── databento/     # CME Globex historical futures — Databento API (.dbn.zst cache)
-│   ├── rithmic/       # CME Globex real-time streaming — Rithmic (rithmic-rs)
-│   ├── massive/       # US options — Polygon Massive API
-│   ├── error.rs       # AdapterError (fetch, parse, connection, invalid request)
-│   ├── event.rs       # Event enum: historical + live events (depth, kline, trade, connect/disconnect)
-│   └── stream.rs      # StreamKind, PersistStreamKind, ResolvedStream, UniqueStreams
-├── repository/
-│   ├── databento/     # DatabentoTradeRepository, DatabentoDepthRepository
-│   ├── rithmic/       # RithmicTradeRepository, RithmicDepthRepository
-│   └── massive/       # MassiveChainRepository, MassiveContractRepository, MassiveSnapshotRepository
-└── error.rs           # Error enum with UserFacingError trait
+crates/study/                # Study layer — kairos-study v0.1.0 (technical analysis library, pure computation)
+├── core/                    # Study trait (14 methods, Send+Sync), StudyInput, StudyCategory, StudyPlacement
+├── config/                  # ParameterDef, ParameterKind, ParameterValue, StudyConfig, DisplayFormat, Visibility
+├── output/                  # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Footprint, Markers, Composite, Empty
+│   ├── series.rs            # LineSeries, BarSeries, BarPoint, HistogramBar, PriceLevel
+│   ├── markers.rs           # TradeMarker, MarkerData, MarkerRenderConfig
+│   ├── footprint/           # FootprintData, FootprintCandle, FootprintLevel, FootprintScaling
+│   └── profile/             # ProfileOutput, ProfileLevel, VolumeNode, VBP config types
+├── studies/                 # 16 built-in studies
+│   ├── registry.rs          # StudyRegistry factory
+│   ├── volume/              # Volume, Delta, CVD, OBV
+│   ├── trend/               # SMA, EMA, VWAP
+│   ├── momentum/            # RSI, MACD, Stochastic
+│   ├── volatility/          # ATR, Bollinger Bands
+│   └── orderflow/           # Footprint, VBP, Big Trades, Imbalance
+├── error.rs                 # StudyError with AppError impl
+└── util/                    # candle helpers (source_value, candle_key), math (mean, variance, std_dev)
 
-crates/study/           # Study layer — kairos-study (technical analysis library)
-├── traits.rs          # Study trait, StudyCategory, StudyPlacement, StudyInput
-├── output.rs          # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Clusters
-├── config.rs          # ParameterDef, ParameterValue, StudyConfig
-├── registry.rs        # StudyRegistry — factory for 15 built-in studies
-├── volume/            # Volume, Delta, CVD, OBV
-├── trend/             # SMA, EMA, VWAP
-├── momentum/          # RSI, MACD, Stochastic
-├── volatility/        # ATR, Bollinger Bands
-└── orderflow/         # Volume Profile, POC, Value Area, Imbalance
+crates/backtest/             # Backtest layer — kairos-backtest v0.1.0 (event-driven strategy simulation)
+├── config/                  # BacktestConfig, InstrumentSpec, RiskConfig, MarginConfig, SlippageModel
+├── engine/                  # Engine kernel (simulation loop), BacktestRunner, StrategyContext, EngineClock, SessionClock
+├── feed/                    # TradeProvider trait, DataFeed (multi-stream merge), CandleAggregator, MultiTimeframeAggregator
+├── fill/                    # FillSimulator trait, StandardFillSimulator, DepthBasedFillSimulator, LatencyModel
+├── order/                   # Order, OrderBook, OrderRequest (Submit/Bracket/Cancel/Modify/Flatten), OrderType, TimeInForce
+├── portfolio/               # Portfolio (cash, positions, margin), Position (VWAP, MAE/MFE), EquityCurve, accounting
+├── strategy/                # Strategy trait, StrategyContext, StudyBank, StrategyRegistry
+│   └── built_in/            # ORB, VWAP Reversion, Momentum Breakout
+├── output/                  # BacktestResult, PerformanceMetrics, TradeRecord, ExitReason, BacktestProgressEvent
+├── analysis/                # t-test, bootstrap CI, Monte Carlo simulation
+└── optimization/            # WalkForwardOptimizer, ParameterGrid, ObjectiveFunction
+```
+
+## Kairos Struct
+
+```rust
+pub struct Kairos {
+    pub(crate) main_window: window::Window,
+    pub(crate) menu_bar: MenuBar,
+    pub(crate) ui: state::UiState,              // theme, timezone, sidebar, preferences, notifications
+    pub(crate) services: state::DataEngineState, // DataEngine, RithmicClient, ReplayEngine
+    pub(crate) connections: state::ConnectionState, // ConnectionManager
+    pub(crate) persistence: state::PersistenceState, // layouts, registry, data index, tickers_info
+    pub(crate) modals: state::ModalState,        // all overlay/panel state, backtest subsystem
+    pub(crate) secrets: SecretsManager,
+}
 ```
 
 ## Key Patterns
 
-**Elm Architecture (Iced)**: `Kairos` struct implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` → `dashboard::Message` → `pane::Message` → `chart::Message`.
+**Elm Architecture (Iced)**: `Kairos` implements `new()`, `update(Message) -> Task<Message>`, `view()`, `subscription()`. Messages route hierarchically: top-level `Message` -> `dashboard::Message` -> `pane::Message`.
 
-**Hierarchical Message Routing**: Each layer handles its own message domain. `app/src/app/update/` splits handlers by concern (chart, download, feeds, navigation, options, preferences, replay).
+**Hierarchical Message Routing**: `app/src/app/update/` splits handlers by concern (ai, backtest, chart, data_events, download, feeds, menu_bar, preferences, replay, shell).
 
-**Generic Chart Trait**: `Chart` trait in `app/src/chart/core/traits.rs` provides a unified interface. `KlineChart`, `HeatmapChart`, and `ComparisonChart` all implement it. Chart update/view logic is generic over `T: Chart`.
+**Pane Content Polymorphism**: `Content` enum holds `Starter`, `Candlestick`, `Heatmap` (feature-gated), `Ladder` (feature-gated), `Comparison`, `Profile`, or `AiAssistant`. Panes can switch content types without losing layout position.
 
-**Pane Content Polymorphism**: `Content` enum (`app/src/screen/dashboard/pane/content.rs`) holds `Starter`, `Kline`, `Heatmap`, `TimeAndSales`, `Ladder`, or `Comparison`. Panes can switch content types without losing layout position.
+**Chart System**: Chart trait in `app/src/chart/core/definition.rs` provides unified interface. `KlineChart`, `HeatmapChart`, `ComparisonChart`, and `ProfileChart` implement it. `app/src/chart/study_renderer/` converts `StudyOutput` to canvas draw calls.
 
-**Repository Pattern**: Async traits defined in `crates/data/repository/traits.rs`, implemented in `crates/exchange/repository/`. Services depend on traits, not concrete adapters.
+**DataEngine Facade**: `data::engine::DataEngine` is the unified data access layer. Routes requests to adapters (Databento, Rithmic), manages the shared `CacheStore`, maintains a `DataIndex`, and emits `DataEvent`s through an mpsc channel. No separate exchange crate.
 
-**Multi-Window Popouts**: Dashboard tracks `popout: HashMap<window::Id, (PaneGridState, WindowSpec)>`. Panes pop out to separate OS windows with persisted positions.
+**Event Channel System**: `EventChannel<T>` in `app/src/app/core/globals.rs` provides `OnceLock<(UnboundedSender, Mutex<Option<UnboundedReceiver>>)>` pairs. Channels exist for: `DataEvent` (via `DATA_ENGINE_EVENT_SLOT`), `ReplayEvent`, `BacktestProgressEvent`, `AiStreamEventClone`. Subscriptions in `core/subscriptions.rs` drain these via polling.
 
-**Study System**: `crates/study/` crate provides trait-based technical analysis. Studies implement `Study` trait → `compute(StudyInput)` → `StudyOutput`. The `StudyRegistry` factory creates instances by ID. `app/src/chart/study_renderer/` converts `StudyOutput` to canvas draw calls.
+**Stream Subscriptions**: Two-tier model — `PersistStreamKind` (serializable config with ticker only) -> resolved at runtime to `StreamKind` (with full `FuturesTickerInfo`). `UniqueStreams` deduplicates across panes.
 
-**Stream Subscriptions**: Two-tier model — `PersistStreamKind` (serializable config) → resolved at runtime to `StreamKind` (with full `FuturesTickerInfo`). `UniqueStreams` deduplicates across panes.
+**Study System**: `crates/study/` provides trait-based technical analysis. 16 built-in studies implement `Study` trait -> `compute(StudyInput)` -> `StudyOutput`. `StudyRegistry` factory creates instances by ID.
 
-**Global Event Staging**: `OnceLock<Arc<Mutex<>>>` globals in `app/src/app/globals.rs` (`DOWNLOAD_PROGRESS`, `RITHMIC_EVENTS`, `REPLAY_EVENTS`) stage non-Clone events for the Elm architecture.
+**Error Hierarchy**: All error types implement `user_message()`, `is_retriable()`, `severity()` via `AppError` trait. `data::Error` has 9 variants (Fetch, Config, Cache, Symbol, Connection, Validation, NoData, Aggregation, Io). Use `thiserror` for derivation.
 
-**Error Hierarchy**: All error types implement `user_message()`, `is_retriable()`, `severity()` via `AppError` trait (data layer) and `UserFacingError` trait (exchange layer). Use `thiserror` for derivation.
+**Fixed-Point Arithmetic**: `Price` type = i64 with 10^-8 precision. Never use floating point for price values. `Depth.bids`/`asks` uses `BTreeMap<i64, f32>` where keys are raw price units.
 
-**Fixed-Point Arithmetic**: `Price` type = i64 with 10^-8 precision. Never use floating point for price values.
+**Per-Day Caching**: Historical data cached by date in `{cache_root}/{provider}/{symbol}/{schema}/{date}.bin.zst`. Bincode + zstd (level 3). Atomic writes via `.tmp` + rename.
 
-**Per-Day Caching**: Historical data cached by date in `cache/databento/` (.dbn.zst) and `cache/massive/` (.zst). Repositories check cache first, fetch only missing date ranges.
+**Multi-Window Popouts**: Dashboard tracks popout panes in separate OS windows with persisted positions.
 
-**Service Threading**: Services wrapped in `Arc<Mutex<>>` or `Arc<tokio::sync::Mutex<>>` for async sharing. Created in `app/src/app/services.rs`.
+**AI Assistant**: Full conversational AI pane with streaming responses, tool use (market data, studies, drawings, trades, analysis), and chart context snapshots.
 
 ## Code Style
 
@@ -192,7 +235,12 @@ crates/study/           # Study layer — kairos-study (technical analysis libra
 - Use `thiserror` for error types with `user_message()`, `is_retriable()`, `severity()` methods
 - Non-blocking I/O via `Task::perform` — never block the UI thread
 
+## Feature Flags
+
+- `heatmap` — Enables depth-based heatmap chart, ladder panel, and `Depth` variants in `DataEvent`/`StreamKind`
+- `options` — Enables options-related UI (currently placeholder)
+- `debug` — Enables Iced hot-reloading
+
 ## Supported Instruments
 
 - **Futures**: ES, NQ, YM, RTY, ZN, ZB, ZF, GC, SI, NG, HG, CL (CME Globex via Databento + Rithmic)
-- **Options**: US-listed equity options (via Polygon Massive API)

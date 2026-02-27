@@ -4,6 +4,7 @@
 use super::{BacktestManager, ManagerMessage, TradeListSortColumn};
 use crate::app::backtest_history::BacktestHistory;
 use crate::components::primitives::icons::AZERET_MONO;
+use crate::config::UserTimezone;
 use crate::style::{self, palette, tokens};
 use iced::widget::{button, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};
@@ -14,13 +15,15 @@ use tokens::backtest::{SELECTED_FILL, TABLE_HEADER_BG, TABLE_ROW_ALT};
 pub fn view<'a>(
     manager: &'a BacktestManager,
     history: &'a BacktestHistory,
+    timezone: UserTimezone,
 ) -> Element<'a, ManagerMessage> {
-    view_trades(manager, history)
+    view_trades(manager, history, timezone)
 }
 
 pub fn view_trades<'a>(
     manager: &'a BacktestManager,
     history: &'a BacktestHistory,
+    timezone: UserTimezone,
 ) -> Element<'a, ManagerMessage> {
     let entry = manager.selected_id.and_then(|id| history.get(id));
 
@@ -63,8 +66,14 @@ pub fn view_trades<'a>(
         .first()
         .and_then(|first| {
             trades.last().map(|last| {
-                let first_day = first.entry_time.0 / 86_400_000;
-                let last_day = last.exit_time.0 / 86_400_000;
+                let first_day = timezone
+                    .date_components(
+                        (first.entry_time.0 / 1000) as i64,
+                    );
+                let last_day = timezone
+                    .date_components(
+                        (last.exit_time.0 / 1000) as i64,
+                    );
                 first_day != last_day
             })
         })
@@ -93,8 +102,16 @@ pub fn view_trades<'a>(
             Color::TRANSPARENT
         };
 
-        let entry_str = format_timestamp(trade.entry_time.0, is_multi_day);
-        let exit_str = format_timestamp(trade.exit_time.0, is_multi_day);
+        let entry_str = format_timestamp(
+            trade.entry_time.0,
+            is_multi_day,
+            timezone,
+        );
+        let exit_str = format_timestamp(
+            trade.exit_time.0,
+            is_multi_day,
+            timezone,
+        );
         let side_str = if trade.side.is_buy() { "Long" } else { "Short" };
         let entry_price = format!("{:.2}", trade.entry_price.to_f64());
         let exit_price = format!("{:.2}", trade.exit_price.to_f64());
@@ -398,26 +415,36 @@ fn mono_cell_fixed(value: impl Into<String>, width: f32) -> Element<'static, Man
 
 // ── Timestamp formatting ────────────────────────────────────────────
 
-fn format_timestamp(ms: u64, multi_day: bool) -> String {
-    let secs = ms / 1000;
-    let h = (secs / 3600) % 24;
-    let m = (secs / 60) % 60;
-    let s = secs % 60;
-    if multi_day {
-        let day = secs / 86400;
-        let date = chrono::NaiveDate::from_num_days_from_ce_opt(719163 + day as i32);
-        if let Some(d) = date {
-            return format!(
-                "{}/{} {:02}:{:02}:{:02}",
-                d.format("%m"),
-                d.format("%d"),
-                h,
-                m,
-                s,
-            );
+fn format_timestamp(
+    ms: u64,
+    multi_day: bool,
+    tz: UserTimezone,
+) -> String {
+    let Some(dt_utc) =
+        chrono::DateTime::from_timestamp_millis(ms as i64)
+    else {
+        return "?".to_string();
+    };
+    match tz {
+        UserTimezone::Local => {
+            let dt =
+                dt_utc.with_timezone(&chrono::Local);
+            if multi_day {
+                dt.format("%m/%d %H:%M:%S").to_string()
+            } else {
+                dt.format("%H:%M:%S").to_string()
+            }
+        }
+        UserTimezone::Utc => {
+            if multi_day {
+                dt_utc
+                    .format("%m/%d %H:%M:%S")
+                    .to_string()
+            } else {
+                dt_utc.format("%H:%M:%S").to_string()
+            }
         }
     }
-    format!("{:02}:{:02}:{:02}", h, m, s)
 }
 
 // ── Statistics helpers ──────────────────────────────────────────────

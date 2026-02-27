@@ -1,20 +1,24 @@
-//! History Plant Connection Pool
+//! History Plant connection pool.
 //!
-//! A pool of independently-connected history plant instances enabling
-//! parallel day fetches. Each plant has its own WebSocket, replay
-//! buffer, and login session.
+//! [`HistoryPlantPool`] manages a set of independently-connected history
+//! plant instances enabling parallel day fetches. Each plant has its own
+//! WebSocket, replay buffer, and authenticated login session.
 
 use super::RithmicError;
 use super::plants::{RithmicHistoryPlant, RithmicHistoryPlantHandle};
 use super::protocol::RithmicResponse;
-use super::protocol::ws::ConnectStrategy;
 use super::protocol::config::RithmicConnectionConfig;
+use super::protocol::ws::ConnectStrategy;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Semaphore;
 
 /// Default number of history plant connections in the pool.
-const DEFAULT_POOL_SIZE: usize = 3;
+///
+/// Kept at 1 to minimize concurrent Rithmic sessions. Combined with the
+/// ticker plant this gives 2 total WebSocket sessions, staying well within
+/// Rithmic's per-user session limit and avoiding force-logout races.
+const DEFAULT_POOL_SIZE: usize = 1;
 
 /// A pool of Rithmic history plant connections for parallel
 /// historical data fetching.
@@ -34,11 +38,14 @@ pub struct HistoryPlantPool {
     next: AtomicUsize,
 }
 
-/// A borrowed handle from the pool. The semaphore permit is held
-/// for the lifetime of this struct — drop it to release back to
-/// the pool.
+/// A borrowed handle from the pool.
+///
+/// The semaphore permit is held for the lifetime of this struct --
+/// drop it to release the slot back to the pool.
 pub struct PoolHandle {
+    /// The underlying history plant handle for this slot
     handle: RithmicHistoryPlantHandle,
+    /// Held to limit concurrency; released on drop
     _permit: tokio::sync::OwnedSemaphorePermit,
 }
 
@@ -54,14 +61,8 @@ impl PoolHandle {
         start_secs: i32,
         end_secs: i32,
     ) -> Result<Vec<RithmicResponse>, RithmicError> {
-        super::client::load_ticks_paginated(
-            &self.handle,
-            symbol,
-            exchange,
-            start_secs,
-            end_secs,
-        )
-        .await
+        super::client::load_ticks_paginated(&self.handle, symbol, exchange, start_secs, end_secs)
+            .await
     }
 }
 
@@ -88,11 +89,7 @@ impl HistoryPlantPool {
                     handles.push(handle);
                 }
                 Err(e) => {
-                    log::warn!(
-                        "History pool: plant {} failed to connect: {}",
-                        i,
-                        e,
-                    );
+                    log::warn!("History pool: plant {} failed to connect: {}", i, e,);
                     last_error = Some(e);
                 }
             }
@@ -100,18 +97,12 @@ impl HistoryPlantPool {
 
         if handles.is_empty() {
             return Err(last_error.unwrap_or_else(|| {
-                RithmicError::Connection(
-                    "No history plants connected".to_string(),
-                )
+                RithmicError::Connection("No history plants connected".to_string())
             }));
         }
 
         let connected = handles.len();
-        log::info!(
-            "History pool: {}/{} plants connected",
-            connected,
-            target,
-        );
+        log::info!("History pool: {}/{} plants connected", connected, target,);
 
         let semaphore = Arc::new(Semaphore::new(connected));
 
@@ -132,20 +123,30 @@ impl HistoryPlantPool {
         let plant = RithmicHistoryPlant::connect(config, strategy)
             .await
             .map_err(|e| {
-                RithmicError::Connection(format!(
-                    "History plant {} connect failed: {}",
-                    index, e,
-                ))
+                RithmicError::Connection(format!("History plant {} connect failed: {}", index, e,))
             })?;
 
         let handle = plant.get_handle();
 
         handle.login().await.map_err(|e| {
-            RithmicError::Auth(format!(
-                "History plant {} login failed: {}",
-                index, e,
-            ))
+            RithmicError::Auth(format!("History plant {} login failed: {}", index, e,))
         })?;
+
+        // Wait for any ForcedLogout + WebSocket Close frame to arrive and
+        // kill the plant task. Observed close frames arrive ~500-600ms after
+        // login; 1s provides comfortable margin.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Check if the plant task has exited (synchronous, non-racy).
+        // When a ForcedLogout causes a Close frame, the plant's run loop
+        // breaks and the JoinHandle completes.
+        if plant.connection_handle.is_finished() {
+            return Err(RithmicError::Connection(format!(
+                "History plant {} died after login \
+                 (likely force-logged out by server)",
+                index,
+            )));
+        }
 
         log::info!("History pool: plant {} connected and authenticated", index);
         Ok((plant, handle))
@@ -156,20 +157,13 @@ impl HistoryPlantPool {
     /// Awaits until a permit is available (i.e., a plant is free),
     /// then returns a `PoolHandle` that auto-releases on drop.
     pub async fn acquire(&self) -> Result<PoolHandle, RithmicError> {
-        let permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| {
-                RithmicError::Connection(
-                    "History pool semaphore closed".to_string(),
-                )
+        let permit =
+            self.semaphore.clone().acquire_owned().await.map_err(|_| {
+                RithmicError::Connection("History pool semaphore closed".to_string())
             })?;
 
         // Round-robin handle selection
-        let idx =
-            self.next.fetch_add(1, Ordering::Relaxed) % self.handles.len();
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.handles.len();
         let handle = self.handles[idx].clone();
 
         Ok(PoolHandle {
@@ -178,7 +172,8 @@ impl HistoryPlantPool {
         })
     }
 
-    /// Number of connected plants in the pool.
+    /// Returns the number of connected plants in the pool
+    #[must_use]
     pub fn size(&self) -> usize {
         self.handles.len()
     }

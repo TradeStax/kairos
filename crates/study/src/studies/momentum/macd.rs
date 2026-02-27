@@ -1,6 +1,22 @@
+//! Moving Average Convergence Divergence (MACD).
+//!
+//! MACD tracks the relationship between two exponential moving averages
+//! of closing prices. It consists of three components:
+//!
+//! - **MACD line** — difference between the fast and slow EMAs.
+//! - **Signal line** — EMA of the MACD line itself.
+//! - **Histogram** — MACD minus Signal, visualising momentum shifts.
+//!
+//! Traders use MACD crossovers (MACD crossing the signal line), histogram
+//! direction changes, and divergences from price to gauge trend momentum
+//! and potential reversals.
+//!
+//! Output: `StudyOutput::Composite` containing two line series (MACD and
+//! Signal) and a histogram.
+
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
-    StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -10,6 +26,11 @@ use crate::util::candle_key;
 use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
+/// Build the default parameter definitions for the MACD study.
+///
+/// Defines three period parameters (fast, slow, signal), two line
+/// colors (MACD line, signal line), and two histogram colors
+/// (positive/negative divergence).
 fn make_params() -> Vec<ParameterDef> {
     vec![
         ParameterDef {
@@ -109,6 +130,12 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// MACD oscillator with signal line and histogram.
+///
+/// The MACD line is the difference between a fast and slow EMA of
+/// closing prices. The signal line is an EMA of the MACD line, and the
+/// histogram visualises MACD minus signal. Renders in a separate panel
+/// with two overlaid lines and a colored divergence histogram.
 pub struct MacdStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -116,6 +143,8 @@ pub struct MacdStudy {
 }
 
 impl MacdStudy {
+    /// Create a new MACD study with the classic default periods:
+    /// fast EMA 12, slow EMA 26, signal EMA 9.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("macd");

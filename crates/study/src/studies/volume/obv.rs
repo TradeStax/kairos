@@ -7,8 +7,8 @@
 //! Output: `StudyOutput::Lines` — a single cumulative line.
 
 use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
-    Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -23,6 +23,15 @@ const DEFAULT_COLOR: SerializableColor = SerializableColor {
     a: 1.0,
 };
 
+/// On-Balance Volume line study.
+///
+/// Each candle contributes its total volume with a sign determined by
+/// the close-over-close direction: `OBV(t) = OBV(t-1) + sign * Vol(t)`.
+/// Rising OBV confirms buying conviction behind an uptrend; falling OBV
+/// confirms selling conviction behind a downtrend. Divergences between
+/// OBV and price often precede trend reversals.
+///
+/// Renders as a single cumulative line in a separate panel.
 pub struct ObvStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -30,6 +39,7 @@ pub struct ObvStudy {
 }
 
 impl ObvStudy {
+    /// Create a new OBV study with a white line at 1.5px width.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
@@ -148,7 +158,7 @@ impl Study for ObvStudy {
             label: "OBV".to_string(),
             color,
             width,
-            style: crate::config::LineStyleValue::Solid,
+            style: LineStyleValue::Solid,
             points,
         }]);
         Ok(())

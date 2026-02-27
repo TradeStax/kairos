@@ -115,11 +115,24 @@ impl State {
             .map(|c| c.buy_volume.0 as i64 - c.sell_volume.0 as i64)
             .sum();
 
-        // Format timestamps
+        // Format timestamps in user timezone
+        let tz = self.timezone;
         let fmt_ts = |ms: u64| -> String {
-            chrono::DateTime::from_timestamp_millis(ms as i64)
-                .map(|dt| dt.format("%m/%d %H:%M").to_string())
-                .unwrap_or_else(|| "?".into())
+            let millis = ms as i64;
+            let Some(dt) =
+                chrono::DateTime::from_timestamp_millis(millis)
+            else {
+                return "?".into();
+            };
+            match tz {
+                crate::config::UserTimezone::Local => dt
+                    .with_timezone(&chrono::Local)
+                    .format("%m/%d %H:%M")
+                    .to_string(),
+                crate::config::UserTimezone::Utc => {
+                    dt.format("%m/%d %H:%M").to_string()
+                }
+            }
         };
 
         // Pre-format OHLCV lines (cap at 50)
@@ -128,9 +141,19 @@ impl State {
             .iter()
             .take(max_lines)
             .map(|c| {
-                let ts = chrono::DateTime::from_timestamp_millis(c.time.0 as i64)
-                    .map(|dt| dt.format("%H:%M").to_string())
-                    .unwrap_or_else(|| "?".into());
+                let ts = chrono::DateTime::from_timestamp_millis(
+                    c.time.0 as i64,
+                )
+                .map(|dt| match tz {
+                    crate::config::UserTimezone::Local => dt
+                        .with_timezone(&chrono::Local)
+                        .format("%H:%M")
+                        .to_string(),
+                    crate::config::UserTimezone::Utc => {
+                        dt.format("%H:%M").to_string()
+                    }
+                })
+                .unwrap_or_else(|| "?".into());
                 let delta = c.buy_volume.0 as i64 - c.sell_volume.0 as i64;
                 let sign = if delta >= 0 { "+" } else { "" };
                 format!(

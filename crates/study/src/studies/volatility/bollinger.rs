@@ -1,10 +1,41 @@
 //! Bollinger Bands.
 //!
-//! A volatility envelope around a Simple Moving Average (SMA). The upper and
-//! lower bands are placed at `multiplier * stddev` above and below the SMA.
-//! Default: 20-period SMA ± 2 standard deviations.
+//! A volatility envelope around a Simple Moving Average (SMA). The upper
+//! and lower bands are placed at `multiplier * stddev` above and below
+//! the SMA, where the standard deviation is computed over the same
+//! rolling window as the SMA (population stddev, dividing by *N*).
 //!
-//! Output: `StudyOutput::Band` with upper, middle (SMA), and lower lines.
+//! # Formula
+//!
+//! ```text
+//! Middle = SMA(close, period)
+//! Upper  = Middle + multiplier * stddev(close, period)
+//! Lower  = Middle - multiplier * stddev(close, period)
+//! ```
+//!
+//! Default: 20-period SMA with bands at +/- 2 standard deviations.
+//!
+//! # Trading use
+//!
+//! - **Squeeze / breakout**: when the bands contract to their narrowest
+//!   width, a large directional move often follows. Traders watch for
+//!   the "squeeze" and enter on the subsequent expansion.
+//! - **Overbought / oversold**: a close above the upper band or below
+//!   the lower band can signal an extended move. In mean-reverting
+//!   markets this suggests a potential pullback; in trending markets it
+//!   confirms momentum.
+//! - **Band walk**: in strong trends, price rides along the upper or
+//!   lower band for sustained periods. Falling back inside the bands
+//!   signals weakening momentum.
+//! - **Bandwidth indicator**: the distance between bands (bandwidth)
+//!   is itself a volatility measure that can be charted separately.
+//!
+//! # Output
+//!
+//! Produces [`StudyOutput::Band`] with upper, middle (SMA), and lower
+//! [`LineSeries`] plus a configurable fill opacity between the bands.
+//! Mean and standard deviation are computed via the shared helpers in
+//! [`crate::util::math`].
 
 use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
@@ -14,6 +45,7 @@ use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::{candle_key, source_value};
+use crate::util::math;
 use data::SerializableColor;
 
 fn make_params() -> Vec<ParameterDef> {
@@ -116,6 +148,15 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// Bollinger Bands study.
+///
+/// Renders three overlay lines (upper, middle SMA, lower) with a
+/// semi-transparent fill between the bands. The fill opacity is
+/// configurable. Each band line has independent color control.
+///
+/// Configurable parameters: look-back period, standard-deviation
+/// multiplier, upper/middle/lower colors, and fill opacity. The study
+/// produces [`StudyOutput::Band`].
 pub struct BollingerStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -123,6 +164,10 @@ pub struct BollingerStudy {
 }
 
 impl BollingerStudy {
+    /// Create a new Bollinger Bands study with default parameters.
+    ///
+    /// Defaults: period = 20, std_dev multiplier = 2.0, blue band
+    /// colors, fill opacity = 0.1.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("bollinger");
@@ -232,19 +277,15 @@ impl Study for BollingerStudy {
             let start = i + 1 - period;
             let window = &values[start..=i];
 
-            let mean = window.iter().sum::<f64>() / period as f64;
+            let avg = math::mean(window);
+            let stddev = math::standard_deviation(window);
 
-            let variance = window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / period as f64;
-            let stddev = variance.sqrt();
-
-            let key = candle_key(&candles[i], i, candles.len(), &input.basis);
-            let upper = (mean + std_mult * stddev) as f32;
-            let lower = (mean - std_mult * stddev) as f32;
-            let mid = mean as f32;
-
-            upper_points.push((key, upper));
-            middle_points.push((key, mid));
-            lower_points.push((key, lower));
+            let key = candle_key(
+                &candles[i], i, candles.len(), &input.basis,
+            );
+            upper_points.push((key, (avg + std_mult * stddev) as f32));
+            middle_points.push((key, avg as f32));
+            lower_points.push((key, (avg - std_mult * stddev) as f32));
         }
 
         self.output = StudyOutput::Band {

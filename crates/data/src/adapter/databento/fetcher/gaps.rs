@@ -1,13 +1,23 @@
-//! Date range gap detection for cache-aware fetching
+//! Date range gap detection for cache-aware fetching.
+//!
+//! Given a requested date range and a set of already-cached dates, identifies
+//! contiguous gaps that need to be fetched from the API.
 
 use std::collections::HashSet;
 
+/// A contiguous range of dates not present in the cache
 #[derive(Debug, Clone)]
 pub(crate) struct DateGap {
+    /// First uncached date (inclusive)
     pub start: chrono::NaiveDate,
+    /// Last uncached date (inclusive)
     pub end: chrono::NaiveDate,
 }
 
+/// Finds contiguous date gaps within `requested_range` that are not in `cached_days`.
+///
+/// Returns a list of [`DateGap`] values representing ranges that need fetching,
+/// ordered chronologically. Adjacent uncached days are merged into a single gap.
 pub(crate) fn find_uncached_gaps(
     requested_range: (chrono::NaiveDate, chrono::NaiveDate),
     cached_days: &HashSet<chrono::NaiveDate>,

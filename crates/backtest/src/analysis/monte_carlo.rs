@@ -1,36 +1,72 @@
+//! Monte Carlo simulation for trade-sequence robustness analysis.
+//!
+//! Shuffles the order of completed trades to estimate the distribution
+//! of possible equity outcomes and drawdowns, quantifying the role of
+//! luck versus edge in a strategy's historical performance.
+
 use crate::output::trade_record::TradeRecord;
 
-/// Results of a Monte Carlo simulation.
+/// Aggregate results from a Monte Carlo simulation run.
+///
+/// Contains the full distribution of final equities and maximum
+/// drawdowns across all iterations, along with summary percentiles
+/// and the estimated probability of ending at a loss.
 #[derive(Debug, Clone)]
 pub struct MonteCarloResult {
-    /// Final equity for each simulation run.
+    /// Final equity value for each simulation iteration.
     pub final_equities: Vec<f64>,
-    /// Max drawdown for each simulation run.
+    /// Maximum drawdown percentage for each simulation iteration.
     pub max_drawdowns: Vec<f64>,
-    /// Percentile values for final equity.
+    /// Key percentile values of the final equity distribution.
     pub equity_percentiles: Percentiles,
-    /// Percentile values for max drawdown.
+    /// Key percentile values of the max drawdown distribution.
     pub drawdown_percentiles: Percentiles,
-    /// Probability of ending with a loss.
+    /// Fraction of iterations that ended below the initial capital
+    /// (range 0.0 to 1.0).
     pub probability_of_loss: f64,
 }
 
-#[derive(Debug, Clone)]
+/// Standard percentile breakpoints for a distribution.
+///
+/// Stores the 5th, 25th, 50th (median), 75th, and 95th percentile
+/// values, providing a concise summary of a distribution's shape
+/// and spread.
+#[derive(Debug, Clone, Copy)]
 pub struct Percentiles {
+    /// 5th percentile (lower tail).
     pub p5: f64,
+    /// 25th percentile (first quartile).
     pub p25: f64,
+    /// 50th percentile (median).
     pub p50: f64,
+    /// 75th percentile (third quartile).
     pub p75: f64,
+    /// 95th percentile (upper tail).
     pub p95: f64,
 }
 
-/// Monte Carlo simulator that resamples trades with replacement.
+/// Monte Carlo simulator that resamples completed trades with
+/// replacement to produce a distribution of possible equity paths.
+///
+/// Each iteration draws `N` trades (where `N` is the original trade
+/// count) uniformly at random with replacement, replays them
+/// sequentially against the initial capital, and records the final
+/// equity and peak-to-trough drawdown.
+///
+/// Uses a deterministic linear congruential generator (LCG) so
+/// results are reproducible for a given seed.
 pub struct MonteCarloSimulator {
+    /// Number of simulation iterations to run.
     iterations: usize,
+    /// Seed for the deterministic pseudo-random number generator.
     seed: u64,
 }
 
 impl MonteCarloSimulator {
+    /// Creates a new simulator with the given number of iterations.
+    ///
+    /// Uses a default seed of 42 for reproducibility.
+    #[must_use]
     pub fn new(iterations: usize) -> Self {
         Self {
             iterations,
@@ -38,12 +74,24 @@ impl MonteCarloSimulator {
         }
     }
 
+    /// Sets a custom PRNG seed for the simulation.
+    #[must_use]
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
     }
 
-    /// Run Monte Carlo simulation on completed trades.
+    /// Runs the Monte Carlo simulation on a set of completed trades.
+    ///
+    /// For each iteration, draws `trades.len()` trades uniformly at
+    /// random with replacement, replays them against
+    /// `initial_capital`, and records the final equity and maximum
+    /// percentage drawdown.
+    ///
+    /// Returns a [`MonteCarloResult`] containing the full
+    /// distributions and summary statistics. If `trades` is empty,
+    /// returns a degenerate result with no variation.
+    #[must_use]
     pub fn simulate(&self, trades: &[TradeRecord], initial_capital: f64) -> MonteCarloResult {
         if trades.is_empty() {
             return MonteCarloResult {
@@ -117,6 +165,12 @@ impl MonteCarloSimulator {
     }
 }
 
+/// Computes the standard percentile breakpoints from a mutable slice.
+///
+/// Sorts `data` in ascending order and extracts the 5th, 25th, 50th,
+/// 75th, and 95th percentile values using nearest-rank interpolation.
+///
+/// Returns all-zero percentiles if `data` is empty.
 fn compute_percentiles(data: &mut [f64]) -> Percentiles {
     data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = data.len();
@@ -129,12 +183,11 @@ fn compute_percentiles(data: &mut [f64]) -> Percentiles {
             p95: 0.0,
         };
     }
-    let idx_95 = ((0.95 * n as f64) as usize).min(n - 1);
     Percentiles {
         p5: data[(0.05 * n as f64) as usize],
         p25: data[(0.25 * n as f64) as usize],
         p50: data[(0.50 * n as f64) as usize],
         p75: data[(0.75 * n as f64) as usize],
-        p95: data[idx_95],
+        p95: data[((0.95 * n as f64) as usize).min(n - 1)],
     }
 }

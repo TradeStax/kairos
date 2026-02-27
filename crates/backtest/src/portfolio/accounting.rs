@@ -1,8 +1,24 @@
+//! Pure accounting functions for PnL and commission calculations.
+//!
+//! All functions in this module are stateless and operate on
+//! fixed-point [`Price`] values to avoid floating-point rounding
+//! in tick arithmetic.
+
 use crate::config::instrument::InstrumentSpec;
 use crate::order::types::OrderSide;
 use kairos_data::Price;
 
 /// Compute PnL in ticks for a completed trade.
+///
+/// # Formula
+///
+/// - **Long**: `(exit_price - entry_price) / tick_size`
+/// - **Short**: `(entry_price - exit_price) / tick_size`
+///
+/// The result is signed: positive means profit, negative means loss.
+/// Division is performed in fixed-point price units to avoid
+/// floating-point drift.
+#[must_use]
 pub fn pnl_ticks(side: OrderSide, entry_price: Price, exit_price: Price, tick_size: Price) -> i64 {
     let tick_units = tick_size.units().max(1);
     let diff = match side {
@@ -13,6 +29,13 @@ pub fn pnl_ticks(side: OrderSide, entry_price: Price, exit_price: Price, tick_si
 }
 
 /// Compute gross PnL in USD for a completed trade.
+///
+/// # Formula
+///
+/// `pnl_ticks(side, entry, exit, tick_size) * tick_value * quantity`
+///
+/// This is the raw dollar profit/loss **before** commissions.
+#[must_use]
 pub fn pnl_gross_usd(
     side: OrderSide,
     entry_price: Price,
@@ -24,7 +47,15 @@ pub fn pnl_gross_usd(
     ticks as f64 * instrument.tick_value * quantity
 }
 
-/// Compute total commission for a round trip (entry + exit).
+/// Compute total commission for a round-trip trade (entry + exit).
+///
+/// # Formula
+///
+/// `commission_per_side * 2 * quantity`
+///
+/// Each side (entry and exit) is charged independently, so the total
+/// is always double the per-side rate times the number of contracts.
+#[must_use]
 pub fn round_trip_commission(quantity: f64, commission_per_side: f64) -> f64 {
     commission_per_side * 2.0 * quantity
 }

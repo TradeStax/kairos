@@ -1,37 +1,59 @@
-//! Replay State and Data types
+//! Replay state, speed presets, and time-indexed replay data containers.
+
+use std::collections::BTreeMap;
+use std::ops::Bound;
+
+use serde::{Deserialize, Serialize};
 
 use crate::domain::core::types::{TimeRange, Timestamp};
 use crate::domain::instrument::futures::{FuturesTicker, FuturesTickerInfo};
 use crate::domain::market::entities::{Candle, Depth, Trade};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
-/// Playback status for the replay engine
+// ── PlaybackStatus ──────────────────────────────────────────────────────
+
+/// Playback status for the replay engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PlaybackStatus {
+    /// Replay is stopped (at start or after completion)
     #[default]
     Stopped,
+    /// Replay is actively advancing
     Playing,
+    /// Replay is paused at the current position
     Paused,
 }
 
-/// Speed preset for replay
+// ── SpeedPreset ─────────────────────────────────────────────────────────
+
+/// Replay speed multiplier preset.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum SpeedPreset {
+    /// 0.25x real-time
     Quarter,
+    /// 0.5x real-time
     Half,
+    /// 1x real-time
     #[default]
     Normal,
+    /// 2x real-time
     Double,
+    /// 5x real-time
     Five,
+    /// 10x real-time
     Ten,
+    /// 25x real-time
     TwentyFive,
+    /// 50x real-time
     Fifty,
+    /// 100x real-time
     Hundred,
+    /// User-defined multiplier
     Custom(f32),
 }
 
 impl SpeedPreset {
+    /// Return the speed multiplier as `f32`
+    #[must_use]
     pub fn to_multiplier(&self) -> f32 {
         match self {
             SpeedPreset::Quarter => 0.25,
@@ -47,6 +69,8 @@ impl SpeedPreset {
         }
     }
 
+    /// Create from a speed multiplier, snapping to a named preset if close
+    #[must_use]
     pub fn from_multiplier(speed: f32) -> Self {
         match speed {
             s if (s - 0.25).abs() < 0.01 => SpeedPreset::Quarter,
@@ -62,6 +86,8 @@ impl SpeedPreset {
         }
     }
 
+    /// Return a display label (e.g. `"2x"`, `"0.25x"`)
+    #[must_use]
     pub fn label(&self) -> String {
         match self {
             SpeedPreset::Quarter => "0.25x".to_string(),
@@ -77,6 +103,8 @@ impl SpeedPreset {
         }
     }
 
+    /// Return all named (non-custom) presets
+    #[must_use]
     pub fn all_presets() -> Vec<SpeedPreset> {
         vec![
             SpeedPreset::Quarter,
@@ -98,20 +126,32 @@ impl std::fmt::Display for SpeedPreset {
     }
 }
 
-/// Replay state for managing playback
+// ── ReplayState ─────────────────────────────────────────────────────────
+
+/// Mutable state for managing replay playback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayState {
+    /// Current playback status
     pub status: PlaybackStatus,
+    /// Playback speed
     pub speed: SpeedPreset,
+    /// Current cursor position in milliseconds since epoch
     pub position: u64,
+    /// Full time range of the loaded data
     pub time_range: TimeRange,
+    /// Instrument info for the loaded ticker
     pub ticker_info: Option<FuturesTickerInfo>,
+    /// Whether replay data has been loaded
     pub is_loaded: bool,
+    /// Number of trades in the loaded data
     pub trade_count: usize,
+    /// Number of depth snapshots in the loaded data
     pub depth_count: usize,
 }
 
 impl ReplayState {
+    /// Create a new, empty replay state positioned at the current time
+    #[must_use]
     pub fn new() -> Self {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         Self {
@@ -127,6 +167,8 @@ impl ReplayState {
         }
     }
 
+    /// Create a replay state pre-loaded with data
+    #[must_use]
     pub fn with_data(
         time_range: TimeRange,
         ticker_info: FuturesTickerInfo,
@@ -145,11 +187,13 @@ impl ReplayState {
         }
     }
 
+    /// Reset playback to the beginning without clearing loaded data
     pub fn reset(&mut self) {
         self.status = PlaybackStatus::Stopped;
         self.position = self.time_range.start.to_millis();
     }
 
+    /// Clear all state, returning to the initial empty state
     pub fn clear(&mut self) {
         let now = chrono::Utc::now().timestamp_millis() as u64;
         self.status = PlaybackStatus::Stopped;
@@ -162,6 +206,8 @@ impl ReplayState {
         self.depth_count = 0;
     }
 
+    /// Return playback progress as a fraction in `[0.0, 1.0]`
+    #[must_use]
     pub fn progress(&self) -> f32 {
         let start = self.time_range.start.to_millis();
         let end = self.time_range.end.to_millis();
@@ -173,20 +219,28 @@ impl ReplayState {
         (elapsed / total).clamp(0.0, 1.0)
     }
 
+    /// Return `true` if the cursor is at or past the end
+    #[must_use]
     pub fn is_at_end(&self) -> bool {
         self.position >= self.time_range.end.to_millis()
     }
 
+    /// Return `true` if the cursor is at or before the start
+    #[must_use]
     pub fn is_at_start(&self) -> bool {
         self.position <= self.time_range.start.to_millis()
     }
 
+    /// Format the current position as `"YYYY-MM-DD HH:MM:SS"`
+    #[must_use]
     pub fn format_position(&self) -> String {
         let dt = chrono::DateTime::from_timestamp_millis(self.position as i64)
             .unwrap_or_else(chrono::Utc::now);
         dt.format("%Y-%m-%d %H:%M:%S").to_string()
     }
 
+    /// Format elapsed time as `"HH:MM:SS"`
+    #[must_use]
     pub fn format_elapsed(&self) -> String {
         let elapsed_ms = self
             .position
@@ -198,6 +252,8 @@ impl ReplayState {
         format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
     }
 
+    /// Format total duration as `"HH:MM:SS"`
+    #[must_use]
     pub fn format_duration(&self) -> String {
         let total_ms = self.time_range.end.to_millis() - self.time_range.start.to_millis();
         let total_secs = total_ms / 1000;
@@ -207,6 +263,8 @@ impl ReplayState {
         format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
     }
 
+    /// Return a human-readable summary of the loaded data
+    #[must_use]
     pub fn data_summary(&self) -> String {
         if !self.is_loaded {
             return "No data loaded".to_string();
@@ -229,17 +287,29 @@ impl Default for ReplayState {
     }
 }
 
-/// Replay data container for efficient time-based access
+// ── ReplayData ──────────────────────────────────────────────────────────
+
+/// Time-indexed replay data for efficient playback traversal.
+///
+/// Trades are grouped by millisecond timestamp in a `BTreeMap` for
+/// fast range queries during playback.
 #[derive(Debug, Clone)]
 pub struct ReplayData {
+    /// Trades grouped by millisecond timestamp
     pub trades: BTreeMap<u64, Vec<Trade>>,
+    /// Depth snapshots indexed by millisecond timestamp
     pub depth_snapshots: BTreeMap<u64, Depth>,
+    /// Pre-computed candles keyed by timeframe label
     pub candles_cache: BTreeMap<String, Vec<Candle>>,
+    /// Instrument info for the loaded ticker
     pub ticker_info: FuturesTickerInfo,
+    /// Time range spanned by the data
     pub time_range: TimeRange,
 }
 
 impl ReplayData {
+    /// Build from raw trade and depth vectors, indexing by timestamp
+    #[must_use]
     pub fn new(
         trades: Vec<Trade>,
         depth_snapshots: Vec<Depth>,
@@ -277,6 +347,8 @@ impl ReplayData {
         }
     }
 
+    /// Return all trades in the inclusive time window `[start, end]`
+    #[must_use]
     pub fn trades_in_window(&self, start: u64, end: u64) -> Vec<Trade> {
         self.trades
             .range(start..=end)
@@ -284,14 +356,17 @@ impl ReplayData {
             .collect()
     }
 
+    /// Return trades in the half-open window `(after, up_to]`
+    #[must_use]
     pub fn trades_after(&self, after: u64, up_to: u64) -> Vec<Trade> {
-        use std::ops::Bound;
         self.trades
             .range((Bound::Excluded(after), Bound::Included(up_to)))
             .flat_map(|(_, trades)| trades.iter().cloned())
             .collect()
     }
 
+    /// Return the most recent depth snapshot at or before `timestamp`
+    #[must_use]
     pub fn depth_at(&self, timestamp: u64) -> Option<&Depth> {
         self.depth_snapshots
             .range(..=timestamp)
@@ -299,6 +374,8 @@ impl ReplayData {
             .map(|(_, snapshot)| snapshot)
     }
 
+    /// Return the next `limit` trades after the given timestamp
+    #[must_use]
     pub fn next_trades(&self, after: u64, limit: usize) -> Vec<Trade> {
         self.trades
             .range((after + 1)..)
@@ -307,6 +384,8 @@ impl ReplayData {
             .collect()
     }
 
+    /// Compute summary statistics for this replay data
+    #[must_use]
     pub fn stats(&self) -> ReplayDataStats {
         let total_trades: usize = self.trades.values().map(|v| v.len()).sum();
         let total_depth = self.depth_snapshots.len();
@@ -319,6 +398,8 @@ impl ReplayData {
         }
     }
 
+    /// Estimate total memory usage in bytes
+    #[must_use]
     pub fn memory_usage(&self) -> usize {
         let trades_size = self
             .trades
@@ -334,29 +415,41 @@ impl ReplayData {
         trades_size + depth_size + candles_size
     }
 
+    /// Clear the cached candles for all timeframes
     pub fn clear_candles_cache(&mut self) {
         self.candles_cache.clear();
     }
 
+    /// Store pre-computed candles for a timeframe
     pub fn cache_candles(&mut self, timeframe: String, candles: Vec<Candle>) {
         self.candles_cache.insert(timeframe, candles);
     }
 
+    /// Retrieve cached candles for a timeframe
+    #[must_use]
     pub fn get_cached_candles(&self, timeframe: &str) -> Option<&Vec<Candle>> {
         self.candles_cache.get(timeframe)
     }
 }
 
-/// Statistics for replay data
+// ── ReplayDataStats ─────────────────────────────────────────────────────
+
+/// Summary statistics for loaded replay data.
 #[derive(Debug, Clone)]
 pub struct ReplayDataStats {
+    /// Total number of trades
     pub trade_count: usize,
+    /// Total number of depth snapshots
     pub depth_count: usize,
+    /// Time range of the data
     pub time_range: TimeRange,
+    /// Ticker symbol
     pub ticker: FuturesTicker,
 }
 
 impl ReplayDataStats {
+    /// Format as a one-line human-readable summary
+    #[must_use]
     pub fn summary(&self) -> String {
         format!(
             "{}: {} trades, {} depth snapshots, {} to {}",

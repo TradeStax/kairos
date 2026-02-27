@@ -1,17 +1,20 @@
 //! Technical studies and indicators for Kairos charts.
 //!
-//! This crate provides a trait-based computation system that transforms market
-//! data (candles, trades) into abstract render primitives. The chart rendering
-//! layer in the app crate converts these primitives into canvas draw calls.
+//! `kairos-study` provides a trait-based computation system that transforms
+//! market data (candles and trades) into abstract render primitives. The
+//! chart rendering layer in the `app` crate converts these primitives into
+//! canvas draw calls — keeping study logic free of any GUI dependency.
 //!
-//! # Modules
+//! # Crate layout
 //!
-//! - [`config`] — Parameter definitions, validation, and runtime storage.
-//! - [`core`] — The [`Study`] trait and its input/metadata types.
-//! - [`output`] — Render primitives: lines, bars, profiles, footprints, markers.
-//! - [`studies`] — Built-in study implementations and the [`StudyRegistry`] factory.
-//! - [`util`] — Shared helpers for candle extraction and statistics.
-//! - [`error`] — [`StudyError`] with severity classification.
+//! | Module | Purpose |
+//! |---|---|
+//! | [`config`] | Parameter definitions, validation, and runtime storage |
+//! | [`core`] | The [`Study`] trait and its input/metadata types |
+//! | [`output`] | Render primitives: lines, bars, profiles, footprints, markers |
+//! | [`studies`] | Built-in study implementations and the [`StudyRegistry`] factory |
+//! | [`util`] | Shared helpers for candle extraction and statistics |
+//! | [`error`] | [`StudyError`] with severity classification |
 
 pub mod config;
 pub mod core;

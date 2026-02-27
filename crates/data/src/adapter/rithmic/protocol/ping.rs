@@ -1,3 +1,9 @@
+//! WebSocket ping/pong timeout detection.
+//!
+//! [`PingManager`] tracks pending ping frames and detects when pong
+//! responses fail to arrive, providing a secondary layer of connection
+//! health monitoring alongside application-level heartbeats.
+
 use log::warn;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -27,7 +33,8 @@ pub struct PingManager {
 }
 
 impl PingManager {
-    /// Creates a new ping manager with the given timeout in seconds.
+    /// Creates a new ping manager with the given timeout in seconds
+    #[must_use]
     pub fn new(timeout_secs: u64) -> Self {
         Self {
             pending: None,
@@ -55,7 +62,8 @@ impl PingManager {
     /// Checks if the pending ping has timed out.
     ///
     /// Returns `true` and clears pending state if timeout exceeded.
-    /// Call when the instant from `next_timeout_at()` is reached.
+    /// Call when the instant from [`next_timeout_at`](Self::next_timeout_at) is reached.
+    #[must_use]
     pub fn check_timeout(&mut self) -> bool {
         if let Some(sent_at) = self.pending
             && sent_at.elapsed() > self.timeout
@@ -66,10 +74,11 @@ impl PingManager {
         false
     }
 
-    /// Returns the instant when the pending ping will timeout, if any.
+    /// Returns the instant when the pending ping will time out, if any.
     ///
-    /// Use with `tokio::time::sleep_until()` in a select! loop.
+    /// Use with `tokio::time::sleep_until()` in a `select!` loop.
     /// Returns `None` if no ping is pending.
+    #[must_use]
     pub fn next_timeout_at(&self) -> Option<Instant> {
         self.pending.map(|sent_at| sent_at + self.timeout)
     }

@@ -1,4 +1,9 @@
-//! Feed Merger — merges trade data from multiple feeds
+//! Feed merger — combines trade data from multiple feeds with dedup and gap detection.
+//!
+//! Intended for app-layer use: collect [`DataSegment`]s from multiple adapters,
+//! then merge into a single sorted, deduplicated trade list. The
+//! [`DataEngine`](super::DataEngine) itself stays single-adapter and does not
+//! call this internally.
 
 use crate::domain::chart::{DataGap, DataGapKind, DataSegment, MergeResult};
 use crate::domain::types::FeedId;
@@ -7,9 +12,9 @@ use crate::domain::types::Timestamp;
 /// Options for controlling merge behavior.
 #[derive(Debug, Clone)]
 pub struct MergeOptions {
-    /// Max millisecond difference to consider two trades duplicates
+    /// Maximum millisecond difference to consider two trades as duplicates
     pub dedup_tolerance_ms: u64,
-    /// Minimum gap between trades to flag as a data gap
+    /// Minimum gap duration (ms) between trades before flagging as a data gap
     pub min_gap_duration_ms: u64,
 }
 
@@ -22,13 +27,8 @@ impl Default for MergeOptions {
     }
 }
 
-/// Merge data segments from multiple feeds into a single sorted,
-/// deduplicated trade list with gap detection.
-///
-/// This is intended for **app-layer** use: callers (e.g. the dashboard
-/// update loop) collect segments from multiple adapters and merge them
-/// before handing off to chart/replay. `DataEngine` itself stays
-/// single-adapter and does not call this internally.
+/// Merges data segments from multiple feeds into a single sorted,
+/// deduplicated trade list with gap detection, using default options.
 pub fn merge_segments(
     segments: Vec<DataSegment>,
     expected_start: Timestamp,
@@ -42,7 +42,7 @@ pub fn merge_segments(
     )
 }
 
-/// Like [`merge_segments`] but with explicit [`MergeOptions`].
+/// Merges data segments with explicit [`MergeOptions`] for dedup tolerance and gap detection.
 pub fn merge_segments_with(
     mut segments: Vec<DataSegment>,
     expected_start: Timestamp,
@@ -94,6 +94,7 @@ pub fn merge_segments_with(
     }
 }
 
+/// Removes duplicate trades that are within `tolerance_ms` and at the same price.
 fn dedup_trades(trades: Vec<crate::domain::Trade>, tolerance_ms: u64) -> Vec<crate::domain::Trade> {
     if trades.len() <= 1 {
         return trades;
@@ -117,6 +118,7 @@ fn dedup_trades(trades: Vec<crate::domain::Trade>, tolerance_ms: u64) -> Vec<cra
     result
 }
 
+/// Detects gaps in trade data relative to the expected time range.
 fn detect_gaps(
     trades: &[crate::domain::Trade],
     expected_start: Timestamp,

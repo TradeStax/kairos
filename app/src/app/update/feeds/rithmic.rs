@@ -228,8 +228,7 @@ impl Kairos {
         }
     }
 
-    #[allow(dead_code)]
-    fn handle_rithmic_connection_lost(&mut self) -> Task<Message> {
+    pub(crate) fn handle_rithmic_connection_lost(&mut self) -> Task<Message> {
         let Some(feed_id) = self.services.rithmic_feed_id else {
             return Task::none();
         };
@@ -252,9 +251,29 @@ impl Kairos {
             .map(|c| c.auto_reconnect)
             .unwrap_or(false);
 
+        const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+
         if auto_reconnect {
             self.services.rithmic_reconnect_attempts += 1;
             let attempts = self.services.rithmic_reconnect_attempts;
+
+            if attempts > MAX_RECONNECT_ATTEMPTS {
+                feed_manager.set_status(
+                    feed_id,
+                    data::ConnectionStatus::Error(
+                        "Max reconnect attempts exhausted".to_string(),
+                    ),
+                );
+                drop(feed_manager);
+                let cm_arc = self.connections.connection_manager.clone();
+                let cm = data::lock_or_recover(&cm_arc);
+                self.sync_feed_snapshots(&cm);
+                self.ui.push_notification(Toast::error(
+                    "Rithmic: max reconnect attempts exhausted"
+                        .to_string(),
+                ));
+                return Task::none();
+            }
 
             // Exponential backoff: 1s, 5s, 15s, 30s (capped)
             let delay_secs = match attempts {
@@ -264,9 +283,15 @@ impl Kairos {
                 _ => 30,
             };
 
-            feed_manager.set_status(feed_id, data::ConnectionStatus::Connecting);
-            self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+            feed_manager.set_status(
+                feed_id,
+                data::ConnectionStatus::Reconnecting { attempt: attempts },
+            );
             drop(feed_manager);
+            let cm_arc = self.connections.connection_manager.clone();
+            let cm = data::lock_or_recover(&cm_arc);
+            self.sync_feed_snapshots(&cm);
+            drop(cm);
             self.ui
                 .push_notification(Toast::new(Notification::Info(format!(
                     "Rithmic reconnecting in {}s (attempt {})...",
@@ -285,7 +310,10 @@ impl Kairos {
             feed_id,
             data::ConnectionStatus::Error("Connection lost".to_string()),
         );
-        self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
+        drop(feed_manager);
+        let cm_arc = self.connections.connection_manager.clone();
+        let cm = data::lock_or_recover(&cm_arc);
+        self.sync_feed_snapshots(&cm);
         self.ui
             .push_notification(Toast::error("Rithmic connection lost".to_string()));
         Task::none()

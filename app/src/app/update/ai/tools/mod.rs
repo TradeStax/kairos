@@ -19,12 +19,13 @@ use serde_json::{Value, json};
 use crate::app::core::globals::AiStreamEventClone;
 
 /// Context passed to every tool execution — gives access to the
-/// snapshot, the event sender (for drawing actions), and the
-/// conversation ID.
+/// snapshot, the event sender (for drawing actions), the
+/// conversation ID, and the user's timezone.
 pub struct ToolContext<'a> {
     pub snapshot: &'a Option<ChartSnapshot>,
     pub sender: &'static tokio::sync::mpsc::UnboundedSender<AiStreamEventClone>,
     pub conversation_id: uuid::Uuid,
+    pub timezone: crate::config::UserTimezone,
 }
 
 /// Result of executing a single tool call.
@@ -38,28 +39,50 @@ pub struct ToolExecResult {
 
 /// Parse an ISO 8601 time string to milliseconds since epoch.
 /// Timestamp.0 in the data crate stores milliseconds.
-pub(super) fn parse_iso_to_millis(s: &str) -> Option<u64> {
+///
+/// RFC 3339 strings with explicit timezone offset are used as-is.
+/// Naive timestamps (no offset) are interpreted in the user's
+/// timezone.
+pub(super) fn parse_iso_to_millis(
+    s: &str,
+    tz: crate::config::UserTimezone,
+) -> Option<u64> {
+    // RFC 3339 with explicit tz — use as-is
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         return Some(dt.timestamp_millis() as u64);
     }
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Some(dt.and_utc().timestamp_millis() as u64);
-    }
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Some(dt.and_utc().timestamp_millis() as u64);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let dt = d.and_hms_opt(0, 0, 0)?;
-        return Some(dt.and_utc().timestamp_millis() as u64);
-    }
-    None
+    // Naive formats — interpret in user timezone
+    let naive = chrono::NaiveDateTime::parse_from_str(
+        s,
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    .or_else(|_| {
+        chrono::NaiveDateTime::parse_from_str(
+            s,
+            "%Y-%m-%d %H:%M:%S",
+        )
+    })
+    .ok()
+    .or_else(|| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .ok()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+    })?;
+    Some(tz.naive_to_utc_millis(naive) as u64)
 }
 
 /// Parse optional start/end time filters from tool arguments.
 /// Returns milliseconds to compare directly with Timestamp.0.
-pub(super) fn parse_time_range(args: &Value) -> (Option<u64>, Option<u64>) {
-    let start = args["start_time"].as_str().and_then(parse_iso_to_millis);
-    let end = args["end_time"].as_str().and_then(parse_iso_to_millis);
+pub(super) fn parse_time_range(
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> (Option<u64>, Option<u64>) {
+    let start = args["start_time"]
+        .as_str()
+        .and_then(|s| parse_iso_to_millis(s, tz));
+    let end = args["end_time"]
+        .as_str()
+        .and_then(|s| parse_iso_to_millis(s, tz));
     (start, end)
 }
 
@@ -141,25 +164,48 @@ pub fn execute_tool(name: &str, arguments_json: &str, ctx: &ToolContext<'_>) -> 
         }
     };
 
+    let tz = ctx.timezone;
     match name {
         // Market data
         "get_chart_info" => market_data::exec_get_chart_info(snap),
-        "get_candles" => market_data::exec_get_candles(snap, &args),
-        "get_market_state" => market_data::exec_get_market_state(snap),
+        "get_candles" => {
+            market_data::exec_get_candles(snap, &args, tz)
+        }
+        "get_market_state" => {
+            market_data::exec_get_market_state(snap)
+        }
         // Trades
-        "get_trades" => trades::exec_get_trades(snap, &args),
-        "get_volume_profile" => trades::exec_get_volume_profile(snap, &args),
-        "get_delta_profile" => trades::exec_get_delta_profile(snap, &args),
-        "get_aggregated_trades" => trades::exec_get_aggregated_trades(snap, &args),
+        "get_trades" => trades::exec_get_trades(snap, &args, tz),
+        "get_volume_profile" => {
+            trades::exec_get_volume_profile(snap, &args, tz)
+        }
+        "get_delta_profile" => {
+            trades::exec_get_delta_profile(snap, &args, tz)
+        }
+        "get_aggregated_trades" => {
+            trades::exec_get_aggregated_trades(snap, &args, tz)
+        }
         // Studies
-        "get_study_values" => studies::exec_get_study_values(snap, &args),
-        "get_big_trades" => studies::exec_get_big_trades(snap, &args),
-        "get_footprint" => studies::exec_get_footprint(snap, &args),
-        "get_profile_data" => studies::exec_get_profile_data(snap, &args),
+        "get_study_values" => {
+            studies::exec_get_study_values(snap, &args)
+        }
+        "get_big_trades" => {
+            studies::exec_get_big_trades(snap, &args)
+        }
+        "get_footprint" => {
+            studies::exec_get_footprint(snap, &args, tz)
+        }
+        "get_profile_data" => {
+            studies::exec_get_profile_data(snap, &args)
+        }
         // Analysis
         "get_drawings" => analysis::exec_get_drawings(snap),
-        "get_session_stats" => analysis::exec_get_session_stats(snap, &args),
-        "identify_levels" => analysis::exec_identify_levels(snap, &args),
+        "get_session_stats" => {
+            analysis::exec_get_session_stats(snap, &args)
+        }
+        "identify_levels" => {
+            analysis::exec_identify_levels(snap, &args)
+        }
         // Drawing actions
         "add_horizontal_line"
         | "add_vertical_line"

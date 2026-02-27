@@ -1,11 +1,29 @@
+//! Rithmic History Plant actor.
+//!
+//! Manages a single WebSocket connection to Rithmic's History Plant
+//! infrastructure. Provides historical tick bar replay, time bar replay,
+//! volume profile queries, and live bar update subscriptions through an
+//! async command-driven actor pattern.
+
 use async_trait::async_trait;
 use log::{error, info, warn};
 
+use futures_util::{
+    SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
+};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, mpsc, oneshot},
+    task::JoinHandle,
+    time::{Interval, sleep_until},
+};
 use tokio_tungstenite::{
     MaybeTlsStream,
     tungstenite::{Error, Message, error::ProtocolError},
 };
 
+use super::super::protocol::ws::ConnectStrategy;
 use super::super::protocol::{
     config::RithmicConnectionConfig,
     messages::RithmicMessage,
@@ -23,37 +41,30 @@ use super::super::protocol::{
     },
 };
 
-use super::super::protocol::ws::ConnectStrategy;
-
-use futures_util::{
-    SinkExt, StreamExt,
-    stream::{SplitSink, SplitStream},
-};
-
-use tokio::{
-    net::TcpStream,
-    sync::{broadcast, mpsc, oneshot},
-    task::JoinHandle,
-    time::{Interval, sleep_until},
-};
-
+/// Commands sent to the history plant actor via its mpsc channel.
 #[allow(dead_code)]
 pub(crate) enum HistoryPlantCommand {
+    /// Gracefully close the WebSocket connection
     Close,
+    /// Query available Rithmic system infrastructure
     ListSystemInfo {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Authenticate with the history plant
     Login {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Mark the actor as logged in (enables heartbeats)
     SetLogin,
+    /// Log out and prepare to close
     Logout {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Send a heartbeat to keep the session alive
     SendHeartbeat,
-    UpdateHeartbeat {
-        seconds: u64,
-    },
+    /// Update the heartbeat interval
+    UpdateHeartbeat { seconds: u64 },
+    /// Load historical tick bars for a time range
     LoadTicks {
         end_time_sec: i32,
         exchange: String,
@@ -61,6 +72,7 @@ pub(crate) enum HistoryPlantCommand {
         start_time_sec: i32,
         symbol: String,
     },
+    /// Load historical time bars (OHLCV) for a time range
     LoadTimeBars {
         bar_type: BarType,
         bar_type_period: i32,
@@ -70,7 +82,7 @@ pub(crate) enum HistoryPlantCommand {
         start_time_sec: i32,
         symbol: String,
     },
-    // New commands for additional historical data functionality
+    /// Load volume profile minute bars for a time range
     LoadVolumeProfileMinuteBars {
         symbol: String,
         exchange: String,
@@ -81,10 +93,12 @@ pub(crate) enum HistoryPlantCommand {
         resume_bars: Option<bool>,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Resume a previously truncated bars request
     ResumeBars {
         request_key: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Subscribe to or unsubscribe from live time bar updates
     SubscribeTimeBarUpdates {
         symbol: String,
         exchange: String,
@@ -93,6 +107,7 @@ pub(crate) enum HistoryPlantCommand {
         request: request_time_bar_update::Request,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Subscribe to or unsubscribe from live tick bar updates
     SubscribeTickBarUpdates {
         symbol: String,
         exchange: String,
@@ -104,35 +119,27 @@ pub(crate) enum HistoryPlantCommand {
     },
 }
 
-/// The RithmicHistoryPlant provides access to historical market
-/// data through the Rithmic API.
+/// Owns a history plant WebSocket actor task and its communication channels.
 ///
-/// It allows applications to retrieve historical tick data and
-/// time bar data for specific instruments and time ranges from
-/// Rithmic's history database.
+/// The background task runs until the WebSocket closes or a `Close`
+/// command is sent. Use [`get_handle`](Self::get_handle) to obtain a
+/// cloneable handle for sending commands.
 #[allow(dead_code)]
 pub struct RithmicHistoryPlant {
+    /// Background task running the plant actor loop
     pub connection_handle: JoinHandle<()>,
+    /// Command channel sender
     sender: mpsc::Sender<HistoryPlantCommand>,
+    /// Broadcast sender for subscription updates
     subscription_sender: broadcast::Sender<RithmicResponse>,
 }
 
 impl RithmicHistoryPlant {
-    /// Create a new History Plant connection to access historical
-    /// market data.
+    /// Connects to Rithmic's History Plant and spawns the actor task.
     ///
-    /// # Arguments
-    /// * `config` - Rithmic configuration
-    /// * `strategy` - Connection strategy (Simple, Retry, or
-    ///   AlternateWithRetry)
-    ///
-    /// # Returns
-    /// A `Result` containing the connected `RithmicHistoryPlant`
-    /// instance, or an error if the connection fails.
-    ///
-    /// # Errors
-    /// Returns an error if unable to establish WebSocket connection
-    /// to the server.
+    /// The plant is not yet authenticated -- call
+    /// [`RithmicHistoryPlantHandle::login`] on the returned handle
+    /// before issuing data requests.
     pub async fn connect(
         config: &RithmicConnectionConfig,
         strategy: ConnectStrategy,
@@ -155,11 +162,7 @@ impl RithmicHistoryPlant {
 }
 
 impl RithmicHistoryPlant {
-    /// Get a handle to interact with the history plant.
-    ///
-    /// The handle provides methods to load historical ticks, time
-    /// bars, and subscribe to bar updates. Multiple handles can be
-    /// created from the same plant.
+    /// Returns a cloneable handle for sending commands to this plant
     pub fn get_handle(&self) -> RithmicHistoryPlantHandle {
         RithmicHistoryPlantHandle {
             sender: self.sender.clone(),
@@ -169,6 +172,7 @@ impl RithmicHistoryPlant {
     }
 }
 
+/// Internal actor state for a history plant WebSocket connection.
 #[derive(Debug)]
 struct HistoryPlant {
     config: RithmicConnectionConfig,
@@ -176,8 +180,7 @@ struct HistoryPlant {
     logged_in: bool,
     ping_interval: Interval,
     ping_manager: PingManager,
-    /// Buffer for ResponseTickBarReplay messages during active
-    /// tick bar replay
+    /// Buffer for `ResponseTickBarReplay` messages during active replay
     replay_buffer: Vec<RithmicResponse>,
     /// Oneshot sender to return collected bars when replay completes
     replay_sender: Option<oneshot::Sender<Result<Vec<RithmicResponse>, String>>>,
@@ -189,7 +192,6 @@ struct HistoryPlant {
         tokio_tungstenite::WebSocketStream<MaybeTlsStream<TcpStream>>,
         tokio_tungstenite::tungstenite::Message,
     >,
-
     rithmic_sender_api: RithmicSenderApi,
     subscription_sender: broadcast::Sender<RithmicResponse>,
 }
@@ -784,20 +786,24 @@ impl PlantActor for HistoryPlant {
     }
 }
 
+/// Cloneable handle for interacting with a history plant actor.
+///
+/// Provides async methods for login, data loading, and bar
+/// subscriptions. Each method sends a command to the actor task
+/// and awaits the response via a oneshot channel.
 #[allow(dead_code)]
 pub struct RithmicHistoryPlantHandle {
+    /// Command channel to the actor task
     sender: mpsc::Sender<HistoryPlantCommand>,
+    /// Used to create new broadcast receivers on clone
     subscription_sender: broadcast::Sender<RithmicResponse>,
-
+    /// Broadcast receiver for subscription updates
     pub subscription_receiver: broadcast::Receiver<RithmicResponse>,
 }
 
 #[allow(dead_code)]
 impl RithmicHistoryPlantHandle {
-    /// List available Rithmic system infrastructure information.
-    ///
-    /// Returns information about the connected Rithmic system,
-    /// including system name, gateway info, and available services.
+    /// Lists available Rithmic system infrastructure information
     pub async fn list_system_info(&self) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -813,12 +819,10 @@ impl RithmicHistoryPlantHandle {
             .remove(0))
     }
 
-    /// Log in to the Rithmic History plant
+    /// Logs in to the Rithmic History Plant.
     ///
-    /// This must be called before requesting historical data
-    ///
-    /// # Returns
-    /// The login response or an error message
+    /// Must be called before any data requests. Configures the
+    /// heartbeat interval from the server's login response.
     pub async fn login(&self) -> Result<RithmicResponse, String> {
         info!("history_plant: logging in ");
 
@@ -857,16 +861,14 @@ impl RithmicHistoryPlantHandle {
         }
     }
 
+    /// Sends a command to update the heartbeat interval
     async fn update_heartbeat(&self, seconds: u64) {
         let command = HistoryPlantCommand::UpdateHeartbeat { seconds };
 
         let _ = self.sender.send(command).await;
     }
 
-    /// Disconnect from the Rithmic History plant
-    ///
-    /// # Returns
-    /// The logout response or an error message
+    /// Disconnects from the Rithmic History Plant (logout + close)
     pub async fn disconnect(&self) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -884,17 +886,10 @@ impl RithmicHistoryPlantHandle {
         Ok(response)
     }
 
-    /// Load historical tick data for a specific symbol and time
-    /// range
+    /// Loads historical tick data for a symbol and time range.
     ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `start_time_sec` - Start time in Unix timestamp (seconds)
-    /// * `end_time_sec` - End time in Unix timestamp (seconds)
-    ///
-    /// # Returns
-    /// The historical data responses or an error message
+    /// Responses are buffered internally until the server signals
+    /// completion (`has_more = false`), then returned as a batch.
     pub async fn load_ticks(
         &self,
         symbol: String,
@@ -917,21 +912,7 @@ impl RithmicHistoryPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Load historical time bar data for a specific symbol and
-    /// time range
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `bar_type` - The type of time bar (SecondBar, MinuteBar,
-    ///   DailyBar, WeeklyBar)
-    /// * `bar_type_period` - The period for the bar type (e.g., 1
-    ///   for 1-minute bars, 5 for 5-minute bars)
-    /// * `start_time_sec` - Start time in Unix timestamp (seconds)
-    /// * `end_time_sec` - End time in Unix timestamp (seconds)
-    ///
-    /// # Returns
-    /// The historical time bar data responses or an error message
+    /// Loads historical time bar data (OHLCV) for a symbol and time range
     pub async fn load_time_bars(
         &self,
         symbol: String,
@@ -958,19 +939,7 @@ impl RithmicHistoryPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Load volume profile minute bars
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `bar_type_period` - The period for the bars
-    /// * `start_time_sec` - Start time in Unix timestamp (seconds)
-    /// * `end_time_sec` - End time in Unix timestamp (seconds)
-    /// * `user_max_count` - Optional maximum number of bars
-    /// * `resume_bars` - Whether to resume from a previous request
-    ///
-    /// # Returns
-    /// The volume profile minute bar responses or an error message
+    /// Loads volume profile minute bars for a symbol and time range
     #[allow(clippy::too_many_arguments)]
     pub async fn load_volume_profile_minute_bars(
         &self,
@@ -1000,17 +969,8 @@ impl RithmicHistoryPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Resume a previously truncated bars request
-    ///
-    /// Use this when a bars request was truncated due to data
-    /// limits.
-    ///
-    /// # Arguments
-    /// * `request_key` - The request key from the previous
-    ///   truncated response
-    ///
-    /// # Returns
-    /// The remaining bar data responses or an error message
+    /// Resumes a previously truncated bars request using its
+    /// `request_key`
     pub async fn resume_bars(&self, request_key: String) -> Result<Vec<RithmicResponse>, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -1024,19 +984,7 @@ impl RithmicHistoryPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Subscribe to live time bar updates
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `bar_type` - The type of time bar (SecondBar, MinuteBar,
-    ///   DailyBar, WeeklyBar)
-    /// * `bar_type_period` - The period for the bar type (e.g., 1
-    ///   for 1-minute bars)
-    /// * `request` - Subscribe or Unsubscribe
-    ///
-    /// # Returns
-    /// The subscription response or an error message
+    /// Subscribes to or unsubscribes from live time bar updates
     pub async fn subscribe_time_bar_updates(
         &self,
         symbol: &str,
@@ -1064,19 +1012,7 @@ impl RithmicHistoryPlantHandle {
             .remove(0))
     }
 
-    /// Subscribe to live tick bar updates
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `bar_type` - The type of tick bar
-    /// * `bar_sub_type` - Sub-type of the bar
-    /// * `bar_type_specifier` - Specifier for the bar (e.g., "1"
-    ///   for 1-tick bars)
-    /// * `request` - Subscribe or Unsubscribe
-    ///
-    /// # Returns
-    /// The subscription response or an error message
+    /// Subscribes to or unsubscribes from live tick bar updates
     pub async fn subscribe_tick_bar_updates(
         &self,
         symbol: &str,

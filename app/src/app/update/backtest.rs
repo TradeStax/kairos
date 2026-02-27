@@ -81,10 +81,16 @@ impl Kairos {
                 self.modals
                     .backtest
                     .backtest_manager
-                    .select(run_id, &self.modals.backtest.backtest_history);
+                    .select(
+                        run_id,
+                        &self.modals.backtest.backtest_history,
+                        self.ui.timezone,
+                    );
 
-                let strategy_registry = self.modals.backtest.strategy_registry.clone();
-                let backtest_sender = super::super::core::globals::get_backtest_sender();
+                let strategy_registry =
+                    self.modals.backtest.strategy_registry.clone();
+                let backtest_sender =
+                    super::super::core::globals::get_backtest_sender();
 
                 Task::perform(
                     async move {
@@ -166,7 +172,11 @@ impl Kairos {
                 self.modals
                     .backtest
                     .backtest_manager
-                    .select(run_id, &self.modals.backtest.backtest_history);
+                    .select(
+                        run_id,
+                        &self.modals.backtest.backtest_history,
+                        self.ui.timezone,
+                    );
                 Task::none()
             }
 
@@ -208,7 +218,11 @@ impl Kairos {
                     .modals
                     .backtest
                     .backtest_manager
-                    .update(manager_msg, &self.modals.backtest.backtest_history);
+                    .update(
+                        manager_msg,
+                        &self.modals.backtest.backtest_history,
+                        self.ui.timezone,
+                    );
                 match action {
                     ManagerAction::None => Task::none(),
                     ManagerAction::OpenLaunchModal => {
@@ -234,18 +248,26 @@ impl Kairos {
         }
     }
 
-    /// Export a backtest's trade list to CSV via a native save dialog.
-    fn export_backtest_csv(&self, backtest_id: uuid::Uuid) -> Task<Message> {
-        let Some(entry) = self.modals.backtest.backtest_history.get(backtest_id) else {
+    /// Export a backtest's trade list to CSV via a native
+    /// save dialog.
+    fn export_backtest_csv(
+        &self,
+        backtest_id: uuid::Uuid,
+    ) -> Task<Message> {
+        let Some(entry) =
+            self.modals.backtest.backtest_history.get(backtest_id)
+        else {
             return Task::none();
         };
         let Some(result) = &entry.result else {
             return Task::none();
         };
 
+        let tz = self.ui.timezone;
         let mut csv = String::from(
-            "Trade,Entry Time,Exit Time,Side,P&L ($),P&L (ticks),\
-             MAE (ticks),MFE (ticks),Exit Reason\n",
+            "Trade,Entry Time,Exit Time,Side,P&L ($),\
+             P&L (ticks),MAE (ticks),MFE (ticks),\
+             Exit Reason\n",
         );
         for (i, t) in result.trades.iter().enumerate() {
             let side = if t.side == data::Side::Buy {
@@ -253,11 +275,17 @@ impl Kairos {
             } else {
                 "Short"
             };
+            let entry_ts = tz.format_replay_tooltip(
+                t.entry_time.0 as i64,
+            );
+            let exit_ts = tz.format_replay_tooltip(
+                t.exit_time.0 as i64,
+            );
             csv.push_str(&format!(
                 "{},{},{},{},{:.2},{},{},{},{}\n",
                 i + 1,
-                t.entry_time.0,
-                t.exit_time.0,
+                entry_ts,
+                exit_ts,
                 side,
                 t.pnl_net_usd,
                 t.pnl_ticks,

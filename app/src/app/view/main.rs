@@ -353,7 +353,10 @@ impl Kairos {
                 .modals
                 .backtest
                 .backtest_manager
-                .view(&self.modals.backtest.backtest_history)
+                .view(
+                    &self.modals.backtest.backtest_history,
+                    self.ui.timezone,
+                )
                 .map(|m| {
                     Message::Backtest(super::super::messages::BacktestMessage::ManagerInteraction(
                         m,

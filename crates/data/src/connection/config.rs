@@ -1,8 +1,11 @@
-//! Connection configuration types
+//! Provider-specific connection configuration types.
+//!
+//! Covers Rithmic server/environment selection and Databento schema/cache
+//! settings. Serializable for persistence in layout state.
 
 use serde::{Deserialize, Serialize};
 
-/// Known Rithmic R|Protocol servers
+/// Known Rithmic R|Protocol WebSocket servers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RithmicServer {
     #[default]
@@ -22,6 +25,7 @@ pub enum RithmicServer {
 }
 
 impl RithmicServer {
+    /// All available Rithmic server locations.
     pub const ALL: [RithmicServer; 13] = [
         RithmicServer::Chicago,
         RithmicServer::NewYork,
@@ -38,6 +42,8 @@ impl RithmicServer {
         RithmicServer::Singapore,
     ];
 
+    /// Returns the WebSocket URL for this server
+    #[must_use]
     pub fn url(&self) -> &'static str {
         match self {
             RithmicServer::Chicago => "wss://rprotocol.rithmic.com:443",
@@ -56,6 +62,8 @@ impl RithmicServer {
         }
     }
 
+    /// Returns a human-readable name for this server
+    #[must_use]
     pub fn display_name(&self) -> &'static str {
         match self {
             RithmicServer::Chicago => "Core (Chicago)",
@@ -74,6 +82,8 @@ impl RithmicServer {
         }
     }
 
+    /// Resolves a server from its WebSocket URL
+    #[must_use]
     pub fn from_url(url: &str) -> Option<RithmicServer> {
         RithmicServer::ALL.iter().find(|s| s.url() == url).copied()
     }
@@ -85,7 +95,7 @@ impl std::fmt::Display for RithmicServer {
     }
 }
 
-/// Rithmic connection environment
+/// Rithmic connection environment (Demo, Live, or Test).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RithmicEnvironment {
     #[default]
@@ -95,6 +105,7 @@ pub enum RithmicEnvironment {
 }
 
 impl RithmicEnvironment {
+    /// All available environments.
     pub const ALL: [RithmicEnvironment; 3] = [
         RithmicEnvironment::Demo,
         RithmicEnvironment::Live,
@@ -112,18 +123,23 @@ impl std::fmt::Display for RithmicEnvironment {
     }
 }
 
-/// Provider-specific connection configuration
+/// Provider-specific connection configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConnectionConfig {
+    /// Databento historical data configuration
     Databento(DatabentoConnectionConfig),
+    /// Rithmic live/historical data configuration
     Rithmic(RithmicConnectionConfig),
 }
 
-/// Databento-specific connection configuration
+/// Databento-specific connection configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatabentoConnectionConfig {
+    /// Enabled Databento schemas (e.g. "trades", "mbp10", "ohlcv1m")
     pub enabled_schemas: Vec<String>,
+    /// Whether to cache fetched data to disk
     pub cache_enabled: bool,
+    /// Maximum age in days before cached files are evicted
     pub cache_max_days: u32,
 }
 
@@ -141,20 +157,28 @@ impl Default for DatabentoConnectionConfig {
     }
 }
 
-/// Rithmic-specific connection configuration
+/// Rithmic-specific connection configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RithmicConnectionConfig {
+    /// Demo, Live, or Test environment
     pub environment: RithmicEnvironment,
+    /// Server location for WebSocket connection
     #[serde(default)]
     pub server: RithmicServer,
+    /// Rithmic system name (provided by broker)
     pub system_name: String,
+    /// Rithmic user ID
     pub user_id: String,
+    /// Whether to automatically reconnect on disconnect
     pub auto_reconnect: bool,
+    /// Tickers to subscribe to on connect
     pub subscribed_tickers: Vec<String>,
+    /// Number of historical days to backfill on connect
     #[serde(default = "default_backfill_days")]
     pub backfill_days: i64,
 }
 
+/// Default backfill: 1 day of historical data.
 fn default_backfill_days() -> i64 {
     1
 }

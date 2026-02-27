@@ -1,8 +1,22 @@
-//! Big Trades Study
+//! Big Trades study — institutional-scale execution detection.
 //!
-//! Reconstructs institutional-scale executions by aggregating consecutive
-//! same-side fills within a configurable time window, computing a
-//! VWAP-weighted price, and outputting them as sized/colored markers.
+//! Reconstructs large executions by aggregating consecutive same-side fills
+//! within a configurable time window. Each aggregated block produces a
+//! marker at the VWAP-weighted price, sized proportionally to the total
+//! contract count.
+//!
+//! The detection pipeline:
+//! 1. Iterate raw trades in chronological order
+//! 2. Merge consecutive same-side fills separated by at most
+//!    `aggregation_window_ms` milliseconds into a `TradeBlock`
+//! 3. On side change or time gap, flush the block through the min/max
+//!    contract filter
+//! 4. Surviving blocks become [`TradeMarker`]s positioned at the
+//!    containing candle's X coordinate
+//!
+//! Supports incremental computation via [`Study::append_trades`] — only
+//! newly arrived trades are processed, and the pending (incomplete) block
+//! is carried forward between calls.
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
@@ -22,14 +36,14 @@ const DEFAULT_AGGREGATION_WINDOW_MS: i64 = 40;
 
 // Theme-matched colors (Kairos default palette: success #51CDA0, danger #C0504D)
 #[allow(clippy::approx_constant)]
-const DEFAULT_ASK_COLOR: SerializableColor = SerializableColor {
+const DEFAULT_BUY_COLOR: SerializableColor = SerializableColor {
     r: 0.318,
     g: 0.804,
     b: 0.627,
     a: 1.0,
 };
 
-const DEFAULT_BID_COLOR: SerializableColor = SerializableColor {
+const DEFAULT_SELL_COLOR: SerializableColor = SerializableColor {
     r: 0.753,
     g: 0.314,
     b: 0.302,
@@ -43,22 +57,52 @@ const DEFAULT_TEXT_COLOR: SerializableColor = SerializableColor {
     a: 0.9,
 };
 
+/// Detects institutional-scale executions by aggregating consecutive
+/// same-side fills within a time window and rendering them as sized
+/// markers on the chart.
+///
+/// The full detection pipeline is:
+/// 1. Iterate raw trades in chronological order.
+/// 2. Merge consecutive same-side fills separated by at most
+///    `aggregation_window_ms` into a `TradeBlock`.
+/// 3. On side change or time gap, flush the block through the min/max
+///    contract filter.
+/// 4. Surviving blocks become [`TradeMarker`]s positioned at the
+///    containing candle's X coordinate.
+///
+/// Supports incremental computation via [`Study::append_trades`] --
+/// only newly arrived trades are processed, and the pending
+/// (incomplete) block is carried forward between calls so that a
+/// multi-fill execution spanning two `append_trades` invocations is
+/// still aggregated correctly.
 pub struct BigTradesStudy {
+    /// Persisted user-configurable parameter values.
     config: StudyConfig,
+    /// Most recently computed study output (markers or empty).
     output: StudyOutput,
+    /// Schema of user-adjustable parameters shown in the settings UI.
     params: Vec<ParameterDef>,
-    // Incremental state
+    /// Number of trades already processed (for incremental append).
     processed_trade_count: usize,
+    /// In-progress aggregation block awaiting more fills or flush.
     pending_block: Option<TradeBlock>,
+    /// Completed markers from prior flushes.
     accumulated_markers: Vec<TradeMarker>,
-    // Cached render config — rebuilt only on parameter change
+    /// Cached render config — rebuilt on parameter or data change.
     cached_render_config: MarkerRenderConfig,
-    // Cached candle boundaries for tick charts
+    /// Pre-built tick-chart candle boundaries (start, end) pairs.
     cached_candle_boundaries: Option<Vec<(u64, u64)>>,
+    /// Candle count when boundaries were last built.
     cached_boundaries_candle_count: usize,
 }
 
 impl BigTradesStudy {
+    /// Create a new big trades study with default parameters.
+    ///
+    /// Registers all user-configurable parameters (filter thresholds,
+    /// aggregation window, marker shape/size/color, text and debug
+    /// toggles), seeds the [`StudyConfig`] with their defaults, and
+    /// pre-builds the cached [`MarkerRenderConfig`].
     pub fn new() -> Self {
         let params = vec![
             // ── Data Settings ────────────────────────────────
@@ -216,11 +260,11 @@ impl BigTradesStudy {
                 visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "ask_color".into(),
-                label: "Ask Color".into(),
-                description: "Color for ask-side (buy) markers".into(),
+                key: "buy_color".into(),
+                label: "Buy Color".into(),
+                description: "Color for buy (aggressor) markers".into(),
                 kind: ParameterKind::Color,
-                default: ParameterValue::Color(DEFAULT_ASK_COLOR),
+                default: ParameterValue::Color(DEFAULT_BUY_COLOR),
                 tab: ParameterTab::Style,
                 section: None,
                 order: 6,
@@ -228,11 +272,11 @@ impl BigTradesStudy {
                 visible_when: Visibility::Always,
             },
             ParameterDef {
-                key: "bid_color".into(),
-                label: "Bid Color".into(),
-                description: "Color for bid-side (sell) markers".into(),
+                key: "sell_color".into(),
+                label: "Sell Color".into(),
+                description: "Color for sell (aggressor) markers".into(),
                 kind: ParameterKind::Color,
-                default: ParameterValue::Color(DEFAULT_BID_COLOR),
+                default: ParameterValue::Color(DEFAULT_SELL_COLOR),
                 tab: ParameterTab::Style,
                 section: None,
                 order: 7,
@@ -312,8 +356,8 @@ impl BigTradesStudy {
                 .config
                 .get_int("aggregation_window_ms", DEFAULT_AGGREGATION_WINDOW_MS)
                 as u64,
-            ask_color: self.config.get_color("ask_color", DEFAULT_ASK_COLOR),
-            bid_color: self.config.get_color("bid_color", DEFAULT_BID_COLOR),
+            buy_color: self.config.get_color("buy_color", DEFAULT_BUY_COLOR),
+            sell_color: self.config.get_color("sell_color", DEFAULT_SELL_COLOR),
             show_text: self.config.get_bool("show_text", true),
             show_debug: self.config.get_bool("show_debug", false),
         }
@@ -390,7 +434,7 @@ impl BigTradesStudy {
         }
         StudyOutput::Markers(MarkerData {
             markers,
-            render_config: render_config.clone(),
+            render_config: *render_config,
         })
     }
 }
@@ -401,14 +445,29 @@ impl Default for BigTradesStudy {
     }
 }
 
-/// Parameters extracted from config for a compute pass.
+/// Snapshot of user-configurable parameters for a single compute pass.
+///
+/// Extracted from [`StudyConfig`] at the start of each compute/append
+/// to avoid repeated hash lookups during the hot loop.
 struct ComputeParams {
+    /// Minimum contract count for a block to produce a marker.
+    /// Blocks with fewer contracts are silently discarded.
     filter_min: f64,
+    /// Maximum contract count (0 = no upper limit).
+    /// Blocks exceeding this are discarded (useful for filtering
+    /// out spread/roll trades that inflate the count).
     filter_max: f64,
+    /// Maximum millisecond gap between consecutive fills before the
+    /// aggregation window breaks and the current block is flushed.
     window_ms: u64,
-    ask_color: SerializableColor,
-    bid_color: SerializableColor,
+    /// Fill color for buy-side (aggressor) markers.
+    buy_color: SerializableColor,
+    /// Fill color for sell-side (aggressor) markers.
+    sell_color: SerializableColor,
+    /// Whether to render the contract-count text label on each marker.
     show_text: bool,
+    /// Whether to attach [`TradeMarkerDebug`] metadata to each marker
+    /// for diagnostic overlay rendering.
     show_debug: bool,
 }
 
@@ -421,22 +480,42 @@ fn format_contracts(contracts: f64) -> String {
     }
 }
 
-/// Accumulator for aggregating consecutive same-side fills.
+/// Accumulator for aggregating consecutive same-side fills into a single
+/// logical execution block.
+///
+/// Tracks running VWAP components, fill count, price range, and the time
+/// span of the aggregated fills. A block is started by the first fill and
+/// extended by each subsequent fill that matches the same side and arrives
+/// within the `aggregation_window_ms` threshold. It is flushed into a
+/// [`TradeMarker`] when the next trade breaks the aggregation window,
+/// changes side, or crosses a candle boundary.
 struct TradeBlock {
+    /// `true` for buy-side (aggressor) fills, `false` for sell-side.
     is_buy: bool,
-    /// sum of (price_units_i64 * qty)
+    /// Running sum of `price_units * qty` for VWAP computation.
     vwap_numerator: f64,
+    /// Running sum of quantities across all fills in this block.
     total_qty: f64,
+    /// Timestamp of the first fill in the block.
     first_time: u64,
+    /// Timestamp of the most recent fill in the block.
     last_time: u64,
+    /// Number of individual fills merged into this block.
     fill_count: u32,
+    /// Lowest price (in i64 units) seen across fills.
     min_price_units: i64,
+    /// Highest price (in i64 units) seen across fills.
     max_price_units: i64,
-    /// Containing candle's open time (time-based charts only, 0 otherwise)
+    /// Containing candle's open time (time-based charts only, 0 otherwise).
     candle_open: u64,
 }
 
 impl TradeBlock {
+    /// Start a new block from a single fill.
+    ///
+    /// Initializes the VWAP numerator to `price_units * qty`, sets the
+    /// fill count to 1, and records the fill's timestamp as both the
+    /// first and last time.
     fn new(is_buy: bool, price_units: i64, qty: f64, time: u64, candle_open: u64) -> Self {
         Self {
             is_buy,
@@ -451,6 +530,10 @@ impl TradeBlock {
         }
     }
 
+    /// Compute the VWAP in i64 price units.
+    ///
+    /// Returns `vwap_numerator / total_qty` rounded to the nearest
+    /// integer, or `0` when `total_qty` is zero (degenerate block).
     fn vwap_units(&self) -> i64 {
         if self.total_qty > 0.0 {
             (self.vwap_numerator / self.total_qty).round() as i64
@@ -459,12 +542,27 @@ impl TradeBlock {
         }
     }
 
+    /// Midpoint timestamp between the first and last fill.
+    ///
+    /// Used to locate the block within the candle grid -- the mid-time
+    /// is binary-searched against candle boundaries to determine which
+    /// candle's X coordinate the resulting marker should snap to.
     fn mid_time(&self) -> u64 {
         (self.first_time + self.last_time) / 2
     }
 }
 
-/// Build candle boundary lookup for tick charts.
+/// Build candle boundary lookup table for tick-based charts.
+///
+/// Returns `Some(vec)` of `(start_time, end_time)` pairs for tick charts,
+/// where `end_time` of candle `i` equals the `start_time` of candle
+/// `i + 1`, and the final candle's `end_time` is `u64::MAX` (open-ended).
+/// This allows binary-searching a trade's timestamp to find which tick
+/// candle it belongs to.
+///
+/// Returns `None` for time-based charts where candle open times are
+/// monotonically increasing and a simple binary search on `candle.time`
+/// suffices.
 fn build_candle_boundaries(candles: &[Candle], basis: &ChartBasis) -> Option<Vec<(u64, u64)>> {
     match basis {
         ChartBasis::Tick(_) => {
@@ -488,7 +586,7 @@ fn build_candle_boundaries(candles: &[Candle], basis: &ChartBasis) -> Option<Vec
     }
 }
 
-/// Find the containing candle's open time for a given timestamp.
+/// Binary-search for the candle containing `time` and return its open.
 fn find_candle_open(time: u64, candles: &[Candle]) -> u64 {
     if candles.is_empty() {
         return 0;
@@ -500,7 +598,21 @@ fn find_candle_open(time: u64, candles: &[Candle]) -> u64 {
     candles[idx].time.0
 }
 
-/// Flush a completed block into a marker if it meets the threshold.
+/// Flush a completed [`TradeBlock`] into a [`TradeMarker`] if it passes
+/// the min/max contract filter.
+///
+/// The filter logic:
+/// - If `filter_min > 0` and the block's `total_qty` is below it, the
+///   block is silently discarded (not large enough).
+/// - If `filter_max > 0` and the block's `total_qty` exceeds it, the
+///   block is also discarded (likely a spread/roll artifact).
+///
+/// For surviving blocks, the X coordinate is mapped as follows:
+/// - **Time-based charts**: binary-search `mid_time()` against candle
+///   open times and snap to the matching candle's open timestamp.
+/// - **Tick-based charts**: binary-search `mid_time()` against the
+///   pre-built `candle_boundaries` and convert the matched index to a
+///   reverse index (newest candle = 0) for the renderer.
 fn flush_block(
     block: &TradeBlock,
     markers: &mut Vec<TradeMarker>,
@@ -516,12 +628,10 @@ fn flush_block(
         return;
     }
 
-    // Buy aggressor lifts the ask → ask_color (green)
-    // Sell aggressor hits the bid → bid_color (red)
     let color = if block.is_buy {
-        params.ask_color
+        params.buy_color
     } else {
-        params.bid_color
+        params.sell_color
     };
     let label = if params.show_text {
         Some(format_contracts(block.total_qty))
@@ -860,7 +970,7 @@ impl Study for BigTradesStudy {
             processed_trade_count: 0,
             pending_block: None,
             accumulated_markers: Vec::new(),
-            cached_render_config: self.cached_render_config.clone(),
+            cached_render_config: self.cached_render_config,
             cached_candle_boundaries: None,
             cached_boundaries_candle_count: 0,
         })

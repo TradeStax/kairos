@@ -1,15 +1,16 @@
-//! Unified Error Hierarchy
+//! Unified error hierarchy for the data layer.
 //!
-//! Provides consistent error handling patterns across the entire data layer.
+//! Defines [`ErrorSeverity`] for categorizing errors and the [`AppError`]
+//! trait that all data-layer error types implement for consistent handling.
 
 use std::fmt;
 
-/// Error severity levels for categorizing errors
+/// Severity level for categorizing errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorSeverity {
-    /// Informational - not a problem (e.g., data not found)
+    /// Informational — not a problem (e.g. data not found)
     Info,
-    /// Degraded but functional (e.g., rate limit, temporary network issue)
+    /// Degraded but functional (e.g. rate limit, temporary network issue)
     Warning,
     /// Operation failed but application is stable
     Recoverable,
@@ -28,10 +29,11 @@ impl fmt::Display for ErrorSeverity {
     }
 }
 
-/// Trait for production error types
+/// Trait for production error types in the data layer.
 ///
-/// All error types in the data layer implement this trait to provide
-/// consistent error handling for the application layer.
+/// All error types implement this trait to provide consistent error
+/// handling for the application layer: a UI-safe message, retryability
+/// flag, and severity classification.
 pub trait AppError: std::error::Error {
     /// Human-readable message safe for display in the UI
     fn user_message(&self) -> String;

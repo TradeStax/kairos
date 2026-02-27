@@ -1,9 +1,17 @@
-//! Mathematical utilities for price calculations and panel layout
+//! Mathematical utilities for price rounding and panel layout distribution.
+//!
+//! Tick-rounding functions snap floating-point prices to the nearest valid
+//! tick increment. Panel split calculation distributes vertical space between
+//! the main chart and indicator panels.
 
+/// Rounds a value to the nearest tick increment
+#[must_use]
 pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
     (value / tick_size).round() * tick_size
 }
 
+/// Rounds a value to the next tick boundary (floor if `down`, ceil otherwise)
+#[must_use]
 pub fn round_to_next_tick(value: f32, tick_size: f32, down: bool) -> f32 {
     if down {
         (value / tick_size).floor() * tick_size
@@ -12,6 +20,8 @@ pub fn round_to_next_tick(value: f32, tick_size: f32, down: bool) -> f32 {
     }
 }
 
+/// Estimates a reasonable tick size for a given price range magnitude
+#[must_use]
 pub fn guesstimate_ticks(range: f32) -> f32 {
     match range {
         r if r > 1_000_000_000.0 => 1_000_000.0,
@@ -30,7 +40,11 @@ pub fn guesstimate_ticks(range: f32) -> f32 {
     }
 }
 
-/// Shrinks main panel if needed when adding a new panel.
+/// Computes split positions for main chart and indicator panels.
+///
+/// Shrinks the main panel if needed when adding a new indicator panel.
+/// Each indicator panel gets at least `MIN_PANEL_HEIGHT` (0.1) of the total.
+#[must_use]
 pub fn calc_panel_splits(
     initial_main_split: f32,
     active_indicators: usize,

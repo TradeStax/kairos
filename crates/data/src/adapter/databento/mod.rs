@@ -2,10 +2,11 @@
 //!
 //! Feature-gated: `feature = "databento"`.
 //!
-//! - `DatabentoAdapter` — fetches trades and depth, caches per-day, scans cache for `DataIndex`
-//! - `DatabentoConfig` — API key, dataset, cache settings, cost warnings
+//! - [`DatabentoAdapter`] — fetches trades and depth, caches per-day,
+//!   scans cache for [`crate::domain::index::DataIndex`]
+//! - [`DatabentoConfig`] — API key, dataset, cache settings, cost warnings
 //! - [`fetcher`] — download orchestration, gap detection, per-day cache logic
-//! - [`decoder`] — .dbn.zst decompression and record extraction
+//! - [`decoder`] — `.dbn.zst` decompression and record extraction
 //! - [`mapper`] — Databento price (10^-9) to domain `Price` (10^-8) conversion
 //! - [`symbology`] — continuous contract symbol resolution and tick size lookup
 //! - [`client`] — thin wrapper around the `databento` HTTP client
@@ -16,8 +17,9 @@ pub mod fetcher;
 pub mod mapper;
 pub mod symbology;
 
-use databento::dbn::Dataset;
 use std::path::PathBuf;
+
+use databento::dbn::Dataset;
 
 pub use fetcher::DatabentoAdapter;
 pub use mapper::convert_databento_price;
@@ -26,15 +28,22 @@ pub use symbology::get_continuous_ticker_info;
 /// Databento dataset identifier for CME Globex
 pub const DATASET: Dataset = Dataset::GlbxMdp3;
 
-/// Configuration for Databento API access
+/// Configuration for Databento API access and caching behavior
 #[derive(Debug, Clone)]
 pub struct DatabentoConfig {
+    /// Databento API key for authentication
     pub api_key: String,
+    /// Target dataset (defaults to CME Globex MDP3)
     pub dataset: Dataset,
+    /// Whether to enable local per-day caching
     pub cache_enabled: bool,
+    /// Maximum number of days to retain in the cache
     pub cache_max_days: u32,
+    /// Whether to automatically backfill missing days on fetch
     pub auto_backfill: bool,
+    /// Directory path for the local cache store
     pub cache_dir: PathBuf,
+    /// Whether to emit warnings before expensive API calls
     pub warn_on_expensive_calls: bool,
 }
 
@@ -58,6 +67,7 @@ impl Default for DatabentoConfig {
 }
 
 impl DatabentoConfig {
+    /// Creates a config with the given API key and default settings
     pub fn with_api_key(api_key: String) -> Self {
         Self {
             api_key,
@@ -65,10 +75,14 @@ impl DatabentoConfig {
         }
     }
 
+    /// Returns `true` if the schema is known to be very expensive (e.g. MBO)
+    #[must_use]
     pub fn is_expensive_schema(schema: databento::dbn::Schema) -> bool {
         matches!(schema, databento::dbn::Schema::Mbo)
     }
 
+    /// Returns a relative cost estimate (1-10) for the given schema
+    #[must_use]
     pub fn schema_cost_estimate(schema: databento::dbn::Schema) -> u8 {
         use databento::dbn::Schema;
         match schema {
@@ -85,6 +99,8 @@ impl DatabentoConfig {
         }
     }
 
+    /// Returns a warning message if the date range + schema combination
+    /// is likely to be expensive, or `None` if the cost is acceptable
     pub fn check_date_range_cost(
         &self,
         start: chrono::DateTime<chrono::Utc>,
@@ -115,16 +131,22 @@ impl DatabentoConfig {
 /// Error types specific to Databento operations
 #[derive(Debug, thiserror::Error)]
 pub enum DatabentoError {
+    /// Error from the Databento REST API
     #[error("Databento API error: {0}")]
     Api(#[from] databento::Error),
+    /// Error decoding DBN wire format
     #[error("Databento DBN error: {0}")]
     Dbn(#[from] databento::dbn::Error),
+    /// Requested symbol was not found in the dataset
     #[error("Symbol not found: {0}")]
     SymbolNotFound(String),
+    /// Instrument ID could not be resolved to a symbol
     #[error("Invalid instrument ID: {0}")]
     InvalidInstrumentId(u32),
+    /// Local cache read/write failure
     #[error("Cache error: {0}")]
     Cache(String),
+    /// Invalid or missing configuration
     #[error("Configuration error: {0}")]
     Config(String),
 }

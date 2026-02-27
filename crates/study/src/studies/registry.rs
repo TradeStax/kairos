@@ -1,8 +1,41 @@
+//! Built-in study registration.
+//!
+//! Registers all 16 built-in studies into the [`StudyRegistry`] at
+//! construction time. Each entry pairs a closure factory with
+//! [`StudyInfo`] metadata used by the study picker UI.
+//!
+//! Studies are grouped by category:
+//!
+//! | Category    | Study               | Placement      |
+//! |-------------|----------------------|----------------|
+//! | Volume      | Volume               | Panel          |
+//! | Volume      | Volume Delta         | Panel          |
+//! | Volume      | CVD                  | Panel          |
+//! | Volume      | OBV                  | Panel          |
+//! | Order Flow  | Imbalance            | Background     |
+//! | Order Flow  | Big Trades           | Overlay        |
+//! | Order Flow  | Footprint            | CandleReplace  |
+//! | Order Flow  | Volume by Price      | Background     |
+//! | Trend       | SMA                  | Overlay        |
+//! | Trend       | EMA                  | Overlay        |
+//! | Trend       | VWAP                 | Overlay        |
+//! | Volatility  | ATR                  | Panel          |
+//! | Volatility  | Bollinger Bands      | Overlay        |
+//! | Momentum    | RSI                  | Panel          |
+//! | Momentum    | MACD                 | Panel          |
+//! | Momentum    | Stochastic           | Panel          |
+
 use super::{StudyInfo, StudyRegistry};
 use crate::core::{StudyCategory, StudyPlacement};
 
+/// Register all built-in studies into the given registry.
+///
+/// Called once by [`StudyRegistry::new()`] during construction.
+/// Each call to `registry.register()` stores both a closure factory
+/// (for on-demand instantiation) and a [`StudyInfo`] record (for
+/// catalog display).
 pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
-    // Volume studies
+    // ── Volume ───────────────────────────────────────────
     registry.register(
         "volume",
         StudyInfo {
@@ -27,7 +60,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
         || Box::new(crate::studies::volume::DeltaStudy::new()),
     );
 
-    // Order flow studies
+    // ── Order Flow ────────────────────────────────────
     registry.register(
         "imbalance",
         StudyInfo {
@@ -76,7 +109,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
         || Box::new(crate::studies::orderflow::VbpStudy::new()),
     );
 
-    // Trend studies
+    // ── Trend ─────────────────────────────────────────
     registry.register(
         "sma",
         StudyInfo {
@@ -113,7 +146,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
         || Box::new(crate::studies::trend::vwap::VwapStudy::new()),
     );
 
-    // Volume studies (continued)
+    // ── Volume (continued) ─────────────────────────────
     registry.register(
         "cvd",
         StudyInfo {
@@ -138,7 +171,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
         || Box::new(crate::studies::volume::ObvStudy::new()),
     );
 
-    // Volatility studies
+    // ── Volatility ────────────────────────────────────
     registry.register(
         "atr",
         StudyInfo {
@@ -163,7 +196,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
         || Box::new(crate::studies::volatility::bollinger::BollingerStudy::new()),
     );
 
-    // Momentum studies
+    // ── Momentum ──────────────────────────────────────
     registry.register(
         "rsi",
         StudyInfo {

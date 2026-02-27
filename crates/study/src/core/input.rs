@@ -1,8 +1,16 @@
 //! Input data passed to [`Study::compute()`](super::Study::compute).
+//!
+//! [`StudyInput`] bundles the candle/trade data, chart basis, tick size,
+//! and visible range that a study needs to produce its output. The chart
+//! engine constructs a fresh `StudyInput` on every compute cycle —
+//! studies should not cache references across calls.
 
 use data::{Candle, ChartBasis, Price, Trade};
 
 /// Market data and chart context provided to a study for computation.
+///
+/// All fields are borrowed from the chart engine — studies do not own the
+/// underlying data.
 pub struct StudyInput<'a> {
     /// OHLCV candle data. Non-empty; studies may return `Empty` output if
     /// fewer candles than required are present (e.g. period not yet warm).

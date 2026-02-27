@@ -1,3 +1,9 @@
+//! Order submission, modification, and position flattening.
+//!
+//! Handles all [`OrderRequest`] variants dispatched by the
+//! strategy: single orders, bracket orders, cancellations,
+//! modifications, and position flattening.
+
 use crate::engine::kernel::Engine;
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::OrderType;
@@ -7,6 +13,12 @@ use kairos_data::{FuturesTicker, Trade};
 use uuid::Uuid;
 
 impl Engine {
+    /// Dispatches a batch of order requests from a strategy
+    /// callback.
+    ///
+    /// Each request is processed sequentially to maintain
+    /// deterministic ordering — a cancel must take effect before
+    /// a subsequent submit in the same batch.
     pub(crate) fn process_order_requests(
         &mut self,
         requests: Vec<OrderRequest>,
@@ -33,7 +45,8 @@ impl Engine {
                     new_price,
                     new_quantity,
                 } => {
-                    self.order_book
+                    let _ = self
+                        .order_book
                         .modify(order_id, new_price, new_quantity, trade.time);
                 }
                 OrderRequest::Flatten { instrument, reason } => {
@@ -44,8 +57,14 @@ impl Engine {
         }
     }
 
+    /// Submits a single order to the order book.
+    ///
+    /// Market orders are filled immediately using the fill
+    /// simulator. Limit/stop orders are added to the book and
+    /// checked against future trades. A margin check is performed
+    /// before submission (unless `reduce_only` is set).
     pub(crate) fn submit_order(&mut self, new_order: NewOrder, trade: &Trade) {
-        // Margin check
+        // Margin check for non-reduce-only orders
         if !new_order.reduce_only
             && !self
                 .portfolio
@@ -56,43 +75,48 @@ impl Engine {
 
         let id = self.order_book.create_order(&new_order, trade.time);
 
-        // Market orders fill immediately
+        // Market orders fill immediately at simulated price
         if matches!(new_order.order_type, OrderType::Market) {
-            let instrument = self.instruments.get(&new_order.instrument);
-            if let Some(inst) = instrument {
-                let fill_price = self.fill_simulator.market_fill_price(
-                    trade,
-                    new_order.side,
-                    new_order.quantity,
-                    self.latest_depth.get(&new_order.instrument),
-                    inst,
-                );
-                if let Some(order) = self.order_book.get_mut(id) {
-                    order.record_fill(new_order.quantity, fill_price, trade.time);
-                }
+            let Some(inst) = self.instruments.get(&new_order.instrument) else {
+                return;
+            };
 
-                // Update portfolio
-                let record = self.portfolio.process_fill(
-                    new_order.instrument,
-                    new_order.side,
-                    fill_price,
-                    new_order.quantity,
-                    trade.time,
-                    None,
-                    new_order.label,
-                );
+            let fill_price = self.fill_simulator.market_fill_price(
+                trade,
+                new_order.side,
+                new_order.quantity,
+                self.latest_depth.get(&new_order.instrument),
+                inst,
+            );
+            if let Some(order) = self.order_book.get_mut(id) {
+                order.record_fill(new_order.quantity, fill_price, trade.time);
+            }
 
-                if let Some(record) = record {
-                    self.equity_curve
-                        .record(trade.time, self.portfolio.cash(), 0.0);
-                    self.completed_trades.push(record);
-                }
+            let record = self.portfolio.process_fill(
+                new_order.instrument,
+                new_order.side,
+                fill_price,
+                new_order.quantity,
+                trade.time,
+                None,
+                new_order.label,
+            );
+
+            if let Some(record) = record {
+                self.equity_curve
+                    .record(trade.time, self.portfolio.cash(), 0.0);
+                self.completed_trades.push(record);
             }
         }
     }
 
+    /// Submits a bracket order (entry + stop-loss + take-profit).
+    ///
+    /// The entry order is created with pending SL/TP children. If
+    /// the entry is a market order, it fills immediately, the
+    /// bracket children are activated, and the stop loss is set on
+    /// the resulting position.
     pub(crate) fn submit_bracket(&mut self, bracket: BracketOrder, trade: &Trade) {
-        // Margin check
         if !self
             .portfolio
             .check_margin(&bracket.entry.instrument, bracket.entry.quantity)
@@ -102,119 +126,133 @@ impl Engine {
 
         let (entry_id, _sl_id, _tp_id) = self.order_book.create_bracket(&bracket, trade.time);
 
-        // If entry is Market, fill immediately
+        // Market entry fills immediately
         if matches!(bracket.entry.order_type, OrderType::Market) {
-            let instrument = self.instruments.get(&bracket.entry.instrument);
-            if let Some(inst) = instrument {
-                let fill_price = self.fill_simulator.market_fill_price(
-                    trade,
-                    bracket.entry.side,
-                    bracket.entry.quantity,
-                    self.latest_depth.get(&bracket.entry.instrument),
-                    inst,
-                );
-                if let Some(order) = self.order_book.get_mut(entry_id) {
-                    order.record_fill(bracket.entry.quantity, fill_price, trade.time);
-                }
-                // Activate bracket children
-                self.order_book.activate_bracket_children(entry_id);
+            let Some(inst) = self.instruments.get(&bracket.entry.instrument) else {
+                return;
+            };
 
-                // Update portfolio
-                let record = self.portfolio.process_fill(
-                    bracket.entry.instrument,
-                    bracket.entry.side,
-                    fill_price,
-                    bracket.entry.quantity,
-                    trade.time,
-                    None,
-                    bracket.entry.label,
-                );
+            let fill_price = self.fill_simulator.market_fill_price(
+                trade,
+                bracket.entry.side,
+                bracket.entry.quantity,
+                self.latest_depth.get(&bracket.entry.instrument),
+                inst,
+            );
+            if let Some(order) = self.order_book.get_mut(entry_id) {
+                order.record_fill(bracket.entry.quantity, fill_price, trade.time);
+            }
+            // Activate SL/TP children now that entry is filled
+            self.order_book.activate_bracket_children(entry_id);
 
-                // Set stop loss on the newly created position
-                if let Some(pos) = self
-                    .portfolio
-                    .positions_mut()
-                    .get_mut(&bracket.entry.instrument)
-                {
-                    pos.set_stop_loss(bracket.stop_loss);
-                }
+            let record = self.portfolio.process_fill(
+                bracket.entry.instrument,
+                bracket.entry.side,
+                fill_price,
+                bracket.entry.quantity,
+                trade.time,
+                None,
+                bracket.entry.label,
+            );
 
-                if let Some(record) = record {
-                    self.equity_curve
-                        .record(trade.time, self.portfolio.cash(), 0.0);
-                    self.completed_trades.push(record);
-                }
+            // Propagate stop loss to the new position
+            if let Some(pos) = self
+                .portfolio
+                .positions_mut()
+                .get_mut(&bracket.entry.instrument)
+            {
+                pos.set_stop_loss(bracket.stop_loss);
+            }
+
+            if let Some(record) = record {
+                self.equity_curve
+                    .record(trade.time, self.portfolio.cash(), 0.0);
+                self.completed_trades.push(record);
             }
         }
     }
 
+    /// Flattens (closes) an entire position for the given
+    /// instrument.
+    ///
+    /// Cancels all active orders for the instrument, then submits
+    /// a market order in the opposite direction to close the
+    /// position.
     pub(crate) fn flatten_position(
         &mut self,
         instrument: FuturesTicker,
         reason: ExitReason,
         trade: &Trade,
     ) {
-        // Cancel all orders for this instrument
         self.order_book.cancel_all(Some(instrument), trade.time);
 
-        // Close position at market
-        if let Some(pos) = self.portfolio.positions().get(&instrument) {
-            let side = pos.side.opposite();
-            let qty = pos.quantity;
-            let inst = self.instruments.get(&instrument);
-            if let Some(inst) = inst {
-                let fill_price = self.fill_simulator.market_fill_price(
-                    trade,
-                    side,
-                    qty,
-                    self.latest_depth.get(&instrument),
-                    inst,
-                );
-                let record = self.portfolio.process_fill(
-                    instrument,
-                    side,
-                    fill_price,
-                    qty,
-                    trade.time,
-                    Some(reason),
-                    None,
-                );
-                if let Some(record) = record {
-                    self.equity_curve
-                        .record(trade.time, self.portfolio.cash(), 0.0);
-                    self.completed_trades.push(record);
-                }
-            }
+        let Some(pos) = self.portfolio.positions().get(&instrument) else {
+            return;
+        };
+        let side = pos.side.opposite();
+        let qty = pos.quantity;
+
+        let Some(inst) = self.instruments.get(&instrument) else {
+            return;
+        };
+
+        let fill_price = self.fill_simulator.market_fill_price(
+            trade,
+            side,
+            qty,
+            self.latest_depth.get(&instrument),
+            inst,
+        );
+        let record = self.portfolio.process_fill(
+            instrument,
+            side,
+            fill_price,
+            qty,
+            trade.time,
+            Some(reason),
+            None,
+        );
+        if let Some(record) = record {
+            self.equity_curve
+                .record(trade.time, self.portfolio.cash(), 0.0);
+            self.completed_trades.push(record);
         }
     }
 
+    /// Closes all open positions at the last available price.
+    ///
+    /// Used at end-of-data to ensure no positions remain open.
+    /// Adds a warning to the result if any positions were
+    /// force-closed.
     pub(crate) fn close_all_positions(&mut self, reason: ExitReason) {
         let instruments: Vec<FuturesTicker> = self.portfolio.positions().keys().copied().collect();
 
         for &instrument in &instruments {
-            if let Some(pos) = self.portfolio.positions().get(&instrument) {
-                let side = pos.side.opposite();
-                let qty = pos.quantity;
-                let mark = pos.mark_price;
-                let label = pos.label.clone();
-                let timestamp = self.clock.now();
+            let Some(pos) = self.portfolio.positions().get(&instrument) else {
+                continue;
+            };
 
-                let fill_price = self.latest_prices.get(&instrument).copied().unwrap_or(mark);
+            let side = pos.side.opposite();
+            let qty = pos.quantity;
+            let mark = pos.mark_price;
+            let label = pos.label.clone();
+            let timestamp = self.clock.now();
 
-                let record = self.portfolio.process_fill(
-                    instrument,
-                    side,
-                    fill_price,
-                    qty,
-                    timestamp,
-                    Some(reason),
-                    label,
-                );
-                if let Some(record) = record {
-                    self.equity_curve
-                        .record(timestamp, self.portfolio.cash(), 0.0);
-                    self.completed_trades.push(record);
-                }
+            let fill_price = self.latest_prices.get(&instrument).copied().unwrap_or(mark);
+
+            let record = self.portfolio.process_fill(
+                instrument,
+                side,
+                fill_price,
+                qty,
+                timestamp,
+                Some(reason),
+                label,
+            );
+            if let Some(record) = record {
+                self.equity_curve
+                    .record(timestamp, self.portfolio.cash(), 0.0);
+                self.completed_trades.push(record);
             }
         }
 

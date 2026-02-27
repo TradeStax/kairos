@@ -1,25 +1,39 @@
-//! DayFile — per-day bincode+zstd serialization format
+//! Per-day bincode+zstd serialization format.
 //!
-//! Each file stores a header followed by a `Vec<T>` serialized with bincode
-//! and compressed with zstd.
+//! Each cache file stores a [`DayFileHeader`] followed by a `Vec<T>` payload,
+//! both serialized with bincode and compressed with zstd (level 3).
 
 use serde::{Deserialize, Serialize};
 
-const MAGIC: u32 = 0x4B414952; // "KAIR"
+/// Magic bytes identifying a Kairos cache file ("KAIR" in ASCII).
+const MAGIC: u32 = 0x4B414952;
+
+/// Current format version for forward-compatibility checks.
 const FORMAT_VERSION: u8 = 1;
 
-/// File header written before the payload
+/// File header written before the compressed payload.
+///
+/// Contains metadata for validation and debugging: magic number, format
+/// version, schema name, symbol, date, and record count.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DayFileHeader {
+    /// Magic number for file identification
     pub magic: u32,
+    /// Format version for compatibility checks
     pub version: u8,
+    /// Data schema (e.g. "trades", "depth", "ohlcv")
     pub schema: String,
+    /// Ticker symbol (e.g. "ES.c.0")
     pub symbol: String,
-    pub date: String, // YYYY-MM-DD
+    /// ISO date string (YYYY-MM-DD)
+    pub date: String,
+    /// Number of records in the payload
     pub record_count: u64,
 }
 
 impl DayFileHeader {
+    /// Creates a new header with the current magic number and format version
+    #[must_use]
     pub fn new(
         schema: impl Into<String>,
         symbol: impl Into<String>,
@@ -36,6 +50,7 @@ impl DayFileHeader {
         }
     }
 
+    /// Validates the magic number and format version
     pub fn validate(&self) -> Result<(), String> {
         if self.magic != MAGIC {
             return Err(format!(
@@ -50,39 +65,39 @@ impl DayFileHeader {
     }
 }
 
-/// Serialize a day's records to bincode+zstd bytes
+/// Serializes a day's records to bincode+zstd compressed bytes.
+///
+/// Wire format: `[4-byte header_len LE][header bytes][record bytes]`, then
+/// zstd-compressed as a single frame.
 pub fn encode<T: Serialize>(header: &DayFileHeader, records: &[T]) -> Result<Vec<u8>, String> {
-    // Serialize header
     let header_bytes =
         bincode::serialize(header).map_err(|e| format!("Header serialization failed: {e}"))?;
 
-    // Serialize records
     let records_bytes =
         bincode::serialize(records).map_err(|e| format!("Records serialization failed: {e}"))?;
 
-    // Build raw payload: [4-byte header len][header][records]
     let mut raw = Vec::with_capacity(4 + header_bytes.len() + records_bytes.len());
     let header_len = header_bytes.len() as u32;
     raw.extend_from_slice(&header_len.to_le_bytes());
     raw.extend_from_slice(&header_bytes);
     raw.extend_from_slice(&records_bytes);
 
-    // Compress with zstd
     zstd::encode_all(raw.as_slice(), 3).map_err(|e| format!("zstd compression failed: {e}"))
 }
 
-/// Deserialize a day's records from bincode+zstd bytes
+/// Deserializes a day's records from bincode+zstd compressed bytes.
+///
+/// Returns the header and decoded record vector. Validates the header
+/// magic number and format version before returning.
 pub fn decode<T: for<'de> Deserialize<'de>>(
     bytes: &[u8],
 ) -> Result<(DayFileHeader, Vec<T>), String> {
-    // Decompress
     let raw = zstd::decode_all(bytes).map_err(|e| format!("zstd decompression failed: {e}"))?;
 
     if raw.len() < 4 {
         return Err("File too small to contain header length prefix".to_string());
     }
 
-    // Extract header length
     let header_len = u32::from_le_bytes(
         raw[..4]
             .try_into()
@@ -92,12 +107,10 @@ pub fn decode<T: for<'de> Deserialize<'de>>(
         return Err("File truncated before header end".to_string());
     }
 
-    // Deserialize header
     let header: DayFileHeader = bincode::deserialize(&raw[4..4 + header_len])
         .map_err(|e| format!("Header deserialization failed: {e}"))?;
     header.validate()?;
 
-    // Deserialize records
     let records: Vec<T> = bincode::deserialize(&raw[4 + header_len..])
         .map_err(|e| format!("Records deserialization failed: {e}"))?;
 

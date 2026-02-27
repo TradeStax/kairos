@@ -1,3 +1,9 @@
+//! Top-level portfolio manager for backtest execution.
+//!
+//! [`Portfolio`] is the central financial state machine. It owns all
+//! open positions, tracks cash and realized PnL, enforces margin
+//! constraints, and produces [`TradeRecord`]s when positions close.
+
 use crate::config::instrument::InstrumentSpec;
 use crate::order::types::OrderSide;
 use crate::output::trade_record::{ExitReason, TradeRecord};
@@ -6,20 +12,45 @@ use crate::portfolio::position::Position;
 use kairos_data::{FuturesTicker, Price, Timestamp};
 use std::collections::HashMap;
 
-/// Manages positions, cash, margin, and PnL for a backtest.
+/// Manages positions, cash, margin, and PnL for a backtest run.
+///
+/// The portfolio processes fill events from the matching engine,
+/// maintains a cash ledger with commission accounting, and emits
+/// completed [`TradeRecord`]s when positions are fully closed.
 pub struct Portfolio {
+    /// Starting capital for this run (used by [`reset`](Self::reset)).
     initial_equity: f64,
+    /// Current cash balance (initial equity + realized PnL
+    /// - commissions).
     cash: f64,
+    /// Cumulative net realized PnL across all closed trades.
     realized_pnl: f64,
+    /// Currently open positions, keyed by instrument.
     positions: HashMap<FuturesTicker, Position>,
+    /// Contract specifications for tradeable instruments.
     instruments: HashMap<FuturesTicker, InstrumentSpec>,
+    /// Optional margin enforcement (None = unlimited buying power).
     margin_calculator: Option<MarginCalculator>,
+    /// Commission charged per side per contract (USD).
     commission_per_side: f64,
+    /// High-water mark of total equity for drawdown calculation.
     peak_equity: f64,
+    /// Monotonically increasing trade counter for [`TradeRecord`]
+    /// indexing.
     trade_index: usize,
 }
 
 impl Portfolio {
+    /// Create a new portfolio with the given starting capital.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_equity` -- starting cash balance in USD.
+    /// * `instruments` -- contract specs for all tradeable symbols.
+    /// * `commission_per_side` -- fee per contract per side (USD).
+    /// * `margin_calculator` -- optional margin enforcement; pass
+    ///   `None` for unlimited buying power.
+    #[must_use]
     pub fn new(
         initial_equity: f64,
         instruments: HashMap<FuturesTicker, InstrumentSpec>,
@@ -39,39 +70,56 @@ impl Portfolio {
         }
     }
 
+    /// Current cash balance (initial equity + closed-trade PnL
+    /// - commissions).
+    #[must_use]
     pub fn cash(&self) -> f64 {
         self.cash
     }
 
+    /// Cumulative net realized PnL from all closed trades.
+    #[must_use]
     pub fn realized_pnl(&self) -> f64 {
         self.realized_pnl
     }
 
+    /// Read-only view of all open positions.
+    #[must_use]
     pub fn positions(&self) -> &HashMap<FuturesTicker, Position> {
         &self.positions
     }
 
+    /// Mutable access to open positions (for engine-level
+    /// operations like forced liquidation).
     pub fn positions_mut(&mut self) -> &mut HashMap<FuturesTicker, Position> {
         &mut self.positions
     }
 
-    /// Total equity = cash + sum of unrealized PnL across all
+    /// Total equity = cash + unrealized PnL across all open
     /// positions.
+    ///
+    /// This is the portfolio's mark-to-market value.
+    #[must_use]
     pub fn total_equity(&self) -> f64 {
         let unrealized: f64 = self
             .positions
             .values()
             .map(|pos| {
-                let inst = self.instruments.get(&pos.instrument);
-                inst.map(|i| pos.unrealized_pnl(i.tick_size, i.tick_value))
+                self.instruments
+                    .get(&pos.instrument)
+                    .map(|i| pos.unrealized_pnl(i.tick_size, i.tick_value))
                     .unwrap_or(0.0)
             })
             .sum();
         self.cash + unrealized
     }
 
-    /// Available buying power = cash - margin used by open
-    /// positions.
+    /// Available buying power = cash - maintenance margin used by
+    /// open positions.
+    ///
+    /// Returns the full cash balance when no margin calculator is
+    /// configured.
+    #[must_use]
     pub fn buying_power(&self) -> f64 {
         if let Some(ref mc) = self.margin_calculator {
             let margin_used: f64 = self
@@ -85,7 +133,11 @@ impl Portfolio {
         }
     }
 
-    /// Check if margin allows a new order.
+    /// Check whether margin allows a new order of the given size.
+    ///
+    /// Returns `true` if buying power exceeds the initial margin
+    /// requirement, or if no margin calculator is configured.
+    #[must_use]
     pub fn check_margin(&self, instrument: &FuturesTicker, quantity: f64) -> bool {
         if let Some(ref mc) = self.margin_calculator {
             let required = mc.order_margin(quantity, instrument, &self.instruments);
@@ -95,8 +147,17 @@ impl Portfolio {
         }
     }
 
-    /// Process a fill event. Returns a TradeRecord if a position
-    /// was closed.
+    /// Process a fill event from the matching engine.
+    ///
+    /// Applies commission, updates position state, and returns a
+    /// [`TradeRecord`] if a position was fully closed.
+    ///
+    /// # Fill semantics
+    ///
+    /// - **New position**: creates a [`Position`] on the given side.
+    /// - **Same-side fill**: scales into the existing position.
+    /// - **Opposite-side fill**: reduces/closes the position and
+    ///   realizes PnL.
     #[allow(clippy::too_many_arguments)]
     pub fn process_fill(
         &mut self,
@@ -108,19 +169,22 @@ impl Portfolio {
         exit_reason: Option<ExitReason>,
         label: Option<String>,
     ) -> Option<TradeRecord> {
+        // Charge entry commission up front
         let commission = self.commission_per_side * fill_qty;
         self.cash -= commission;
 
         if let Some(pos) = self.positions.get_mut(&instrument) {
             if side == pos.side {
-                // Adding to position
+                // Adding to existing position (scale in)
                 pos.apply_fill(side, fill_price, fill_qty, timestamp);
                 None
             } else {
-                // Closing/reducing position
+                // Closing/reducing position (opposite side)
                 let (consumed, closed) = pos.apply_fill(side, fill_price, fill_qty, timestamp);
-                let inst = self.instruments.get(&instrument);
-                let (tick_size, tick_value) = inst
+
+                let (tick_size, tick_value) = self
+                    .instruments
+                    .get(&instrument)
                     .map(|i| (i.tick_size, i.tick_value))
                     .unwrap_or((Price::from_f64(0.25), 12.50));
 
@@ -143,6 +207,7 @@ impl Portfolio {
 
                 let record = if closed {
                     self.trade_index += 1;
+
                     let stop_dist_ticks = pos
                         .initial_stop_loss
                         .map(|sl| {
@@ -154,6 +219,7 @@ impl Portfolio {
                         })
                         .unwrap_or(0);
 
+                    // R:R = profit ticks / risk ticks
                     let rr = if stop_dist_ticks != 0 {
                         pnl_ticks as f64 / stop_dist_ticks as f64
                     } else {
@@ -193,14 +259,18 @@ impl Portfolio {
                 record
             }
         } else {
-            // New position
+            // No existing position -- open a new one
             let pos = Position::new(instrument, side, fill_price, fill_qty, timestamp, label);
             self.positions.insert(instrument, pos);
             None
         }
     }
 
-    /// Mark all positions to market with current prices.
+    /// Mark all open positions to market with current prices.
+    ///
+    /// Updates each position's mark price and refreshes MAE/MFE.
+    /// Also updates the peak equity high-water mark for drawdown
+    /// calculation.
     pub fn mark_to_market(&mut self, prices: &HashMap<FuturesTicker, Price>) {
         for (ticker, pos) in &mut self.positions {
             if let Some(price) = prices.get(ticker) {
@@ -214,6 +284,13 @@ impl Portfolio {
     }
 
     /// Current drawdown as a percentage of peak equity.
+    ///
+    /// # Formula
+    ///
+    /// `(peak_equity - current_equity) / peak_equity * 100`
+    ///
+    /// Returns 0.0 if peak equity is zero or negative.
+    #[must_use]
     pub fn current_drawdown_pct(&self) -> f64 {
         let eq = self.total_equity();
         if self.peak_equity > 0.0 {
@@ -223,12 +300,19 @@ impl Portfolio {
         }
     }
 
+    /// Whether the portfolio has an open position in the given
+    /// instrument.
+    #[must_use]
     pub fn has_position(&self, instrument: &FuturesTicker) -> bool {
         self.positions
             .get(instrument)
             .is_some_and(|p| p.quantity > 0.0)
     }
 
+    /// Reset the portfolio to its initial state.
+    ///
+    /// Clears all positions, resets cash to the initial equity, and
+    /// zeroes out cumulative PnL and the trade counter.
     pub fn reset(&mut self) {
         self.cash = self.initial_equity;
         self.realized_pnl = 0.0;

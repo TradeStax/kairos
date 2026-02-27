@@ -1,4 +1,4 @@
-//! Connection configuration and lifecycle management.
+//! Connection configuration and lifecycle management for data feeds.
 //!
 //! - [`manager`] — `ConnectionManager` stores connections, resolves best source for a ticker
 //! - [`types`] — `Connection`, `ConnectionProvider`, `ConnectionStatus`, `ConnectionCapability`

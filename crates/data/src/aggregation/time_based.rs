@@ -1,10 +1,16 @@
-//! Time-based aggregation: trades → candles, candles → higher timeframes
+//! Time-based aggregation: trades to candles, candles to higher timeframes.
+//!
+//! Trades are bucketed by `timeframe_millis` intervals. Each bucket produces
+//! one OHLCV candle with separate buy/sell volume tracking.
 
 use super::AggregationError;
 use crate::domain::{Candle, Price, Timestamp, Trade, Volume};
 use std::collections::BTreeMap;
 
-/// Aggregate tick-by-tick trades into time-based OHLCV candles
+/// Aggregates tick-by-tick trades into time-based OHLCV candles.
+///
+/// The `timeframe_millis` must be at least 1000ms. Prices are rounded to
+/// the nearest `tick_size`. In debug builds, unsorted trades return an error.
 pub fn aggregate_trades_to_candles(
     trades: &[Trade],
     timeframe_millis: u64,
@@ -51,7 +57,10 @@ pub fn aggregate_trades_to_candles(
     Ok(candles)
 }
 
-/// Aggregate candles from one timeframe to a higher timeframe
+/// Aggregates candles from one timeframe to a higher timeframe.
+///
+/// Candles are bucketed by `target_timeframe_millis`. OHLC is computed from
+/// the first/last/max/min candle in each bucket; volumes are summed.
 pub fn aggregate_candles_to_timeframe(
     candles: &[Candle],
     target_timeframe_millis: u64,
@@ -83,6 +92,7 @@ pub fn aggregate_candles_to_timeframe(
     Ok(result)
 }
 
+/// Builds a single candle from a bucket of trades, rounding prices to tick size.
 fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Price) -> Candle {
     if trades.is_empty() {
         return Candle::new(
@@ -135,6 +145,7 @@ fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Pri
     .expect("invariant: high = max price, low = min price guarantees OHLC constraints")
 }
 
+/// Aggregates a bucket of candles into a single higher-timeframe candle.
 fn aggregate_candle_bucket(time: Timestamp, candles: Vec<&Candle>) -> Candle {
     if candles.is_empty() {
         return Candle::new(

@@ -517,9 +517,13 @@ fn price_to_units(price: f64) -> i64 {
 
 /// Convert a time string to milliseconds (SerializablePoint uses ms).
 /// Accepts ISO 8601, epoch seconds, or epoch milliseconds.
-fn time_to_ms(s: &str) -> Option<u64> {
+/// Naive timestamps are interpreted in the user's timezone.
+fn time_to_ms(
+    s: &str,
+    tz: crate::config::UserTimezone,
+) -> Option<u64> {
     // Try ISO 8601 first
-    if let Some(ms) = parse_iso_to_millis(s) {
+    if let Some(ms) = parse_iso_to_millis(s, tz) {
         return Some(ms);
     }
     // Try epoch seconds / milliseconds (AI might pass numeric strings)
@@ -653,7 +657,7 @@ fn exec_add_text_annotation(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
     let color_name = args["color"].as_str().unwrap_or("white");
     let color = parse_color_name(color_name);
 
-    let Some(time_ms) = time_to_ms(time_str) else {
+    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -801,7 +805,7 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     let label = args["label"].as_str().map(String::from);
     let color = parse_color_name(color_name);
 
-    let Some(start_ms) = time_to_ms(time_start) else {
+    let Some(start_ms) = time_to_ms(time_start, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -815,7 +819,7 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
             is_error: true,
         };
     };
-    let Some(end_ms) = time_to_ms(time_end) else {
+    let Some(end_ms) = time_to_ms(time_end, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -912,7 +916,7 @@ fn exec_add_arrow(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     let color_name = args["color"].as_str().unwrap_or("yellow");
     let color = parse_color_name(color_name);
 
-    let Some(from_ms) = time_to_ms(from_time) else {
+    let Some(from_ms) = time_to_ms(from_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -926,7 +930,7 @@ fn exec_add_arrow(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
             is_error: true,
         };
     };
-    let Some(to_ms) = time_to_ms(to_time) else {
+    let Some(to_ms) = time_to_ms(to_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1028,7 +1032,7 @@ fn exec_add_vertical_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult
         };
     };
 
-    let Some(time_ms) = time_to_ms(time_str) else {
+    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1105,7 +1109,7 @@ fn exec_add_price_label(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
         };
     };
 
-    let Some(time_ms) = time_to_ms(time_str) else {
+    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1205,7 +1209,7 @@ fn exec_two_point_line(
     let color = parse_color_name(color_name);
     let line_style = parse_line_style(style_name);
 
-    let Some(from_ms) = time_to_ms(from_time) else {
+    let Some(from_ms) = time_to_ms(from_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1218,7 +1222,7 @@ fn exec_two_point_line(
             is_error: true,
         };
     };
-    let Some(to_ms) = time_to_ms(to_time) else {
+    let Some(to_ms) = time_to_ms(to_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1322,7 +1326,7 @@ fn exec_add_ellipse(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     let opacity = args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
     let color = parse_color_name(color_name);
 
-    let Some(start_ms) = time_to_ms(time_start) else {
+    let Some(start_ms) = time_to_ms(time_start, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1335,7 +1339,7 @@ fn exec_add_ellipse(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
             is_error: true,
         };
     };
-    let Some(end_ms) = time_to_ms(time_end) else {
+    let Some(end_ms) = time_to_ms(time_end, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1425,7 +1429,7 @@ fn exec_add_fib_retracement(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
     let color_name = args["color"].as_str().unwrap_or("blue");
     let color = parse_color_name(color_name);
 
-    let Some(high_ms) = time_to_ms(high_time) else {
+    let Some(high_ms) = time_to_ms(high_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
@@ -1438,7 +1442,7 @@ fn exec_add_fib_retracement(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
             is_error: true,
         };
     };
-    let Some(low_ms) = time_to_ms(low_time) else {
+    let Some(low_ms) = time_to_ms(low_time, ctx.timezone) else {
         return ToolExecResult {
             content_json: json!({
                 "error": format!(

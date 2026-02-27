@@ -1,3 +1,9 @@
+//! Walk-forward optimization framework for strategy parameter tuning.
+//!
+//! Provides grid-based parameter search with rolling in-sample /
+//! out-of-sample window splits to detect overfitting and estimate
+//! realistic out-of-sample performance.
+
 pub mod objective;
 pub mod parameter_space;
 pub mod result;

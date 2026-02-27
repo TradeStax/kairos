@@ -2,9 +2,12 @@
 
 use super::super::ManagerMessage;
 use super::{
-    ChartHoverState, draw_crosshair_lines, draw_snap_dot, draw_tooltip_box, format_currency,
-    format_date, grid_lines, handle_cursor_event, position_tooltip, tooltip_size,
+    ChartHoverState, draw_crosshair_lines, draw_snap_dot,
+    draw_tooltip_box, format_currency, format_date,
+    grid_lines, handle_cursor_event, position_tooltip,
+    tooltip_size,
 };
+use crate::config::UserTimezone;
 use crate::style::tokens;
 use iced::mouse;
 use iced::widget::canvas::{self, Fill, Frame, Geometry, Path, Stroke, Text};
@@ -17,6 +20,7 @@ pub struct EquityChart<'a> {
     pub result: Arc<backtest::BacktestResult>,
     pub selected_trade_idx: Option<usize>,
     pub cache: &'a canvas::Cache,
+    pub timezone: UserTimezone,
 }
 
 impl<'a> canvas::Program<ManagerMessage> for EquityChart<'a> {
@@ -240,8 +244,11 @@ impl<'a> EquityChart<'a> {
         };
 
         let lines = vec![
-            format_date(snap_point.timestamp.0),
-            format!("Equity: {}", format_currency(snap_point.total_equity_usd)),
+            format_date(snap_point.timestamp.0, self.timezone),
+            format!(
+                "Equity: {}",
+                format_currency(snap_point.total_equity_usd)
+            ),
             format!("DD: {:.1}%", dd_pct),
             format!("Trade #{}", snap_idx + 1),
         ];

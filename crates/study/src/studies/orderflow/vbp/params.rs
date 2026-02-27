@@ -11,70 +11,75 @@ use crate::config::{
 use crate::{BEARISH_COLOR, BULLISH_COLOR};
 use data::SerializableColor;
 
-pub(super) const DEFAULT_VOLUME_COLOR: SerializableColor = SerializableColor {
-    r: 0.95,
-    g: 0.55,
-    b: 0.15,
-    a: 0.7,
-};
-pub(super) const DEFAULT_BID_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.7);
-pub(super) const DEFAULT_ASK_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.7);
-pub(super) const DEFAULT_POC_COLOR: SerializableColor = SerializableColor {
-    r: 1.0,
-    g: 0.84,
-    b: 0.0,
-    a: 1.0,
-};
-pub(super) const DEFAULT_DEV_POC_COLOR: SerializableColor = SerializableColor {
-    r: 1.0,
-    g: 0.84,
-    b: 0.0,
-    a: 0.5,
-};
-pub(super) const DEFAULT_VAH_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.7,
-    b: 1.0,
-    a: 0.8,
-};
-pub(super) const DEFAULT_VAL_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.7,
-    b: 1.0,
-    a: 0.8,
-};
-pub(super) const DEFAULT_VA_FILL_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.7,
-    b: 1.0,
-    a: 0.15,
-};
-pub(super) const DEFAULT_PEAK_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.8);
-pub(super) const DEFAULT_DEV_PEAK_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.5);
-pub(super) const DEFAULT_HVN_ZONE_COLOR: SerializableColor = BULLISH_COLOR.with_alpha(0.5);
-pub(super) const DEFAULT_VALLEY_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.8);
-pub(super) const DEFAULT_DEV_VALLEY_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.5);
-pub(super) const DEFAULT_LVN_ZONE_COLOR: SerializableColor = BEARISH_COLOR.with_alpha(0.5);
-pub(super) const DEFAULT_VWAP_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.9,
-    b: 0.9,
-    a: 1.0,
-};
-pub(super) const DEFAULT_VWAP_BAND_COLOR: SerializableColor = SerializableColor {
-    r: 0.0,
-    g: 0.9,
-    b: 0.9,
-    a: 0.4,
-};
+// ── Default colors ───────────────────────────────────────────
+
+/// Orange, semi-transparent -- total volume bars.
+pub(super) const DEFAULT_VOLUME_COLOR: SerializableColor =
+    SerializableColor { r: 0.95, g: 0.55, b: 0.15, a: 0.7 };
+/// Bearish color at 70% opacity -- bid (buy) volume.
+pub(super) const DEFAULT_BID_COLOR: SerializableColor =
+    BEARISH_COLOR.with_alpha(0.7);
+/// Bullish color at 70% opacity -- ask (sell) volume.
+pub(super) const DEFAULT_ASK_COLOR: SerializableColor =
+    BULLISH_COLOR.with_alpha(0.7);
+/// Gold, fully opaque -- POC line.
+pub(super) const DEFAULT_POC_COLOR: SerializableColor =
+    SerializableColor { r: 1.0, g: 0.84, b: 0.0, a: 1.0 };
+/// Gold at 50% opacity -- developing POC line.
+pub(super) const DEFAULT_DEV_POC_COLOR: SerializableColor =
+    SerializableColor { r: 1.0, g: 0.84, b: 0.0, a: 0.5 };
+/// Cyan at 80% -- Value Area High line.
+pub(super) const DEFAULT_VAH_COLOR: SerializableColor =
+    SerializableColor { r: 0.0, g: 0.7, b: 1.0, a: 0.8 };
+/// Cyan at 80% -- Value Area Low line.
+pub(super) const DEFAULT_VAL_COLOR: SerializableColor =
+    SerializableColor { r: 0.0, g: 0.7, b: 1.0, a: 0.8 };
+/// Cyan at 15% -- Value Area fill.
+pub(super) const DEFAULT_VA_FILL_COLOR: SerializableColor =
+    SerializableColor { r: 0.0, g: 0.7, b: 1.0, a: 0.15 };
+/// Bullish color at 80% -- peak line.
+pub(super) const DEFAULT_PEAK_COLOR: SerializableColor =
+    BULLISH_COLOR.with_alpha(0.8);
+/// Bullish color at 50% -- developing peak line.
+pub(super) const DEFAULT_DEV_PEAK_COLOR: SerializableColor =
+    BULLISH_COLOR.with_alpha(0.5);
+/// Bullish color at 50% -- HVN zone fill.
+pub(super) const DEFAULT_HVN_ZONE_COLOR: SerializableColor =
+    BULLISH_COLOR.with_alpha(0.5);
+/// Bearish color at 80% -- valley line.
+pub(super) const DEFAULT_VALLEY_COLOR: SerializableColor =
+    BEARISH_COLOR.with_alpha(0.8);
+/// Bearish color at 50% -- developing valley line.
+pub(super) const DEFAULT_DEV_VALLEY_COLOR: SerializableColor =
+    BEARISH_COLOR.with_alpha(0.5);
+/// Bearish color at 50% -- LVN zone fill.
+pub(super) const DEFAULT_LVN_ZONE_COLOR: SerializableColor =
+    BEARISH_COLOR.with_alpha(0.5);
+/// Cyan, fully opaque -- anchored VWAP line.
+pub(super) const DEFAULT_VWAP_COLOR: SerializableColor =
+    SerializableColor { r: 0.0, g: 0.9, b: 0.9, a: 1.0 };
+/// Cyan at 40% -- VWAP standard deviation bands.
+pub(super) const DEFAULT_VWAP_BAND_COLOR: SerializableColor =
+    SerializableColor { r: 0.0, g: 0.9, b: 0.9, a: 0.4 };
 
 /// Build the full parameter definition list for VbpStudy.
+///
+/// Delegates to per-tab helper functions for readability. Each
+/// helper appends its parameters to the shared `params` vec.
 pub(super) fn build_params() -> Vec<ParameterDef> {
     let mut params = Vec::with_capacity(72);
+    build_data_tab_params(&mut params);
+    build_style_tab_params(&mut params);
+    build_poc_tab_params(&mut params);
+    build_value_area_tab_params(&mut params);
+    build_nodes_tab_params(&mut params);
+    build_vwap_tab_params(&mut params);
+    params
+}
 
-    // ── Data Tab (Parameters) ─────────────────────────────────
-
-    // Location section (before Period)
+/// Data tab: location, VBP type, period, tick grouping, value area %.
+fn build_data_tab_params(params: &mut Vec<ParameterDef>) {
+    // Location section
     let location_section = Some(ParameterSection {
         label: "Location",
         order: 0,
@@ -96,7 +101,9 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
     params.push(ParameterDef {
         key: "side_panel_cumulative".into(),
         label: "Cumulative".into(),
-        description: "Merge all periods into a single cumulative profile".into(),
+        description:
+            "Merge all periods into a single cumulative profile"
+                .into(),
         kind: ParameterKind::Boolean,
         default: ParameterValue::Boolean(true),
         tab: ParameterTab::Parameters,
@@ -280,7 +287,8 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
     params.push(ParameterDef {
         key: "auto_group_factor".into(),
         label: "Auto Group Factor".into(),
-        description: "Tick size multiplier for automatic grouping".into(),
+        description: "Tick size multiplier for automatic grouping"
+            .into(),
         kind: ParameterKind::Integer { min: 1, max: 100 },
         default: ParameterValue::Integer(1),
         tab: ParameterTab::Parameters,
@@ -308,7 +316,7 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         },
     });
 
-    // Value area percentage (Data tab, standalone)
+    // Value area percentage (standalone)
     params.push(ParameterDef {
         key: "value_area_pct".into(),
         label: "Value Area %".into(),
@@ -325,8 +333,10 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Percent,
         visible_when: Visibility::Always,
     });
+}
 
-    // ── Style Tab ─────────────────────────────────────────────
+/// Style tab: colors, width, opacity, alignment.
+fn build_style_tab_params(params: &mut Vec<ParameterDef>) {
     let color_section = Some(ParameterSection {
         label: "Colors",
         order: 0,
@@ -413,8 +423,10 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Auto,
         visible_when: Visibility::Always,
     });
+}
 
-    // ── POC Tab (Tab4) ────────────────────────────────────────
+/// POC tab: POC line and developing POC settings.
+fn build_poc_tab_params(params: &mut Vec<ParameterDef>) {
     let poc_line_section = Some(ParameterSection {
         label: "POC Line",
         order: 0,
@@ -555,8 +567,10 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenTrue("poc_show_developing"),
     });
+}
 
-    // ── Value Area Tab (Tab5) ─────────────────────────────────
+/// Value Area tab: VA toggle, lines, fill settings.
+fn build_value_area_tab_params(params: &mut Vec<ParameterDef>) {
     let va_section = Some(ParameterSection {
         label: "Value Area",
         order: 0,
@@ -743,10 +757,12 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenTrue("va_show_fill"),
     });
+}
 
-    // ── Peak & Valley Tab (Tab6) ──────────────────────────────
-
-    // Section 0: Detection (always visible)
+/// Peak & Valley tab: detection, HVN/LVN zones, peak/valley lines,
+/// developing peak/valley.
+fn build_nodes_tab_params(params: &mut Vec<ParameterDef>) {
+    // Detection section (always visible)
     let det_section = Some(ParameterSection {
         label: "Detection",
         order: 0,
@@ -1203,8 +1219,10 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenTrue("dev_valley_show"),
     });
+}
 
-    // ── VWAP Tab (Tab7) ───────────────────────────────────────
+/// VWAP tab: anchored VWAP line and standard deviation bands.
+fn build_vwap_tab_params(params: &mut Vec<ParameterDef>) {
     let vwap_section = Some(ParameterSection {
         label: "VWAP Line",
         order: 0,
@@ -1347,6 +1365,4 @@ pub(super) fn build_params() -> Vec<ParameterDef> {
         format: DisplayFormat::Auto,
         visible_when: Visibility::WhenTrue("vwap_show_bands"),
     });
-
-    params
 }

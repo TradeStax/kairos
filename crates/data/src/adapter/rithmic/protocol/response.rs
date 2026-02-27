@@ -1,3 +1,9 @@
+//! Rithmic response decoding and the [`RithmicResponse`] wrapper type.
+//!
+//! [`RithmicReceiverApi`] decodes raw protobuf bytes from the WebSocket
+//! into typed [`RithmicResponse`] structs, handling template ID dispatch,
+//! error extraction, and multi-response detection.
+
 use log::error;
 use prost::{Message, bytes::Bytes};
 
@@ -118,6 +124,7 @@ impl RithmicResponse {
     ///     eprintln!("Error: {:?}", response.error);
     /// }
     /// ```
+    #[must_use]
     pub fn is_error(&self) -> bool {
         self.error.is_some() || self.is_connection_issue()
     }
@@ -137,6 +144,7 @@ impl RithmicResponse {
     ///     // Trigger reconnection
     /// }
     /// ```
+    #[must_use]
     pub fn is_connection_issue(&self) -> bool {
         matches!(
             self.message,
@@ -161,6 +169,7 @@ impl RithmicResponse {
     ///     // Process market data update
     /// }
     /// ```
+    #[must_use]
     pub fn is_market_data(&self) -> bool {
         matches!(
             self.message,
@@ -185,6 +194,7 @@ impl RithmicResponse {
     ///     // Process order status change
     /// }
     /// ```
+    #[must_use]
     pub fn is_order_update(&self) -> bool {
         matches!(
             self.message,
@@ -206,6 +216,7 @@ impl RithmicResponse {
     ///     // Update position tracking
     /// }
     /// ```
+    #[must_use]
     pub fn is_pnl_update(&self) -> bool {
         matches!(
             self.message,
@@ -215,15 +226,23 @@ impl RithmicResponse {
     }
 }
 
+/// Decodes raw protobuf bytes from the WebSocket into typed responses.
+///
+/// Dispatches on the protobuf `template_id` to determine which message
+/// type to decode, extracts error codes, and wraps everything in a
+/// [`RithmicResponse`].
 #[derive(Debug)]
 pub(crate) struct RithmicReceiverApi {
+    /// Plant name used in response `source` field (e.g. "ticker_plant")
     pub(crate) source: String,
 }
 
 impl RithmicReceiverApi {
-    // TODO: Consider boxing RithmicMessage or using a dedicated error type to reduce
-    // Result size (~1296 bytes). Current impact is minimal since the Result is
-    // immediately matched and not passed through deep call stacks.
+    /// Decodes a raw protobuf frame into a typed [`RithmicResponse`].
+    ///
+    /// Returns `Err(RithmicResponse)` when the frame cannot be decoded
+    /// (the error response still carries useful routing information).
+    // TODO: Consider boxing RithmicMessage to reduce Result size (~1296 bytes).
     #[allow(clippy::result_large_err)]
     pub(crate) fn buf_to_message(&self, data: Bytes) -> Result<RithmicResponse, RithmicResponse> {
         let payload = &data[4..];
@@ -1532,6 +1551,10 @@ fn has_multiple(rq_handler_rp_code: &[String]) -> bool {
     !rq_handler_rp_code.is_empty() && rq_handler_rp_code[0] == "0"
 }
 
+/// Extracts an error message from the Rithmic `rp_code` field.
+///
+/// Returns `None` for success (code "0" or empty), otherwise
+/// returns the human-readable error text from `rp_code[1]`.
 fn get_error(rp_code: &[String]) -> Option<String> {
     if (rp_code.len() == 1 && rp_code[0] == "0") || (rp_code.is_empty()) {
         None
@@ -1542,6 +1565,7 @@ fn get_error(rp_code: &[String]) -> Option<String> {
     }
 }
 
+/// Returns the error string from a response, if present
 fn check_message_error(message: &RithmicResponse) -> Option<String> {
     message.error.as_ref().map(|e| e.to_string())
 }

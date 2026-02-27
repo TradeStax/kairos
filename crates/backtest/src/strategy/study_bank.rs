@@ -1,17 +1,31 @@
+//! Study (indicator) management for strategy execution.
+//!
+//! [`StudyBank`] owns study instances declared by a strategy and
+//! recomputes their outputs when new candle data arrives. Strategies
+//! access computed outputs through
+//! [`StrategyContext::studies`](super::context::StrategyContext::studies).
+
 use crate::strategy::StudyRequest;
 use kairos_data::{Candle, ChartBasis, Price, Timeframe, Trade};
 use kairos_study::{Study, StudyInput, StudyOutput, StudyRegistry};
 use std::collections::HashMap;
 
 /// Manages study (indicator) instances for a strategy.
+///
+/// The engine initializes the bank from the strategy's
+/// [`required_studies`](super::Strategy::required_studies) before the
+/// run starts, then calls [`recompute`](StudyBank::recompute) after
+/// each candle close.
 pub struct StudyBank {
-    /// study_key -> study instance
+    /// Study instances keyed by the strategy-assigned key.
     studies: HashMap<String, Box<dyn Study>>,
-    /// study_key -> latest output
+    /// Most recent output for each study, keyed by study key.
     outputs: HashMap<String, StudyOutput>,
 }
 
 impl StudyBank {
+    /// Creates an empty study bank with no studies.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             studies: HashMap::new(),
@@ -19,8 +33,10 @@ impl StudyBank {
         }
     }
 
-    /// Initialize studies from strategy requests using the
-    /// registry.
+    /// Creates and configures study instances from the strategy's
+    /// requests using the given registry.
+    ///
+    /// Unknown study IDs are logged as warnings and skipped.
     pub fn initialize(&mut self, requests: &[StudyRequest], registry: &StudyRegistry) {
         for req in requests {
             if let Some(mut study) = registry.create(&req.study_id) {
@@ -34,7 +50,11 @@ impl StudyBank {
         }
     }
 
-    /// Recompute all studies with updated candle data.
+    /// Recomputes all studies with the latest candle data.
+    ///
+    /// Called by the engine after each candle close. Studies that
+    /// fail to compute are silently skipped (their previous output
+    /// is retained).
     pub fn recompute(
         &mut self,
         candles: &[Candle],
@@ -56,17 +76,23 @@ impl StudyBank {
         }
     }
 
-    /// Get the output for a study by key.
+    /// Returns the most recent output for the study with the given
+    /// key, or `None` if the key does not exist or has not yet been
+    /// computed.
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&StudyOutput> {
         self.outputs.get(key)
     }
 
-    /// Check if a study key exists.
+    /// Returns `true` if a study with the given key is registered.
+    #[must_use]
     pub fn contains(&self, key: &str) -> bool {
         self.studies.contains_key(key)
     }
 
-    /// Reset all studies and clear outputs.
+    /// Resets all studies and clears cached outputs.
+    ///
+    /// Called between optimization runs to restore clean state.
     pub fn reset(&mut self) {
         for study in self.studies.values_mut() {
             study.reset();

@@ -35,18 +35,12 @@ impl Kairos {
                 self.sync_feed_snapshots(&cm);
                 Task::none()
             }
-            data::DataEvent::ConnectionLost { feed_id } => {
-                log::warn!("DataEngine: connection lost for feed {}", feed_id);
-                self.connections.with_connection_manager(|cm| {
-                    cm.set_status(
-                        feed_id,
-                        data::ConnectionStatus::Error("Connection lost".to_string()),
-                    );
-                });
-                let cm_arc = self.connections.connection_manager.clone();
-                let cm = data::lock_or_recover(&cm_arc);
-                self.sync_feed_snapshots(&cm);
-                Task::none()
+            data::DataEvent::ConnectionLost { feed_id: _ } => {
+                // Delegate to the reconnection handler which clears the
+                // stale client, unaffiliates panes, and either starts
+                // auto-reconnect with exponential backoff or sets Error
+                // status.
+                self.handle_rithmic_connection_lost()
             }
             data::DataEvent::Reconnecting { feed_id, attempt } => {
                 log::info!(
@@ -54,6 +48,15 @@ impl Kairos {
                     feed_id,
                     attempt
                 );
+                self.connections.with_connection_manager(|cm| {
+                    cm.set_status(
+                        feed_id,
+                        data::ConnectionStatus::Reconnecting { attempt },
+                    );
+                });
+                let cm_arc = self.connections.connection_manager.clone();
+                let cm = data::lock_or_recover(&cm_arc);
+                self.sync_feed_snapshots(&cm);
                 Task::none()
             }
             data::DataEvent::TradeReceived { .. } => self.handle_dashboard(

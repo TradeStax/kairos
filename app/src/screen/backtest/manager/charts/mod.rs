@@ -25,6 +25,7 @@ pub use returns_grid::ReturnsGrid;
 pub use scatter::ScatterChart;
 
 use super::ManagerMessage;
+use crate::config::UserTimezone;
 use crate::style::tokens;
 use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Rectangle, Size};
@@ -248,11 +249,25 @@ pub(super) fn tooltip_size(lines: &[String]) -> (f32, f32) {
     (w, h)
 }
 
-/// Format a timestamp (ms) to a short date string.
-pub(super) fn format_date(ts_ms: u64) -> String {
-    let secs = (ts_ms / 1000) as i64;
-    let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) else {
+/// Format a timestamp (ms) to a short date string in the
+/// user's timezone.
+pub(super) fn format_date(
+    ts_ms: u64,
+    tz: UserTimezone,
+) -> String {
+    let millis = ts_ms as i64;
+    let Some(dt) =
+        chrono::DateTime::from_timestamp_millis(millis)
+    else {
         return format!("{}", ts_ms);
     };
-    dt.format("%m/%d %H:%M").to_string()
+    match tz {
+        UserTimezone::Local => dt
+            .with_timezone(&chrono::Local)
+            .format("%m/%d %H:%M")
+            .to_string(),
+        UserTimezone::Utc => {
+            dt.format("%m/%d %H:%M").to_string()
+        }
+    }
 }

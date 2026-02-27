@@ -229,6 +229,17 @@ impl Dashboard {
     ) -> Task<Message> {
         if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
             pane_state.set_chart_data(ticker_info, chart_data);
+            if !pane_state.pending_live_trades.is_empty() {
+                let buffered = std::mem::take(&mut pane_state.pending_live_trades);
+                log::info!(
+                    "Draining {} buffered live trades for pane {}",
+                    buffered.len(),
+                    pane_id
+                );
+                for trade in &buffered {
+                    pane_state.content.append_trade(trade);
+                }
+            }
             log::info!("Chart data loaded for pane {}", pane_id);
         } else {
             log::warn!("Pane {} not found for chart data", pane_id);

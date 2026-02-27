@@ -1,12 +1,23 @@
 //! The [`Study`] trait — the central abstraction of this crate.
+//!
+//! Every technical indicator, overlay, and order-flow visualization
+//! implements [`Study`]. The chart engine drives the lifecycle:
+//!
+//! 1. Call [`compute()`](Study::compute) with a [`StudyInput`] whenever
+//!    candle data changes or parameters are updated.
+//! 2. Read back render primitives via [`output()`](Study::output).
+//! 3. Optionally call [`append_trades()`](Study::append_trades) for
+//!    incremental streaming updates without a full recompute.
+//! 4. Call [`reset()`](Study::reset) when the chart is cleared or the
+//!    instrument changes.
 
-use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
-use crate::error::StudyError;
-use crate::output::{CandleRenderConfig, StudyOutput};
 use data::Trade;
 
 use super::input::StudyInput;
 use super::metadata::{StudyCategory, StudyPlacement};
+use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
+use crate::error::StudyError;
+use crate::output::{CandleRenderConfig, StudyOutput};
 
 /// Core trait for all technical studies and indicators.
 ///
@@ -69,7 +80,7 @@ pub trait Study: Send + Sync {
     ///
     /// Called whenever the underlying data changes (new candles loaded,
     /// visible range scrolled, parameters updated). For incremental updates
-    /// on streaming data prefer [`append_trades`].
+    /// on streaming data prefer `append_trades`.
     ///
     /// # Errors
     /// Returns [`StudyError`] if parameters are misconfigured or computation fails.
@@ -79,7 +90,7 @@ pub trait Study: Send + Sync {
     ///
     /// Override this for studies that maintain running state (e.g. CVD, Big Trades)
     /// to avoid the O(n) cost of a full recompute. The default implementation
-    /// falls back to a full [`compute`] call.
+    /// falls back to a full `compute` call.
     ///
     /// `new_trades` contains only trades appended since the last call.
     /// `input` contains the full up-to-date candle + trade slice.

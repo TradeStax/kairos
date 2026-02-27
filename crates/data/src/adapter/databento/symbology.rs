@@ -1,18 +1,28 @@
-//! Symbology — ticker info and historical price fetching
+//! Symbology — ticker info and historical price fetching.
+//!
+//! Provides static contract specifications for supported CME Globex futures
+//! and a function to fetch daily OHLCV bars for ticker stats via the
+//! Databento API.
 
-use crate::domain::{FuturesTicker, FuturesTickerInfo, FuturesVenue, TickerStats};
+use std::collections::HashMap;
+
 use databento::{
     HistoricalClient,
     dbn::{OhlcvMsg, SType, Schema, SymbolIndex},
     historical::timeseries::GetRangeParams,
 };
-use std::collections::HashMap;
 use time::OffsetDateTime;
+
+use crate::domain::{FuturesTicker, FuturesTickerInfo, FuturesVenue, TickerStats};
 
 use super::mapper::convert_databento_price;
 use super::{DatabentoConfig, DatabentoError};
 
-/// Get ticker info for all supported continuous contracts (no API call)
+/// Returns ticker info for all supported continuous contracts (no API call).
+///
+/// Populates contract specifications (tick size, min quantity, contract size)
+/// for each supported CME Globex futures product.
+#[must_use]
 pub fn get_continuous_ticker_info() -> HashMap<FuturesTicker, Option<FuturesTickerInfo>> {
     let venue = FuturesVenue::CMEGlobex;
 
@@ -42,7 +52,11 @@ pub fn get_continuous_ticker_info() -> HashMap<FuturesTicker, Option<FuturesTick
     result
 }
 
-/// Fetch historical prices for all supported symbols in one API call
+/// Fetches daily OHLCV bars for all supported symbols and returns
+/// [`TickerStats`] (mark price, daily change %, daily volume).
+///
+/// If `as_of_date` is `None`, defaults to two calendar days ago to avoid
+/// requesting data for a potentially incomplete trading session.
 pub async fn fetch_historical_prices(
     config: DatabentoConfig,
     as_of_date: Option<chrono::NaiveDate>,

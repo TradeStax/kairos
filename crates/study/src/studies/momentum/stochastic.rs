@@ -1,6 +1,18 @@
+//! Stochastic Oscillator.
+//!
+//! Measures where the current close sits within the recent high-low range.
+//! The raw %K value is `100 * (Close - Lowest Low) / (Highest High - Lowest Low)`
+//! over the lookback period.
+//!
+//! The "slow" variant (default) applies an SMA smoothing to %K before
+//! computing %D (an SMA of the smoothed %K). Traders watch for %K/%D
+//! crossovers and readings above 80 (overbought) or below 20 (oversold).
+//!
+//! Output: `StudyOutput::Lines` with two series (%K solid, %D dashed).
+
 use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
-    Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
+    ParameterValue, StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -23,6 +35,13 @@ const DEFAULT_D_COLOR: SerializableColor = SerializableColor {
     a: 1.0,
 };
 
+/// Stochastic oscillator with %K and %D lines.
+///
+/// Raw %K locates the current close within the recent high-low range
+/// (0 = at the lowest low, 100 = at the highest high). The slow
+/// variant applies an SMA smoothing to %K, then derives %D as an SMA
+/// of the smoothed %K. Renders in a separate panel with a solid %K
+/// line and a dashed %D signal line.
 pub struct StochasticStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -30,6 +49,9 @@ pub struct StochasticStudy {
 }
 
 impl StochasticStudy {
+    /// Create a new Stochastic study with standard slow-stochastic
+    /// defaults: %K lookback 14, %K smoothing 3, %D period 3,
+    /// overbought 80, oversold 20.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {
@@ -268,14 +290,14 @@ impl Study for StochasticStudy {
                 label: "%K".to_string(),
                 color: k_color,
                 width: 1.5,
-                style: crate::config::LineStyleValue::Solid,
+                style: LineStyleValue::Solid,
                 points: k_points,
             },
             LineSeries {
                 label: "%D".to_string(),
                 color: d_color,
                 width: 1.5,
-                style: crate::config::LineStyleValue::Dashed,
+                style: LineStyleValue::Dashed,
                 points: d_points,
             },
         ]);

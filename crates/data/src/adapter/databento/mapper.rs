@@ -1,22 +1,30 @@
-//! Type conversion — Databento types → domain types
+//! Type conversion from Databento wire types to domain types.
 //!
-//! Key conversion: Databento price (10^-9) → domain Price (10^-8)
+//! The key conversion is price precision: Databento uses 10^-9 fixed-point
+//! while the domain [`Price`] type uses 10^-8. Values are rounded (not truncated)
+//! during conversion.
 
-use crate::domain::{Depth, Price, Quantity, Side, Timestamp, Trade};
 use databento::dbn::{Mbp10Msg, SType, TradeMsg};
 use time::OffsetDateTime;
+
+use crate::domain::{Depth, Price, Quantity, Side, Timestamp, Trade};
 
 use super::DatabentoError;
 
 // ── Price conversion ─────────────────────────────────────────────────────
 
-/// Convert Databento price (10^-9 precision) to domain Price (10^-8 precision)
+/// Converts a Databento price (10^-9 precision) to a domain [`Price`] (10^-8 precision)
+///
+/// Uses banker-style rounding: adds half of the divisor (5) before dividing by 10,
+/// with sign-aware adjustment for negative prices.
+#[must_use]
 pub fn convert_databento_price(databento_price: i64) -> Price {
     Price::from_units((databento_price + databento_price.signum() * 5) / 10)
 }
 
 // ── Time conversions ─────────────────────────────────────────────────────
 
+/// Converts a `chrono::DateTime<Utc>` to a `time::OffsetDateTime`
 pub fn chrono_to_time(dt: chrono::DateTime<chrono::Utc>) -> Result<OffsetDateTime, DatabentoError> {
     let unix_ts = dt.timestamp();
     let nanos = dt.timestamp_subsec_nanos();
@@ -34,6 +42,12 @@ pub fn chrono_to_time(dt: chrono::DateTime<chrono::Utc>) -> Result<OffsetDateTim
 
 // ── Symbol type ──────────────────────────────────────────────────────────
 
+/// Determines the Databento [`SType`] based on symbol naming conventions
+///
+/// - `"ES.c.0"` → [`SType::Continuous`]
+/// - `"ES.FUT"` / `"ES.OPT"` → [`SType::Parent`]
+/// - `"ESH4"` → [`SType::RawSymbol`]
+#[must_use]
 pub fn determine_stype(symbol: &str) -> SType {
     if symbol.contains(".c.") {
         SType::Continuous
@@ -46,7 +60,7 @@ pub fn determine_stype(symbol: &str) -> SType {
 
 // ── Domain type conversion ───────────────────────────────────────────────
 
-/// Convert a Databento `TradeMsg` to a domain `Trade` (produced at boundary)
+/// Converts a Databento [`TradeMsg`] to a domain [`Trade`]
 pub fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
     let ts = msg
         .ts_recv()
@@ -67,7 +81,7 @@ pub fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
     ))
 }
 
-/// Convert a Databento `Mbp10Msg` to a domain `Depth` snapshot
+/// Converts a Databento [`Mbp10Msg`] to a domain [`Depth`] snapshot
 pub fn mbp10_to_domain(msg: &Mbp10Msg) -> Result<Depth, DatabentoError> {
     let ts = msg
         .ts_recv()

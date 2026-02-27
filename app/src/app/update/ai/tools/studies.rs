@@ -222,7 +222,11 @@ pub fn exec_get_big_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult
     }
 }
 
-pub fn exec_get_footprint(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_footprint(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     if snap.footprint_candles.is_empty() {
         return ToolExecResult {
             content_json: json!({
@@ -235,8 +239,9 @@ pub fn exec_get_footprint(snap: &ChartSnapshot, args: &Value) -> ToolExecResult 
         };
     }
 
-    let count = args["count"].as_u64().unwrap_or(20).min(50) as usize;
-    let (start_ms, end_ms) = parse_time_range(args);
+    let count =
+        args["count"].as_u64().unwrap_or(20).min(50) as usize;
+    let (start_ms, end_ms) = parse_time_range(args, tz);
 
     let filtered: Vec<_> = snap
         .footprint_candles

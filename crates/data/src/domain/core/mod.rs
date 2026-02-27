@@ -12,7 +12,6 @@ pub mod error;
 pub mod price;
 pub mod types;
 
-// Re-export commonly used types
 pub use color::{Rgba, SerializableColor, hex_to_rgba, rgba_to_hex};
 pub use error::{AppError, ErrorSeverity};
 pub use price::{

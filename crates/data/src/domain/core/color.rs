@@ -1,15 +1,23 @@
 //! Data-layer color type (no GUI dependency).
 //!
-//! Use this type in persisted state and domain; convert to/from `iced::Color` at the GUI boundary.
+//! Use [`Rgba`] in persisted state and domain logic; convert to/from
+//! `iced::Color` at the GUI boundary.
 
 use serde::{Deserialize, Serialize};
 
-/// RGBA color with components in [0.0, 1.0]. Used in state and config instead of `iced_core::Color`.
+/// RGBA color with components in `[0.0, 1.0]`.
+///
+/// Used in state and config instead of `iced_core::Color` so the data
+/// crate stays GUI-independent.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rgba {
+    /// Red channel `[0.0, 1.0]`
     pub r: f32,
+    /// Green channel `[0.0, 1.0]`
     pub g: f32,
+    /// Blue channel `[0.0, 1.0]`
     pub b: f32,
+    /// Alpha channel `[0.0, 1.0]`
     pub a: f32,
 }
 
@@ -28,6 +36,8 @@ impl Default for Rgba {
 }
 
 impl Rgba {
+    /// Create from clamped `[0.0, 1.0]` components
+    #[must_use]
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self {
             r: r.clamp(0.0, 1.0),
@@ -37,6 +47,8 @@ impl Rgba {
         }
     }
 
+    /// Create from 8-bit RGB values with full opacity
+    #[must_use]
     pub fn from_rgb8(r: u8, g: u8, b: u8) -> Self {
         Self {
             r: f32::from(r) / 255.0,
@@ -46,7 +58,8 @@ impl Rgba {
         }
     }
 
-    /// Const-friendly RGB8 constructor for use in `const` / `static` contexts.
+    /// Const-friendly RGB8 constructor for use in `const` / `static` contexts
+    #[must_use]
     pub const fn from_rgb8_const(r: u8, g: u8, b: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
@@ -56,7 +69,8 @@ impl Rgba {
         }
     }
 
-    /// Return a copy with a different alpha value.
+    /// Return a copy with a different alpha value
+    #[must_use]
     pub const fn with_alpha(self, a: f32) -> Self {
         Self {
             r: self.r,
@@ -66,6 +80,8 @@ impl Rgba {
         }
     }
 
+    /// Convert to an 8-bit `[R, G, B, A]` array
+    #[must_use]
     pub fn into_rgba8(self) -> [u8; 4] {
         [
             (self.r * 255.0).round() as u8,
@@ -76,7 +92,10 @@ impl Rgba {
     }
 }
 
-/// Parse hex color "#RRGGBB" or "#RRGGBBAA". Returns None on invalid input.
+/// Parse hex color `"#RRGGBB"` or `"#RRGGBBAA"`.
+///
+/// Returns `None` on invalid input.
+#[must_use]
 pub fn hex_to_rgba(hex: &str) -> Option<Rgba> {
     if hex.len() == 7 || hex.len() == 9 {
         let hash = &hex[0..1];
@@ -106,7 +125,8 @@ pub fn hex_to_rgba(hex: &str) -> Option<Rgba> {
     None
 }
 
-/// Format Rgba as "#RRGGBB" or "#RRGGBBAA" if alpha < 1.
+/// Format [`Rgba`] as `"#RRGGBB"` or `"#RRGGBBAA"` if alpha < 1
+#[must_use]
 pub fn rgba_to_hex(color: Rgba) -> String {
     use std::fmt::Write;
     let [r, g, b, a] = color.into_rgba8();

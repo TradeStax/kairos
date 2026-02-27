@@ -1,3 +1,9 @@
+//! WebSocket connection management and plant actor trait.
+//!
+//! Provides connection strategies (simple, retry, alternate), heartbeat
+//! and ping interval factories, and the [`PlantActor`] trait that defines
+//! the run loop contract for ticker and history plant actors.
+
 use async_trait::async_trait;
 use log::{info, warn};
 use std::time::Duration;
@@ -41,16 +47,27 @@ pub enum ConnectStrategy {
     AlternateWithRetry,
 }
 
+/// Trait defining the run loop contract for plant actor implementations.
+///
+/// Each plant (ticker, history) implements this to define how it
+/// processes commands from its channel and messages from the WebSocket.
 #[async_trait]
 pub(crate) trait PlantActor {
+    /// The command type this plant accepts
     type Command;
 
+    /// Runs the main select! loop until disconnection
     async fn run(&mut self);
+    /// Handles a command from the mpsc channel
     async fn handle_command(&mut self, command: Self::Command);
+    /// Handles a raw WebSocket message; returns `Ok(true)` to stop
     async fn handle_rithmic_message(&mut self, message: Result<Message, Error>)
     -> Result<bool, ()>;
 }
 
+/// Creates an interval for sending application-level heartbeats.
+///
+/// Returns an interval starting after the first heartbeat period elapses.
 pub(crate) fn get_heartbeat_interval(override_secs: Option<u64>) -> Interval {
     let secs = override_secs.unwrap_or(HEARTBEAT_SECS);
     let heartbeat_interval = Duration::from_secs(secs);

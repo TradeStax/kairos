@@ -133,11 +133,15 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
 }
 
-pub fn exec_get_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_trades(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     let max_levels = args["count"].as_u64().unwrap_or(100).min(100) as usize;
     let price_min = args["price_min"].as_f64();
     let price_max = args["price_max"].as_f64();
-    let (start_ms, end_ms) = parse_time_range(args);
+    let (start_ms, end_ms) = parse_time_range(args, tz);
 
     let mut levels: std::collections::BTreeMap<i64, (f64, f64, u32)> =
         std::collections::BTreeMap::new();
@@ -204,7 +208,11 @@ pub fn exec_get_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
     }
 }
 
-pub fn exec_get_volume_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_volume_profile(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     let candles = &snap.candles;
     if candles.is_empty() {
         return ToolExecResult {
@@ -214,7 +222,7 @@ pub fn exec_get_volume_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecRe
         };
     }
 
-    let (start_ms, end_ms) = parse_time_range(args);
+    let (start_ms, end_ms) = parse_time_range(args, tz);
     let tick_mult = tick_multiplier(snap.tick_size);
 
     let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
@@ -356,10 +364,14 @@ pub fn exec_get_volume_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecRe
     }
 }
 
-pub fn exec_get_delta_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_delta_profile(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     let price_min = args["price_min"].as_f64();
     let price_max = args["price_max"].as_f64();
-    let (start_ms, end_ms) = parse_time_range(args);
+    let (start_ms, end_ms) = parse_time_range(args, tz);
 
     if snap.trades.is_empty() {
         return ToolExecResult {
@@ -455,13 +467,18 @@ pub fn exec_get_delta_profile(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
     }
 }
 
-pub fn exec_get_aggregated_trades(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_aggregated_trades(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     let bucket_secs = args["bucket_seconds"]
         .as_u64()
         .unwrap_or(60)
         .clamp(10, 3600);
-    let max_buckets = args["count"].as_u64().unwrap_or(100).min(200) as usize;
-    let (start_ms, end_ms) = parse_time_range(args);
+    let max_buckets =
+        args["count"].as_u64().unwrap_or(100).min(200) as usize;
+    let (start_ms, end_ms) = parse_time_range(args, tz);
 
     if snap.trades.is_empty() {
         return ToolExecResult {

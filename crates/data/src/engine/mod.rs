@@ -1,7 +1,8 @@
-//! DataEngine — primary API facade for market data operations.
+//! DataEngine — primary API facade for all market data operations.
 //!
-//! Routes requests to adapters (Databento historical, Rithmic live), caches via
-//! `CacheStore`, delivers events through `mpsc::UnboundedReceiver<DataEvent>`.
+//! Routes requests to adapters (Databento historical, Rithmic live), manages
+//! per-day caching via [`CacheStore`], and delivers
+//! events through `mpsc::UnboundedReceiver<DataEvent>`.
 //!
 //! - [`chart`] — `aggregate_to_basis`, `rebuild_chart_data`
 //! - [`merger`] — `merge_segments` for combining multi-feed data with dedup and gap detection
@@ -25,27 +26,33 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-/// The DataEngine — main entry point for all market data operations.
+/// Main entry point for all market data operations.
 ///
 /// Wraps adapters and provides a unified API:
-/// - Cache-first data access
+/// - Cache-first data access (checks cache before fetching)
 /// - Adapter routing (Databento historical, Rithmic live + historical)
 /// - Event delivery via mpsc channel
+/// - Multi-day download with progress reporting
 pub struct DataEngine {
+    /// Shared cache store for reading/writing per-day data files
     cache: Arc<CacheStore>,
+    /// Shared data availability index
     data_index: Arc<Mutex<DataIndex>>,
+    /// Event sender for notifying the app layer
     event_tx: mpsc::UnboundedSender<DataEvent>,
 
+    /// Databento adapter for historical CME data
     #[cfg(feature = "databento")]
     databento: Option<crate::adapter::databento::fetcher::DatabentoAdapter>,
 
+    /// Rithmic client for live/historical CME data
     #[cfg(feature = "rithmic")]
     rithmic: Option<std::sync::Arc<tokio::sync::Mutex<crate::adapter::rithmic::RithmicClient>>>,
 
-    /// Connection IDs and their providers
+    /// Maps feed IDs to their provider type
     connections: HashMap<FeedId, ConnectionProvider>,
 
-    /// Optional callback invoked during multi-day fetches with
+    /// Optional progress callback invoked during multi-day fetches with
     /// `(days_loaded, days_total)`. Set by the app layer before calling
     /// `get_chart_data`, cleared after completion.
     pub progress_callback: Option<Box<dyn Fn(usize, usize) + Send + Sync>>,
@@ -110,6 +117,7 @@ impl DataEngine {
         Ok(feed_id)
     }
 
+    /// Disconnects an adapter by feed ID, cleaning up the index and notifying listeners
     pub async fn disconnect(&mut self, feed_id: FeedId) -> Result<(), crate::Error> {
         if let Some(provider) = self.connections.remove(&feed_id) {
             #[cfg(feature = "databento")]
@@ -183,18 +191,18 @@ impl DataEngine {
             let days_total = weekday_dates.len();
 
             // ── Partition into cached vs uncached ─────────────────
+            // Today is always re-fetched since the trading day is still
+            // in progress and the cache file would be stale.
+            let today = DateRange::today_et();
             let mut cached_days = Vec::new();
             let mut uncached_days = Vec::new();
 
             for day in &weekday_dates {
-                if self
+                if *day == today {
+                    uncached_days.push(*day);
+                } else if self
                     .cache
-                    .has_day(
-                        CacheProvider::Rithmic,
-                        &symbol,
-                        CacheSchema::Trades,
-                        *day,
-                    )
+                    .has_day(CacheProvider::Rithmic, &symbol, CacheSchema::Trades, *day)
                     .await
                 {
                     cached_days.push(*day);
@@ -213,21 +221,14 @@ impl DataEngine {
             );
 
             // ── Read cached days ──────────────────────────────────
-            let completed = Arc::new(
-                std::sync::atomic::AtomicUsize::new(0),
-            );
+            let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let mut day_results: Vec<(chrono::NaiveDate, Vec<Trade>)> =
                 Vec::with_capacity(days_total);
 
             for day in &cached_days {
                 match self
                     .cache
-                    .read_day::<Trade>(
-                        CacheProvider::Rithmic,
-                        &symbol,
-                        CacheSchema::Trades,
-                        *day,
-                    )
+                    .read_day::<Trade>(CacheProvider::Rithmic, &symbol, CacheSchema::Trades, *day)
                     .await
                 {
                     Ok(trades) => {
@@ -259,9 +260,7 @@ impl DataEngine {
 
             // ── Fetch uncached days in parallel via pool ──────────
             if !uncached_days.is_empty() {
-                use futures_util::stream::{
-                    FuturesUnordered, StreamExt as _,
-                };
+                use futures_util::stream::{FuturesUnordered, StreamExt as _};
 
                 // Each task briefly locks the client to acquire a
                 // pool handle, then drops the lock. The pool
@@ -280,38 +279,25 @@ impl DataEngine {
                             let guard = rithmic.lock().await;
                             let pool = guard.history_pool().ok_or_else(|| {
                                 crate::Error::Connection(
-                                    "Rithmic history pool not available"
-                                        .to_string(),
+                                    "Rithmic history pool not available".to_string(),
                                 )
                             })?;
-                            let handle = pool.acquire().await
-                                .map_err(crate::Error::from)?;
+                            let handle = pool.acquire().await.map_err(crate::Error::from)?;
                             drop(guard);
 
-                            let day_start = day
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap()
-                                .and_utc()
-                                .timestamp()
-                                as i32;
-                            let day_end = day
-                                .and_hms_opt(23, 59, 59)
-                                .unwrap()
-                                .and_utc()
-                                .timestamp()
-                                as i32;
+                            let day_start =
+                                day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() as i32;
+                            let day_end =
+                                day.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp() as i32;
 
                             let responses = handle
-                                .load_ticks(
-                                    &product, "CME", day_start, day_end,
-                                )
+                                .load_ticks(&product, "CME", day_start, day_end)
                                 .await
                                 .map_err(crate::Error::from)?;
 
-                            let trades =
-                                crate::adapter::rithmic::mapper::map_tick_replay_to_trades(
-                                    &responses,
-                                );
+                            let trades = crate::adapter::rithmic::mapper::map_tick_replay_to_trades(
+                                &responses,
+                            );
 
                             log::info!(
                                 "Rithmic historical {}: {} responses \
@@ -341,10 +327,8 @@ impl DataEngine {
                                 );
                             }
 
-                            let done = completed.fetch_add(
-                                1,
-                                std::sync::atomic::Ordering::Relaxed,
-                            ) + 1;
+                            let done =
+                                completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
                             Ok::<_, crate::Error>((day, trades, done))
                         }
@@ -363,20 +347,28 @@ impl DataEngine {
                             day_results.push((day, trades));
                         }
                         Err(e) => {
-                            log::warn!(
-                                "Rithmic fetch failed for a day: {}",
-                                e,
-                            );
+                            log::warn!("Rithmic fetch failed for a day: {}", e,);
                             fetch_errors.push(e);
                         }
                     }
                 }
 
-                if !fetch_errors.is_empty()
-                    && day_results.len() <= cached_days.len()
-                {
-                    // All fetched days failed — propagate
-                    return Err(fetch_errors.remove(0));
+                if !fetch_errors.is_empty() {
+                    if day_results.is_empty() {
+                        // No data at all — propagate
+                        return Err(fetch_errors.remove(0));
+                    }
+                    // Some fetched days failed but we have cached data
+                    // — proceed with what we have; live stream fills
+                    // today.
+                    log::warn!(
+                        "Rithmic {}: {} fetch(es) failed but {} \
+                         cached day(s) available — proceeding \
+                         with partial data",
+                        symbol,
+                        fetch_errors.len(),
+                        day_results.len(),
+                    );
                 }
             }
 
@@ -387,8 +379,7 @@ impl DataEngine {
 
             // Sort by date and flatten
             day_results.sort_by_key(|(day, _)| *day);
-            let total_trades: usize =
-                day_results.iter().map(|(_, t)| t.len()).sum();
+            let total_trades: usize = day_results.iter().map(|(_, t)| t.len()).sum();
             let mut all_trades = Vec::with_capacity(total_trades);
             for (_, trades) in day_results {
                 all_trades.extend(trades);
@@ -402,8 +393,7 @@ impl DataEngine {
                 date_range.start,
                 date_range.end,
                 elapsed.as_secs_f64(),
-                all_trades.len() as f64
-                    / elapsed.as_secs_f64().max(0.001),
+                all_trades.len() as f64 / elapsed.as_secs_f64().max(0.001),
             );
 
             return Ok(all_trades);
@@ -475,12 +465,14 @@ impl DataEngine {
 
     // ── Index ─────────────────────────────────────────────────────────
 
+    /// Returns a reference to the shared data index
     pub fn data_index(&self) -> &Arc<Mutex<DataIndex>> {
         &self.data_index
     }
 
     // ── Cache ─────────────────────────────────────────────────────────
 
+    /// Scans all provider cache directories and returns a merged data index
     pub async fn scan_cache(&self) -> DataIndex {
         let mut index = DataIndex::new();
 
@@ -533,9 +525,7 @@ impl DataEngine {
 
         // Check DataEngine's own CacheStore (Rithmic data lives here)
         for provider in [CacheProvider::Databento, CacheProvider::Rithmic] {
-            dates.extend(
-                self.cache.list_dates(provider, symbol, schema).await,
-            );
+            dates.extend(self.cache.list_dates(provider, symbol, schema).await);
         }
 
         // Check Databento adapter's separate CacheStore
@@ -552,6 +542,7 @@ impl DataEngine {
         dates
     }
 
+    /// Returns aggregate cache statistics (file count, total size, oldest file)
     pub async fn cache_stats(&self) -> crate::cache::CacheStats {
         self.cache.stats().await
     }
@@ -582,13 +573,8 @@ impl DataEngine {
             let dates: Vec<_> = date_range.dates().collect();
             let total_days = dates.len();
 
-            let start =
-                date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
-            let end = date_range
-                .end
-                .and_hms_opt(23, 59, 59)
-                .unwrap()
-                .and_utc();
+            let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
+            let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
 
             // Emit progress for each day
             for (i, _date) in dates.iter().enumerate() {
@@ -617,8 +603,7 @@ impl DataEngine {
 
             let index = adapter.scan_cache(feed_id).await;
             self.data_index.lock().await.merge(index.clone());
-            let _ =
-                self.event_tx.send(DataEvent::DataIndexUpdated(index));
+            let _ = self.event_tx.send(DataEvent::DataIndexUpdated(index));
 
             let _ = self.event_tx.send(DataEvent::DownloadComplete {
                 request_id,
@@ -634,14 +619,13 @@ impl DataEngine {
         #[cfg(feature = "rithmic")]
         if self.rithmic.is_some() {
             let event_tx = self.event_tx.clone();
-            self.progress_callback =
-                Some(Box::new(move |current, total| {
-                    let _ = event_tx.send(DataEvent::DownloadProgress {
-                        request_id,
-                        current_day: current,
-                        total_days: total,
-                    });
-                }));
+            self.progress_callback = Some(Box::new(move |current, total| {
+                let _ = event_tx.send(DataEvent::DownloadProgress {
+                    request_id,
+                    current_day: current,
+                    total_days: total,
+                });
+            }));
 
             let trades = self.get_trades(ticker, date_range).await?;
             self.progress_callback = None;
@@ -649,8 +633,7 @@ impl DataEngine {
             // Re-scan cache to update index
             let index = self.scan_cache().await;
             self.data_index.lock().await.merge(index.clone());
-            let _ =
-                self.event_tx.send(DataEvent::DataIndexUpdated(index));
+            let _ = self.event_tx.send(DataEvent::DataIndexUpdated(index));
 
             let _ = self.event_tx.send(DataEvent::DownloadComplete {
                 request_id,

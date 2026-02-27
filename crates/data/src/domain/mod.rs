@@ -25,7 +25,7 @@ pub use self::data::index;
 pub use self::instrument::futures;
 pub use self::market::entities;
 
-// Re-export commonly used types for backward compatibility
+// Re-export commonly used types for ergonomic access
 #[cfg(feature = "heatmap")]
 pub use chart::HeatmapIndicator;
 pub use chart::{

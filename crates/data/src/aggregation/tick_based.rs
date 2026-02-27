@@ -1,9 +1,16 @@
-//! Tick-count-based aggregation: groups of N trades → candle
+//! Tick-count-based aggregation: groups of N trades produce one candle.
+//!
+//! Each chunk of `tick_count` consecutive trades is aggregated into a single
+//! OHLCV candle. The last chunk may contain fewer trades if the total is not
+//! evenly divisible.
 
 use super::AggregationError;
 use crate::domain::{Candle, Price, Trade, Volume};
 
-/// Aggregate trades into tick-count-based candles
+/// Aggregates trades into tick-count-based candles (N trades per candle).
+///
+/// The `tick_count` must be non-zero. Prices are rounded to `tick_size`.
+/// In debug builds, unsorted trades return an error.
 pub fn aggregate_trades_to_ticks(
     trades: &[Trade],
     tick_count: u32,
@@ -36,6 +43,7 @@ pub fn aggregate_trades_to_ticks(
     Ok(candles)
 }
 
+/// Builds a single candle from a chunk of trades.
 fn build_candle_from_chunk(
     time: crate::domain::Timestamp,
     trades: &[Trade],

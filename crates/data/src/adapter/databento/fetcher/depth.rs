@@ -1,15 +1,25 @@
-//! Depth (MBP-10) fetch methods
+//! Depth (MBP-10) fetch methods for [`DatabentoAdapter`].
+//!
+//! Follows the same cache-first strategy as trade fetching: cached days are
+//! served directly, gaps are fetched from the API, and results are filtered
+//! to the exact requested time range.
+
+use std::collections::HashSet;
+
+use databento::dbn::Schema;
 
 use super::DatabentoAdapter;
 use super::find_uncached_gaps;
 use crate::adapter::databento::DatabentoError;
 use crate::cache::store::{CacheProvider, CacheSchema};
 use crate::domain::Depth;
-use databento::dbn::Schema;
-use std::collections::HashSet;
 
 impl DatabentoAdapter {
-    /// Fetch MBP-10 depth for a date range — cache-first, gap-fill from API
+    /// Fetches MBP-10 depth snapshots for a date range using a cache-first strategy.
+    ///
+    /// Cached days are served directly; uncached gaps are fetched from the
+    /// API and persisted before the combined result is filtered to the
+    /// exact `range` boundaries.
     pub async fn get_depth(
         &mut self,
         symbol: &str,
@@ -20,7 +30,6 @@ impl DatabentoAdapter {
         let end_date = end.date_naive();
         let schema = Schema::Mbp10;
 
-        // Identify cached days
         let mut cached_days = HashSet::new();
         let mut current = start_date;
         while current <= end_date {
@@ -39,20 +48,20 @@ impl DatabentoAdapter {
             current += chrono::Duration::days(1);
         }
 
-        // Fetch gaps
         let gaps = find_uncached_gaps((start_date, end_date), &cached_days);
         for gap in &gaps {
             self.fetch_and_cache_range(symbol, schema, gap.start, gap.end)
                 .await?;
         }
 
-        // Load all days from cache
         let mut all_snapshots = Vec::new();
         let mut current = start_date;
         while current <= end_date {
             match self.load_depth_day(symbol, current).await {
                 Ok(day_snaps) => all_snapshots.extend(day_snaps),
-                Err(e) => log::warn!("Could not load depth {} on {}: {:?}", symbol, current, e),
+                Err(e) => {
+                    log::warn!("Could not load depth {} on {}: {:?}", symbol, current, e);
+                }
             }
             current += chrono::Duration::days(1);
         }
@@ -64,7 +73,6 @@ impl DatabentoAdapter {
             )));
         }
 
-        // Filter to exact range
         let filtered: Vec<_> = all_snapshots
             .into_iter()
             .filter(|d| {

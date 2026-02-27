@@ -1,17 +1,27 @@
-//! Connection Manager — manages the collection of configured connections
+//! Connection manager — stores, queries, and resolves data feed connections.
+//!
+//! [`ConnectionManager`] owns the set of configured [`Connection`]s and
+//! provides lookup, filtering, and priority-based resolution for chart loading.
 
 use super::types::{Connection, ConnectionCapability, ConnectionProvider, ConnectionStatus};
 use crate::domain::types::FeedId;
 use serde::{Deserialize, Serialize};
 
-/// Result of connection resolution for chart loading.
+/// Result of resolving the best connection for chart data loading.
+#[must_use]
 pub struct ResolvedConnection {
+    /// Feed identifier for the resolved connection
     pub feed_id: FeedId,
+    /// Data provider (Databento or Rithmic)
     pub provider: ConnectionProvider,
+    /// Whether this connection supports historical data
     pub has_historical: bool,
 }
 
-/// Manages all configured data connections
+/// Manages all configured data feed connections.
+///
+/// Provides CRUD operations, capability queries, and priority-based resolution
+/// for selecting the best data source.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConnectionManager {
@@ -19,24 +29,32 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
+    /// Creates an empty connection manager
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     // ── CRUD ───────────────────────────────────────────────────────────
 
+    /// Returns all connections as a slice
+    #[must_use]
     pub fn connections(&self) -> &[Connection] {
         &self.connections
     }
 
+    /// Looks up a connection by feed ID
+    #[must_use]
     pub fn get(&self, id: FeedId) -> Option<&Connection> {
         self.connections.iter().find(|c| c.id == id)
     }
 
+    /// Returns a mutable reference to a connection by feed ID
     pub fn get_mut(&mut self, id: FeedId) -> Option<&mut Connection> {
         self.connections.iter_mut().find(|c| c.id == id)
     }
 
+    /// Adds a connection. Returns `false` if a connection with the same ID already exists.
     pub fn add(&mut self, conn: Connection) -> bool {
         if self.connections.iter().any(|c| c.id == conn.id) {
             log::warn!("Attempted to add connection with duplicate ID: {}", conn.id);
@@ -46,6 +64,7 @@ impl ConnectionManager {
         true
     }
 
+    /// Removes and returns a connection by feed ID
     pub fn remove(&mut self, id: FeedId) -> Option<Connection> {
         if let Some(pos) = self.connections.iter().position(|c| c.id == id) {
             Some(self.connections.remove(pos))
@@ -54,6 +73,7 @@ impl ConnectionManager {
         }
     }
 
+    /// Updates the status of a connection by feed ID
     pub fn set_status(&mut self, id: FeedId, status: ConnectionStatus) {
         if let Some(conn) = self.get_mut(id) {
             conn.status = status;
@@ -62,10 +82,14 @@ impl ConnectionManager {
 
     // ── Queries ────────────────────────────────────────────────────────
 
+    /// Returns all enabled connections
+    #[must_use]
     pub fn enabled_connections(&self) -> Vec<&Connection> {
         self.connections.iter().filter(|c| c.enabled).collect()
     }
 
+    /// Returns all enabled connections that have a specific capability
+    #[must_use]
     pub fn connections_with_capability(&self, cap: ConnectionCapability) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -73,18 +97,24 @@ impl ConnectionManager {
             .collect()
     }
 
+    /// Returns the highest-priority enabled connection for a capability
+    #[must_use]
     pub fn primary_for(&self, cap: ConnectionCapability) -> Option<&Connection> {
         self.connections_with_capability(cap)
             .into_iter()
             .min_by_key(|c| c.priority)
     }
 
+    /// Returns `true` if any enabled connection supports real-time data
+    #[must_use]
     pub fn has_realtime(&self) -> bool {
         self.connections
             .iter()
             .any(|c| c.enabled && c.capabilities().iter().any(|cap| cap.is_realtime()))
     }
 
+    /// Returns the number of enabled and connected connections
+    #[must_use]
     pub fn active_count(&self) -> usize {
         self.connections
             .iter()
@@ -92,16 +122,22 @@ impl ConnectionManager {
             .count()
     }
 
+    /// Returns the total number of configured connections
+    #[must_use]
     pub fn total_count(&self) -> usize {
         self.connections.len()
     }
 
+    /// Returns all connections sorted by priority (lowest first)
+    #[must_use]
     pub fn connections_by_priority(&self) -> Vec<&Connection> {
         let mut conns: Vec<&Connection> = self.connections.iter().collect();
         conns.sort_by_key(|c| c.priority);
         conns
     }
 
+    /// Returns all connections for a specific provider
+    #[must_use]
     pub fn connections_for_provider(&self, provider: ConnectionProvider) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -109,6 +145,8 @@ impl ConnectionManager {
             .collect()
     }
 
+    /// Returns all historical-mode connections
+    #[must_use]
     pub fn historical_connections(&self) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -116,6 +154,8 @@ impl ConnectionManager {
             .collect()
     }
 
+    /// Returns all real-time-mode connections
+    #[must_use]
     pub fn realtime_connections(&self) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -123,12 +163,16 @@ impl ConnectionManager {
             .collect()
     }
 
+    /// Returns `true` if there is an enabled, connected connection for the provider
+    #[must_use]
     pub fn has_connected_provider(&self, provider: ConnectionProvider) -> bool {
         self.connections
             .iter()
             .any(|c| c.provider == provider && c.enabled && c.status.is_connected())
     }
 
+    /// Returns the feed ID of the first enabled, connected connection for a provider
+    #[must_use]
     pub fn connected_id_for_provider(&self, provider: ConnectionProvider) -> Option<FeedId> {
         self.connections
             .iter()
@@ -136,9 +180,10 @@ impl ConnectionManager {
             .map(|c| c.id)
     }
 
-    /// Resolve the best available connection for chart data loading.
+    /// Resolves the best available connection for chart data loading.
     ///
-    /// Priority: Databento first (best historical), then Rithmic.
+    /// Priority: Databento first (highest fidelity historical), then Rithmic.
+    #[must_use]
     pub fn resolve_for_chart(&self) -> Option<ResolvedConnection> {
         if let Some(id) = self.connected_id_for_provider(ConnectionProvider::Databento) {
             return Some(ResolvedConnection {

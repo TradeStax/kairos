@@ -16,17 +16,26 @@ use crate::output::{CandleRenderConfig, StudyOutput};
 use data::{ChartBasis, SerializableColor, Side, Trade};
 use std::collections::BTreeMap;
 
+/// Footprint study that renders per-price-level trade data for each
+/// candle.
+///
+/// Displays buy/sell volume at each price level within a candle,
+/// supporting two render modes (Box grid and Profile bars) and
+/// multiple data types (Volume, Bid/Ask Split, Delta, Delta +
+/// Volume). Replaces the normal candlestick rendering with a
+/// detailed order flow view.
 pub struct FootprintStudy {
     pub(super) config: StudyConfig,
     pub(super) output: StudyOutput,
     pub(super) params: Vec<ParameterDef>,
-    /// Per-candle levels: price_units → (buy_vol, sell_vol)
+    /// Per-candle levels: price_units -> (buy_vol, sell_vol).
     pub(super) candle_levels: Vec<BTreeMap<i64, (f32, f32)>>,
-    /// Per-candle grouping quantum (price units per row)
+    /// Per-candle grouping quantum (price units per row).
     pub(super) candle_quantums: Vec<i64>,
 }
 
 impl FootprintStudy {
+    /// Create a new Footprint study with default parameters.
     pub fn new() -> Self {
         let params = vec![
             // ── General > Typology ──
@@ -418,6 +427,10 @@ impl Default for FootprintStudy {
     }
 }
 
+/// Study trait implementation for Footprint.
+///
+/// Placement is always `CandleReplace` -- the footprint view
+/// replaces normal candlestick rendering entirely.
 impl Study for FootprintStudy {
     fn id(&self) -> &str {
         "footprint"

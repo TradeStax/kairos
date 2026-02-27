@@ -28,14 +28,18 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-/// Which data provider populated a cache directory
+/// Data provider that populated a cache directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CacheProvider {
+    /// Databento historical data
     Databento,
+    /// Rithmic live/historical data
     Rithmic,
 }
 
 impl CacheProvider {
+    /// Returns the filesystem directory name for this provider
+    #[must_use]
     pub fn dir_name(self) -> &'static str {
         match self {
             CacheProvider::Databento => "databento",
@@ -44,15 +48,20 @@ impl CacheProvider {
     }
 }
 
-/// Which type of data is stored in a cache file
+/// Type of data stored in a cache file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CacheSchema {
+    /// Tick-by-tick trade data
     Trades,
+    /// Order book depth snapshots
     Depth,
+    /// Pre-aggregated OHLCV candles
     Ohlcv,
 }
 
 impl CacheSchema {
+    /// Returns the filesystem directory name for this schema
+    #[must_use]
     pub fn dir_name(self) -> &'static str {
         match self {
             CacheSchema::Trades => "trades",
@@ -62,18 +71,23 @@ impl CacheSchema {
     }
 }
 
-/// Unified cache store for all providers and schemas
+/// Unified cache store for all providers and schemas.
+///
+/// Provides async read/write/scan/evict operations backed by the filesystem.
+/// Writes are atomic (`.tmp` then rename); reads are lock-free.
 #[derive(Debug, Clone)]
 pub struct CacheStore {
     cache_root: PathBuf,
 }
 
 impl CacheStore {
+    /// Creates a new cache store rooted at the given directory
+    #[must_use]
     pub fn new(cache_root: PathBuf) -> Self {
         Self { cache_root }
     }
 
-    /// Initialize cache directory
+    /// Ensures the cache root directory exists
     pub async fn init(&self) -> Result<(), crate::Error> {
         fs::create_dir_all(&self.cache_root).await?;
         log::info!("Cache store initialized at: {:?}", self.cache_root);
@@ -82,16 +96,20 @@ impl CacheStore {
 
     // ── Path helpers ──────────────────────────────────────────────────
 
+    /// Replaces dots with dashes for filesystem-safe directory names
     fn sanitize_symbol(symbol: &str) -> String {
         symbol.replace('.', "-")
     }
 
+    /// Returns the directory path for a symbol under a provider
     fn symbol_dir(&self, provider: CacheProvider, symbol: &str) -> PathBuf {
         self.cache_root
             .join(provider.dir_name())
             .join(Self::sanitize_symbol(symbol))
     }
 
+    /// Returns the full path to a day's cache file
+    #[must_use]
     pub fn day_file_path(
         &self,
         provider: CacheProvider,
@@ -106,6 +124,7 @@ impl CacheStore {
 
     // ── Existence checks ──────────────────────────────────────────────
 
+    /// Returns `true` if a cache file exists for the given parameters
     pub async fn has_day(
         &self,
         provider: CacheProvider,
@@ -119,6 +138,7 @@ impl CacheStore {
 
     // ── Read ──────────────────────────────────────────────────────────
 
+    /// Reads and deserializes a day's cached records
     pub async fn read_day<T>(
         &self,
         provider: CacheProvider,
@@ -142,6 +162,10 @@ impl CacheStore {
 
     // ── Write (atomic) ────────────────────────────────────────────────
 
+    /// Serializes and atomically writes a day's records to the cache.
+    ///
+    /// Writes to a `.tmp` file first, then renames to the final path to
+    /// prevent partial-write corruption.
     pub async fn write_day<T>(
         &self,
         provider: CacheProvider,
@@ -155,7 +179,6 @@ impl CacheStore {
     {
         let path = self.day_file_path(provider, symbol, schema, date);
 
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -169,7 +192,6 @@ impl CacheStore {
 
         let encoded = encode(&header, records).map_err(crate::Error::Cache)?;
 
-        // Atomic write: write to .tmp, then rename
         let tmp_path = path.with_extension("bin.zst.tmp");
         fs::write(&tmp_path, &encoded).await.map_err(|e| {
             crate::Error::Cache(format!("Write failed for {}: {}", tmp_path.display(), e))
@@ -190,7 +212,7 @@ impl CacheStore {
         Ok(())
     }
 
-    /// Write raw bytes to a day file (e.g. for .dbn.zst passthrough)
+    /// Atomically writes raw bytes to a day file (e.g. for .dbn.zst passthrough)
     pub async fn write_raw(
         &self,
         provider: CacheProvider,
@@ -211,7 +233,7 @@ impl CacheStore {
 
     // ── Scan ──────────────────────────────────────────────────────────
 
-    /// Scan all cached dates for a symbol/schema/provider
+    /// Returns all cached dates for a given symbol, schema, and provider
     pub async fn list_dates(
         &self,
         provider: CacheProvider,
@@ -235,7 +257,9 @@ impl CacheStore {
         dates
     }
 
-    /// Scan all symbols under a provider
+    /// Returns all symbol names found under a provider's cache directory.
+    ///
+    /// Converts sanitized directory names back to dotted form (e.g. "ES-c-0" to "ES.c.0").
     pub async fn list_symbols(&self, provider: CacheProvider) -> Vec<String> {
         let dir = self.cache_root.join(provider.dir_name());
         let mut symbols = Vec::new();
@@ -249,7 +273,6 @@ impl CacheStore {
                 continue;
             };
             if meta.is_dir() {
-                // Convert sanitized dir name back (ES-c-0 → ES.c.0)
                 let dir_name = entry.file_name().to_string_lossy().to_string();
                 symbols.push(dir_name.replace('-', "."));
             }
@@ -257,7 +280,7 @@ impl CacheStore {
         symbols
     }
 
-    /// Build a DataIndex by scanning a provider's cache directory
+    /// Builds a [`DataIndex`] by scanning a provider's entire cache directory
     pub async fn scan_to_index(&self, provider: CacheProvider, feed_id: FeedId) -> DataIndex {
         let mut index = DataIndex::new();
         let schemas = [CacheSchema::Trades, CacheSchema::Depth, CacheSchema::Ohlcv];
@@ -280,7 +303,7 @@ impl CacheStore {
 
     // ── Evict ─────────────────────────────────────────────────────────
 
-    /// Delete cached files older than `max_age_days`
+    /// Deletes cached files older than `max_age_days`. Returns the count of deleted files.
     pub async fn evict_old(&self, provider: CacheProvider, max_age_days: u32) -> usize {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
         let dir = self.cache_root.join(provider.dir_name());
@@ -289,6 +312,7 @@ impl CacheStore {
 
     // ── Stats ─────────────────────────────────────────────────────────
 
+    /// Computes aggregate cache statistics by walking the entire cache directory
     pub async fn stats(&self) -> CacheStats {
         let (total_files, total_size_bytes, oldest_file) = bfs_count(&self.cache_root).await;
         CacheStats {
@@ -301,7 +325,7 @@ impl CacheStore {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/// BFS directory walk for stats
+/// Walks the directory tree breadth-first, collecting file count, total size, and oldest mtime.
 async fn bfs_count(root: &Path) -> (usize, u64, Option<chrono::DateTime<chrono::Utc>>) {
     let mut queue = vec![root.to_path_buf()];
     let mut count = 0usize;
@@ -335,7 +359,7 @@ async fn bfs_count(root: &Path) -> (usize, u64, Option<chrono::DateTime<chrono::
     (count, total_size, oldest)
 }
 
-/// Recursively delete files older than `cutoff`. Returns deleted count.
+/// Recursively deletes files older than `cutoff`. Returns the deleted count.
 fn walk_and_delete<'a>(
     dir: &'a Path,
     cutoff: chrono::DateTime<chrono::Utc>,

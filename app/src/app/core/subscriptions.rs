@@ -6,21 +6,36 @@ use crate::window;
 /// DataEngine event monitor.
 /// Blocks on recv() until an event arrives — zero CPU when idle.
 /// Replaces the old rithmic_event_monitor and download_progress_monitor.
+///
+/// Polls for the receiver until it becomes available (DataEngine may
+/// initialize after the subscription starts). The stream only ends
+/// when the channel is actually closed (all senders dropped).
 fn data_event_monitor() -> impl futures::stream::Stream<Item = Message> {
-    let receiver = super::globals::take_data_event_receiver();
-    futures::stream::unfold(receiver, |maybe_rx| async move {
-        match maybe_rx {
-            Some(mut rx) => rx
-                .recv()
-                .await
-                .map(|event| (Message::DataEvent(event), Some(rx))),
-            None => {
-                // Receiver already taken or DataEngine not yet initialized.
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                None
+    futures::stream::unfold(
+        None::<tokio::sync::mpsc::UnboundedReceiver<data::DataEvent>>,
+        |maybe_rx| async move {
+            // Acquire receiver if we don't have one yet
+            let mut rx = match maybe_rx {
+                Some(rx) => rx,
+                None => loop {
+                    if let Some(rx) = super::globals::take_data_event_receiver() {
+                        log::info!("DataEngine event monitor: receiver acquired");
+                        break rx;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                },
+            };
+
+            // Wait for next event
+            match rx.recv().await {
+                Some(event) => Some((Message::DataEvent(event), Some(rx))),
+                None => {
+                    log::warn!("DataEngine event channel closed");
+                    None
+                }
             }
-        }
-    })
+        },
+    )
 }
 
 /// Replay engine event monitor.

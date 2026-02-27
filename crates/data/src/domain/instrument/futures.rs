@@ -1,17 +1,21 @@
-//! Futures Domain Types
+//! Futures domain types — venue, ticker, contract types, and timeframes.
 //!
-//! Core domain types for futures markets — venue, ticker, contract types.
+//! [`FuturesTicker`] is a stack-allocated 28-byte symbol that avoids heap
+//! allocation for the hot path of market data processing.
 
-use crate::domain::core::types::Price;
+use std::fmt;
+
 use chrono::Datelike;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use crate::domain::core::types::Price;
 
 // ── Venue ─────────────────────────────────────────────────────────────
 
-/// Futures exchange venue
+/// Futures exchange venue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FuturesVenue {
+    /// CME Group Globex electronic platform
     CMEGlobex,
 }
 
@@ -24,20 +28,27 @@ impl fmt::Display for FuturesVenue {
 }
 
 impl FuturesVenue {
+    /// All supported venues.
     pub const ALL: [FuturesVenue; 1] = [FuturesVenue::CMEGlobex];
 
+    /// Return the Databento dataset identifier for this venue
+    #[must_use]
     pub fn dataset(&self) -> &'static str {
         match self {
             FuturesVenue::CMEGlobex => "GLBX.MDP3",
         }
     }
 
+    /// Return the stable key used for serialization
+    #[must_use]
     pub fn serialization_key(&self) -> &'static str {
         match self {
             FuturesVenue::CMEGlobex => "CMEGlobex",
         }
     }
 
+    /// Return the IANA timezone name for this venue's trading hours
+    #[must_use]
     pub fn trading_timezone_name(&self) -> &'static str {
         match self {
             FuturesVenue::CMEGlobex => "US/Eastern",
@@ -47,13 +58,20 @@ impl FuturesVenue {
 
 // ── Contract Types ────────────────────────────────────────────────────
 
+/// Whether a contract is a continuous front-month roll or a specific expiry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ContractType {
+    /// Continuous front-month with offset (0 = front, 1 = next, etc.)
     Continuous(u8),
+    /// Specific contract symbol (e.g. `"ESH26"`)
     Specific(String),
 }
 
 impl ContractType {
+    /// Parse a symbol string into a contract type.
+    ///
+    /// Recognizes `"ES.c.0"` as `Continuous(0)`, everything else as `Specific`.
+    #[must_use]
     pub fn parse(symbol: &str) -> Option<Self> {
         let parts: Vec<&str> = symbol.split('.').collect();
         if parts.len() == 3
@@ -65,6 +83,8 @@ impl ContractType {
         Some(ContractType::Specific(symbol.to_string()))
     }
 
+    /// Reconstruct the full symbol from product root and contract type
+    #[must_use]
     pub fn to_symbol(&self, product: &str) -> String {
         match self {
             ContractType::Continuous(offset) => {
@@ -74,6 +94,8 @@ impl ContractType {
         }
     }
 
+    /// Return `true` for continuous-roll contracts
+    #[must_use]
     pub fn is_continuous(&self) -> bool {
         matches!(self, ContractType::Continuous(_))
     }
@@ -90,10 +112,14 @@ impl fmt::Display for ContractType {
     }
 }
 
+/// Instrument specification category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ContractSpec {
+    /// Standard futures outright
     FuturesOutright,
+    /// Futures calendar or inter-commodity spread
     FuturesSpread,
+    /// Options on futures
     Options,
 }
 
@@ -109,20 +135,36 @@ impl fmt::Display for ContractSpec {
 
 // ── Futures Ticker ────────────────────────────────────────────────────
 
+/// Stack-allocated futures ticker symbol (28 bytes max).
+///
+/// Avoids heap allocation on the hot path. The symbol, product root,
+/// and optional display name are stored inline as fixed-size byte arrays.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FuturesTicker {
+    /// Full symbol bytes (e.g. `"ES.c.0"` or `"ESH26"`)
     bytes: [u8; 28],
+    /// Exchange venue
     pub venue: FuturesVenue,
+    /// Product root bytes (e.g. `"ES"`, `"NQ"`)
     product_bytes: [u8; 8],
+    /// Optional human-readable display name bytes
     display_bytes: [u8; 28],
+    /// Whether `display_bytes` contains a valid display name
     has_display_name: bool,
 }
 
 impl FuturesTicker {
+    /// Create a ticker from a symbol string and venue
+    #[must_use]
     pub fn new(symbol: &str, venue: FuturesVenue) -> Self {
         Self::new_with_display(symbol, venue, None, None)
     }
 
+    /// Parse the expiration date from the symbol suffix.
+    ///
+    /// Returns the third Friday of the expiration month for specific
+    /// contracts like `"ESH26"`. Returns `None` for continuous symbols.
+    #[must_use]
     pub fn expiration_date(&self) -> Option<chrono::NaiveDate> {
         let symbol = self.as_str();
         if symbol.contains(".c.") {
@@ -165,8 +207,7 @@ impl FuturesTicker {
 
                 // Third Friday: find the first Friday, then add 14 days.
                 let first_of_month = chrono::NaiveDate::from_ymd_opt(year, month as u32, 1)?;
-                let first_weekday = first_of_month.weekday().num_days_from_monday(); // Mon=0 .. Sun=6
-                // Friday = 4 in num_days_from_monday
+                let first_weekday = first_of_month.weekday().num_days_from_monday();
                 let days_to_first_friday = (4 + 7 - first_weekday) % 7;
                 let third_friday =
                     first_of_month + chrono::Duration::days(days_to_first_friday as i64 + 14);
@@ -179,6 +220,8 @@ impl FuturesTicker {
         }
     }
 
+    /// Return `true` if the contract has expired (before today UTC)
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         if let Some(expiry) = self.expiration_date() {
             expiry < chrono::Utc::now().date_naive()
@@ -187,6 +230,9 @@ impl FuturesTicker {
         }
     }
 
+    /// Return the number of calendar days until expiration, or `None` for
+    /// continuous contracts
+    #[must_use]
     pub fn days_until_expiry(&self) -> Option<i64> {
         self.expiration_date().map(|expiry| {
             let today = chrono::Utc::now().date_naive();
@@ -194,6 +240,8 @@ impl FuturesTicker {
         })
     }
 
+    /// Create a ticker with optional explicit product root and display name
+    #[must_use]
     pub fn new_with_display(
         symbol: &str,
         venue: FuturesVenue,
@@ -238,6 +286,7 @@ impl FuturesTicker {
         }
     }
 
+    /// Extract the product root from a symbol string (e.g. `"ES"` from `"ESH26"`).
     fn extract_product(symbol: &str) -> String {
         if let Some(dot_pos) = symbol.find('.') {
             return symbol[..dot_pos].to_string();
@@ -249,6 +298,8 @@ impl FuturesTicker {
         symbol.chars().take_while(|c| c.is_alphabetic()).collect()
     }
 
+    /// Return the symbol as a string slice
+    #[must_use]
     pub fn as_str(&self) -> &str {
         let end = self.bytes.iter().position(|&b| b == 0).unwrap_or(28);
         match std::str::from_utf8(&self.bytes[..end]) {
@@ -260,6 +311,8 @@ impl FuturesTicker {
         }
     }
 
+    /// Return the product root (e.g. `"ES"`, `"NQ"`)
+    #[must_use]
     pub fn product(&self) -> &str {
         let end = self.product_bytes.iter().position(|&b| b == 0).unwrap_or(8);
         match std::str::from_utf8(&self.product_bytes[..end]) {
@@ -271,6 +324,8 @@ impl FuturesTicker {
         }
     }
 
+    /// Return the display name, if one was set
+    #[must_use]
     pub fn display_name(&self) -> Option<&str> {
         if self.has_display_name {
             let end = self
@@ -284,15 +339,21 @@ impl FuturesTicker {
         }
     }
 
+    /// Determine the contract type from the symbol
+    #[must_use]
     pub fn contract_type(&self) -> ContractType {
         ContractType::parse(self.as_str())
             .unwrap_or_else(|| ContractType::Specific(self.as_str().to_string()))
     }
 
+    /// Format as `"SYMBOL (VENUE)"`
+    #[must_use]
     pub fn symbol_and_exchange_string(&self) -> String {
         format!("{} ({})", self.as_str(), self.venue)
     }
 
+    /// Return `(display_symbol, contract_type_description)` for UI display
+    #[must_use]
     pub fn display_symbol_and_type(&self) -> (String, String) {
         let symbol = self.display_name().unwrap_or(self.as_str()).to_string();
         let contract_type = match self.contract_type() {
@@ -310,6 +371,8 @@ impl FuturesTicker {
         (symbol, contract_type)
     }
 
+    /// Return the market type string (always `"futures"`)
+    #[must_use]
     pub fn market_type(&self) -> &'static str {
         "futures"
     }
@@ -381,15 +444,22 @@ impl<'de> Deserialize<'de> for FuturesTicker {
 
 // ── Ticker Info ───────────────────────────────────────────────────────
 
+/// Futures ticker with instrument specifications (tick size, contract size, etc.).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct FuturesTickerInfo {
+    /// The underlying ticker symbol
     pub ticker: FuturesTicker,
+    /// Minimum price increment
     pub tick_size: f32,
+    /// Minimum order quantity
     pub min_qty: f32,
+    /// Contract multiplier (e.g. 50 for ES)
     pub contract_size: f32,
 }
 
 impl FuturesTickerInfo {
+    /// Create a new ticker info
+    #[must_use]
     pub fn new(ticker: FuturesTicker, tick_size: f32, min_qty: f32, contract_size: f32) -> Self {
         Self {
             ticker,
@@ -399,23 +469,32 @@ impl FuturesTickerInfo {
         }
     }
 
+    /// Return the venue of the underlying ticker
+    #[must_use]
     pub fn venue(&self) -> FuturesVenue {
         self.ticker.venue
     }
 
+    /// Return the product root of the underlying ticker
+    #[must_use]
     pub fn product(&self) -> &str {
         self.ticker.product()
     }
 
+    /// Return the contract type of the underlying ticker
+    #[must_use]
     pub fn contract_type(&self) -> ContractType {
         self.ticker.contract_type()
     }
 
+    /// Return the tick size as a [`Price`]
+    #[must_use]
     pub fn min_ticksize(&self) -> Price {
         Price::from_f32(self.tick_size)
     }
 
-    /// Get tick_size as PriceStep
+    /// Return the tick size as a [`PriceStep`](crate::domain::core::price::PriceStep)
+    #[must_use]
     pub fn tick_step(&self) -> crate::domain::core::price::PriceStep {
         crate::domain::core::price::PriceStep::from_f32(self.tick_size)
     }
@@ -431,35 +510,49 @@ impl Eq for FuturesTickerInfo {}
 
 // ── Timeframe ─────────────────────────────────────────────────────────
 
+/// Bar aggregation timeframe from 1 second to 1 day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Timeframe {
+    /// 1 second
     #[serde(rename = "1s")]
     M1s,
+    /// 5 seconds
     #[serde(rename = "5s")]
     M5s,
+    /// 10 seconds
     #[serde(rename = "10s")]
     M10s,
+    /// 30 seconds
     #[serde(rename = "30s")]
     M30s,
+    /// 1 minute
     #[serde(rename = "1m")]
     M1,
+    /// 3 minutes
     #[serde(rename = "3m")]
     M3,
+    /// 5 minutes
     #[serde(rename = "5m")]
     M5,
+    /// 15 minutes
     #[serde(rename = "15m")]
     M15,
+    /// 30 minutes
     #[serde(rename = "30m")]
     M30,
+    /// 1 hour
     #[serde(rename = "1h")]
     H1,
+    /// 4 hours
     #[serde(rename = "4h")]
     H4,
+    /// 1 day
     #[serde(rename = "1d")]
     D1,
 }
 
 impl Timeframe {
+    /// Timeframes available for kline (candlestick) charts.
     pub const KLINE: [Timeframe; 8] = [
         Timeframe::M1,
         Timeframe::M3,
@@ -471,6 +564,7 @@ impl Timeframe {
         Timeframe::D1,
     ];
 
+    /// Timeframes available for heatmap charts.
     pub const HEATMAP: [Timeframe; 6] = [
         Timeframe::M1s,
         Timeframe::M5s,
@@ -480,6 +574,8 @@ impl Timeframe {
         Timeframe::M5,
     ];
 
+    /// Return the duration in milliseconds
+    #[must_use]
     pub fn to_milliseconds(self) -> u64 {
         match self {
             Timeframe::M1s => 1_000,
@@ -497,6 +593,8 @@ impl Timeframe {
         }
     }
 
+    /// Return the duration in seconds
+    #[must_use]
     pub fn to_seconds(self) -> u64 {
         self.to_milliseconds() / 1000
     }
@@ -523,21 +621,15 @@ impl fmt::Display for Timeframe {
 
 // ── Ticker Stats ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Real-time ticker statistics for the instrument list.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct TickerStats {
+    /// Current mark / last traded price
     pub mark_price: f32,
+    /// Daily price change (absolute)
     pub daily_price_chg: f32,
+    /// Daily traded volume
     pub daily_volume: f32,
-}
-
-impl Default for TickerStats {
-    fn default() -> Self {
-        Self {
-            mark_price: 0.0,
-            daily_price_chg: 0.0,
-            daily_volume: 0.0,
-        }
-    }
 }
 
 #[cfg(test)]

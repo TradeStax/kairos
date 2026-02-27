@@ -29,22 +29,31 @@ pub use volume::{CvdStudy, DeltaStudy, ObvStudy, VolumeStudy};
 use crate::core::{Study, StudyCategory, StudyPlacement};
 use std::collections::HashMap;
 
-/// Metadata about a registered study (used for catalog display).
+/// Metadata about a registered study, used for catalog display and
+/// filtering in the study selection UI.
 #[derive(Debug, Clone)]
 pub struct StudyInfo {
+    /// Unique string identifier (e.g. `"sma"`, `"big_trades"`).
     pub id: String,
+    /// Human-readable display name (e.g. `"Simple Moving Average"`).
     pub name: String,
+    /// Functional category for grouping in the catalog.
     pub category: StudyCategory,
+    /// Where the study renders relative to the chart.
     pub placement: StudyPlacement,
+    /// Short description shown in the study picker tooltip.
     pub description: String,
 }
 
-/// Factory registry for creating study instances by string ID.
+/// Factory registry for creating [`Study`] instances by string ID.
 ///
-/// Pre-loaded with all built-in studies on construction. Custom studies can be
-/// added via [`register()`](Self::register).
+/// Pre-loaded with all built-in studies on construction via
+/// `register_built_ins`. Custom studies
+/// can be added at runtime via [`register()`](Self::register).
 pub struct StudyRegistry {
+    /// Closure factories keyed by study ID.
     factories: HashMap<String, Box<dyn Fn() -> Box<dyn Study> + Send + Sync>>,
+    /// Catalog metadata keyed by study ID.
     info: HashMap<String, StudyInfo>,
 }
 
@@ -99,7 +108,12 @@ impl StudyRegistry {
         studies
     }
 
-    /// List studies filtered by placement.
+    /// List studies filtered by where they render on the chart.
+    ///
+    /// Returns entries matching the given [`StudyPlacement`], sorted
+    /// alphabetically by name. Commonly used to populate the study
+    /// picker UI which groups studies into Overlay, Panel, Background,
+    /// and CandleReplace sections.
     pub fn list_by_placement(&self, placement: StudyPlacement) -> Vec<StudyInfo> {
         let mut studies: Vec<_> = self
             .info

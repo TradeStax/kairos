@@ -3,10 +3,15 @@
 //! Shows KPI metrics cards, equity curve canvas, drawdown chart,
 //! monthly returns grid, and P&L histogram.
 
-use super::charts::{DrawdownChart, EquityChart, HistogramChart, ReturnsGrid};
+use super::charts::{
+    DrawdownChart, EquityChart, HistogramChart, ReturnsGrid,
+};
 use super::computed::ComputedAnalytics;
 use super::{BacktestManager, ManagerMessage};
-use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
+use crate::app::backtest_history::{
+    BacktestHistory, BacktestStatus,
+};
+use crate::config::UserTimezone;
 use crate::style::{palette, tokens};
 use iced::widget::{canvas, center, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};
@@ -16,6 +21,7 @@ use std::sync::Arc;
 pub fn view_overview<'a>(
     manager: &'a BacktestManager,
     history: &'a BacktestHistory,
+    timezone: UserTimezone,
 ) -> Element<'a, ManagerMessage> {
     // Resolve selected backtest entry
     let entry = manager.selected_id.and_then(|id| history.get(id));
@@ -62,6 +68,7 @@ pub fn view_overview<'a>(
         result: Arc::clone(result),
         selected_trade_idx: manager.selected_trade,
         cache: &manager.equity_cache,
+        timezone,
     })
     .width(Length::Fill)
     .height(Length::Fixed(220.0));
@@ -70,6 +77,7 @@ pub fn view_overview<'a>(
     let drawdown_chart = canvas(DrawdownChart {
         result: Arc::clone(result),
         cache: &manager.drawdown_cache,
+        timezone,
     })
     .width(Length::Fill)
     .height(Length::Fixed(120.0));

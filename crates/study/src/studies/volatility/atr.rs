@@ -1,10 +1,42 @@
 //! Average True Range (ATR).
 //!
-//! Measures market volatility as the Wilder-smoothed average of the True Range.
-//! True Range = max(High - Low, |High - PrevClose|, |Low - PrevClose|).
-//! Smoothing uses Wilder's method: `ATR(t) = (ATR(t-1) * (n-1) + TR(t)) / n`.
+//! The ATR measures market volatility by averaging the True Range over a
+//! given look-back period. True Range captures the full extent of each
+//! bar's price movement, including any gap from the previous close, so
+//! it reflects volatility more accurately than a simple High-Low range.
 //!
-//! Output: `StudyOutput::Lines` — a single volatility line in a Panel.
+//! # Formulas
+//!
+//! ```text
+//! True Range = max(High - Low, |High - PrevClose|, |Low - PrevClose|)
+//! ```
+//!
+//! Smoothing uses Wilder's method (equivalent to an EMA with
+//! `k = 1/period`):
+//!
+//! ```text
+//! ATR(t) = (ATR(t-1) * (period - 1) + TR(t)) / period
+//! ```
+//!
+//! The initial ATR is seeded with the simple average of the first `period`
+//! True Range values.
+//!
+//! # Trading use
+//!
+//! - **Position sizing**: ATR-based sizing (e.g. risking 1-2 ATR per
+//!   trade) normalizes risk across instruments of different volatility.
+//! - **Stop-loss placement**: trailing stops set at a multiple of ATR
+//!   (e.g. 1.5x or 2x) adapt to current market conditions.
+//! - **Volatility regime detection**: rising ATR signals an expansion
+//!   phase (trend or panic); falling ATR signals contraction and
+//!   potential consolidation.
+//! - The standard period is 14.
+//!
+//! # Output
+//!
+//! Rendered as a single line in a separate panel below the price chart,
+//! since ATR values are in price-difference units rather than absolute
+//! price levels.
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
@@ -68,6 +100,15 @@ fn make_params() -> Vec<ParameterDef> {
     ]
 }
 
+/// Average True Range study.
+///
+/// Renders a single volatility line in a panel below the price chart.
+/// Requires at least `period + 1` candles (one extra for the initial
+/// previous-close reference needed to compute the first True Range).
+///
+/// Configurable parameters: look-back period, line color, and line
+/// width. The study produces [`StudyOutput::Lines`] with a single
+/// [`LineSeries`] labeled `ATR(<period>)`.
 pub struct AtrStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -75,6 +116,9 @@ pub struct AtrStudy {
 }
 
 impl AtrStudy {
+    /// Create a new ATR study with default parameters.
+    ///
+    /// Defaults: period = 14, color = orange, width = 1.5.
     pub fn new() -> Self {
         let params = make_params();
         let mut config = StudyConfig::new("atr");

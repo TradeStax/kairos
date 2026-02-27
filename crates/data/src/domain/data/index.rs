@@ -1,36 +1,51 @@
-//! Data Index — canonical source of truth for available data ranges.
+//! Data index — canonical source of truth for what data ranges are
+//! available across all connected feeds.
+
+use std::collections::{BTreeSet, HashMap};
+
+use chrono::NaiveDate;
 
 use crate::domain::chart::config::ChartType;
 use crate::domain::core::types::{DateRange, FeedId};
-use chrono::NaiveDate;
-use std::collections::{BTreeSet, HashMap};
 
-/// Identifies a data series in the index.
+/// Identifies a data series in the index by ticker symbol and schema name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DataKey {
+    /// Ticker symbol (e.g. `"ES.c.0"`)
     pub ticker: String,
+    /// Schema name (e.g. `"trades"`, `"mbp-10"`)
     pub schema: String,
 }
 
-/// One feed's contribution to a `DataKey`.
+/// One feed's contribution to a [`DataKey`].
 #[derive(Debug, Clone)]
 pub struct FeedContribution {
+    /// Source feed identifier
     pub feed_id: FeedId,
+    /// Calendar dates for which this feed has cached data
     pub dates: BTreeSet<NaiveDate>,
+    /// Whether this feed provides live / real-time data
     pub has_realtime: bool,
 }
 
 /// Aggregated index of all data available through connected feeds.
+///
+/// Keyed by `(ticker, schema)` pairs, each entry stores the per-feed
+/// date contributions. Used to resolve chart date ranges and drive the
+/// data download UI.
 #[derive(Debug, Clone, Default)]
 pub struct DataIndex {
     entries: HashMap<DataKey, Vec<FeedContribution>>,
 }
 
 impl DataIndex {
+    /// Create an empty index
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Register a feed's dates for a data key, merging with any existing contribution
     pub fn add_contribution(
         &mut self,
         key: DataKey,
@@ -51,6 +66,7 @@ impl DataIndex {
         }
     }
 
+    /// Remove all contributions from a specific feed
     pub fn remove_feed(&mut self, feed_id: FeedId) {
         for contributions in self.entries.values_mut() {
             contributions.retain(|c| c.feed_id != feed_id);
@@ -58,6 +74,7 @@ impl DataIndex {
         self.entries.retain(|_, v| !v.is_empty());
     }
 
+    /// Merge another index into this one
     pub fn merge(&mut self, other: DataIndex) {
         for (key, contributions) in other.entries {
             for contrib in contributions {
@@ -71,6 +88,12 @@ impl DataIndex {
         }
     }
 
+    /// Resolve the best available date range for a chart.
+    ///
+    /// Combines dates across all feeds and extends to today if any feed
+    /// has real-time data. For heatmap charts (with the `heatmap` feature),
+    /// the range is truncated to a single day.
+    #[must_use]
     pub fn resolve_chart_range(
         &self,
         ticker: &str,
@@ -120,13 +143,15 @@ impl DataIndex {
         }
 
         #[cfg(feature = "heatmap")]
-        if chart_type == ChartType::Heatmap {
+        if _chart_type == ChartType::Heatmap {
             return DateRange::new(end, end).ok();
         }
 
         DateRange::new(start, end).ok()
     }
 
+    /// Return all ticker symbols that have trade data
+    #[must_use]
     pub fn available_tickers(&self) -> Vec<String> {
         self.entries
             .keys()
@@ -135,6 +160,8 @@ impl DataIndex {
             .collect()
     }
 
+    /// Return a map of ticker symbols to their overall date ranges
+    #[must_use]
     pub fn ticker_date_ranges(&self) -> HashMap<String, DateRange> {
         let mut result = HashMap::new();
         for (key, contributions) in &self.entries {
@@ -155,6 +182,8 @@ impl DataIndex {
         result
     }
 
+    /// Return all dates with trade data for a ticker across all feeds
+    #[must_use]
     pub fn available_dates(&self, ticker: &str) -> BTreeSet<NaiveDate> {
         let trade_key = DataKey {
             ticker: ticker.to_string(),
@@ -172,6 +201,8 @@ impl DataIndex {
         all_dates
     }
 
+    /// Return `true` if any feed has trade data for the given ticker
+    #[must_use]
     pub fn has_data(&self, ticker: &str) -> bool {
         let key = DataKey {
             ticker: ticker.to_string(),
@@ -182,24 +213,21 @@ impl DataIndex {
             .is_some_and(|contributions| !contributions.is_empty())
     }
 
-    /// Returns ticker symbols that have trade data from a specific feed.
+    /// Return ticker symbols that have trade data from a specific feed
+    #[must_use]
     pub fn tickers_for_feed(&self, feed_id: FeedId) -> Vec<String> {
         self.entries
             .iter()
             .filter(|(key, contributions)| {
-                key.schema == "trades"
-                    && contributions.iter().any(|c| c.feed_id == feed_id)
+                key.schema == "trades" && contributions.iter().any(|c| c.feed_id == feed_id)
             })
             .map(|(key, _)| key.ticker.clone())
             .collect()
     }
 
-    /// Returns cached dates for a ticker from a specific feed.
-    pub fn available_dates_for_feed(
-        &self,
-        ticker: &str,
-        feed_id: FeedId,
-    ) -> BTreeSet<NaiveDate> {
+    /// Return cached dates for a ticker from a specific feed
+    #[must_use]
+    pub fn available_dates_for_feed(&self, ticker: &str, feed_id: FeedId) -> BTreeSet<NaiveDate> {
         let trade_key = DataKey {
             ticker: ticker.to_string(),
             schema: "trades".to_string(),
@@ -213,7 +241,8 @@ impl DataIndex {
             .collect()
     }
 
-    /// Returns whether any contribution for the given feed has realtime.
+    /// Return `true` if any contribution for the given feed has real-time data
+    #[must_use]
     pub fn feed_has_realtime(&self, feed_id: FeedId) -> bool {
         self.entries.values().any(|contribs| {
             contribs

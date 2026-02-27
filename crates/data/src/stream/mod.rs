@@ -1,11 +1,10 @@
-//! Stream subscription types.
+//! Stream subscription types with a two-tier serialization model.
 //!
-//! Two-tier model:
-//! - `PersistStreamKind` — serializable config stored in layout state (ticker symbol + params)
-//! - `StreamKind` — runtime-resolved with full `FuturesTickerInfo`
+//! - [`PersistStreamKind`] — serializable config stored in layout state (ticker symbol + params)
+//! - [`StreamKind`] — runtime-resolved with full [`FuturesTickerInfo`](crate::domain::FuturesTickerInfo)
 //!
-//! `ResolvedStream` wraps the transition: `Waiting` before ticker info is available,
-//! `Ready` after resolution. `UniqueStreams` deduplicates across panes.
+//! [`ResolvedStream`] wraps the transition: `Waiting` before ticker info is available,
+//! `Ready` after resolution. [`UniqueStreams`] deduplicates across panes.
 
 pub mod kind;
 pub mod resolved;

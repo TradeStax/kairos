@@ -1,9 +1,9 @@
-//! Shared utility functions.
+//! Shared utility functions used across the data crate.
 //!
 //! - [`formatting`] — number abbreviation, comma grouping, percentage change
 //! - [`math`] — tick rounding, panel split distribution
 //! - [`time`] — duration formatting, start-of-day/month/year resets
-//! - [`serde`] — `ok_or_default` deserializer, default value functions
+//! - [`serde`] — `ok_or_default` deserializer, default value functions for serde
 //! - [`logging`] — log file path construction
 
 pub mod formatting;

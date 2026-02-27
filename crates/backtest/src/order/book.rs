@@ -1,16 +1,32 @@
+//! [`OrderBook`] -- central registry and manager for all orders in a
+//! backtest run.
+//!
+//! The order book owns every [`Order`] and maintains a fast-path list
+//! of active order IDs. It handles creation (single and bracket),
+//! modification, cancellation, expiration, and OCO linking.
+
 use crate::order::entity::Order;
 use crate::order::request::{BracketOrder, NewOrder};
 use crate::order::types::{OrderId, OrderStatus, OrderType, TimeInForce};
 use kairos_data::{FuturesTicker, Price, Timestamp};
 use std::collections::HashMap;
 
-/// Manages all orders in the backtest engine.
+/// Central order manager for the backtest engine.
+///
+/// Stores all orders (both active and terminal) keyed by [`OrderId`],
+/// and maintains a separate list of active order IDs for efficient
+/// iteration during fill matching.
 pub struct OrderBook {
+    /// All orders by ID, including terminal ones.
     orders: HashMap<OrderId, Order>,
+    /// IDs of orders that are still working (active or partially
+    /// filled). Periodically cleaned by [`cleanup_active`](Self::cleanup_active).
     active_ids: Vec<OrderId>,
 }
 
 impl OrderBook {
+    /// Create an empty order book.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             orders: HashMap::new(),
@@ -18,14 +34,18 @@ impl OrderBook {
         }
     }
 
+    /// Look up an order by ID.
+    #[must_use]
     pub fn get(&self, id: OrderId) -> Option<&Order> {
         self.orders.get(&id)
     }
 
+    /// Look up an order by ID (mutable).
     pub fn get_mut(&mut self, id: OrderId) -> Option<&mut Order> {
         self.orders.get_mut(&id)
     }
 
+    /// Iterate over all currently active orders.
     pub fn active_orders(&self) -> impl Iterator<Item = &Order> {
         self.active_ids
             .iter()
@@ -33,6 +53,8 @@ impl OrderBook {
             .filter(|o| o.is_active())
     }
 
+    /// Count the number of active (non-terminal) orders.
+    #[must_use]
     pub fn active_count(&self) -> usize {
         self.active_ids
             .iter()
@@ -40,7 +62,9 @@ impl OrderBook {
             .count()
     }
 
-    /// Create and activate a single order.
+    /// Create and immediately activate a single order.
+    ///
+    /// Returns the newly assigned [`OrderId`].
     pub fn create_order(&mut self, new: &NewOrder, timestamp: Timestamp) -> OrderId {
         let id = OrderId::next();
         let order = Order {
@@ -66,7 +90,14 @@ impl OrderBook {
     }
 
     /// Create a bracket order set: entry + stop-loss + optional
-    /// take-profit. The SL and TP are OCO partners.
+    /// take-profit.
+    ///
+    /// The stop-loss and take-profit are linked as OCO partners so
+    /// that filling one automatically cancels the other. The child
+    /// orders start in [`OrderStatus::Pending`] and are activated when
+    /// the entry fills (see [`activate_bracket_children`](Self::activate_bracket_children)).
+    ///
+    /// Returns `(entry_id, stop_loss_id, Option<take_profit_id>)`.
     pub fn create_bracket(
         &mut self,
         bracket: &BracketOrder,
@@ -75,7 +106,7 @@ impl OrderBook {
         let entry_id = self.create_order(&bracket.entry, timestamp);
         let exit_side = bracket.entry.side.opposite();
 
-        // Stop-loss order
+        // Stop-loss order (pending until entry fills)
         let sl_id = OrderId::next();
         let sl_order = Order {
             id: sl_id,
@@ -98,7 +129,7 @@ impl OrderBook {
         };
         self.orders.insert(sl_id, sl_order);
 
-        // Take-profit order (if specified)
+        // Take-profit order (pending, if specified)
         let tp_id = bracket.take_profit.map(|tp_price| {
             let tp_id = OrderId::next();
             let tp_order = Order {
@@ -122,7 +153,7 @@ impl OrderBook {
             tp_id
         });
 
-        // Link OCO partners
+        // Link OCO partners (SL <-> TP)
         if let Some(tp_id) = tp_id
             && let Some(sl) = self.orders.get_mut(&sl_id)
         {
@@ -132,7 +163,8 @@ impl OrderBook {
         (entry_id, sl_id, tp_id)
     }
 
-    /// Activate pending bracket orders (called after entry fill).
+    /// Activate pending bracket child orders after the parent entry
+    /// order has been filled.
     pub fn activate_bracket_children(&mut self, parent_id: OrderId) {
         let children: Vec<OrderId> = self
             .orders
@@ -149,8 +181,9 @@ impl OrderBook {
         }
     }
 
-    /// Find the stop-loss price for a bracket entry order (from its
-    /// child SL order).
+    /// Find the stop-loss trigger price for a bracket entry order
+    /// by searching its child orders.
+    #[must_use]
     pub fn bracket_stop_loss(&self, parent_id: OrderId) -> Option<Price> {
         self.orders.values().find_map(|o| {
             if o.parent_id == Some(parent_id)
@@ -162,7 +195,8 @@ impl OrderBook {
         })
     }
 
-    /// Cancel an order. If it has an OCO partner, cancel that too.
+    /// Cancel an order. If it has an OCO partner, that partner is
+    /// cancelled too.
     pub fn cancel(&mut self, id: OrderId, timestamp: Timestamp) {
         if let Some(order) = self.orders.get_mut(&id)
             && !order.is_terminal()
@@ -183,7 +217,8 @@ impl OrderBook {
         self.cleanup_active();
     }
 
-    /// Cancel all orders for an instrument.
+    /// Cancel all non-terminal orders, optionally filtered by
+    /// instrument.
     pub fn cancel_all(&mut self, instrument: Option<FuturesTicker>, timestamp: Timestamp) {
         let ids: Vec<OrderId> = self
             .orders
@@ -203,7 +238,11 @@ impl OrderBook {
         self.cleanup_active();
     }
 
-    /// Modify an order's price and/or quantity.
+    /// Modify an active order's price and/or quantity.
+    ///
+    /// Returns `true` if the modification was applied, `false` if the
+    /// order was not found or is already in a terminal state.
+    #[must_use]
     pub fn modify(
         &mut self,
         id: OrderId,
@@ -236,7 +275,9 @@ impl OrderBook {
         true
     }
 
-    /// Expire all Day orders.
+    /// Expire all orders with [`TimeInForce::Day`].
+    ///
+    /// Called at session close to cancel working day orders.
     pub fn expire_day_orders(&mut self, timestamp: Timestamp) {
         let ids: Vec<OrderId> = self
             .orders
@@ -254,12 +295,15 @@ impl OrderBook {
         self.cleanup_active();
     }
 
-    /// Remove terminal orders from active list.
+    /// Remove terminal orders from the active ID list.
     fn cleanup_active(&mut self) {
         self.active_ids
             .retain(|id| self.orders.get(id).is_some_and(|o| !o.is_terminal()));
     }
 
+    /// Clear all orders and reset the ID counter.
+    ///
+    /// Call between backtest runs to start fresh.
     pub fn reset(&mut self) {
         self.orders.clear();
         self.active_ids.clear();

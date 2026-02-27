@@ -1,6 +1,9 @@
-//! Math utilities for study calculations.
+//! Statistical math utilities for study computations.
+//!
+//! Provides [`mean`], [`variance`] (population), and [`standard_deviation`]
+//! — the building blocks for indicators like Bollinger Bands and ATR.
 
-/// Calculate the mean of a slice of f64 values.
+/// Arithmetic mean of a slice. Returns `0.0` for an empty slice.
 pub fn mean(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -8,11 +11,10 @@ pub fn mean(values: &[f64]) -> f64 {
     values.iter().sum::<f64>() / values.len() as f64
 }
 
-/// Calculate the population variance (N divisor) of a slice of f64 values.
+/// Population variance (divides by N, not N-1).
 ///
-/// Uses population variance (divides by N, not N-1) which is the standard
-/// convention for technical indicators like Bollinger Bands and standard
-/// deviation calculations in financial charting.
+/// This is the standard convention for technical indicators like
+/// Bollinger Bands. Returns `0.0` for slices with fewer than 2 elements.
 pub fn variance(values: &[f64]) -> f64 {
     if values.len() < 2 {
         return 0.0;
@@ -22,7 +24,7 @@ pub fn variance(values: &[f64]) -> f64 {
     sum_sq / values.len() as f64
 }
 
-/// Calculate the standard deviation of a slice of f64 values.
+/// Population standard deviation (square root of [`variance`]).
 pub fn standard_deviation(values: &[f64]) -> f64 {
     variance(values).sqrt()
 }

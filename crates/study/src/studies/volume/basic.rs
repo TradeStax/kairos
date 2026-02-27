@@ -1,7 +1,19 @@
-//! Volume Study
+//! Basic Volume.
 //!
-//! Displays total volume per candle as colored bars.
-//! Green for bullish candles (close >= open), red for bearish.
+//! Displays total volume per candle as colored bars. Green for bullish
+//! candles (close >= open), red for bearish. This is the simplest volume
+//! indicator and the most commonly used — it shows raw participation
+//! levels at a glance.
+//!
+//! **Breakout confirmation**: a price breakout backed by above-average
+//! volume is more likely to sustain. A breakout on thin volume is
+//! suspect and often reverses.
+//!
+//! **Exhaustion / climax**: unusually high volume at a price extreme
+//! (e.g. a parabolic move or sharp sell-off) may signal capitulation
+//! and a pending reversal, especially when followed by declining volume.
+//!
+//! Output: `StudyOutput::Bars` — one bar per candle, colored by direction.
 
 use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
@@ -20,6 +32,10 @@ const DEFAULT_DOWN_COLOR: SerializableColor = BEARISH_COLOR;
 
 const DEFAULT_OPACITY: f64 = 0.8;
 
+/// Basic volume bar chart.
+///
+/// Renders one bar per candle whose height is the total volume
+/// (buy + sell) and whose color reflects the candle direction.
 pub struct VolumeStudy {
     config: StudyConfig,
     output: StudyOutput,
@@ -27,6 +43,7 @@ pub struct VolumeStudy {
 }
 
 impl VolumeStudy {
+    /// Create a new Volume study with default colors and opacity.
     pub fn new() -> Self {
         let params = vec![
             ParameterDef {

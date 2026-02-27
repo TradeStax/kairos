@@ -1,6 +1,28 @@
+//! Rithmic Ticker Plant actor.
+//!
+//! Manages a WebSocket connection to Rithmic's Ticker Plant for
+//! real-time market data: last trades, BBO quotes, depth-by-order
+//! updates, symbol search, and reference data queries. Runs as a
+//! background `tokio` task driven by a command channel.
+
 use async_trait::async_trait;
 use log::{error, info, warn};
 
+use futures_util::{
+    SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
+};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, mpsc, oneshot},
+    time::{Interval, sleep_until},
+};
+use tokio_tungstenite::{
+    MaybeTlsStream,
+    tungstenite::{Error, Message, error::ProtocolError},
+};
+
+use super::super::protocol::ws::ConnectStrategy;
 use super::super::protocol::{
     config::RithmicConnectionConfig,
     messages::RithmicMessage,
@@ -20,40 +42,29 @@ use super::super::protocol::{
     },
 };
 
-use super::super::protocol::ws::ConnectStrategy;
-
-use futures_util::{
-    SinkExt, StreamExt,
-    stream::{SplitSink, SplitStream},
-};
-
-use tokio_tungstenite::{
-    MaybeTlsStream,
-    tungstenite::{Error, Message, error::ProtocolError},
-};
-
-use tokio::{
-    net::TcpStream,
-    sync::{broadcast, mpsc, oneshot},
-    time::{Interval, sleep_until},
-};
-
+/// Commands sent to the ticker plant actor via its mpsc channel.
 pub(crate) enum TickerPlantCommand {
+    /// Gracefully close the WebSocket connection
     Close,
+    /// Query available Rithmic system infrastructure
     ListSystemInfo {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Authenticate with the ticker plant
     Login {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Mark the actor as logged in (enables heartbeats)
     SetLogin,
+    /// Log out and prepare to close
     Logout {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Send a heartbeat to keep the session alive
     SendHeartbeat,
-    UpdateHeartbeat {
-        seconds: u64,
-    },
+    /// Update the heartbeat interval
+    UpdateHeartbeat { seconds: u64 },
+    /// Subscribe to or unsubscribe from market data updates
     Subscribe {
         symbol: String,
         exchange: String,
@@ -61,17 +72,20 @@ pub(crate) enum TickerPlantCommand {
         request_type: Request,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Subscribe to or unsubscribe from depth-by-order updates
     SubscribeOrderBook {
         symbol: String,
         exchange: String,
         request_type: request_depth_by_order_updates::Request,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request a one-time depth-by-order snapshot
     RequestDepthByOrderSnapshot {
         symbol: String,
         exchange: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Search for symbols matching criteria
     SearchSymbols {
         search_text: String,
         exchange: Option<String>,
@@ -80,16 +94,19 @@ pub(crate) enum TickerPlantCommand {
         pattern: Option<request_search_symbols::Pattern>,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// List available exchanges for a user
     ListExchanges {
         user: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Get instruments for an underlying symbol
     GetInstrumentByUnderlying {
         underlying_symbol: String,
         exchange: String,
         expiration_date: Option<String>,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Subscribe to market data by underlying symbol
     SubscribeByUnderlying {
         underlying_symbol: String,
         exchange: String,
@@ -98,85 +115,72 @@ pub(crate) enum TickerPlantCommand {
         request_type: request_market_data_update_by_underlying::Request,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request tick size type table
     GetTickSizeTypeTable {
         tick_size_type: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request available product codes
     GetProductCodes {
         exchange: Option<String>,
         give_toi_products_only: Option<bool>,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request volume-at-price data
     GetVolumeAtPrice {
         symbol: String,
         exchange: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request auxiliary reference data
     GetAuxilliaryReferenceData {
         symbol: String,
         exchange: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request instrument reference data
     GetReferenceData {
         symbol: String,
         exchange: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request front-month contract information
     GetFrontMonthContract {
         symbol: String,
         exchange: String,
         need_updates: bool,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
+    /// Request system gateway information
     GetSystemGatewayInfo {
         system_name: Option<String>,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
 }
 
-/// The RithmicTickerPlant provides access to real-time market data.
+/// Owns a ticker plant WebSocket actor task and its communication channels.
 ///
-/// Currently the following market data updates are supported:
-/// - Last trades
-/// - Best bid and offer (BBO)
-/// - Order book depth-by-order updates
-///
-/// # Connection Health Monitoring
-///
-/// The subscription receiver provides connection health events:
-/// - **WebSocket ping/pong timeouts**: Primary indicator of dead connections (auto-detected)
-/// - **Heartbeat errors**: Only forwarded when Rithmic server returns an error (rare)
-/// - **Forced logout events**: Server-initiated disconnections requiring reconnection
-/// - **Market data updates**: Real-time trade and quote data
-///
-/// **Note:** Heartbeat requests are sent automatically to comply with Rithmic's protocol,
-/// but successful responses are silently dropped. Only heartbeat errors from the server
-/// are forwarded as `HeartbeatTimeout` messages. The primary keep-alive mechanism is
-/// WebSocket ping/pong, which reliably detects dead connections 24/7.
-///
+/// Supports last trades, BBO quotes, and depth-by-order updates.
+/// Connection health is monitored via WebSocket ping/pong (primary)
+/// and application-level heartbeats (secondary). Successful heartbeat
+/// responses are silently dropped; only errors are surfaced as
+/// `HeartbeatTimeout` messages.
 #[allow(dead_code)]
 pub struct RithmicTickerPlant {
+    /// Background task running the plant actor loop
     pub connection_handle: tokio::task::JoinHandle<()>,
+    /// Command channel sender
     sender: mpsc::Sender<TickerPlantCommand>,
+    /// Broadcast sender for subscription updates
     subscription_sender: broadcast::Sender<RithmicResponse>,
 }
 
 impl RithmicTickerPlant {
-    /// Connect to the Rithmic Ticker Plant to access real-time market data.
+    /// Connects to Rithmic's Ticker Plant and spawns the actor task.
     ///
-    /// # Arguments
-    /// * `config` - Rithmic configuration with credentials and server URLs
-    /// * `strategy` - Connection strategy (Simple or AlternateWithRetry)
-    ///
-    /// # Returns
-    /// A `Result` containing the connected `RithmicTickerPlant` instance,
-    /// or an error if the connection fails.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - Unable to establish WebSocket connection to the server
-    /// - Network timeout occurs
-    /// - Server rejects the connection
+    /// The plant is not yet authenticated -- call
+    /// [`RithmicTickerPlantHandle::login`] on the returned handle
+    /// before subscribing to market data.
     pub async fn connect(
         config: &RithmicConnectionConfig,
         strategy: ConnectStrategy,
@@ -199,10 +203,7 @@ impl RithmicTickerPlant {
 }
 
 impl RithmicTickerPlant {
-    /// Get a handle to interact with the ticker plant.
-    ///
-    /// The handle provides methods to subscribe to market data and receive updates.
-    /// Multiple handles can be created from the same plant.
+    /// Returns a cloneable handle for sending commands to this plant
     pub fn get_handle(&self) -> RithmicTickerPlantHandle {
         RithmicTickerPlantHandle {
             sender: self.sender.clone(),
@@ -212,6 +213,7 @@ impl RithmicTickerPlant {
     }
 }
 
+/// Internal actor state for a ticker plant WebSocket connection.
 #[derive(Debug)]
 struct TickerPlant {
     config: RithmicConnectionConfig,
@@ -227,9 +229,12 @@ struct TickerPlant {
         tokio_tungstenite::WebSocketStream<MaybeTlsStream<TcpStream>>,
         tokio_tungstenite::tungstenite::Message,
     >,
-
     rithmic_sender_api: RithmicSenderApi,
     subscription_sender: broadcast::Sender<RithmicResponse>,
+    /// Counter for broadcast market data messages (diagnostics)
+    broadcast_count: u64,
+    /// When the last stats log was emitted
+    last_stats_log: std::time::Instant,
 }
 
 impl TickerPlant {
@@ -265,6 +270,8 @@ impl TickerPlant {
             rithmic_sender_api,
             rithmic_sender,
             subscription_sender,
+            broadcast_count: 0,
+            last_stats_log: std::time::Instant::now(),
         })
     }
 }
@@ -390,8 +397,21 @@ impl PlantActor for TickerPlant {
                         }
 
                         if response.is_update {
+                            let is_market = response.is_market_data();
                             match self.subscription_sender.send(response) {
-                                Ok(_) => {}
+                                Ok(n) => {
+                                    if is_market {
+                                        self.broadcast_count += 1;
+                                        if self.broadcast_count == 1 {
+                                            info!(
+                                                "ticker_plant: first \
+                                                 market data broadcast \
+                                                 ({} receiver(s))",
+                                                n
+                                            );
+                                        }
+                                    }
+                                }
                                 Err(e) => {
                                     warn!(
                                         "ticker_plant: \
@@ -399,6 +419,15 @@ impl PlantActor for TickerPlant {
                                         e
                                     );
                                 }
+                            }
+                            // Periodic stats
+                            if self.last_stats_log.elapsed() >= std::time::Duration::from_secs(60) {
+                                info!(
+                                    "ticker_plant: {} market data \
+                                     messages broadcast",
+                                    self.broadcast_count
+                                );
+                                self.last_stats_log = std::time::Instant::now();
                             }
                         } else {
                             self.request_handler.handle_response(response);
@@ -896,19 +925,22 @@ impl PlantActor for TickerPlant {
     }
 }
 
+/// Cloneable handle for interacting with a ticker plant actor.
+///
+/// Provides async methods for login, market data subscription,
+/// symbol search, and reference data queries. Each method sends a
+/// command to the actor task and awaits the response.
 pub struct RithmicTickerPlantHandle {
+    /// Command channel to the actor task
     sender: mpsc::Sender<TickerPlantCommand>,
+    /// Used to create new broadcast receivers on clone
     subscription_sender: broadcast::Sender<RithmicResponse>,
-
-    /// Receiver for subscription updates
+    /// Broadcast receiver for subscription updates
     pub subscription_receiver: broadcast::Receiver<RithmicResponse>,
 }
 
 impl RithmicTickerPlantHandle {
-    /// List available Rithmic system infrastructure information.
-    ///
-    /// Returns information about the connected Rithmic system, including
-    /// system name, gateway info, and available services.
+    /// Lists available Rithmic system infrastructure information
     pub async fn list_system_info(&self) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -925,12 +957,10 @@ impl RithmicTickerPlantHandle {
         Ok(response)
     }
 
-    /// Log in to the Rithmic ticker plant
+    /// Logs in to the Rithmic Ticker Plant.
     ///
-    /// This must be called before subscribing to any market data
-    ///
-    /// # Returns
-    /// The login response or an error message
+    /// Must be called before subscribing to market data. Configures
+    /// the heartbeat interval from the server's login response.
     pub async fn login(&self) -> Result<RithmicResponse, String> {
         info!("ticker_plant: logging in");
 
@@ -969,10 +999,7 @@ impl RithmicTickerPlantHandle {
         }
     }
 
-    /// Disconnect from the Rithmic ticker plant
-    ///
-    /// # Returns
-    /// The logout response or an error message
+    /// Disconnects from the Rithmic Ticker Plant (logout + close)
     pub async fn disconnect(&self) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -990,14 +1017,7 @@ impl RithmicTickerPlantHandle {
         Ok(response)
     }
 
-    /// Subscribe to market data for a specific symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The subscription response or an error message
+    /// Subscribes to last-trade and BBO updates for a symbol
     pub async fn subscribe(&self, symbol: &str, exchange: &str) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -1017,15 +1037,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Subscribe to order book depth-by-order updates for a
-    /// specific symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The subscription response or an error message
+    /// Subscribes to depth-by-order updates for a symbol
     pub async fn subscribe_order_book(
         &self,
         symbol: &str,
@@ -1048,14 +1060,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Unsubscribe from market data for a specific symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The unsubscription response or an error message
+    /// Unsubscribes from market data for a symbol
     pub async fn unsubscribe(
         &self,
         symbol: &str,
@@ -1079,15 +1084,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Unsubscribe from order book depth-by-order updates for a
-    /// specific symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The unsubscription response or an error message
+    /// Unsubscribes from depth-by-order updates for a symbol
     pub async fn unsubscribe_order_book(
         &self,
         symbol: &str,
@@ -1110,16 +1107,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Request a snapshot of the order book depth-by-order for a
-    /// specific symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// A vector of responses containing the order book snapshot data
-    /// or an error message
+    /// Requests a one-time depth-by-order snapshot for a symbol
     pub async fn request_depth_by_order_snapshot(
         &self,
         symbol: &str,
@@ -1138,24 +1126,14 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
+    /// Sends a command to update the heartbeat interval
     async fn update_heartbeat(&self, seconds: u64) {
         let command = TickerPlantCommand::UpdateHeartbeat { seconds };
 
         let _ = self.sender.send(command).await;
     }
 
-    /// Search for symbols based on search criteria
-    ///
-    /// # Arguments
-    /// * `search_text` - The text to search for in symbols
-    /// * `exchange` - Optional exchange filter
-    /// * `product_code` - Optional product code filter
-    /// * `instrument_type` - Optional instrument type filter
-    /// * `pattern` - Optional search pattern mode
-    ///
-    /// # Returns
-    /// A vector of responses containing matching symbols or an
-    /// error message
+    /// Searches for symbols matching the given criteria
     pub async fn search_symbols(
         &self,
         search_text: &str,
@@ -1180,14 +1158,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// List exchanges available to the specified user
-    ///
-    /// # Arguments
-    /// * `user` - The username to query exchange permissions for
-    ///
-    /// # Returns
-    /// A vector of responses containing exchange information or an
-    /// error message
+    /// Lists exchanges available to the specified user
     pub async fn list_exchanges(&self, user: &str) -> Result<Vec<RithmicResponse>, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
@@ -1201,16 +1172,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Get instruments by underlying symbol
-    ///
-    /// # Arguments
-    /// * `underlying_symbol` - The underlying symbol (e.g., "ES")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `expiration_date` - Optional expiration date filter
-    ///
-    /// # Returns
-    /// A vector of responses containing instrument information or
-    /// an error message
+    /// Returns instruments for an underlying symbol
     pub async fn get_instrument_by_underlying(
         &self,
         underlying_symbol: &str,
@@ -1231,18 +1193,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Subscribe to market data for all instruments of an
-    /// underlying
-    ///
-    /// # Arguments
-    /// * `underlying_symbol` - The underlying symbol (e.g., "ES")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `expiration_date` - Optional expiration date filter
-    /// * `fields` - Market data fields to subscribe to
-    /// * `request_type` - Subscribe or Unsubscribe
-    ///
-    /// # Returns
-    /// The subscription response or an error message
+    /// Subscribes to market data for all instruments of an underlying
     pub async fn subscribe_by_underlying(
         &self,
         underlying_symbol: &str,
@@ -1270,13 +1221,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Get tick size type table
-    ///
-    /// # Arguments
-    /// * `tick_size_type` - The tick size type identifier
-    ///
-    /// # Returns
-    /// The tick size table response or an error message
+    /// Returns the tick size type table for a given type identifier
     pub async fn get_tick_size_type_table(
         &self,
         tick_size_type: &str,
@@ -1293,16 +1238,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Get product codes
-    ///
-    /// # Arguments
-    /// * `exchange` - Optional exchange filter
-    /// * `give_toi_products_only` - If true, only return Time of
-    ///   Interest products
-    ///
-    /// # Returns
-    /// A vector of responses containing product codes or an error
-    /// message
+    /// Returns available product codes, optionally filtered by exchange
     pub async fn get_product_codes(
         &self,
         exchange: Option<&str>,
@@ -1321,14 +1257,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Get volume at price data
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The volume at price response or an error message
+    /// Returns volume-at-price data for a symbol
     pub async fn get_volume_at_price(
         &self,
         symbol: &str,
@@ -1347,14 +1276,7 @@ impl RithmicTickerPlantHandle {
         rx.await.map_err(|_| "Connection closed".to_string())?
     }
 
-    /// Get auxiliary reference data for a symbol
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The auxiliary reference data response or an error message
+    /// Returns auxiliary reference data for a symbol
     pub async fn get_auxilliary_reference_data(
         &self,
         symbol: &str,
@@ -1376,18 +1298,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Get reference data for a symbol
-    ///
-    /// Returns detailed information about a trading instrument
-    /// including tick size, point value, trading hours, and other
-    /// specifications.
-    ///
-    /// # Arguments
-    /// * `symbol` - The trading symbol (e.g., "ESH6")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    ///
-    /// # Returns
-    /// The reference data response or an error message
+    /// Returns instrument reference data (tick size, point value, etc.)
     pub async fn get_reference_data(
         &self,
         symbol: &str,
@@ -1409,19 +1320,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Get front month contract
-    ///
-    /// Returns the current front month contract for a given
-    /// product.
-    ///
-    /// # Arguments
-    /// * `symbol` - The product symbol (e.g., "ES")
-    /// * `exchange` - The exchange code (e.g., "CME")
-    /// * `need_updates` - Whether to receive updates when front
-    ///   month changes
-    ///
-    /// # Returns
-    /// The front month contract response or an error message
+    /// Returns the current front-month contract for a product
     pub async fn get_front_month_contract(
         &self,
         symbol: &str,
@@ -1445,13 +1344,7 @@ impl RithmicTickerPlantHandle {
             .remove(0))
     }
 
-    /// Get Rithmic system gateway info
-    ///
-    /// # Arguments
-    /// * `system_name` - Optional system name to get info for
-    ///
-    /// # Returns
-    /// The gateway info response or an error message
+    /// Returns Rithmic system gateway information
     pub async fn get_system_gateway_info(
         &self,
         system_name: Option<&str>,

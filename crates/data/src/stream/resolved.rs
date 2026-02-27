@@ -1,19 +1,29 @@
-//! Resolved stream — Waiting (persisted) vs Ready (active)
+//! Resolved stream — two-state wrapper for stream lifecycle.
+//!
+//! A [`ResolvedStream`] is either `Waiting` (persisted, needs ticker info
+//! resolution) or `Ready` (fully resolved, active for subscription).
 
 #[cfg(feature = "heatmap")]
 use super::kind::PersistDepth;
 use super::kind::{PersistKline, PersistStreamKind, StreamKind};
 use crate::domain::futures::FuturesTickerInfo;
 
+/// A stream in one of two lifecycle states: waiting for resolution or ready.
+///
+/// Panes start with `Waiting` after deserialization and transition to `Ready`
+/// once ticker info is available. Reverts to `Waiting` for serialization via
+/// [`into_waiting`](Self::into_waiting).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedStream {
     /// Persisted stream waiting to be resolved with ticker info
     Waiting(Vec<PersistStreamKind>),
-    /// Active stream ready to use
+    /// Fully resolved stream ready for subscription
     Ready(Vec<StreamKind>),
 }
 
 impl ResolvedStream {
+    /// Returns `true` if any ready stream matches the given stream kind
+    #[must_use]
     pub fn matches_stream(&self, stream: &StreamKind) -> bool {
         match self {
             ResolvedStream::Ready(existing) => existing.iter().any(|s| s == stream),
@@ -21,6 +31,7 @@ impl ResolvedStream {
         }
     }
 
+    /// Returns a mutable iterator over ready streams, or `None` if waiting
     pub fn ready_iter_mut(&mut self) -> Option<impl Iterator<Item = &mut StreamKind>> {
         match self {
             ResolvedStream::Ready(streams) => Some(streams.iter_mut()),
@@ -28,6 +39,8 @@ impl ResolvedStream {
         }
     }
 
+    /// Returns an iterator over ready streams, or `None` if waiting
+    #[must_use]
     pub fn ready_iter(&self) -> Option<impl Iterator<Item = &StreamKind>> {
         match self {
             ResolvedStream::Ready(streams) => Some(streams.iter()),
@@ -35,6 +48,7 @@ impl ResolvedStream {
         }
     }
 
+    /// Finds the first ready stream matching the predicate and maps it
     pub fn find_ready_map<F, T>(&self, f: F) -> Option<T>
     where
         F: FnMut(&StreamKind) -> Option<T>,
@@ -45,6 +59,11 @@ impl ResolvedStream {
         }
     }
 
+    /// Converts this stream back to serializable form.
+    ///
+    /// If already `Waiting`, returns the inner vec. If `Ready`, strips
+    /// ticker info down to just the ticker symbol.
+    #[must_use]
     pub fn into_waiting(self) -> Vec<PersistStreamKind> {
         match self {
             ResolvedStream::Waiting(streams) => streams,
@@ -73,6 +92,8 @@ impl ResolvedStream {
         }
     }
 
+    /// Returns the waiting streams slice, or `None` if already resolved
+    #[must_use]
     pub fn waiting_to_resolve(&self) -> Option<&[PersistStreamKind]> {
         match self {
             ResolvedStream::Waiting(streams) => Some(streams),
@@ -80,6 +101,8 @@ impl ResolvedStream {
         }
     }
 
+    /// Returns ticker info for all ready streams, or `None` if waiting
+    #[must_use]
     pub fn ready_tickers(&self) -> Option<Vec<FuturesTickerInfo>> {
         match self {
             ResolvedStream::Ready(streams) => {

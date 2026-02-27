@@ -95,9 +95,13 @@ pub fn exec_get_chart_info(snap: &ChartSnapshot) -> ToolExecResult {
     }
 }
 
-pub fn exec_get_candles(snap: &ChartSnapshot, args: &Value) -> ToolExecResult {
+pub fn exec_get_candles(
+    snap: &ChartSnapshot,
+    args: &Value,
+    tz: crate::config::UserTimezone,
+) -> ToolExecResult {
     let count = args["count"].as_u64().unwrap_or(50).min(200) as usize;
-    let (start_ns, end_ns) = parse_time_range(args);
+    let (start_ns, end_ns) = parse_time_range(args, tz);
 
     let filtered: Vec<&data::domain::entities::Candle> = snap
         .candles

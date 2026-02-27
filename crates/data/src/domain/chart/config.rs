@@ -1,34 +1,47 @@
-//! Chart Configuration Types
+//! Chart configuration types — what a chart displays and how it scales.
+
+use serde::{Deserialize, Serialize};
 
 use crate::domain::core::types::DateRange;
 use crate::domain::instrument::futures::{FuturesTicker, Timeframe};
-use serde::{Deserialize, Serialize};
 
-/// Chart configuration (what to display)
+/// Top-level chart configuration describing what data to display.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChartConfig {
+    /// Instrument to chart
     pub ticker: FuturesTicker,
+    /// Time-based or tick-based aggregation
     pub basis: ChartBasis,
+    /// Date range of data to load
     pub date_range: DateRange,
+    /// Visual chart style
     pub chart_type: ChartType,
 }
 
-/// Chart basis (time-based or tick-based)
+/// Chart aggregation basis — either time-based or tick-based.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChartBasis {
+    /// Aggregate by wall-clock duration
     Time(Timeframe),
+    /// Aggregate by trade count
     Tick(u32),
 }
 
 impl ChartBasis {
+    /// Return `true` for time-based aggregation
+    #[must_use]
     pub fn is_time(&self) -> bool {
         matches!(self, ChartBasis::Time(_))
     }
 
+    /// Return `true` for tick-based aggregation
+    #[must_use]
     pub fn is_tick(&self) -> bool {
         matches!(self, ChartBasis::Tick(_))
     }
 
+    /// Return the timeframe if time-based, `None` otherwise
+    #[must_use]
     pub fn timeframe(&self) -> Option<Timeframe> {
         match self {
             ChartBasis::Time(tf) => Some(*tf),
@@ -36,6 +49,8 @@ impl ChartBasis {
         }
     }
 
+    /// Return the tick count if tick-based, `None` otherwise
+    #[must_use]
     pub fn tick_count(&self) -> Option<u32> {
         match self {
             ChartBasis::Time(_) => None,
@@ -59,12 +74,16 @@ impl From<Timeframe> for ChartBasis {
     }
 }
 
-/// Chart type
+/// Visual chart rendering style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChartType {
+    /// Traditional OHLC candlesticks
     Candlestick,
+    /// Close-only line chart
     Line,
+    /// Heikin-Ashi smoothed candles
     HeikinAshi,
+    /// Order book depth heatmap
     #[cfg(feature = "heatmap")]
     Heatmap,
 }
@@ -81,11 +100,14 @@ impl std::fmt::Display for ChartType {
     }
 }
 
-/// View configuration for chart layout
+/// View layout and autoscale configuration for a chart pane.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewConfig {
+    /// Horizontal split ratios for sub-panes
     pub splits: Vec<f32>,
+    /// Autoscale mode
     pub autoscale: Option<Autoscale>,
+    /// Vertical split ratios for side panels
     #[serde(default)]
     pub side_splits: Vec<f32>,
 }
@@ -100,11 +122,14 @@ impl Default for ViewConfig {
     }
 }
 
-/// Autoscale mode for charts
+/// Autoscale mode for the price axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Autoscale {
+    /// Keep the latest candle centered
     CenterLatest,
+    /// Fit all visible data
     FitAll,
+    /// Manual scaling only
     Disabled,
 }
 

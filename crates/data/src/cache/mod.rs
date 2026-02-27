@@ -1,7 +1,7 @@
-//! Per-day cache layer.
+//! Per-day cache layer with bincode+zstd storage.
 //!
-//! Bincode+zstd storage for all adapters. Atomic writes (`.tmp` then rename).
-//! Lock-free reads via async filesystem I/O.
+//! Provides atomic writes (`.tmp` then rename) and lock-free reads via async
+//! filesystem I/O. All adapters (Databento, Rithmic) share the same layout.
 //!
 //! - [`store`] — `CacheStore` read/write/scan/evict operations, `CacheProvider`, `CacheSchema`
 //! - [`mod@format`] — `DayFileHeader`, bincode+zstd encode/decode

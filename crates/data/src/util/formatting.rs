@@ -1,5 +1,10 @@
-//! Formatting utilities for numbers and currency
+//! Formatting utilities for numbers and currency values.
+//!
+//! Provides human-readable number abbreviation (k/m/b suffixes), comma
+//! grouping, currency formatting, and percentage change display.
 
+/// Abbreviates a number with k/m/b suffix based on magnitude
+#[must_use]
 pub fn abbr_large_numbers(value: f32) -> String {
     let abs_value = value.abs();
     let sign = if value < 0.0 { "-" } else { "" };
@@ -30,6 +35,8 @@ pub fn abbr_large_numbers(value: f32) -> String {
     }
 }
 
+/// Returns the number of decimal places in the string representation of a float
+#[must_use]
 pub fn count_decimals(value: f32) -> usize {
     let value_str = value.to_string();
     if let Some(pos) = value_str.find('.') {
@@ -39,6 +46,8 @@ pub fn count_decimals(value: f32) -> usize {
     }
 }
 
+/// Formats a number with comma-separated thousands and adaptive decimal places
+#[must_use]
 pub fn format_with_commas(num: f32) -> String {
     if num == 0.0 {
         return "0".to_string();
@@ -98,6 +107,8 @@ pub fn format_with_commas(num: f32) -> String {
     result
 }
 
+/// Formats a price as a dollar-prefixed abbreviated string (e.g. "$1.23k")
+#[must_use]
 pub fn currency_abbr(price: f32) -> String {
     match price {
         p if p > 1_000_000_000.0 => {
@@ -109,6 +120,8 @@ pub fn currency_abbr(price: f32) -> String {
     }
 }
 
+/// Formats a percentage change with sign prefix (e.g. "+1.23%" or "-0.45%")
+#[must_use]
 pub fn pct_change(change: f32) -> String {
     match change {
         c if c > 0.0 => format!("+{:.2}%", c),

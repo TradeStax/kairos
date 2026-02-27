@@ -1,26 +1,34 @@
-//! Domain Entities
+//! Core market data entities.
 //!
-//! Core business entities. The `Depth` type uses `BTreeMap<i64, f32>` (raw
-//! price units → quantity) for performance, with typed accessors.
+//! The [`Depth`] type uses `BTreeMap<i64, f32>` (raw price units to quantity)
+//! for performance, with typed accessors that accept/return [`Price`].
+
+use std::collections::BTreeMap;
+
+use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 
 use crate::Error;
 use crate::domain::core::types::{Price, Quantity, Side, Timestamp, Volume};
-use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 // ── Trade ───────────────────────────────────────────────────────────────
 
-/// Single trade execution
+/// A single trade execution.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Trade {
+    /// Execution timestamp
     pub time: Timestamp,
+    /// Execution price
     pub price: Price,
+    /// Trade quantity
     pub quantity: Quantity,
+    /// Aggressor side
     pub side: Side,
 }
 
 impl Trade {
+    /// Create a new trade
+    #[must_use]
     pub fn new(time: Timestamp, price: Price, quantity: Quantity, side: Side) -> Self {
         Self {
             time,
@@ -30,7 +38,8 @@ impl Trade {
         }
     }
 
-    /// Create from raw values (for compatibility)
+    /// Create from raw numeric values (convenience for adapter layers)
+    #[must_use]
     pub fn from_raw(time_millis: u64, price_f64: f64, quantity_f32: f32, is_sell: bool) -> Self {
         Self {
             time: Timestamp::from_millis(time_millis),
@@ -40,14 +49,20 @@ impl Trade {
         }
     }
 
+    /// Return `true` if the aggressor was a buyer
+    #[must_use]
     pub fn is_buy(&self) -> bool {
         self.side.is_buy()
     }
 
+    /// Return `true` if the aggressor was a seller
+    #[must_use]
     pub fn is_sell(&self) -> bool {
         self.side.is_sell()
     }
 
+    /// Return `true` if this trade occurred on the given calendar date (UTC)
+    #[must_use]
     pub fn is_on_date(&self, date: NaiveDate) -> bool {
         self.time.to_date() == date
     }
@@ -55,23 +70,35 @@ impl Trade {
 
 // ── Candle ──────────────────────────────────────────────────────────────
 
-/// OHLCV Candle
+/// OHLCV candle with separate buy and sell volume.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Candle {
+    /// Candle open timestamp
     pub time: Timestamp,
+    /// Open price
     pub open: Price,
+    /// High price
     pub high: Price,
+    /// Low price
     pub low: Price,
+    /// Close price
     pub close: Price,
+    /// Volume from buy-side aggression
     pub buy_volume: Volume,
+    /// Volume from sell-side aggression
     pub sell_volume: Volume,
 }
 
 impl Candle {
+    /// Return total volume as `f32`
+    #[must_use]
     pub fn volume(&self) -> f32 {
         (self.buy_volume.0 + self.sell_volume.0) as f32
     }
 
+    /// Create a validated candle.
+    ///
+    /// Returns an error if `high < open|close` or `low > open|close`.
     pub fn new(
         time: Timestamp,
         open: Price,
@@ -104,14 +131,20 @@ impl Candle {
         })
     }
 
+    /// Return combined buy + sell volume
+    #[must_use]
     pub fn total_volume(&self) -> Volume {
         self.buy_volume + self.sell_volume
     }
 
+    /// Return buy volume minus sell volume
+    #[must_use]
     pub fn volume_delta(&self) -> f64 {
         self.buy_volume.value() - self.sell_volume.value()
     }
 
+    /// Return absolute difference between open and close
+    #[must_use]
     pub fn body_size(&self) -> Price {
         if self.close >= self.open {
             self.close - self.open
@@ -120,18 +153,26 @@ impl Candle {
         }
     }
 
+    /// Return high minus low
+    #[must_use]
     pub fn range(&self) -> Price {
         self.high - self.low
     }
 
+    /// Return `true` if close > open
+    #[must_use]
     pub fn is_bullish(&self) -> bool {
         self.close > self.open
     }
 
+    /// Return `true` if close < open
+    #[must_use]
     pub fn is_bearish(&self) -> bool {
         self.close < self.open
     }
 
+    /// Convert to a raw tuple `(time_ms, open, high, low, close, (buy_vol, sell_vol))`
+    #[must_use]
     pub fn to_raw_tuple(&self) -> (u64, f32, f32, f32, f32, (f32, f32)) {
         (
             self.time.to_millis(),
@@ -151,16 +192,21 @@ impl Candle {
 
 /// Order book depth snapshot.
 ///
-/// Uses `BTreeMap<i64, f32>` (raw price units → quantity) for performance.
-/// Typed accessors accept/return `Price`.
+/// Uses `BTreeMap<i64, f32>` (raw price units to quantity) for performance.
+/// Typed accessors accept/return [`Price`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Depth {
-    pub time: u64,                // millis since epoch
-    pub bids: BTreeMap<i64, f32>, // price_units → quantity
+    /// Snapshot timestamp in milliseconds since epoch
+    pub time: u64,
+    /// Bid levels: price_units -> quantity
+    pub bids: BTreeMap<i64, f32>,
+    /// Ask levels: price_units -> quantity
     pub asks: BTreeMap<i64, f32>,
 }
 
 impl Depth {
+    /// Create an empty depth snapshot at the given timestamp
+    #[must_use]
     pub fn new(time: u64) -> Self {
         Self {
             time,
@@ -169,6 +215,8 @@ impl Depth {
         }
     }
 
+    /// Return the best (highest) bid price and quantity
+    #[must_use]
     pub fn best_bid(&self) -> Option<(Price, f32)> {
         self.bids
             .iter()
@@ -176,6 +224,8 @@ impl Depth {
             .map(|(pu, qty)| (Price::from_units(*pu), *qty))
     }
 
+    /// Return the best (lowest) ask price and quantity
+    #[must_use]
     pub fn best_ask(&self) -> Option<(Price, f32)> {
         self.asks
             .iter()
@@ -183,14 +233,19 @@ impl Depth {
             .map(|(pu, qty)| (Price::from_units(*pu), *qty))
     }
 
+    /// Return bid quantity at `price`, or 0.0 if absent
+    #[must_use]
     pub fn get_bid_qty(&self, price: Price) -> f32 {
         self.bids.get(&price.units()).copied().unwrap_or(0.0)
     }
 
+    /// Return ask quantity at `price`, or 0.0 if absent
+    #[must_use]
     pub fn get_ask_qty(&self, price: Price) -> f32 {
         self.asks.get(&price.units()).copied().unwrap_or(0.0)
     }
 
+    /// Insert or remove a bid level (removes if `qty` is zero)
     pub fn update_bid(&mut self, price: Price, qty: f32) {
         debug_assert!(qty >= 0.0, "bid qty must be >= 0, got {}", qty);
         if qty > 0.0 {
@@ -200,6 +255,7 @@ impl Depth {
         }
     }
 
+    /// Insert or remove an ask level (removes if `qty` is zero)
     pub fn update_ask(&mut self, price: Price, qty: f32) {
         debug_assert!(qty >= 0.0, "ask qty must be >= 0, got {}", qty);
         if qty > 0.0 {
@@ -209,7 +265,8 @@ impl Depth {
         }
     }
 
-    /// Top N bid levels (highest price first)
+    /// Return the top `n` bid levels (highest price first)
+    #[must_use]
     pub fn top_bids(&self, n: usize) -> Vec<(Price, f32)> {
         self.bids
             .iter()
@@ -219,7 +276,8 @@ impl Depth {
             .collect()
     }
 
-    /// Top N ask levels (lowest price first)
+    /// Return the top `n` ask levels (lowest price first)
+    #[must_use]
     pub fn top_asks(&self, n: usize) -> Vec<(Price, f32)> {
         self.asks
             .iter()
@@ -228,7 +286,8 @@ impl Depth {
             .collect()
     }
 
-    /// Mid price
+    /// Return the mid price `(best_ask + best_bid) / 2`
+    #[must_use]
     pub fn mid_price(&self) -> Option<Price> {
         match (self.best_ask(), self.best_bid()) {
             (Some((ask, _)), Some((bid, _))) => Some((ask + bid) / 2),
@@ -236,7 +295,8 @@ impl Depth {
         }
     }
 
-    /// Spread
+    /// Return the spread `best_ask - best_bid`
+    #[must_use]
     pub fn spread(&self) -> Option<Price> {
         match (self.best_ask(), self.best_bid()) {
             (Some((ask, _)), Some((bid, _))) => Some(ask - bid),
@@ -253,15 +313,20 @@ impl Default for Depth {
 
 // ── MarketData ──────────────────────────────────────────────────────────
 
-/// Market data type (union of all possible data types)
+/// Tagged union of all market data types.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MarketData {
+    /// A single trade execution
     Trade(Trade),
+    /// An OHLCV candle
     Candle(Candle),
+    /// An order book snapshot
     Depth(Depth),
 }
 
 impl MarketData {
+    /// Return the timestamp of the contained data
+    #[must_use]
     pub fn timestamp(&self) -> Timestamp {
         match self {
             MarketData::Trade(t) => t.time,
@@ -270,6 +335,8 @@ impl MarketData {
         }
     }
 
+    /// Try to extract the inner [`Trade`]
+    #[must_use]
     pub fn as_trade(&self) -> Option<&Trade> {
         match self {
             MarketData::Trade(t) => Some(t),
@@ -277,6 +344,8 @@ impl MarketData {
         }
     }
 
+    /// Try to extract the inner [`Candle`]
+    #[must_use]
     pub fn as_candle(&self) -> Option<&Candle> {
         match self {
             MarketData::Candle(c) => Some(c),
@@ -284,6 +353,8 @@ impl MarketData {
         }
     }
 
+    /// Try to extract the inner [`Depth`]
+    #[must_use]
     pub fn as_depth(&self) -> Option<&Depth> {
         match self {
             MarketData::Depth(d) => Some(d),

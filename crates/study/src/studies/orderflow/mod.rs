@@ -1,4 +1,13 @@
-//! Order flow studies: footprint, volume by price, big trades, and imbalance.
+//! Order flow studies for volume profile analysis and trade visualization.
+//!
+//! Provides four studies that analyze market microstructure:
+//! - [`VbpStudy`] -- horizontal volume-by-price profiles with POC, value
+//!   area, HVN/LVN detection, and anchored VWAP
+//! - [`FootprintStudy`] -- per-candle price-level trade data (buy/sell
+//!   volume grid) in Box or Profile render modes
+//! - [`BigTradesStudy`] -- highlights unusually large trades on the chart
+//! - [`ImbalanceStudy`] -- detects bid/ask imbalances at individual price
+//!   levels
 
 pub mod big_trades;
 pub mod footprint;

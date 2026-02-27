@@ -3,10 +3,14 @@
 //! Five sections: prop firm simulation, Monte Carlo, risk & position
 //! sizing, P&L distribution + MAE/MFE scatter, and P&L by hour.
 
-use super::charts::{BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart, ScatterChart};
+use super::charts::{
+    BarChart, HistogramChart, MonteCarloChart,
+    PropFirmEquityChart, ScatterChart,
+};
 use super::computed::{ComputedAnalytics, PropFirmStatus};
 use super::{BacktestManager, ManagerMessage};
 use crate::app::backtest_history::BacktestHistory;
+use crate::config::UserTimezone;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::{AZERET_MONO, Icon};
 use crate::style::{palette, tokens};
@@ -19,6 +23,7 @@ use iced::{Background, Color, Element, Length};
 pub fn view<'a>(
     manager: &'a BacktestManager,
     history: &'a BacktestHistory,
+    _timezone: UserTimezone,
 ) -> Element<'a, ManagerMessage> {
     let entry = manager.selected_id.and_then(|id| history.get(id));
 
