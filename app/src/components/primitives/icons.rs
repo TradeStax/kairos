@@ -167,11 +167,14 @@ impl From<Icon> for char {
 
 pub fn icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
     let t = if icon.uses_default_font() {
-        iced::widget::text(char::from(icon).to_string()).size(iced::Pixels(size.into()))
+        iced::widget::text(char::from(icon).to_string())
+            .size(iced::Pixels(size.into()))
+            .line_height(1.0)
     } else {
         iced::widget::text(char::from(icon).to_string())
             .font(ICONS_FONT)
             .size(iced::Pixels(size.into()))
+            .line_height(1.0)
     };
     t.align_x(iced::alignment::Horizontal::Center)
         .align_y(iced::alignment::Vertical::Center)

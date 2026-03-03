@@ -283,10 +283,18 @@ impl Kairos {
             }
         };
 
-        // 1. Merge the scanned index into the shared DataIndex
+        // 1. Merge the scanned index into the shared DataIndex,
+        //    then strip contributions from disconnected feeds to prevent
+        //    a race where an async cache scan re-adds data that was
+        //    cleaned up during disconnect.
         {
+            let active_feeds = {
+                let cm = data::lock_or_recover(&self.connections.connection_manager);
+                cm.active_feed_ids()
+            };
             let mut index = data::lock_or_recover(&self.persistence.data_index);
             index.merge(new_index);
+            index.retain_feeds(&active_feeds);
         }
 
         // 2. Rebuild tickers_info and ticker_ranges from the index

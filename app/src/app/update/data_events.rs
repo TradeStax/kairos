@@ -143,8 +143,17 @@ impl Kairos {
                 })
             }
             data::DataEvent::DataIndexUpdated(index) => {
-                // Merge updated index into our shared DataIndex.
-                data::lock_or_recover(&self.persistence.data_index).merge(index);
+                // Merge updated index into our shared DataIndex, then
+                // strip contributions from disconnected feeds.
+                let active_feeds = {
+                    let cm =
+                        data::lock_or_recover(&self.connections.connection_manager);
+                    cm.active_feed_ids()
+                };
+                let mut idx = data::lock_or_recover(&self.persistence.data_index);
+                idx.merge(index);
+                idx.retain_feeds(&active_feeds);
+                drop(idx);
                 self.rebuild_ticker_data();
                 Task::none()
             }

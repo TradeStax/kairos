@@ -46,7 +46,9 @@ impl<'a, Message: 'a> EmptyStateBuilder<'a, Message> {
         if let Some(icon) = self.icon {
             let icon_text = text(char::from(icon).to_string())
                 .font(ICONS_FONT)
-                .size(tokens::component::icon::EMPTY_STATE);
+                .size(tokens::component::icon::EMPTY_STATE)
+                .line_height(1.0)
+                .align_x(Alignment::Center);
             col = col.push(icon_text);
         }
 

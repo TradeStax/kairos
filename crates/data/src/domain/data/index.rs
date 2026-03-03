@@ -74,6 +74,18 @@ impl DataIndex {
         self.entries.retain(|_, v| !v.is_empty());
     }
 
+    /// Remove contributions from feeds not in the given active set.
+    ///
+    /// This prevents async operations (cache scans, engine events) from
+    /// re-adding data for feeds that were disconnected while the async
+    /// work was in flight.
+    pub fn retain_feeds(&mut self, active_feeds: &std::collections::HashSet<FeedId>) {
+        for contributions in self.entries.values_mut() {
+            contributions.retain(|c| active_feeds.contains(&c.feed_id));
+        }
+        self.entries.retain(|_, v| !v.is_empty());
+    }
+
     /// Merge another index into this one
     pub fn merge(&mut self, other: DataIndex) {
         for (key, contributions) in other.entries {
@@ -502,5 +514,52 @@ mod tests {
             .collect();
         assert_eq!(dates, expected);
         assert!(index.available_dates("ZZ.c.0").is_empty());
+    }
+
+    #[test]
+    fn test_retain_feeds() {
+        let mut index = DataIndex::new();
+        let feed_a = uuid::Uuid::new_v4();
+        let feed_b = uuid::Uuid::new_v4();
+        let feed_c = uuid::Uuid::new_v4();
+
+        let key_es = DataKey {
+            ticker: "ES.c.0".into(),
+            schema: "trades".into(),
+        };
+        let key_nq = DataKey {
+            ticker: "NQ.c.0".into(),
+            schema: "trades".into(),
+        };
+
+        let mut dates = BTreeSet::new();
+        dates.insert(date(2025, 1, 10));
+
+        // ES has contributions from feed_a and feed_b
+        index.add_contribution(key_es.clone(), feed_a, dates.clone(), false);
+        index.add_contribution(key_es, feed_b, dates.clone(), false);
+        // NQ only has contributions from feed_c
+        index.add_contribution(key_nq, feed_c, dates, false);
+
+        assert!(index.has_data("ES.c.0"));
+        assert!(index.has_data("NQ.c.0"));
+
+        // Only feed_a and feed_b are active — feed_c was disconnected
+        let active: std::collections::HashSet<_> = [feed_a, feed_b].into_iter().collect();
+        index.retain_feeds(&active);
+
+        // ES still has data (both feeds active), NQ is gone (feed_c inactive)
+        assert!(index.has_data("ES.c.0"));
+        assert!(!index.has_data("NQ.c.0"));
+
+        // Now only feed_a is active
+        let active: std::collections::HashSet<_> = [feed_a].into_iter().collect();
+        index.retain_feeds(&active);
+
+        // ES still has data from feed_a
+        assert!(index.has_data("ES.c.0"));
+        let dates = index.available_dates("ES.c.0");
+        assert_eq!(dates.len(), 1);
+        assert!(dates.contains(&date(2025, 1, 10)));
     }
 }

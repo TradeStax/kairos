@@ -85,6 +85,19 @@ impl ConnectionManager {
         }
     }
 
+    /// Returns the set of feed IDs for all connections NOT in `Disconnected` status.
+    ///
+    /// Used to filter stale data from async operations that complete after
+    /// a feed has been explicitly disconnected by the user.
+    #[must_use]
+    pub fn active_feed_ids(&self) -> std::collections::HashSet<FeedId> {
+        self.connections
+            .iter()
+            .filter(|c| !matches!(c.status, ConnectionStatus::Disconnected))
+            .map(|c| c.id)
+            .collect()
+    }
+
     // ── Queries ────────────────────────────────────────────────────────
 
     /// Returns all enabled connections
