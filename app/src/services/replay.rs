@@ -377,9 +377,12 @@ impl ReplayEngine {
         self.emit_event(ReplayEvent::StatusChanged(PlaybackStatus::Playing));
         self.emit_event(ReplayEvent::PlaybackStarted);
 
-        if self.playback_handle.is_none() {
-            self.start_playback_task();
+        // Always (re)start the playback task so timing is fresh.
+        // Abort the old task first if it exists.
+        if let Some(handle) = self.playback_handle.take() {
+            handle.abort();
         }
+        self.start_playback_task();
 
         Ok(())
     }
@@ -509,6 +512,9 @@ impl ReplayEngine {
                 };
 
                 if status != PlaybackStatus::Playing {
+                    // Reset timer so we don't get a huge elapsed_ms
+                    // jump when playback resumes after a pause.
+                    last_emit = std::time::Instant::now();
                     continue;
                 }
 
