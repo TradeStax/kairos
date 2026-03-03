@@ -1,6 +1,6 @@
 //! Analysis tools: get_drawings, get_session_stats, identify_levels
 
-use data::domain::assistant::ChartSnapshot;
+use crate::domain::snapshot::ChartSnapshot;
 use serde_json::{Value, json};
 
 use super::{ToolExecResult, tick_multiplier};
@@ -134,9 +134,6 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
 
     let session = args["session"].as_str().unwrap_or("rth").to_lowercase();
 
-    // RTH: 09:30-16:00 ET, ETH: 18:00-09:30 ET
-    // We approximate ET as UTC-5 (EST). DST handling would require
-    // the chrono-tz crate which may not be available.
     // SAFETY: 5*3600 = 18000 seconds is a valid west offset (EST = UTC-5)
     let et_offset = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
 
@@ -166,8 +163,7 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
         return ToolExecResult {
             content_json: json!({
                 "error": format!(
-                    "No candles found for {} session",
-                    session
+                    "No candles found for {session} session"
                 )
             })
             .to_string(),
@@ -192,8 +188,6 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
         .map(|c| c.buy_volume.0 - c.sell_volume.0)
         .sum();
 
-    // Opening range (first 30 min) and Initial Balance (first 60
-    // min) — only for RTH
     let mut opening_range = json!(null);
     let mut initial_balance = json!(null);
 
@@ -251,10 +245,8 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
     ToolExecResult {
         content_json: result.to_string(),
         display_summary: format!(
-            "{} session: H {:.2} L {:.2}",
+            "{} session: H {session_high:.2} L {session_low:.2}",
             session.to_uppercase(),
-            session_high,
-            session_low
         ),
         is_error: false,
     }
@@ -290,7 +282,6 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
                 let hi = (i + window / 2 + 1).min(candles.len());
                 let slice = &candles[lo..hi];
 
-                // Swing high
                 let is_high = slice
                     .iter()
                     .all(|c| c.high.to_f64() <= candles[i].high.to_f64());
@@ -305,7 +296,6 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
                     }));
                 }
 
-                // Swing low
                 let is_low = slice
                     .iter()
                     .all(|c| c.low.to_f64() >= candles[i].low.to_f64());
@@ -381,7 +371,6 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
             .fold(f64::INFINITY, f64::min);
         let _tick_mult = tick_multiplier(snap.tick_size);
 
-        // Find appropriate round number step
         let range = data_high - data_low;
         let step = if range > 1000.0 {
             100.0
@@ -390,7 +379,6 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
         } else if range > 10.0 {
             1.0
         } else {
-            // For instruments like ES: use 25 or 50 point levels
             let tick = if snap.tick_size > 0.0 {
                 snap.tick_size as f64
             } else {
@@ -437,7 +425,10 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
             "method": method,
         })
         .to_string(),
-        display_summary: format!("{} levels identified ({})", levels.len(), method),
+        display_summary: format!(
+            "{} levels identified ({method})",
+            levels.len()
+        ),
         is_error: false,
     }
 }

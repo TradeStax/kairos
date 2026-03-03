@@ -5,7 +5,8 @@ use crate::config::UserTimezone;
 use crate::modals::pane::Modal;
 use crate::screen::dashboard::pane::config::{LinkGroup, Settings};
 use data::FuturesTickerInfo;
-use data::{ChartData, LoadingStatus, domain::assistant::ApiMessage};
+use ai::ApiMessage;
+use data::{ChartData, LoadingStatus};
 
 // Re-export AI types from ai module so external code can use either path.
 pub use super::ai::{
@@ -109,7 +110,7 @@ impl State {
     }
 
     /// Handle an AI stream event, routing to the AI state.
-    pub fn handle_ai_event(&mut self, event: crate::app::core::globals::AiStreamEventClone) {
+    pub fn handle_ai_event(&mut self, event: crate::app::core::globals::AiStreamEvent) {
         if let Content::AiAssistant(state) = &mut self.content {
             state.handle_event(event);
         }

@@ -1,28 +1,41 @@
-use ai::{
-    AiStreamEvent, ApiMessage, ApiToolCall, ApiToolCallFunction, ChatMessageKind, ChatRole,
-    DisplayMessage, TokenUsage,
+//! AI conversation state — pure domain logic without GUI dependencies.
+
+use super::messages::{
+    ApiMessage, ApiToolCall, ApiToolCallFunction, ChatMessageKind, ChatRole, DisplayMessage,
+    TokenUsage,
 };
-use iced::Point;
-use std::collections::HashSet;
+use crate::event::AiStreamEvent;
 
-use super::types::{ActiveContext, StreamingToolCall};
+/// In-progress tool call during streaming.
+pub struct StreamingToolCall {
+    pub call_id: String,
+    pub name: String,
+    pub display_summary: String,
+    pub result_summary: Option<String>,
+    pub is_error: bool,
+    pub is_complete: bool,
+}
 
-/// State for the AI assistant panel content.
-pub struct AiAssistantState {
+/// Context snapshot shown as a chip above the input when a chart is linked.
+pub struct ActiveContext {
+    pub ticker: String,
+    pub timeframe: String,
+    pub chart_type: String,
+    pub candle_count: usize,
+    pub is_live: bool,
+}
+
+/// Pure domain state for an AI conversation. No GUI framework deps.
+pub struct AiConversation {
     /// Display messages for the chat UI.
     pub messages: Vec<DisplayMessage>,
     /// Wire-format message history for the API (user/assistant/tool).
     pub api_history: Vec<ApiMessage>,
-    pub input_text: String,
     pub is_streaming: bool,
     pub streaming_buffer: String,
     pub streaming_tool_calls: Vec<StreamingToolCall>,
     pub model: String,
     pub session_usage: TokenUsage,
-    pub scroll_id: iced::widget::Id,
-    pub show_settings: bool,
-    pub show_api_key_modal: bool,
-    pub api_key_input: String,
     pub conversation_id: uuid::Uuid,
     pub temperature: f32,
     pub max_tokens: u32,
@@ -30,52 +43,32 @@ pub struct AiAssistantState {
     pub thinking_buffer: String,
     /// State machine flag: currently inside `<think>` tags.
     pub in_think_block: bool,
-    /// Which thinking-block message indices are expanded.
-    pub expanded_thinking: HashSet<usize>,
-    /// Last known cursor position (for context menu placement).
-    pub last_cursor_position: Point,
     /// Context chip shown above the input row.
     pub active_context: Option<ActiveContext>,
 }
 
-impl AiAssistantState {
+impl AiConversation {
     pub fn new() -> Self {
         Self {
             messages: vec![],
             api_history: vec![],
-            input_text: String::new(),
             is_streaming: false,
             streaming_buffer: String::new(),
             streaming_tool_calls: vec![],
             model: "google/gemini-3-flash-preview".to_string(),
             session_usage: TokenUsage::default(),
-            scroll_id: iced::widget::Id::unique(),
-            show_settings: false,
-            show_api_key_modal: false,
-            api_key_input: String::new(),
             conversation_id: uuid::Uuid::new_v4(),
             temperature: 0.3,
             max_tokens: 4096,
             thinking_buffer: String::new(),
             in_think_block: false,
-            expanded_thinking: HashSet::new(),
-            last_cursor_position: Point::ORIGIN,
             active_context: None,
         }
     }
 
-    /// Create with saved preferences.
-    pub fn with_preferences(prefs: &crate::persistence::AiPreferences) -> Self {
-        let mut state = Self::new();
-        state.model = prefs.model.clone();
-        state.temperature = prefs.temperature;
-        state.max_tokens = prefs.max_tokens;
-        state
-    }
-
     /// Commit thinking and streaming buffers as display messages.
     /// Returns true if anything was committed.
-    fn commit_streaming_buffer(&mut self) -> bool {
+    pub fn commit_streaming_buffer(&mut self) -> bool {
         let mut committed = false;
 
         let think_text = std::mem::take(&mut self.thinking_buffer);
@@ -90,7 +83,9 @@ impl AiAssistantState {
         let text = std::mem::take(&mut self.streaming_buffer);
         if !text.is_empty() {
             self.messages
-                .push(DisplayMessage::new(ChatMessageKind::AssistantText { text }));
+                .push(DisplayMessage::new(ChatMessageKind::AssistantText {
+                    text,
+                }));
             committed = true;
         }
         committed
@@ -111,7 +106,10 @@ impl AiAssistantState {
     }
 
     /// Handle an AI stream event, mutating state in place.
-    pub fn handle_event(&mut self, event: AiStreamEvent) {
+    ///
+    /// Returns `true` for `ApiKeyMissing` so the caller (app layer)
+    /// can show the API key modal.
+    pub fn handle_event(&mut self, event: AiStreamEvent) -> bool {
         match event {
             AiStreamEvent::Delta { text, .. } => {
                 // Route delta through think-tag state machine
@@ -135,6 +133,7 @@ impl AiAssistantState {
                         break;
                     }
                 }
+                false
             }
             AiStreamEvent::ToolCallStarted {
                 call_id,
@@ -143,9 +142,7 @@ impl AiAssistantState {
                 display_summary,
                 ..
             } => {
-                // Commit any text before the tool call
                 self.commit_streaming_buffer();
-                // Push ToolCall display message
                 self.messages
                     .push(DisplayMessage::new(ChatMessageKind::ToolCall {
                         call_id: call_id.clone(),
@@ -161,6 +158,7 @@ impl AiAssistantState {
                     is_error: false,
                     is_complete: false,
                 });
+                false
             }
             AiStreamEvent::ToolCallResult {
                 call_id,
@@ -170,7 +168,6 @@ impl AiAssistantState {
                 is_error,
                 ..
             } => {
-                // Update the matching streaming tool call
                 if let Some(tc) = self
                     .streaming_tool_calls
                     .iter_mut()
@@ -181,7 +178,6 @@ impl AiAssistantState {
                     tc.is_error = is_error;
                     tc.is_complete = true;
                 }
-                // Push ToolResult display message
                 self.messages
                     .push(DisplayMessage::new(ChatMessageKind::ToolResult {
                         call_id,
@@ -190,14 +186,12 @@ impl AiAssistantState {
                         display_summary,
                         is_error,
                     }));
+                false
             }
             AiStreamEvent::ApiHistorySync {
                 rounds, final_text, ..
             } => {
-                // Sync tool call rounds back to api_history for
-                // multi-turn context.
                 for round in &rounds {
-                    // Assistant message with tool_calls
                     self.api_history.push(ApiMessage {
                         role: ChatRole::Assistant,
                         content: None,
@@ -211,7 +205,6 @@ impl AiAssistantState {
                         }]),
                         tool_call_id: None,
                     });
-                    // Tool result message
                     self.api_history.push(ApiMessage {
                         role: ChatRole::Tool,
                         content: Some(round.result_json.clone()),
@@ -219,7 +212,6 @@ impl AiAssistantState {
                         tool_call_id: Some(round.call_id.clone()),
                     });
                 }
-                // Final assistant text
                 if let Some(text) = final_text
                     && !text.is_empty()
                 {
@@ -230,39 +222,37 @@ impl AiAssistantState {
                         tool_call_id: None,
                     });
                 }
+                false
             }
             AiStreamEvent::TextSegmentComplete { .. } => {
                 self.commit_streaming_buffer();
+                false
             }
             AiStreamEvent::Complete {
                 prompt_tokens,
                 completion_tokens,
                 ..
             } => {
-                // Commit remaining buffer
                 self.commit_streaming_buffer();
                 self.streaming_tool_calls.clear();
                 self.is_streaming = false;
                 self.session_usage.add(prompt_tokens, completion_tokens);
+                false
             }
             AiStreamEvent::Error { error, .. } => {
                 self.is_streaming = false;
-                // Commit any partial content
                 self.commit_streaming_buffer();
                 self.streaming_tool_calls.clear();
-                // Add error as system notice
                 self.messages
                     .push(DisplayMessage::new(ChatMessageKind::SystemNotice {
-                        text: format!("Error: {}", error),
+                        text: format!("Error: {error}"),
                         is_error: true,
                     }));
+                false
             }
-            AiStreamEvent::ApiKeyMissing { .. } => {
-                self.show_api_key_modal = true;
-            }
-            // Drawing actions are handled at the Kairos level,
-            // not at the pane level (needs cross-pane access).
-            AiStreamEvent::DrawingAction { .. } => {}
+            AiStreamEvent::ApiKeyMissing { .. } => true,
+            // Drawing actions are handled at the app level
+            AiStreamEvent::DrawingAction { .. } => false,
         }
     }
 
@@ -277,21 +267,17 @@ impl AiAssistantState {
         user_message: &str,
         display_text: Option<&str>,
     ) -> (String, uuid::Uuid, Vec<ApiMessage>) {
-        // Push user display message (show only the question, not
-        // enriched context)
         let shown = display_text.unwrap_or(user_message);
         self.messages
             .push(DisplayMessage::new(ChatMessageKind::User {
                 text: shown.to_string(),
             }));
-        // Push full message (with context) to API history
         self.api_history.push(ApiMessage {
             role: ChatRole::User,
             content: Some(user_message.to_string()),
             tool_calls: None,
             tool_call_id: None,
         });
-        self.input_text.clear();
         self.is_streaming = true;
         self.streaming_buffer.clear();
         self.streaming_tool_calls.clear();
@@ -310,13 +296,11 @@ impl AiAssistantState {
         self.in_think_block = false;
         self.commit_streaming_buffer();
         self.streaming_tool_calls.clear();
-        // Add system notice
         self.messages
             .push(DisplayMessage::new(ChatMessageKind::SystemNotice {
                 text: "Response stopped by user".to_string(),
                 is_error: false,
             }));
-        // New UUID orphans the running task
         self.conversation_id = uuid::Uuid::new_v4();
     }
 
@@ -327,11 +311,16 @@ impl AiAssistantState {
         self.streaming_buffer.clear();
         self.thinking_buffer.clear();
         self.in_think_block = false;
-        self.expanded_thinking.clear();
         self.streaming_tool_calls.clear();
         self.session_usage = Default::default();
         self.conversation_id = uuid::Uuid::new_v4();
         self.is_streaming = false;
         self.active_context = None;
+    }
+}
+
+impl Default for AiConversation {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,27 +1,17 @@
-//! Chart interaction tools: drawing creation, modification, and removal.
+//! Chart drawing tools: creation, modification, and removal.
+//!
+//! Produces `DrawingSpec` values pushed as `AiStreamEvent::DrawingAction`
+//! events.  The app layer's drawing bridge converts specs into native
+//! `SerializableDrawing` objects, keeping the AI crate decoupled from
+//! the app's drawing types.
 
 use serde_json::{Value, json};
 
-use crate::app::core::globals::AiStreamEventClone;
+use crate::event::{AiStreamEvent, DrawingAction, DrawingSpec};
 
-use super::{ToolContext, ToolExecResult, parse_color_name, parse_iso_to_millis, parse_line_style};
+use super::{TimezoneResolver, ToolContext, ToolExecResult, parse_color_name, parse_iso_to_millis};
 
-/// Drawing action pushed through the event buffer to be handled on
-/// the main thread.
-#[derive(Debug, Clone)]
-pub enum AiDrawingAction {
-    AddDrawing {
-        drawing: Box<crate::drawing::SerializableDrawing>,
-        description: String,
-    },
-    RemoveDrawing {
-        id: String,
-        description: String,
-    },
-    RemoveAllDrawings {
-        description: String,
-    },
-}
+// ── Tool definitions (JSON) ─────────────────────────────────
 
 pub fn tool_definitions() -> Vec<Value> {
     vec![
@@ -502,23 +492,23 @@ pub fn tool_definitions() -> Vec<Value> {
     ]
 }
 
+// ── Helpers ──────────────────────────────────────────────────
+
 /// Push a drawing action through the event sender.
-fn push_drawing_action(ctx: &ToolContext<'_>, action: AiDrawingAction) {
-    let _ = ctx.sender.send(AiStreamEventClone::DrawingAction {
+fn push_drawing_action<Tz: TimezoneResolver>(
+    ctx: &ToolContext<'_, Tz>,
+    action: DrawingAction,
+) {
+    let _ = ctx.sender.send(AiStreamEvent::DrawingAction {
         conversation_id: ctx.conversation_id,
         action: Box::new(action),
     });
 }
 
-/// Convert f64 price to fixed-point i64 units (Price type).
-fn price_to_units(price: f64) -> i64 {
-    data::Price::from_f64(price).units()
-}
-
-/// Convert a time string to milliseconds (SerializablePoint uses ms).
+/// Convert a time string to milliseconds.
 /// Accepts ISO 8601, epoch seconds, or epoch milliseconds.
 /// Naive timestamps are interpreted in the user's timezone.
-fn time_to_ms(s: &str, tz: crate::config::UserTimezone) -> Option<u64> {
+fn time_to_ms(s: &str, tz: impl TimezoneResolver) -> Option<u64> {
     // Try ISO 8601 first
     if let Some(ms) = parse_iso_to_millis(s, tz) {
         return Some(ms);
@@ -538,8 +528,36 @@ fn time_to_ms(s: &str, tz: crate::config::UserTimezone) -> Option<u64> {
     None
 }
 
+/// Get tick size from the snapshot, falling back to 0.0.
+fn snap_tick_size<Tz: TimezoneResolver>(
+    ctx: &ToolContext<'_, Tz>,
+) -> f32 {
+    ctx.snapshot
+        .as_ref()
+        .map(|s| s.tick_size)
+        .unwrap_or(0.0)
+}
+
+/// Build a base `DrawingSpec` with the tick size pre-filled.
+fn base_spec<Tz: TimezoneResolver>(
+    ctx: &ToolContext<'_, Tz>,
+    tool_name: &str,
+) -> DrawingSpec {
+    DrawingSpec {
+        tool_name: tool_name.to_string(),
+        tick_size: snap_tick_size(ctx),
+        ..Default::default()
+    }
+}
+
+// ── Dispatch ─────────────────────────────────────────────────
+
 /// Dispatch drawing tool calls.
-pub fn execute_drawing_tool(name: &str, args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+pub fn execute_drawing_tool<Tz: TimezoneResolver>(
+    name: &str,
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     log::debug!("Drawing tool '{}' args: {}", name, args);
     match name {
         "add_horizontal_line" => exec_add_horizontal_line(args, ctx),
@@ -566,7 +584,12 @@ pub fn execute_drawing_tool(name: &str, args: &Value, ctx: &ToolContext<'_>) -> 
     }
 }
 
-fn exec_add_horizontal_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+// ── Individual tool executors ────────────────────────────────
+
+fn exec_add_horizontal_line<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(price) = args["price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -582,42 +605,100 @@ fn exec_add_horizontal_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
     let style_name = args["style"].as_str().unwrap_or("dashed");
     let label = args["label"].as_str().map(String::from);
 
-    let color = parse_color_name(color_name);
-    let line_style = parse_line_style(style_name);
+    let mut spec = base_spec(ctx, "HorizontalLine");
+    spec.price = Some(price);
+    spec.label = label;
+    spec.color = Some(parse_color_name(color_name));
+    spec.line_style = Some(style_name.to_string());
 
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::HorizontalLine);
-    drawing.points = vec![crate::drawing::SerializablePoint::new(
-        price_to_units(price),
-        0,
-    )];
-    drawing.style.stroke_color = color;
-    drawing.style.line_style = line_style;
-    drawing.style.stroke_width = 1.5;
-    drawing.label = label;
-    let id = drawing.id.0.to_string();
+    let desc = format!("H-Line at {:.2}", price);
 
     push_drawing_action(
         ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("H-Line at {:.2}", price),
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
         },
     );
 
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
             "price": price,
         })
         .to_string(),
-        display_summary: format!("H-Line at {:.2}", price),
+        display_summary: desc,
         is_error: false,
     }
 }
 
-fn exec_add_text_annotation(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+fn exec_add_vertical_line<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    let Some(time_str) = args["time"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: time"
+            })
+            .to_string(),
+            display_summary: "Missing time".to_string(),
+            is_error: true,
+        };
+    };
+
+    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse time '{}'. Use ISO 8601 \
+                     (e.g. 2024-01-15T14:30:00Z) or epoch seconds.",
+                    time_str
+                )
+            })
+            .to_string(),
+            display_summary: "Bad time format".to_string(),
+            is_error: true,
+        };
+    };
+
+    let color_name = args["color"].as_str().unwrap_or("gray");
+    let style_name = args["style"].as_str().unwrap_or("dashed");
+    let label = args["label"].as_str().map(String::from);
+
+    let mut spec = base_spec(ctx, "VerticalLine");
+    spec.time_millis = Some(time_ms);
+    spec.label = label.clone();
+    spec.color = Some(parse_color_name(color_name));
+    spec.line_style = Some(style_name.to_string());
+
+    let desc = label
+        .as_deref()
+        .map(|l| format!("V-Line: {}", l))
+        .unwrap_or_else(|| "V-Line".to_string());
+
+    push_drawing_action(
+        ctx,
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({
+            "success": true,
+        })
+        .to_string(),
+        display_summary: desc,
+        is_error: false,
+    }
+}
+
+fn exec_add_text_annotation<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(price) = args["price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -652,7 +733,6 @@ fn exec_add_text_annotation(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
     let text = if text.len() > 50 { &text[..50] } else { text };
 
     let color_name = args["color"].as_str().unwrap_or("white");
-    let color = parse_color_name(color_name);
 
     let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
         return ToolExecResult {
@@ -669,36 +749,36 @@ fn exec_add_text_annotation(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
         };
     };
 
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::TextLabel);
-    drawing.points = vec![crate::drawing::SerializablePoint::new(
-        price_to_units(price),
-        time_ms,
-    )];
-    drawing.style.stroke_color = color;
-    drawing.style.text = Some(text.to_string());
-    let id = drawing.id.0.to_string();
+    let mut spec = base_spec(ctx, "TextLabel");
+    spec.price = Some(price);
+    spec.time_millis = Some(time_ms);
+    spec.text = Some(text.to_string());
+    spec.color = Some(parse_color_name(color_name));
+
+    let desc = format!("Text: {}", text);
 
     push_drawing_action(
         ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Text: {}", text),
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
         },
     );
 
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
         })
         .to_string(),
-        display_summary: format!("Text: {}", text),
+        display_summary: desc,
         is_error: false,
     }
 }
 
-fn exec_add_price_level(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+fn exec_add_price_level<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(price) = args["price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -721,32 +801,26 @@ fn exec_add_price_level(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     };
 
     let color_name = args["color"].as_str().unwrap_or("yellow");
-    let color = parse_color_name(color_name);
 
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::HorizontalLine);
-    drawing.points = vec![crate::drawing::SerializablePoint::new(
-        price_to_units(price),
-        0,
-    )];
-    drawing.style.stroke_color = color;
-    drawing.style.line_style = crate::drawing::LineStyle::Dashed;
-    drawing.style.stroke_width = 1.5;
-    drawing.label = Some(label.to_string());
-    let id = drawing.id.0.to_string();
+    let mut spec = base_spec(ctx, "PriceLevel");
+    spec.price = Some(price);
+    spec.label = Some(label.to_string());
+    spec.color = Some(parse_color_name(color_name));
+    spec.line_style = Some("dashed".to_string());
+
+    let desc = format!("Level: {} at {:.2}", label, price);
 
     push_drawing_action(
         ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Level: {} at {:.2}", label, price),
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
         },
     );
 
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
             "price": price,
         })
         .to_string(),
@@ -755,7 +829,201 @@ fn exec_add_price_level(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     }
 }
 
-fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+fn exec_add_price_label<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    let Some(price) = args["price"].as_f64() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: price"
+            })
+            .to_string(),
+            display_summary: "Missing price".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(time_str) = args["time"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: time"
+            })
+            .to_string(),
+            display_summary: "Missing time".to_string(),
+            is_error: true,
+        };
+    };
+
+    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse time '{}'. Use ISO 8601 \
+                     (e.g. 2024-01-15T14:30:00Z) or epoch seconds.",
+                    time_str
+                )
+            })
+            .to_string(),
+            display_summary: "Bad time format".to_string(),
+            is_error: true,
+        };
+    };
+
+    let color_name = args["color"].as_str().unwrap_or("yellow");
+
+    let mut spec = base_spec(ctx, "PriceLabel");
+    spec.price = Some(price);
+    spec.time_millis = Some(time_ms);
+    spec.color = Some(parse_color_name(color_name));
+
+    let desc = format!("Price label at {:.2}", price);
+
+    push_drawing_action(
+        ctx,
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({
+            "success": true,
+            "price": price,
+        })
+        .to_string(),
+        display_summary: desc,
+        is_error: false,
+    }
+}
+
+/// Helper for two-point line tools (Line, ExtendedLine).
+fn exec_two_point_line<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+    tool_name: &str,
+    tool_label: &str,
+) -> ToolExecResult {
+    let Some(from_price) = args["from_price"].as_f64() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: from_price"
+            })
+            .to_string(),
+            display_summary: "Missing from_price".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(from_time) = args["from_time"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: from_time"
+            })
+            .to_string(),
+            display_summary: "Missing from_time".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(to_price) = args["to_price"].as_f64() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: to_price"
+            })
+            .to_string(),
+            display_summary: "Missing to_price".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(to_time) = args["to_time"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: to_time"
+            })
+            .to_string(),
+            display_summary: "Missing to_time".to_string(),
+            is_error: true,
+        };
+    };
+
+    let color_name = args["color"].as_str().unwrap_or("blue");
+    let style_name = args["style"].as_str().unwrap_or("solid");
+
+    let Some(from_ms) = time_to_ms(from_time, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse from_time '{}'. Use ISO 8601.",
+                    from_time
+                )
+            })
+            .to_string(),
+            display_summary: "Bad from_time".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(to_ms) = time_to_ms(to_time, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse to_time '{}'. Use ISO 8601.",
+                    to_time
+                )
+            })
+            .to_string(),
+            display_summary: "Bad to_time".to_string(),
+            is_error: true,
+        };
+    };
+
+    let mut spec = base_spec(ctx, tool_name);
+    spec.from_price = Some(from_price);
+    spec.from_time_millis = Some(from_ms);
+    spec.to_price = Some(to_price);
+    spec.to_time_millis = Some(to_ms);
+    spec.color = Some(parse_color_name(color_name));
+    spec.line_style = Some(style_name.to_string());
+
+    let desc = format!(
+        "{} {:.2} \u{2192} {:.2}",
+        tool_label, from_price, to_price
+    );
+
+    push_drawing_action(
+        ctx,
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({
+            "success": true,
+        })
+        .to_string(),
+        display_summary: desc,
+        is_error: false,
+    }
+}
+
+fn exec_add_line<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    exec_two_point_line(args, ctx, "Line", "Line")
+}
+
+fn exec_add_extended_line<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    exec_two_point_line(args, ctx, "ExtendedLine", "Ext Line")
+}
+
+fn exec_add_rectangle<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(price_high) = args["price_high"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -798,7 +1066,8 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     };
 
     let color_name = args["color"].as_str().unwrap_or("blue");
-    let opacity = args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
+    let opacity =
+        args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
     let label = args["label"].as_str().map(String::from);
     let color = parse_color_name(color_name);
 
@@ -831,28 +1100,26 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
         };
     };
 
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::Rectangle);
-    drawing.points = vec![
-        crate::drawing::SerializablePoint::new(price_to_units(price_high), start_ms),
-        crate::drawing::SerializablePoint::new(price_to_units(price_low), end_ms),
-    ];
-    drawing.style.stroke_color = color;
-    drawing.style.fill_color = Some(color);
-    drawing.style.fill_opacity = opacity;
-    drawing.style.stroke_width = 1.0;
-    drawing.label = label.clone();
-    let id = drawing.id.0.to_string();
+    let mut spec = base_spec(ctx, "Rectangle");
+    spec.price_high = Some(price_high);
+    spec.price_low = Some(price_low);
+    spec.from_time_millis = Some(start_ms);
+    spec.to_time_millis = Some(end_ms);
+    spec.label = label.clone();
+    spec.color = Some(color);
+    spec.opacity = Some(opacity);
 
     let desc = label
         .as_deref()
         .map(|l| format!("Rect: {}", l))
-        .unwrap_or_else(|| format!("Rect {:.2}-{:.2}", price_low, price_high));
+        .unwrap_or_else(|| {
+            format!("Rect {:.2}-{:.2}", price_low, price_high)
+        });
 
     push_drawing_action(
         ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
+        DrawingAction::Add {
+            spec,
             description: desc.clone(),
         },
     );
@@ -860,7 +1127,6 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
         })
         .to_string(),
         display_summary: desc,
@@ -868,7 +1134,115 @@ fn exec_add_rectangle(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     }
 }
 
-fn exec_add_arrow(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
+fn exec_add_ellipse<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    let Some(price_high) = args["price_high"].as_f64() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: price_high"
+            })
+            .to_string(),
+            display_summary: "Missing price_high".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(price_low) = args["price_low"].as_f64() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: price_low"
+            })
+            .to_string(),
+            display_summary: "Missing price_low".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(time_start) = args["time_start"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: time_start"
+            })
+            .to_string(),
+            display_summary: "Missing time_start".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(time_end) = args["time_end"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: time_end"
+            })
+            .to_string(),
+            display_summary: "Missing time_end".to_string(),
+            is_error: true,
+        };
+    };
+
+    let color_name = args["color"].as_str().unwrap_or("blue");
+    let opacity =
+        args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
+    let color = parse_color_name(color_name);
+
+    let Some(start_ms) = time_to_ms(time_start, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse time_start '{}'. Use ISO 8601.",
+                    time_start
+                )
+            })
+            .to_string(),
+            display_summary: "Bad time_start".to_string(),
+            is_error: true,
+        };
+    };
+    let Some(end_ms) = time_to_ms(time_end, ctx.timezone) else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": format!(
+                    "Could not parse time_end '{}'. Use ISO 8601.",
+                    time_end
+                )
+            })
+            .to_string(),
+            display_summary: "Bad time_end".to_string(),
+            is_error: true,
+        };
+    };
+
+    let mut spec = base_spec(ctx, "Ellipse");
+    spec.price_high = Some(price_high);
+    spec.price_low = Some(price_low);
+    spec.from_time_millis = Some(start_ms);
+    spec.to_time_millis = Some(end_ms);
+    spec.color = Some(color);
+    spec.opacity = Some(opacity);
+
+    let desc = format!("Ellipse {:.2}-{:.2}", price_low, price_high);
+
+    push_drawing_action(
+        ctx,
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({
+            "success": true,
+        })
+        .to_string(),
+        display_summary: desc,
+        is_error: false,
+    }
+}
+
+fn exec_add_arrow<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(from_price) = args["from_price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -942,133 +1316,22 @@ fn exec_add_arrow(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
         };
     };
 
-    let mut drawing = crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::Arrow);
-    drawing.points = vec![
-        crate::drawing::SerializablePoint::new(price_to_units(from_price), from_ms),
-        crate::drawing::SerializablePoint::new(price_to_units(to_price), to_ms),
-    ];
-    drawing.style.stroke_color = color;
-    drawing.style.arrow_head_end = true;
-    drawing.style.stroke_width = 2.0;
-    let id = drawing.id.0.to_string();
+    let mut spec = base_spec(ctx, "Arrow");
+    spec.from_price = Some(from_price);
+    spec.from_time_millis = Some(from_ms);
+    spec.to_price = Some(to_price);
+    spec.to_time_millis = Some(to_ms);
+    spec.color = Some(color);
 
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Arrow {:.2} → {:.2}", from_price, to_price),
-        },
+    let desc = format!(
+        "Arrow {:.2} \u{2192} {:.2}",
+        from_price, to_price
     );
 
-    ToolExecResult {
-        content_json: json!({
-            "success": true,
-            "drawing_id": id,
-        })
-        .to_string(),
-        display_summary: format!("Arrow {:.2} → {:.2}", from_price, to_price),
-        is_error: false,
-    }
-}
-
-fn exec_remove_drawing(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    let Some(drawing_id) = args["drawing_id"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: drawing_id"
-            })
-            .to_string(),
-            display_summary: "Missing drawing_id".to_string(),
-            is_error: true,
-        };
-    };
-
     push_drawing_action(
         ctx,
-        AiDrawingAction::RemoveDrawing {
-            id: drawing_id.to_string(),
-            description: format!("Remove drawing {}", &drawing_id[..8.min(drawing_id.len())]),
-        },
-    );
-
-    ToolExecResult {
-        content_json: json!({
-            "success": true,
-            "drawing_id": drawing_id,
-        })
-        .to_string(),
-        display_summary: format!("Removed {}", &drawing_id[..8.min(drawing_id.len())]),
-        is_error: false,
-    }
-}
-
-fn exec_remove_all_drawings(ctx: &ToolContext<'_>) -> ToolExecResult {
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::RemoveAllDrawings {
-            description: "Remove all drawings".to_string(),
-        },
-    );
-
-    ToolExecResult {
-        content_json: json!({ "success": true }).to_string(),
-        display_summary: "Cleared all drawings".to_string(),
-        is_error: false,
-    }
-}
-
-fn exec_add_vertical_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    let Some(time_str) = args["time"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: time"
-            })
-            .to_string(),
-            display_summary: "Missing time".to_string(),
-            is_error: true,
-        };
-    };
-
-    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse time '{}'. Use ISO 8601 \
-                     (e.g. 2024-01-15T14:30:00Z) or epoch seconds.",
-                    time_str
-                )
-            })
-            .to_string(),
-            display_summary: "Bad time format".to_string(),
-            is_error: true,
-        };
-    };
-
-    let color_name = args["color"].as_str().unwrap_or("gray");
-    let style_name = args["style"].as_str().unwrap_or("dashed");
-    let label = args["label"].as_str().map(String::from);
-
-    let color = parse_color_name(color_name);
-    let line_style = parse_line_style(style_name);
-
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::VerticalLine);
-    drawing.points = vec![crate::drawing::SerializablePoint::new(0, time_ms)];
-    drawing.style.stroke_color = color;
-    drawing.style.line_style = line_style;
-    drawing.style.stroke_width = 1.5;
-    drawing.label = label.clone();
-    let id = drawing.id.0.to_string();
-
-    let desc = label
-        .as_deref()
-        .map(|l| format!("V-Line: {}", l))
-        .unwrap_or_else(|| "V-Line".to_string());
-
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
+        DrawingAction::Add {
+            spec,
             description: desc.clone(),
         },
     );
@@ -1076,7 +1339,6 @@ fn exec_add_vertical_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
         })
         .to_string(),
         display_summary: desc,
@@ -1084,304 +1346,10 @@ fn exec_add_vertical_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult
     }
 }
 
-fn exec_add_price_label(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    let Some(price) = args["price"].as_f64() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: price"
-            })
-            .to_string(),
-            display_summary: "Missing price".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(time_str) = args["time"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: time"
-            })
-            .to_string(),
-            display_summary: "Missing time".to_string(),
-            is_error: true,
-        };
-    };
-
-    let Some(time_ms) = time_to_ms(time_str, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse time '{}'. Use ISO 8601 \
-                     (e.g. 2024-01-15T14:30:00Z) or epoch seconds.",
-                    time_str
-                )
-            })
-            .to_string(),
-            display_summary: "Bad time format".to_string(),
-            is_error: true,
-        };
-    };
-
-    let color_name = args["color"].as_str().unwrap_or("yellow");
-    let color = parse_color_name(color_name);
-
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::PriceLabel);
-    drawing.points = vec![crate::drawing::SerializablePoint::new(
-        price_to_units(price),
-        time_ms,
-    )];
-    drawing.style.stroke_color = color;
-    let id = drawing.id.0.to_string();
-
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Price label at {:.2}", price),
-        },
-    );
-
-    ToolExecResult {
-        content_json: json!({
-            "success": true,
-            "drawing_id": id,
-            "price": price,
-        })
-        .to_string(),
-        display_summary: format!("Price label at {:.2}", price),
-        is_error: false,
-    }
-}
-
-/// Helper for two-point line tools (Line, ExtendedLine).
-fn exec_two_point_line(
+fn exec_add_fib_retracement<Tz: TimezoneResolver>(
     args: &Value,
-    ctx: &ToolContext<'_>,
-    tool: crate::drawing::DrawingTool,
-    tool_label: &str,
+    ctx: &ToolContext<'_, Tz>,
 ) -> ToolExecResult {
-    let Some(from_price) = args["from_price"].as_f64() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: from_price"
-            })
-            .to_string(),
-            display_summary: "Missing from_price".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(from_time) = args["from_time"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: from_time"
-            })
-            .to_string(),
-            display_summary: "Missing from_time".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(to_price) = args["to_price"].as_f64() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: to_price"
-            })
-            .to_string(),
-            display_summary: "Missing to_price".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(to_time) = args["to_time"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: to_time"
-            })
-            .to_string(),
-            display_summary: "Missing to_time".to_string(),
-            is_error: true,
-        };
-    };
-
-    let color_name = args["color"].as_str().unwrap_or("blue");
-    let style_name = args["style"].as_str().unwrap_or("solid");
-    let color = parse_color_name(color_name);
-    let line_style = parse_line_style(style_name);
-
-    let Some(from_ms) = time_to_ms(from_time, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse from_time '{}'. Use ISO 8601.",
-                    from_time
-                )
-            })
-            .to_string(),
-            display_summary: "Bad from_time".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(to_ms) = time_to_ms(to_time, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse to_time '{}'. Use ISO 8601.",
-                    to_time
-                )
-            })
-            .to_string(),
-            display_summary: "Bad to_time".to_string(),
-            is_error: true,
-        };
-    };
-
-    let mut drawing = crate::drawing::SerializableDrawing::new(tool);
-    drawing.points = vec![
-        crate::drawing::SerializablePoint::new(price_to_units(from_price), from_ms),
-        crate::drawing::SerializablePoint::new(price_to_units(to_price), to_ms),
-    ];
-    drawing.style.stroke_color = color;
-    drawing.style.line_style = line_style;
-    drawing.style.stroke_width = 1.5;
-    let id = drawing.id.0.to_string();
-
-    let desc = format!("{} {:.2} → {:.2}", tool_label, from_price, to_price);
-
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: desc.clone(),
-        },
-    );
-
-    ToolExecResult {
-        content_json: json!({
-            "success": true,
-            "drawing_id": id,
-        })
-        .to_string(),
-        display_summary: desc,
-        is_error: false,
-    }
-}
-
-fn exec_add_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    exec_two_point_line(args, ctx, crate::drawing::DrawingTool::Line, "Line")
-}
-
-fn exec_add_extended_line(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    exec_two_point_line(
-        args,
-        ctx,
-        crate::drawing::DrawingTool::ExtendedLine,
-        "Ext Line",
-    )
-}
-
-fn exec_add_ellipse(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
-    let Some(price_high) = args["price_high"].as_f64() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: price_high"
-            })
-            .to_string(),
-            display_summary: "Missing price_high".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(price_low) = args["price_low"].as_f64() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: price_low"
-            })
-            .to_string(),
-            display_summary: "Missing price_low".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(time_start) = args["time_start"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: time_start"
-            })
-            .to_string(),
-            display_summary: "Missing time_start".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(time_end) = args["time_end"].as_str() else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": "Missing required parameter: time_end"
-            })
-            .to_string(),
-            display_summary: "Missing time_end".to_string(),
-            is_error: true,
-        };
-    };
-
-    let color_name = args["color"].as_str().unwrap_or("blue");
-    let opacity = args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
-    let color = parse_color_name(color_name);
-
-    let Some(start_ms) = time_to_ms(time_start, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse time_start '{}'. Use ISO 8601.",
-                    time_start
-                )
-            })
-            .to_string(),
-            display_summary: "Bad time_start".to_string(),
-            is_error: true,
-        };
-    };
-    let Some(end_ms) = time_to_ms(time_end, ctx.timezone) else {
-        return ToolExecResult {
-            content_json: json!({
-                "error": format!(
-                    "Could not parse time_end '{}'. Use ISO 8601.",
-                    time_end
-                )
-            })
-            .to_string(),
-            display_summary: "Bad time_end".to_string(),
-            is_error: true,
-        };
-    };
-
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::Ellipse);
-    drawing.points = vec![
-        crate::drawing::SerializablePoint::new(price_to_units(price_high), start_ms),
-        crate::drawing::SerializablePoint::new(price_to_units(price_low), end_ms),
-    ];
-    drawing.style.stroke_color = color;
-    drawing.style.fill_color = Some(color);
-    drawing.style.fill_opacity = opacity;
-    drawing.style.stroke_width = 1.0;
-    let id = drawing.id.0.to_string();
-
-    push_drawing_action(
-        ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Ellipse {:.2}-{:.2}", price_low, price_high),
-        },
-    );
-
-    ToolExecResult {
-        content_json: json!({
-            "success": true,
-            "drawing_id": id,
-        })
-        .to_string(),
-        display_summary: format!("Ellipse {:.2}-{:.2}", price_low, price_high),
-        is_error: false,
-    }
-}
-
-fn exec_add_fib_retracement(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResult {
     let Some(high_price) = args["high_price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -1453,34 +1421,89 @@ fn exec_add_fib_retracement(args: &Value, ctx: &ToolContext<'_>) -> ToolExecResu
         };
     };
 
-    let mut drawing =
-        crate::drawing::SerializableDrawing::new(crate::drawing::DrawingTool::FibRetracement);
-    drawing.points = vec![
-        crate::drawing::SerializablePoint::new(price_to_units(high_price), high_ms),
-        crate::drawing::SerializablePoint::new(price_to_units(low_price), low_ms),
-    ];
-    drawing.style.stroke_color = color;
-    drawing.style.stroke_width = 1.0;
-    drawing.style.fibonacci = Some(crate::drawing::FibonacciConfig::default());
-    let id = drawing.id.0.to_string();
+    let mut spec = base_spec(ctx, "FibRetracement");
+    spec.from_price = Some(high_price);
+    spec.from_time_millis = Some(high_ms);
+    spec.to_price = Some(low_price);
+    spec.to_time_millis = Some(low_ms);
+    spec.color = Some(color);
+    spec.fibonacci = true;
+
+    let desc = format!("Fib {:.2}-{:.2}", low_price, high_price);
 
     push_drawing_action(
         ctx,
-        AiDrawingAction::AddDrawing {
-            drawing: Box::new(drawing),
-            description: format!("Fib {:.2}-{:.2}", low_price, high_price),
+        DrawingAction::Add {
+            spec,
+            description: desc.clone(),
         },
     );
 
     ToolExecResult {
         content_json: json!({
             "success": true,
-            "drawing_id": id,
             "high_price": high_price,
             "low_price": low_price,
         })
         .to_string(),
-        display_summary: format!("Fib {:.2}-{:.2}", low_price, high_price),
+        display_summary: desc,
+        is_error: false,
+    }
+}
+
+fn exec_remove_drawing<Tz: TimezoneResolver>(
+    args: &Value,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    let Some(drawing_id) = args["drawing_id"].as_str() else {
+        return ToolExecResult {
+            content_json: json!({
+                "error": "Missing required parameter: drawing_id"
+            })
+            .to_string(),
+            display_summary: "Missing drawing_id".to_string(),
+            is_error: true,
+        };
+    };
+
+    push_drawing_action(
+        ctx,
+        DrawingAction::Remove {
+            id: drawing_id.to_string(),
+            description: format!(
+                "Remove drawing {}",
+                &drawing_id[..8.min(drawing_id.len())]
+            ),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({
+            "success": true,
+            "drawing_id": drawing_id,
+        })
+        .to_string(),
+        display_summary: format!(
+            "Removed {}",
+            &drawing_id[..8.min(drawing_id.len())]
+        ),
+        is_error: false,
+    }
+}
+
+fn exec_remove_all_drawings<Tz: TimezoneResolver>(
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
+    push_drawing_action(
+        ctx,
+        DrawingAction::RemoveAll {
+            description: "Remove all drawings".to_string(),
+        },
+    );
+
+    ToolExecResult {
+        content_json: json!({ "success": true }).to_string(),
+        display_summary: "Cleared all drawings".to_string(),
         is_error: false,
     }
 }

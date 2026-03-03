@@ -47,6 +47,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 data = { version = "0.2.0", path = "../crates/data", package = "kairos-data" }
 study = { version = "0.1.0", path = "../crates/study", package = "kairos-study" }
 backtest = { version = "0.1.0", path = "../crates/backtest", package = "kairos-backtest" }
+ai = { version = "0.1.0", path = "../crates/ai", package = "kairos-ai" }
 
 [build-dependencies]
 winresource = "0.1"

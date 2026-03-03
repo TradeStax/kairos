@@ -1,24 +1,18 @@
+mod drawing_bridge;
 mod snapshot;
-mod streaming;
-mod system_prompt;
-pub(crate) mod tools;
-
-pub(crate) use tools::drawings::AiDrawingAction;
-
-use system_prompt::build_system_prompt;
 
 use iced::{Task, widget::scrollable};
 
 use super::super::{Kairos, Message};
-use crate::app::core::globals::{self, AiStreamEventClone};
-use data::domain::assistant::{ChatMessageKind, DisplayMessage};
+use crate::app::core::globals::{self, AiStreamEvent};
+use ai::{ChatMessageKind, DisplayMessage};
 
 impl Kairos {
     /// Handle an AI stream event routed from the global staging buffer.
     /// Routes to the correct pane and returns a scroll-to-bottom task.
-    pub(crate) fn handle_ai_stream_event(&mut self, event: AiStreamEventClone) -> Task<Message> {
+    pub(crate) fn handle_ai_stream_event(&mut self, event: AiStreamEvent) -> Task<Message> {
         // Handle drawing actions at the Kairos level (needs cross-pane access)
-        if let AiStreamEventClone::DrawingAction {
+        if let AiStreamEvent::DrawingAction {
             conversation_id,
             action,
         } = &event
@@ -27,31 +21,31 @@ impl Kairos {
         }
 
         let conversation_id = match &event {
-            AiStreamEventClone::Delta {
+            AiStreamEvent::Delta {
                 conversation_id, ..
             }
-            | AiStreamEventClone::ToolCallStarted {
+            | AiStreamEvent::ToolCallStarted {
                 conversation_id, ..
             }
-            | AiStreamEventClone::ToolCallResult {
+            | AiStreamEvent::ToolCallResult {
                 conversation_id, ..
             }
-            | AiStreamEventClone::TextSegmentComplete {
+            | AiStreamEvent::TextSegmentComplete {
                 conversation_id, ..
             }
-            | AiStreamEventClone::ApiHistorySync {
+            | AiStreamEvent::ApiHistorySync {
                 conversation_id, ..
             }
-            | AiStreamEventClone::Complete {
+            | AiStreamEvent::Complete {
                 conversation_id, ..
             }
-            | AiStreamEventClone::Error {
+            | AiStreamEvent::Error {
                 conversation_id, ..
             }
-            | AiStreamEventClone::ApiKeyMissing {
+            | AiStreamEvent::ApiKeyMissing {
                 conversation_id, ..
             }
-            | AiStreamEventClone::DrawingAction {
+            | AiStreamEvent::DrawingAction {
                 conversation_id, ..
             } => *conversation_id,
         };
@@ -92,11 +86,15 @@ impl Kairos {
     fn apply_ai_drawing_action(
         &mut self,
         conversation_id: uuid::Uuid,
-        action: AiDrawingAction,
+        action: ai::DrawingAction,
     ) -> Task<Message> {
         use crate::chart::drawing::Drawing;
 
-        log::debug!("AI drawing action: {:?} (conv {})", action, conversation_id,);
+        log::debug!(
+            "AI drawing action: {:?} (conv {})",
+            action,
+            conversation_id,
+        );
 
         let dash = match self.active_dashboard_mut() {
             Some(d) => d,
@@ -154,28 +152,24 @@ impl Kairos {
         };
 
         match action {
-            AiDrawingAction::AddDrawing {
-                ref drawing,
+            ai::DrawingAction::Add {
+                ref spec,
                 ref description,
             } => {
                 log::info!(
-                    "AI adding drawing: {} (tool={:?}, points={})",
+                    "AI adding drawing: {} (tool={})",
                     description,
-                    drawing.tool,
-                    drawing.points.len(),
+                    spec.tool_name,
                 );
-                let resolved = if is_tick {
-                    let mut d = drawing.as_ref().clone();
-                    resolve_tick_basis_points(&mut d, &candle_times);
-                    d
-                } else {
-                    drawing.as_ref().clone()
-                };
-                let d = Drawing::from(&resolved);
+                let mut drawing = drawing_bridge::spec_to_drawing(spec);
+                if is_tick {
+                    resolve_tick_basis_points(&mut drawing, &candle_times);
+                }
+                let d = Drawing::from(&drawing);
                 chart.drawings_mut().add_drawing(d);
                 chart.invalidate_all_drawing_caches();
             }
-            AiDrawingAction::RemoveDrawing {
+            ai::DrawingAction::Remove {
                 ref id,
                 ref description,
             } => {
@@ -185,7 +179,7 @@ impl Kairos {
                     chart.invalidate_all_drawing_caches();
                 }
             }
-            AiDrawingAction::RemoveAllDrawings { ref description } => {
+            ai::DrawingAction::RemoveAll { ref description } => {
                 log::info!("AI action: {}", description);
                 let ids: Vec<crate::drawing::DrawingId> = chart
                     .drawings()
@@ -347,7 +341,7 @@ impl Kairos {
                         .and_then(|(_, s)| s.ai_conversation_id())
                 });
                 if let Some(conv_id) = conversation_id {
-                    let _ = globals::get_ai_sender().send(AiStreamEventClone::ApiKeyMissing {
+                    let _ = globals::get_ai_sender().send(AiStreamEvent::ApiKeyMissing {
                         conversation_id: conv_id,
                     });
                 }
@@ -442,21 +436,21 @@ impl Kairos {
 
         // Build tools JSON (only if snapshot present)
         let tools_json = if chart_snapshot.is_some() {
-            tools::build_tools_json()
+            ai::build_tools_json()
         } else {
             serde_json::json!([])
         };
 
         // Build initial API messages
-        let prompt = build_system_prompt(user_tz);
+        let prompt = ai::build_system_prompt(user_tz);
         let initial_messages =
-            streaming::build_api_messages(&prompt, &api_history, &chart_snapshot);
+            ai::build_api_messages(&prompt, &api_history, &chart_snapshot);
 
         let ai_sender = globals::get_ai_sender();
 
         Task::perform(
             async move {
-                streaming::stream_openrouter_agentic(
+                ai::stream_openrouter_agentic(
                     api_key,
                     model,
                     initial_messages,

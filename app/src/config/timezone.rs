@@ -196,6 +196,16 @@ impl<'de> Deserialize<'de> for UserTimezone {
     }
 }
 
+impl ai::TimezoneResolver for UserTimezone {
+    fn naive_to_utc_millis(&self, dt: chrono::NaiveDateTime) -> i64 {
+        self.naive_to_utc_millis(dt)
+    }
+
+    fn display_label(&self) -> String {
+        format!("{}", self)
+    }
+}
+
 impl Serialize for UserTimezone {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -11,7 +11,7 @@ pub use crate::components::primitives::separator::divider;
 use crate::components::primitives::{Icon, icon_text, small};
 use crate::screen::dashboard::pane::types::{AiAssistantEvent, AiAssistantState, Event, Message};
 use crate::style::{palette, tokens};
-use data::domain::assistant::ChatMessageKind;
+use ai::ChatMessageKind;
 use iced::widget::pane_grid;
 use iced::{
     Alignment, Element, Length, Padding,
@@ -152,7 +152,7 @@ fn view_empty_state<'a>(is_linked: bool) -> Element<'a, Message> {
 // ── Render DisplayMessage by kind ─────────────────────────────────
 
 pub fn view_message_item<'a>(
-    msg: &'a data::domain::assistant::DisplayMessage,
+    msg: &'a ai::DisplayMessage,
     index: usize,
     state: &'a AiAssistantState,
     id: pane_grid::Pane,

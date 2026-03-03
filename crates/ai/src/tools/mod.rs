@@ -5,27 +5,35 @@
 //! - `trades` -- trade analysis, volume profile, delta, aggregation
 //! - `studies` -- study values, big trades, footprint, profile data
 //! - `analysis` -- drawings query, session stats, level detection
-//! - `drawings` -- chart interaction (add/remove drawings)
+//! - `drawing` -- chart annotation (add/remove drawings)
 
 mod analysis;
-pub(crate) mod drawings;
+pub mod drawing;
 mod market_data;
 mod studies;
 mod trades;
 
-use data::domain::assistant::ChartSnapshot;
+use crate::domain::snapshot::ChartSnapshot;
+use crate::event::AiStreamEvent;
 use serde_json::{Value, json};
 
-use crate::app::core::globals::AiStreamEventClone;
+/// Trait for resolving user timezone in tool operations.
+/// Decouples the AI crate from the app's `UserTimezone` type.
+pub trait TimezoneResolver: Copy + Send + 'static {
+    /// Convert a naive datetime (user's local time) to UTC milliseconds.
+    fn naive_to_utc_millis(&self, dt: chrono::NaiveDateTime) -> i64;
+    /// Display label for the timezone (e.g. "UTC", "Local (UTC -05:00)").
+    fn display_label(&self) -> String;
+}
 
 /// Context passed to every tool execution — gives access to the
 /// snapshot, the event sender (for drawing actions), the
 /// conversation ID, and the user's timezone.
-pub struct ToolContext<'a> {
+pub struct ToolContext<'a, Tz: TimezoneResolver> {
     pub snapshot: &'a Option<ChartSnapshot>,
-    pub sender: &'static tokio::sync::mpsc::UnboundedSender<AiStreamEventClone>,
+    pub sender: &'a tokio::sync::mpsc::UnboundedSender<AiStreamEvent>,
     pub conversation_id: uuid::Uuid,
-    pub timezone: crate::config::UserTimezone,
+    pub timezone: Tz,
 }
 
 /// Result of executing a single tool call.
@@ -35,15 +43,10 @@ pub struct ToolExecResult {
     pub is_error: bool,
 }
 
-// ── Shared helpers ───────────────────────────────────────────────
+// ── Shared helpers ───────────────────────────────────────────
 
 /// Parse an ISO 8601 time string to milliseconds since epoch.
-/// Timestamp.0 in the data crate stores milliseconds.
-///
-/// RFC 3339 strings with explicit timezone offset are used as-is.
-/// Naive timestamps (no offset) are interpreted in the user's
-/// timezone.
-pub(super) fn parse_iso_to_millis(s: &str, tz: crate::config::UserTimezone) -> Option<u64> {
+pub(crate) fn parse_iso_to_millis(s: &str, tz: impl TimezoneResolver) -> Option<u64> {
     // RFC 3339 with explicit tz — use as-is
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         return Some(dt.timestamp_millis() as u64);
@@ -62,9 +65,9 @@ pub(super) fn parse_iso_to_millis(s: &str, tz: crate::config::UserTimezone) -> O
 
 /// Parse optional start/end time filters from tool arguments.
 /// Returns milliseconds to compare directly with Timestamp.0.
-pub(super) fn parse_time_range(
+pub(crate) fn parse_time_range(
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> (Option<u64>, Option<u64>) {
     let start = args["start_time"]
         .as_str()
@@ -76,7 +79,7 @@ pub(super) fn parse_time_range(
 }
 
 /// Compute tick multiplier from tick size.
-pub(super) fn tick_multiplier(tick_size: f32) -> i64 {
+pub(crate) fn tick_multiplier(tick_size: f32) -> i64 {
     if tick_size > 0.0 {
         (1.0 / tick_size as f64) as i64
     } else {
@@ -85,7 +88,7 @@ pub(super) fn tick_multiplier(tick_size: f32) -> i64 {
 }
 
 /// Parse a color name to a SerializableColor.
-pub(super) fn parse_color_name(name: &str) -> data::SerializableColor {
+pub(crate) fn parse_color_name(name: &str) -> data::SerializableColor {
     match name.to_lowercase().as_str() {
         "red" => data::SerializableColor::from_rgb8(220, 50, 47),
         "green" => data::SerializableColor::from_rgb8(81, 205, 160),
@@ -101,17 +104,7 @@ pub(super) fn parse_color_name(name: &str) -> data::SerializableColor {
     }
 }
 
-/// Parse a LineStyle from a string name.
-pub(super) fn parse_line_style(name: &str) -> crate::drawing::LineStyle {
-    match name.to_lowercase().as_str() {
-        "solid" => crate::drawing::LineStyle::Solid,
-        "dashed" => crate::drawing::LineStyle::Dashed,
-        "dotted" => crate::drawing::LineStyle::Dotted,
-        _ => crate::drawing::LineStyle::Dashed,
-    }
-}
-
-// ── Public API ───────────────────────────────────────────────────
+// ── Public API ───────────────────────────────────────────────
 
 /// Build the OpenAI-format `tools` array for the API request.
 pub fn build_tools_json() -> Value {
@@ -120,13 +113,17 @@ pub fn build_tools_json() -> Value {
     tools.extend(trades::tool_definitions());
     tools.extend(studies::tool_definitions());
     tools.extend(analysis::tool_definitions());
-    tools.extend(drawings::tool_definitions());
+    tools.extend(drawing::tool_definitions());
     json!(tools)
 }
 
-/// Execute a tool call against the chart snapshot (or via events buf
+/// Execute a tool call against the chart snapshot (or via events
 /// for drawing actions).
-pub fn execute_tool(name: &str, arguments_json: &str, ctx: &ToolContext<'_>) -> ToolExecResult {
+pub fn execute_tool<Tz: TimezoneResolver>(
+    name: &str,
+    arguments_json: &str,
+    ctx: &ToolContext<'_, Tz>,
+) -> ToolExecResult {
     let Some(snap) = ctx.snapshot else {
         return ToolExecResult {
             content_json: json!({
@@ -144,7 +141,7 @@ pub fn execute_tool(name: &str, arguments_json: &str, ctx: &ToolContext<'_>) -> 
         Err(e) => {
             return ToolExecResult {
                 content_json: json!({
-                    "error": format!("Invalid JSON arguments: {}", e)
+                    "error": format!("Invalid JSON arguments: {e}")
                 })
                 .to_string(),
                 display_summary: "Bad arguments".to_string(),
@@ -186,13 +183,13 @@ pub fn execute_tool(name: &str, arguments_json: &str, ctx: &ToolContext<'_>) -> 
         | "add_arrow"
         | "add_fib_retracement"
         | "remove_drawing"
-        | "remove_all_drawings" => drawings::execute_drawing_tool(name, &args, ctx),
+        | "remove_all_drawings" => drawing::execute_drawing_tool(name, &args, ctx),
         _ => ToolExecResult {
             content_json: json!({
-                "error": format!("Unknown tool: {}", name)
+                "error": format!("Unknown tool: {name}")
             })
             .to_string(),
-            display_summary: format!("Unknown tool: {}", name),
+            display_summary: format!("Unknown tool: {name}"),
             is_error: true,
         },
     }

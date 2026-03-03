@@ -2224,6 +2224,7 @@ dependencies = [
  "iced_anim",
  "iced_core",
  "iced_futures",
+ "kairos-ai",
  "kairos-backtest",
  "kairos-data",
  "kairos-study",
@@ -2241,6 +2242,21 @@ dependencies = [
  "tokio",
  "uuid",
  "winresource",
+]
+
+[[package]]
+name = "kairos-ai"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "kairos-data",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

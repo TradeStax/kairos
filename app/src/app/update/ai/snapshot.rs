@@ -5,7 +5,7 @@
 
 use crate::config::UserTimezone;
 use crate::screen::dashboard::pane;
-use data::domain::assistant::{
+use ai::{
     BigTradeSnapshot, ChartSnapshot, DrawingPointSnapshot, DrawingSnapshot,
     FootprintCandleSnapshot, FootprintLevelSnapshot, ProfileLevelSnapshot, ProfileSnapshot,
     StudyOutputSnapshot,

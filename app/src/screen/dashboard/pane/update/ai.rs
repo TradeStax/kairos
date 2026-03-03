@@ -126,13 +126,13 @@ impl State {
                 // Pop the error system notice
                 if matches!(
                     state.messages.last().map(|m| &m.kind),
-                    Some(data::domain::assistant::ChatMessageKind::SystemNotice { .. })
+                    Some(ai::ChatMessageKind::SystemNotice { .. })
                 ) {
                     state.messages.pop();
                 }
                 // Find the last user message
                 let last_user = state.messages.iter().rev().find_map(|m| {
-                    if let data::domain::assistant::ChatMessageKind::User { text } = &m.kind {
+                    if let ai::ChatMessageKind::User { text } = &m.kind {
                         Some(text.clone())
                     } else {
                         None

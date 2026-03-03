@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use futures::StreamExt as _;
 use serde_json::{Value, json};
 
-use super::tools::{self, ToolContext};
-use crate::app::core::globals::{AiStreamEventClone, ToolRoundSync};
-use data::domain::assistant::{ApiMessage, ChartSnapshot, ChatRole};
+use crate::domain::messages::{ApiMessage, ChatRole};
+use crate::domain::snapshot::ChartSnapshot;
+use crate::event::{AiStreamEvent, ToolRoundSync};
+use crate::tools::{self, TimezoneResolver, ToolContext};
 
 const MAX_TOOL_ROUNDS: usize = 10;
 
@@ -45,7 +46,6 @@ impl ToolCallAccumulator {
             let idx = tc["index"].as_u64().unwrap_or(0) as usize;
 
             if let Some(id) = tc["id"].as_str() {
-                // New tool call
                 let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
                 self.pending.insert(
                     idx,
@@ -75,7 +75,6 @@ impl ToolCallAccumulator {
             .drain()
             .map(|(_, tc)| (tc.id, tc.name, tc.arguments_buf))
             .collect();
-        // Sort by id for deterministic ordering
         result.sort_by(|a, b| a.0.cmp(&b.0));
         result
     }
@@ -90,19 +89,19 @@ impl ToolCallAccumulator {
 /// 2. Stream SSE, emit Delta events, accumulate tool calls
 /// 3. On `stop` → emit Complete, return
 /// 4. On `tool_calls` → execute tools, append to history, loop
-pub(crate) async fn stream_openrouter_agentic(
+pub async fn stream_openrouter_agentic<Tz: TimezoneResolver>(
     api_key: String,
     model: String,
     mut api_messages: Vec<Value>,
     tools_json: Value,
     conversation_id: uuid::Uuid,
-    sender: &'static tokio::sync::mpsc::UnboundedSender<AiStreamEventClone>,
+    sender: &tokio::sync::mpsc::UnboundedSender<AiStreamEvent>,
     snapshot: Option<ChartSnapshot>,
     temperature: f32,
     max_tokens: u32,
-    timezone: crate::config::UserTimezone,
+    timezone: Tz,
 ) {
-    use AiStreamEventClone as Ev;
+    use AiStreamEvent as Ev;
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -112,7 +111,7 @@ pub(crate) async fn stream_openrouter_agentic(
         Err(e) => {
             let _ = sender.send(Ev::Error {
                 conversation_id,
-                error: format!("HTTP client error: {}", e),
+                error: format!("HTTP client error: {e}"),
             });
             return;
         }
@@ -139,7 +138,7 @@ pub(crate) async fn stream_openrouter_agentic(
 
         let response = match client
             .post("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Authorization", format!("Bearer {api_key}"))
             .header("Content-Type", "application/json")
             .header("HTTP-Referer", "https://kairos.app")
             .header("X-Title", "Kairos")
@@ -151,7 +150,7 @@ pub(crate) async fn stream_openrouter_agentic(
             Err(e) => {
                 let _ = sender.send(Ev::Error {
                     conversation_id,
-                    error: format!("Network error: {}", e),
+                    error: format!("Network error: {e}"),
                 });
                 return;
             }
@@ -168,7 +167,7 @@ pub(crate) async fn stream_openrouter_agentic(
             };
             let _ = sender.send(Ev::Error {
                 conversation_id,
-                error: format!("API error {}: {}", status, msg),
+                error: format!("API error {status}: {msg}"),
             });
             return;
         }
@@ -186,7 +185,7 @@ pub(crate) async fn stream_openrouter_agentic(
                 Some(Err(e)) => {
                     let _ = sender.send(Ev::Error {
                         conversation_id,
-                        error: format!("Stream error: {}", e),
+                        error: format!("Stream error: {e}"),
                     });
                     return;
                 }
@@ -253,7 +252,6 @@ pub(crate) async fn stream_openrouter_agentic(
 
                 let tool_calls = accumulator.finalize();
                 if tool_calls.is_empty() {
-                    // Unexpected: finish_reason=tool_calls but no calls
                     let _ = sender.send(Ev::Complete {
                         conversation_id,
                         prompt_tokens: total_prompt_tokens,
@@ -262,8 +260,7 @@ pub(crate) async fn stream_openrouter_agentic(
                     return;
                 }
 
-                // Build the assistant message with tool_calls for
-                // the API history
+                // Build the assistant message with tool_calls for the API history
                 let api_tool_calls: Vec<Value> = tool_calls
                     .iter()
                     .map(|(id, name, args)| {
@@ -315,7 +312,6 @@ pub(crate) async fn stream_openrouter_agentic(
                         is_error: result.is_error,
                     });
 
-                    // Track for api_history sync
                     all_tool_rounds.push(ToolRoundSync {
                         call_id: call_id.clone(),
                         name: name.clone(),
@@ -323,7 +319,6 @@ pub(crate) async fn stream_openrouter_agentic(
                         result_json: result.content_json.clone(),
                     });
 
-                    // Append tool result to API messages
                     api_messages.push(json!({
                         "role": "tool",
                         "tool_call_id": call_id,
@@ -331,7 +326,6 @@ pub(crate) async fn stream_openrouter_agentic(
                     }));
                 }
 
-                // Reset text buffer for next round
                 text_buf.clear();
                 continue; // Next round
             }
@@ -371,18 +365,17 @@ fn tool_call_summary(name: &str, args: &str) -> String {
     let parsed: Value = serde_json::from_str(args).unwrap_or(json!({}));
 
     match name {
-        // Query tools
         "get_chart_info" => "Querying chart info".to_string(),
         "get_candles" => {
             let count = parsed["count"].as_u64().unwrap_or(50);
-            format!("Fetching {} candles", count)
+            format!("Fetching {count} candles")
         }
         "get_market_state" => "Checking market state".to_string(),
         "get_trades" => {
             if let (Some(lo), Some(hi)) =
                 (parsed["price_min"].as_f64(), parsed["price_max"].as_f64())
             {
-                format!("Trades at {:.2}-{:.2}", lo, hi)
+                format!("Trades at {lo:.2}-{hi:.2}")
             } else {
                 "Analyzing trade data".to_string()
             }
@@ -390,51 +383,50 @@ fn tool_call_summary(name: &str, args: &str) -> String {
         "get_volume_profile" => "Building volume profile".to_string(),
         "get_study_values" => {
             let count = parsed["count"].as_u64().unwrap_or(10);
-            format!("Reading {} study values", count)
+            format!("Reading {count} study values")
         }
         "get_delta_profile" => "Analyzing delta profile".to_string(),
         "get_big_trades" => {
             let count = parsed["count"].as_u64().unwrap_or(50);
-            format!("Fetching {} big trades", count)
+            format!("Fetching {count} big trades")
         }
         "get_footprint" => {
             let count = parsed["count"].as_u64().unwrap_or(20);
-            format!("Reading {} footprint candles", count)
+            format!("Reading {count} footprint candles")
         }
         "get_profile_data" => "Loading VBP profile data".to_string(),
         "get_aggregated_trades" => {
             let bucket = parsed["bucket_seconds"].as_u64().unwrap_or(60);
-            format!("Aggregating trades ({}s buckets)", bucket)
+            format!("Aggregating trades ({bucket}s buckets)")
         }
         "get_drawings" => "Listing chart drawings".to_string(),
         "get_session_stats" => {
             let session = parsed["session"].as_str().unwrap_or("rth").to_uppercase();
-            format!("{} session stats", session)
+            format!("{session} session stats")
         }
         "identify_levels" => "Identifying support/resistance".to_string(),
-        // Drawing tools
         "add_horizontal_line" => {
             if let Some(p) = parsed["price"].as_f64() {
-                format!("Drawing line at {:.2}", p)
+                format!("Drawing line at {p:.2}")
             } else {
                 "Drawing horizontal line".to_string()
             }
         }
         "add_vertical_line" => parsed["label"]
             .as_str()
-            .map(|l| format!("V-Line: {}", l))
+            .map(|l| format!("V-Line: {l}"))
             .unwrap_or_else(|| "Drawing vertical line".to_string()),
         "add_text_annotation" => "Adding text annotation".to_string(),
         "add_price_level" => {
             if let Some(p) = parsed["price"].as_f64() {
-                format!("Marking level at {:.2}", p)
+                format!("Marking level at {p:.2}")
             } else {
                 "Adding price level".to_string()
             }
         }
         "add_price_label" => {
             if let Some(p) = parsed["price"].as_f64() {
-                format!("Price label at {:.2}", p)
+                format!("Price label at {p:.2}")
             } else {
                 "Adding price label".to_string()
             }
@@ -448,14 +440,14 @@ fn tool_call_summary(name: &str, args: &str) -> String {
             if let (Some(hi), Some(lo)) =
                 (parsed["high_price"].as_f64(), parsed["low_price"].as_f64())
             {
-                format!("Fib {:.2}-{:.2}", lo, hi)
+                format!("Fib {lo:.2}-{hi:.2}")
             } else {
                 "Drawing fib retracement".to_string()
             }
         }
         "remove_drawing" => "Removing drawing".to_string(),
         "remove_all_drawings" => "Clearing all drawings".to_string(),
-        other => format!("Calling {}", other),
+        other => format!("Calling {other}"),
     }
 }
 
@@ -463,7 +455,7 @@ fn tool_call_summary(name: &str, args: &str) -> String {
 
 /// Convert stored API history into JSON messages for the API request.
 /// Prepends system prompt and optional chart context.
-pub(crate) fn build_api_messages(
+pub fn build_api_messages(
     system_prompt: &str,
     api_history: &[ApiMessage],
     snapshot: &Option<ChartSnapshot>,
@@ -484,7 +476,7 @@ pub(crate) fn build_api_messages(
         let date_range = snap
             .date_range_display
             .as_ref()
-            .map(|(s, e)| format!("{} to {}", s, e))
+            .map(|(s, e)| format!("{s} to {e}"))
             .unwrap_or_default();
         let ctx = format!(
             "Chart context: {} {} {} | {} candles | {} trades{} | \

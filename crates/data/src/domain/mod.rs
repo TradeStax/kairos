@@ -6,9 +6,7 @@
 //! - [`chart`] — `ChartConfig`, `ChartData`, `ChartBasis`, `LoadingStatus`
 //! - [`data`] — `DataIndex`, `DownloadedTickersRegistry`
 //! - [`replay`] — `ReplayState`, `PlaybackStatus`, `SpeedPreset`, `ReplayData`
-//! - [`assistant`] — AI chat messages, chart snapshots, token usage
 
-pub mod assistant;
 pub mod chart;
 pub mod core;
 pub mod data;

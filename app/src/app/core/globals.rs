@@ -134,80 +134,17 @@ pub(crate) fn take_backtest_receiver()
 
 // ── AI stream ─────────────────────────────────────────────────────────────────
 
-static AI_CHANNEL: EventChannel<AiStreamEventClone> = EventChannel::new();
+/// Re-export from the AI crate for app-wide use.
+pub(crate) use ai::AiStreamEvent;
+
+static AI_CHANNEL: EventChannel<AiStreamEvent> = EventChannel::new();
 
 /// Get the AI stream event sender.
-pub(crate) fn get_ai_sender() -> &'static tokio::sync::mpsc::UnboundedSender<AiStreamEventClone> {
+pub(crate) fn get_ai_sender() -> &'static tokio::sync::mpsc::UnboundedSender<AiStreamEvent> {
     AI_CHANNEL.sender()
 }
 
 /// Take the AI stream event receiver (called once by the subscription stream).
-pub(crate) fn take_ai_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<AiStreamEventClone>>
-{
+pub(crate) fn take_ai_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<AiStreamEvent>> {
     AI_CHANNEL.take_receiver()
-}
-
-// ── AI event types ────────────────────────────────────────────────────────────
-
-/// A single tool call + result pair, used to sync back to api_history.
-#[derive(Debug, Clone)]
-pub struct ToolRoundSync {
-    pub call_id: String,
-    pub name: String,
-    pub arguments: String,
-    pub result_json: String,
-}
-
-/// Clone-safe AI stream event for passing through the channel.
-/// All fields are Clone-able (String-based, no non-Clone types).
-#[derive(Debug, Clone)]
-pub enum AiStreamEventClone {
-    Delta {
-        conversation_id: uuid::Uuid,
-        text: String,
-    },
-    ToolCallStarted {
-        conversation_id: uuid::Uuid,
-        call_id: String,
-        name: String,
-        arguments_json: String,
-        display_summary: String,
-    },
-    ToolCallResult {
-        conversation_id: uuid::Uuid,
-        call_id: String,
-        name: String,
-        content_json: String,
-        display_summary: String,
-        is_error: bool,
-    },
-    /// Marks the end of a text segment (before tool calls start).
-    TextSegmentComplete {
-        conversation_id: uuid::Uuid,
-    },
-    Complete {
-        conversation_id: uuid::Uuid,
-        prompt_tokens: u32,
-        completion_tokens: u32,
-    },
-    Error {
-        conversation_id: uuid::Uuid,
-        error: String,
-    },
-    /// Sync tool call rounds back to the pane's api_history so
-    /// follow-up messages include prior tool context.
-    ApiHistorySync {
-        conversation_id: uuid::Uuid,
-        rounds: Vec<ToolRoundSync>,
-        /// Final assistant text (if any) produced after all tool rounds.
-        final_text: Option<String>,
-    },
-    ApiKeyMissing {
-        conversation_id: uuid::Uuid,
-    },
-    /// AI-initiated drawing action to be applied on the main thread.
-    DrawingAction {
-        conversation_id: uuid::Uuid,
-        action: Box<super::super::update::ai::AiDrawingAction>,
-    },
 }

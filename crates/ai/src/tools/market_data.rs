@@ -1,9 +1,9 @@
 //! Market data tools: get_chart_info, get_candles, get_market_state
 
-use data::domain::assistant::ChartSnapshot;
+use crate::domain::snapshot::ChartSnapshot;
 use serde_json::{Value, json};
 
-use super::{ToolExecResult, parse_time_range};
+use super::{TimezoneResolver, ToolExecResult, parse_time_range};
 
 pub fn tool_definitions() -> Vec<Value> {
     vec![
@@ -98,7 +98,7 @@ pub fn exec_get_chart_info(snap: &ChartSnapshot) -> ToolExecResult {
 pub fn exec_get_candles(
     snap: &ChartSnapshot,
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> ToolExecResult {
     let count = args["count"].as_u64().unwrap_or(50).min(200) as usize;
     let (start_ns, end_ns) = parse_time_range(args, tz);

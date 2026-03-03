@@ -147,7 +147,7 @@ pub enum Message {
     Window(WindowMessage),
     DataEngineReady(Result<super::init::services::DataEngineInit, String>),
     CacheManagement(modals::cache_management::CacheManagementMessage),
-    AiStreamEvent(super::core::globals::AiStreamEventClone),
+    AiStreamEvent(super::core::globals::AiStreamEvent),
     AiStreamComplete,
     /// Persist application state to disk with the given live window specs.
     /// Used by intermediate save paths (feed updates, downloads) that collect

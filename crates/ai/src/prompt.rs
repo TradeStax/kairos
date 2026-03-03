@@ -7,11 +7,14 @@
 //! - Every token adds latency and cost; keep tight
 //! - Coordinate changes with the tool definitions in tools/mod.rs
 
+use crate::tools::TimezoneResolver;
+
 /// Build the system prompt with user timezone information injected.
-pub(super) fn build_system_prompt(timezone: crate::config::UserTimezone) -> String {
+pub fn build_system_prompt(timezone: impl TimezoneResolver) -> String {
+    let label = timezone.display_label();
     format!(
         "{SYSTEM_PROMPT}\n\n\
-        USER TIMEZONE: {timezone}\n\
+        USER TIMEZONE: {label}\n\
         - The chart date range is displayed in the user's timezone.\n\
         - When the user mentions times (e.g. \"at 9:30\"), \
         interpret in their timezone.\n\

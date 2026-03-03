@@ -1,10 +1,10 @@
 //! Trade analysis tools: get_trades, get_volume_profile,
 //! get_delta_profile, get_aggregated_trades
 
-use data::domain::assistant::ChartSnapshot;
+use crate::domain::snapshot::ChartSnapshot;
 use serde_json::{Value, json};
 
-use super::{ToolExecResult, parse_time_range, tick_multiplier};
+use super::{TimezoneResolver, ToolExecResult, parse_time_range, tick_multiplier};
 
 pub fn tool_definitions() -> Vec<Value> {
     vec![
@@ -136,7 +136,7 @@ pub fn tool_definitions() -> Vec<Value> {
 pub fn exec_get_trades(
     snap: &ChartSnapshot,
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> ToolExecResult {
     let max_levels = args["count"].as_u64().unwrap_or(100).min(100) as usize;
     let price_min = args["price_min"].as_f64();
@@ -211,7 +211,7 @@ pub fn exec_get_trades(
 pub fn exec_get_volume_profile(
     snap: &ChartSnapshot,
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> ToolExecResult {
     let candles = &snap.candles;
     if candles.is_empty() {
@@ -225,7 +225,8 @@ pub fn exec_get_volume_profile(
     let (start_ms, end_ms) = parse_time_range(args, tz);
     let tick_mult = tick_multiplier(snap.tick_size);
 
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
+        std::collections::BTreeMap::new();
 
     let filtered_trades: Vec<&data::Trade> = snap
         .trades
@@ -300,10 +301,11 @@ pub fn exec_get_volume_profile(
         .map(|(k, _)| *k)
         .unwrap_or(0);
 
-    // Value area: 68.2% of volume around POC (1-sigma)
     let va_target = total_volume * 0.682;
-    let mut sorted_by_vol: Vec<(i64, f64)> = levels.iter().map(|(k, (b, s))| (*k, b + s)).collect();
-    sorted_by_vol.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut sorted_by_vol: Vec<(i64, f64)> =
+        levels.iter().map(|(k, (b, s))| (*k, b + s)).collect();
+    sorted_by_vol
+        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut va_volume = 0.0;
     let mut va_prices: Vec<i64> = Vec::new();
@@ -357,8 +359,7 @@ pub fn exec_get_volume_profile(
     ToolExecResult {
         content_json: result.to_string(),
         display_summary: format!(
-            "POC {:.2} | VAH {:.2} VAL {:.2}",
-            poc_price, vah_price, val_price
+            "POC {poc_price:.2} | VAH {vah_price:.2} VAL {val_price:.2}"
         ),
         is_error: false,
     }
@@ -367,7 +368,7 @@ pub fn exec_get_volume_profile(
 pub fn exec_get_delta_profile(
     snap: &ChartSnapshot,
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> ToolExecResult {
     let price_min = args["price_min"].as_f64();
     let price_max = args["price_max"].as_f64();
@@ -382,7 +383,8 @@ pub fn exec_get_delta_profile(
     }
 
     let tick_mult = tick_multiplier(snap.tick_size);
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
+        std::collections::BTreeMap::new();
 
     for trade in &snap.trades {
         if let Some(s) = start_ms
@@ -459,9 +461,8 @@ pub fn exec_get_delta_profile(
     ToolExecResult {
         content_json: result.to_string(),
         display_summary: format!(
-            "Delta profile: {} levels, net delta {:.0}",
+            "Delta profile: {} levels, net delta {total_delta:.0}",
             rows.len(),
-            total_delta
         ),
         is_error: false,
     }
@@ -470,7 +471,7 @@ pub fn exec_get_delta_profile(
 pub fn exec_get_aggregated_trades(
     snap: &ChartSnapshot,
     args: &Value,
-    tz: crate::config::UserTimezone,
+    tz: impl TimezoneResolver,
 ) -> ToolExecResult {
     let bucket_secs = args["bucket_seconds"]
         .as_u64()
@@ -489,8 +490,6 @@ pub fn exec_get_aggregated_trades(
 
     let bucket_ms = bucket_secs * 1_000;
 
-    // Accumulate into buckets: (buy_vol, sell_vol, count,
-    //   price*qty sum, qty sum for vwap)
     let mut buckets: std::collections::BTreeMap<u64, (f64, f64, u32, f64, f64)> =
         std::collections::BTreeMap::new();
 
@@ -506,7 +505,9 @@ pub fn exec_get_aggregated_trades(
             continue;
         }
         let bucket_key = (trade.time.0 / bucket_ms) * bucket_ms;
-        let entry = buckets.entry(bucket_key).or_insert((0.0, 0.0, 0, 0.0, 0.0));
+        let entry = buckets
+            .entry(bucket_key)
+            .or_insert((0.0, 0.0, 0, 0.0, 0.0));
         let qty = trade.quantity.0;
         let price = trade.price.to_f64();
         if trade.is_buy() {
@@ -519,7 +520,6 @@ pub fn exec_get_aggregated_trades(
         entry.4 += qty;
     }
 
-    // Take last N buckets
     let total = buckets.len();
     let skip = total.saturating_sub(max_buckets);
 
@@ -542,7 +542,7 @@ pub fn exec_get_aggregated_trades(
 
     ToolExecResult {
         content_json: json!({ "buckets": rows }).to_string(),
-        display_summary: format!("{} buckets ({}s each)", rows.len(), bucket_secs),
+        display_summary: format!("{} buckets ({bucket_secs}s each)", rows.len()),
         is_error: false,
     }
 }
