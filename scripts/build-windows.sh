@@ -1,37 +1,118 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# build-windows.sh — Build and package Kairos for Windows
+set -euo pipefail
+source "$(dirname "$0")/_common.sh"
+
+# ── Defaults ──────────────────────────────────────────────────────────────────
+
+ARCH="x86_64"
+FEATURES="heatmap"
 EXE_NAME="kairos.exe"
-ARCH=${1:-x86_64} # x86_64 | aarch64
-VERSION=$(grep '^version = ' app/Cargo.toml | cut -d'"' -f2)
 
-# update package version on Cargo.toml
-cargo install cargo-edit
-cargo set-version $VERSION
+# ── Usage ─────────────────────────────────────────────────────────────────────
 
-rustup override set stable-msvc
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
 
-# set target triple and zip name
-if [ "$ARCH" = "aarch64" ]; then
-  TARGET_TRIPLE="aarch64-pc-windows-msvc"
-  ZIP_NAME="kairos-aarch64-windows.zip"
+Build and package Kairos for Windows.
+
+Options:
+  --arch ARCH        Target architecture: x86_64 (default), aarch64
+  --features FEAT    Cargo features to enable (default: heatmap)
+  --help             Show this help message
+EOF
+    exit 0
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --arch)    ARCH="$2"; shift 2 ;;
+        --features) FEATURES="$2"; shift 2 ;;
+        --help)    usage ;;
+        *)         error "Unknown argument: $1"; usage ;;
+    esac
+done
+
+# ── Resolve target ────────────────────────────────────────────────────────────
+
+case "$ARCH" in
+    x86_64)  TARGET="x86_64-pc-windows-msvc" ;;
+    aarch64) TARGET="aarch64-pc-windows-msvc" ;;
+    *)       error "Unsupported architecture: $ARCH (use x86_64 or aarch64)"; exit 1 ;;
+esac
+
+VERSION="$(detect_version)"
+ARCHIVE_NAME="kairos-${VERSION}-${TARGET}.zip"
+
+step "Building Kairos v${VERSION} for ${TARGET}"
+
+# ── Prerequisites ─────────────────────────────────────────────────────────────
+
+require_command cargo
+require_command rustup
+
+# ── Verify assets ─────────────────────────────────────────────────────────────
+
+verify_assets
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+
+step "Compiling release binary"
+rustup target add "$TARGET" 2>/dev/null || true
+
+CARGO_ARGS=(build --release --target="$TARGET")
+FEATURES_FLAG="$(build_features_flag "$FEATURES")"
+[[ -n "$FEATURES_FLAG" ]] && CARGO_ARGS+=("$FEATURES_FLAG")
+
+cargo "${CARGO_ARGS[@]}"
+
+BINARY="target/${TARGET}/release/${EXE_NAME}"
+if [[ ! -f "$BINARY" ]]; then
+    error "Build succeeded but binary not found at $BINARY"
+    exit 1
+fi
+success "Binary built: $BINARY"
+
+# ── Package ───────────────────────────────────────────────────────────────────
+
+step "Creating archive: $ARCHIVE_NAME"
+STAGING="$(create_staging)"
+
+cp "$BINARY" "$STAGING/${EXE_NAME}"
+cp -r "${REPO_ROOT}/assets" "$STAGING/assets"
+
+OUTPUT_DIR="${REPO_ROOT}/target/release"
+mkdir -p "$OUTPUT_DIR"
+ARCHIVE="${OUTPUT_DIR}/${ARCHIVE_NAME}"
+
+# Zip tool fallback chain: 7z > zip > PowerShell
+if command -v 7z &>/dev/null; then
+    (cd "$STAGING" && 7z a -tzip "$ARCHIVE" . >/dev/null)
+elif command -v zip &>/dev/null; then
+    (cd "$STAGING" && zip -r "$ARCHIVE" . >/dev/null)
+elif command -v powershell &>/dev/null; then
+    # Convert to Windows-style paths for PowerShell
+    local_staging="$(cygpath -w "$STAGING" 2>/dev/null || echo "$STAGING")"
+    local_archive="$(cygpath -w "$ARCHIVE" 2>/dev/null || echo "$ARCHIVE")"
+    powershell -Command "Compress-Archive -Path '${local_staging}\\*' -DestinationPath '${local_archive}' -Force"
+elif command -v powershell.exe &>/dev/null; then
+    local_staging="$(cygpath -w "$STAGING" 2>/dev/null || echo "$STAGING")"
+    local_archive="$(cygpath -w "$ARCHIVE" 2>/dev/null || echo "$ARCHIVE")"
+    powershell.exe -Command "Compress-Archive -Path '${local_staging}\\*' -DestinationPath '${local_archive}' -Force"
 else
-  TARGET_TRIPLE="x86_64-pc-windows-msvc"
-  ZIP_NAME="kairos-x86_64-windows.zip"
+    error "No zip tool found (tried: 7z, zip, powershell)"
+    exit 1
 fi
 
-# build binary
-rustup target add $TARGET_TRIPLE
-cargo build --release --target=$TARGET_TRIPLE
+success "Archive created"
 
-# create staging directory
-mkdir -p target/release/win-portable
+# ── Checksum ──────────────────────────────────────────────────────────────────
 
-# copy executable and assets (fix paths)
-cp "target/$TARGET_TRIPLE/release/$EXE_NAME" target/release/win-portable/
-if [ -d "assets" ]; then
-    cp -r assets target/release/win-portable/
-fi
+generate_checksum "$ARCHIVE"
 
-# create zip archive
-cd target/release
-powershell -Command "Compress-Archive -Path win-portable\* -DestinationPath $ZIP_NAME -Force"
-echo "Created $ZIP_NAME"
+# ── Summary ───────────────────────────────────────────────────────────────────
+
+print_summary "$ARCHIVE"
