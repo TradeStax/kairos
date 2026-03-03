@@ -1,10 +1,12 @@
-<p align="center">
-  <img src=".gitlab/kairos.svg" alt="Kairos" width="400" />
-</p>
+<div align="center">
 
-<p align="center">
-  A native desktop charting platform for futures markets, built with Rust and <a href="https://github.com/iced-rs/iced">Iced</a>.
-</p>
+  <img src=".gitlab/kairos.svg" alt="Kairos" width="400" />
+
+  <p align="center">
+    A native desktop charting platform for futures markets, built with Rust and <a href="https://github.com/iced-rs/iced">Iced</a>.
+  </p>
+
+</div>
 
 <p align="center">
   <img src=".gitlab/screenshot.gif" alt="Kairos screenshot" width="900" />

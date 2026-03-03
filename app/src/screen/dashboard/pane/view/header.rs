@@ -138,82 +138,40 @@ pub(super) fn build_stream_info_row<'a>(
     (stream_info_element, is_ai_pane)
 }
 
-/// Append the loading-status badge/text to the stream-info row.
+/// Append the connection-status badge to the stream-info row.
 pub(super) fn append_loading_badge<'a>(
     mut row: iced::widget::Row<'a, Message>,
     state: &'a State,
     is_ai_pane: bool,
 ) -> iced::widget::Row<'a, Message> {
-    match &state.loading_status {
-        data::LoadingStatus::Downloading {
-            schema,
-            days_complete,
-            days_total,
-            ..
-        } => {
-            row = row.push(
-                iced::widget::text(format!(
-                    "Downloading {} ({}/{})",
-                    schema, days_complete, days_total
-                ))
-                .size(tokens::text::SMALL)
-                .style(crate::style::palette::info_text),
-            );
-        }
-        data::LoadingStatus::LoadingFromCache {
-            schema,
-            days_loaded,
-            ..
-        } => {
-            row = row.push(
-                iced::widget::text(format!("Loading {} ({} days)", schema, days_loaded))
-                    .size(tokens::text::SMALL)
-                    .style(crate::style::palette::info_text),
-            );
-        }
-        data::LoadingStatus::Building {
-            operation,
-            progress,
-        } => {
-            row = row.push(
-                iced::widget::text(format!("{} ({:.0}%)", operation, progress * 100.0))
-                    .size(tokens::text::SMALL)
-                    .style(crate::style::palette::info_text),
-            );
-        }
-        data::LoadingStatus::Ready | data::LoadingStatus::Idle => {
-            if !is_ai_pane {
-                if state.feed_id.is_some()
-                    && state.ticker_info.is_some()
-                    && state.content.initialized()
-                {
-                    row = row.push(crate::components::display::status_dot::status_badge_themed(
-                        |theme| {
-                            let p = theme.extended_palette();
-                            p.success.base.color
-                        },
-                        "LIVE",
-                    ));
-                } else if state.feed_id.is_none()
-                    && state.ticker_info.is_some()
-                    && state.content.initialized()
-                {
-                    row = row.push(crate::components::display::status_dot::status_badge_themed(
-                        |theme| {
-                            let p = theme.extended_palette();
-                            p.danger.base.color
-                        },
-                        "Disconnected",
-                    ));
-                }
-            }
-        }
-        data::LoadingStatus::Error { message } => {
-            row = row.push(
-                iced::widget::text(format!("Error: {}", message))
-                    .size(tokens::text::SMALL)
-                    .style(crate::style::palette::error_text),
-            );
+    if !is_ai_pane
+        && matches!(
+            state.loading_status,
+            data::LoadingStatus::Ready | data::LoadingStatus::Idle
+        )
+    {
+        if state.feed_id.is_some()
+            && state.ticker_info.is_some()
+            && state.content.initialized()
+        {
+            row = row.push(crate::components::display::status_dot::status_badge_themed(
+                |theme| {
+                    let p = theme.extended_palette();
+                    p.success.base.color
+                },
+                "LIVE",
+            ));
+        } else if state.feed_id.is_none()
+            && state.ticker_info.is_some()
+            && state.content.initialized()
+        {
+            row = row.push(crate::components::display::status_dot::status_badge_themed(
+                |theme| {
+                    let p = theme.extended_palette();
+                    p.danger.base.color
+                },
+                "Disconnected",
+            ));
         }
     }
     row
