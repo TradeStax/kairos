@@ -328,8 +328,7 @@ impl BacktestLaunchModal {
                         vec![info.ticker.clone()]
                     }
                     data::ConnectionKind::Realtime => {
-                        let mut tickers =
-                            data_index.tickers_for_feed(conn.id);
+                        let mut tickers = data_index.tickers_for_feed(conn.id);
                         // For Rithmic, subscribed_tickers are bare product
                         // names ("NQ"), but tickers_for_feed returns
                         // continuous contract format ("NQ.c.0"). Resolve
@@ -383,9 +382,7 @@ impl BacktestLaunchModal {
             .collect();
 
         // Auto-select first connection with tickers
-        let auto_conn_idx = connections
-            .iter()
-            .position(|c| !c.tickers.is_empty());
+        let auto_conn_idx = connections.iter().position(|c| !c.tickers.is_empty());
 
         let (connection_tickers, selected_ticker, calendar_mode, calendar) =
             if let Some(idx) = auto_conn_idx {
@@ -395,11 +392,7 @@ impl BacktestLaunchModal {
                 let mode = snap.calendar_mode;
                 let mut cal = DateRangeCalendar::new();
                 if let Some(ref sym) = first_ticker {
-                    Self::configure_calendar(
-                        &mut cal,
-                        mode,
-                        snap.ticker_dates.get(sym),
-                    );
+                    Self::configure_calendar(&mut cal, mode, snap.ticker_dates.get(sym));
                 }
                 (tickers, first_ticker, mode, cal)
             } else {
@@ -451,16 +444,14 @@ impl BacktestLaunchModal {
         match mode {
             CalendarMode::CachedOnly => {
                 if let Some(dates) = dates {
-                    calendar.selectable_dates =
-                        Some(dates.iter().copied().collect::<HashSet<_>>());
+                    calendar.selectable_dates = Some(dates.iter().copied().collect::<HashSet<_>>());
                     if let (Some(&first), Some(&last)) =
                         (dates.iter().next(), dates.iter().next_back())
                     {
                         calendar.start_date = first;
                         calendar.end_date = last;
                         calendar.viewing_month =
-                            NaiveDate::from_ymd_opt(first.year(), first.month(), 1)
-                                .unwrap();
+                            NaiveDate::from_ymd_opt(first.year(), first.month(), 1).unwrap();
                     }
                 } else {
                     calendar.selectable_dates = Some(HashSet::new());
@@ -476,19 +467,14 @@ impl BacktestLaunchModal {
                     calendar.start_date = first;
                     calendar.end_date = last;
                     calendar.viewing_month =
-                        NaiveDate::from_ymd_opt(first.year(), first.month(), 1)
-                            .unwrap();
+                        NaiveDate::from_ymd_opt(first.year(), first.month(), 1).unwrap();
                 } else {
                     let range = data::DateRange::last_week();
                     calendar.start_date = range.start;
                     calendar.end_date = range.end;
                     calendar.viewing_month =
-                        NaiveDate::from_ymd_opt(
-                            range.start.year(),
-                            range.start.month(),
-                            1,
-                        )
-                        .unwrap();
+                        NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+                            .unwrap();
                 }
             }
         }
@@ -496,14 +482,16 @@ impl BacktestLaunchModal {
 
     /// Apply a connection selection, updating tickers and calendar.
     fn apply_connection_selection(&mut self, idx: usize) {
+        let Some(snap) = self.connections.get(idx) else {
+            log::warn!("Connection index {} out of bounds", idx);
+            return;
+        };
         self.selected_connection_idx = Some(idx);
-        let snap = &self.connections[idx];
         self.connection_tickers = snap.tickers.clone();
         self.calendar_mode = snap.calendar_mode;
 
         // Auto-select first ticker
-        self.selected_ticker =
-            self.connection_tickers.first().map(|(sym, _)| sym.clone());
+        self.selected_ticker = self.connection_tickers.first().map(|(sym, _)| sym.clone());
 
         // Configure calendar
         let dates = self
@@ -511,8 +499,7 @@ impl BacktestLaunchModal {
             .as_ref()
             .and_then(|sym| snap.ticker_dates.get(sym));
         Self::configure_calendar(&mut self.calendar, self.calendar_mode, dates);
-        self.calendar.selection_mode =
-            crate::modals::pane::calendar::SelectionMode::SelectingStart;
+        self.calendar.selection_mode = crate::modals::pane::calendar::SelectionMode::SelectingStart;
     }
 
     pub fn set_running(&mut self, running: bool) {
@@ -577,15 +564,11 @@ impl BacktestLaunchModal {
             Message::TickerSelected(symbol) => {
                 self.selected_ticker = Some(symbol.clone());
                 // Reconfigure calendar for the new ticker
-                if let Some(idx) = self.selected_connection_idx {
-                    let dates = self.connections[idx]
-                        .ticker_dates
-                        .get(&symbol);
-                    Self::configure_calendar(
-                        &mut self.calendar,
-                        self.calendar_mode,
-                        dates,
-                    );
+                if let Some(idx) = self.selected_connection_idx
+                    && let Some(snap) = self.connections.get(idx)
+                {
+                    let dates = snap.ticker_dates.get(&symbol);
+                    Self::configure_calendar(&mut self.calendar, self.calendar_mode, dates);
                 }
                 self.calendar.selection_mode =
                     crate::modals::pane::calendar::SelectionMode::SelectingStart;

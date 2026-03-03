@@ -11,7 +11,11 @@ use data::domain::assistant::{
     StudyOutputSnapshot,
 };
 
-const MAX_TRADES: usize = 100_000;
+/// Data minimization: limit raw trade records sent to AI to reduce
+/// context size and avoid leaking excessive market microstructure data.
+/// 1K trades at typical tick rates covers ~15-30 minutes of activity,
+/// which is sufficient for most analytical questions.
+const MAX_TRADES: usize = 1_000;
 const MAX_STUDY_POINTS: usize = 200;
 
 /// Build a `ChartSnapshot` from a pane's state, if it has chart data.
@@ -35,7 +39,11 @@ pub(crate) fn build_chart_snapshot(
         pane::Content::Candlestick { study_ids, .. } | pane::Content::Profile { study_ids, .. } => {
             study_ids.clone()
         }
-        _ => vec![],
+        pane::Content::Starter | pane::Content::Comparison(_) | pane::Content::AiAssistant(_) => {
+            vec![]
+        }
+        #[cfg(feature = "heatmap")]
+        pane::Content::Heatmap { .. } | pane::Content::Ladder(_) => vec![],
     };
 
     let trades_len = chart_data.trades.len();
@@ -48,9 +56,9 @@ pub(crate) fn build_chart_snapshot(
 
     let tz_label = format!("{}", timezone);
 
-    let date_range_display = if !chart_data.candles.is_empty() {
-        let first = chart_data.candles.first().unwrap();
-        let last = chart_data.candles.last().unwrap();
+    let date_range_display = if let (Some(first), Some(last)) =
+        (chart_data.candles.first(), chart_data.candles.last())
+    {
         let fmt = |ts: u64| {
             let secs = (ts / 1_000) as i64;
             match timezone {
@@ -126,7 +134,16 @@ fn extract_studies(content: &pane::Content) -> ExtractedStudyData {
         pane::Content::Profile { chart, .. } => {
             (**chart).as_ref().map(|c| c.studies()).unwrap_or(empty)
         }
-        _ => {
+        pane::Content::Starter | pane::Content::Comparison(_) | pane::Content::AiAssistant(_) => {
+            return ExtractedStudyData {
+                snapshots: vec![],
+                big_trades: vec![],
+                footprint_candles: vec![],
+                profile_snapshots: vec![],
+            };
+        }
+        #[cfg(feature = "heatmap")]
+        pane::Content::Heatmap { .. } | pane::Content::Ladder(_) => {
             return ExtractedStudyData {
                 snapshots: vec![],
                 big_trades: vec![],
@@ -333,10 +350,8 @@ fn extract_from_output(
             for s in series {
                 let n = s.points.len();
                 let start = n.saturating_sub(MAX_STUDY_POINTS);
-                let points: Vec<(u64, f32)> = s.points[start..]
-                    .iter()
-                    .map(|p| (p.x, p.close))
-                    .collect();
+                let points: Vec<(u64, f32)> =
+                    s.points[start..].iter().map(|p| (p.x, p.close)).collect();
                 snap.bar_values.push((s.label.clone(), points));
             }
         }

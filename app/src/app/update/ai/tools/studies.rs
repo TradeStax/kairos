@@ -239,8 +239,7 @@ pub fn exec_get_footprint(
         };
     }
 
-    let count =
-        args["count"].as_u64().unwrap_or(20).min(50) as usize;
+    let count = args["count"].as_u64().unwrap_or(20).min(50) as usize;
     let (start_ms, end_ms) = parse_time_range(args, tz);
 
     let filtered: Vec<_> = snap

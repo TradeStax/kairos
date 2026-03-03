@@ -340,11 +340,6 @@ impl Sidebar {
         header_h + row_pad + (buttons_above as f32 * slot)
     }
 
-    #[allow(dead_code)]
-    pub fn expanded_group(&self) -> Option<SidebarGroup> {
-        self.drawing_tools.expanded_group
-    }
-
     pub fn is_menu_active(&self, menu: sidebar::Menu) -> bool {
         self.state.active_menu == Some(menu)
     }
@@ -360,5 +355,4 @@ impl Sidebar {
     pub fn set_menu(&mut self, menu: Option<sidebar::Menu>) {
         self.state.active_menu = menu;
     }
-
 }

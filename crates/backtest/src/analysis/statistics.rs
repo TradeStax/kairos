@@ -121,3 +121,160 @@ fn approx_normal_cdf(x: f64) -> f64 {
             + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
     if x >= 0.0 { 1.0 - p * c } else { p * c }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── t-test ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_t_test_empty_returns_default() {
+        let (t, p) = t_test_mean_returns(&[]);
+        assert!((t - 0.0).abs() < 1e-15);
+        assert!((p - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_t_test_single_value_returns_default() {
+        let (t, p) = t_test_mean_returns(&[0.01]);
+        assert!((t - 0.0).abs() < 1e-15);
+        assert!((p - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_t_test_zero_variance_returns_default() {
+        // All identical values => se = 0
+        let (t, p) = t_test_mean_returns(&[0.01, 0.01, 0.01, 0.01]);
+        assert!((t - 0.0).abs() < 1e-15);
+        assert!((p - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_t_test_positive_mean() {
+        // Simple data with clearly positive mean
+        let data = vec![0.01, 0.02, 0.015, 0.005, 0.03, 0.01, 0.02, 0.025];
+        let (t, p) = t_test_mean_returns(&data);
+
+        // Mean is positive, so t should be positive
+        assert!(t > 0.0);
+        // With these values, should be statistically significant
+        assert!(p < 1.0);
+    }
+
+    #[test]
+    fn test_t_test_negative_mean() {
+        let data = vec![-0.01, -0.02, -0.015, -0.005, -0.03, -0.01];
+        let (t, p) = t_test_mean_returns(&data);
+
+        assert!(t < 0.0);
+        assert!(p < 1.0);
+    }
+
+    #[test]
+    fn test_t_test_known_values() {
+        // Hand-computed: data = [1, 2, 3, 4, 5]
+        // mean = 3, var = 2.5, se = sqrt(2.5/5) = sqrt(0.5) = 0.7071
+        // t = 3 / 0.7071 = 4.2426
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let (t, _p) = t_test_mean_returns(&data);
+
+        let expected_t = 3.0 / (2.5_f64 / 5.0).sqrt();
+        assert!((t - expected_t).abs() < 1e-10);
+    }
+
+    // ── Normal CDF approximation ─────────────────────────────────
+
+    #[test]
+    fn test_normal_cdf_at_zero() {
+        let cdf = approx_normal_cdf(0.0);
+        assert!((cdf - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_normal_cdf_at_large_positive() {
+        let cdf = approx_normal_cdf(10.0);
+        assert!((cdf - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_normal_cdf_at_large_negative() {
+        let cdf = approx_normal_cdf(-10.0);
+        assert!((cdf - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_normal_cdf_at_1_96() {
+        // CDF(1.96) ~= 0.975
+        let cdf = approx_normal_cdf(1.96);
+        assert!((cdf - 0.975).abs() < 0.001);
+    }
+
+    // ── Bootstrap CI ─────────────────────────────────────────────
+
+    #[test]
+    fn test_bootstrap_empty_values() {
+        let (lower, upper) = bootstrap_confidence_interval(&[], 1000, 0.95, |s| {
+            s.iter().sum::<f64>() / s.len() as f64
+        });
+        assert!((lower - 0.0).abs() < 1e-15);
+        assert!((upper - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_bootstrap_zero_iterations() {
+        let (lower, upper) = bootstrap_confidence_interval(&[1.0, 2.0, 3.0], 0, 0.95, |s| {
+            s.iter().sum::<f64>() / s.len() as f64
+        });
+        assert!((lower - 0.0).abs() < 1e-15);
+        assert!((upper - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_bootstrap_deterministic() {
+        // Same seed should produce same results
+        let mean_fn = |s: &[f64]| s.iter().sum::<f64>() / s.len() as f64;
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let (l1, u1) = bootstrap_confidence_interval(&data, 1000, 0.95, mean_fn);
+        let (l2, u2) = bootstrap_confidence_interval(&data, 1000, 0.95, mean_fn);
+
+        assert!((l1 - l2).abs() < 1e-15);
+        assert!((u1 - u2).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_bootstrap_ci_contains_sample_mean() {
+        let data = vec![10.0, 12.0, 11.0, 13.0, 9.0, 11.0, 10.0, 12.0];
+        let sample_mean = data.iter().sum::<f64>() / data.len() as f64;
+        let mean_fn = |s: &[f64]| s.iter().sum::<f64>() / s.len() as f64;
+
+        let (lower, upper) = bootstrap_confidence_interval(&data, 5000, 0.95, mean_fn);
+
+        assert!(
+            lower <= sample_mean,
+            "lower={lower} > sample_mean={sample_mean}"
+        );
+        assert!(
+            upper >= sample_mean,
+            "upper={upper} < sample_mean={sample_mean}"
+        );
+    }
+
+    #[test]
+    fn test_bootstrap_wider_ci_at_higher_confidence() {
+        let data = vec![1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0];
+        let mean_fn = |s: &[f64]| s.iter().sum::<f64>() / s.len() as f64;
+
+        let (l90, u90) = bootstrap_confidence_interval(&data, 5000, 0.90, mean_fn);
+        let (l99, u99) = bootstrap_confidence_interval(&data, 5000, 0.99, mean_fn);
+
+        // 99% CI should be wider than 90% CI
+        let width_90 = u90 - l90;
+        let width_99 = u99 - l99;
+        assert!(
+            width_99 >= width_90,
+            "99% CI ({width_99}) should be >= 90% CI ({width_90})"
+        );
+    }
+}

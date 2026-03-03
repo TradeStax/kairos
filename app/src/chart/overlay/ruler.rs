@@ -14,6 +14,7 @@ use data::Price;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{Frame, Text};
 use iced::{Alignment, Point, Size};
+use std::cmp::Ordering;
 
 const TEXT_SIZE: f32 = tokens::text::BODY;
 
@@ -116,9 +117,10 @@ pub fn draw_ruler(
         .min_by(|(_, a), (_, b)| {
             let da = (a.x - end.x).hypot(a.y - end.y);
             let db = (b.x - end.x).hypot(b.y - end.y);
-            da.partial_cmp(&db).unwrap()
+            da.partial_cmp(&db).unwrap_or(Ordering::Equal)
         })
         .map(|(i, &c)| (c, i))
+        // corners is a fixed 4-element array — always non-empty
         .unwrap();
 
     let text_padding = chart_tokens::ruler::TEXT_PADDING;
@@ -191,7 +193,7 @@ pub fn draw_ruler(
         content: label_text,
         position: text_pos,
         color: palette.background.base.text,
-        size: iced::Pixels(11.0),
+        size: iced::Pixels(tokens::text::SMALL),
         align_x: match idx {
             0 | 2 => Alignment::Start.into(),
             1 | 3 => Alignment::End.into(),

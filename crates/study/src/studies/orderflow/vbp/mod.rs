@@ -506,10 +506,8 @@ impl Study for VbpStudy {
         // 100 new trades to avoid per-trade O(N) profile rebuilds
         // during live streaming.
         const BATCH_SIZE: usize = 100;
-        let current_count =
-            input.trades.map(|t| t.len()).unwrap_or(0);
-        let since_last =
-            current_count.saturating_sub(self.last_recompute_trade_count);
+        let current_count = input.trades.map(|t| t.len()).unwrap_or(0);
+        let since_last = current_count.saturating_sub(self.last_recompute_trade_count);
         if since_last < BATCH_SIZE {
             return Ok(());
         }

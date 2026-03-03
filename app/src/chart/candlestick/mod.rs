@@ -115,7 +115,7 @@ pub(crate) enum StudiesDirtyReason {
     /// Data replaced, basis changed, or params changed — full recompute.
     FullRecompute,
     /// Only new trades appended — use incremental path.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // planned: used by incremental trade append path
     NewTradesAppended,
 }
 
@@ -476,8 +476,7 @@ impl KlineChart {
                 if new_range != self.last_visible_range {
                     self.last_visible_range = new_range;
                     // Only mark dirty if studies depend on visible_range
-                    let has_range_dependent =
-                        self.studies.iter().any(|s| s.needs_visible_range());
+                    let has_range_dependent = self.studies.iter().any(|s| s.needs_visible_range());
                     if has_range_dependent {
                         self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
                     }
@@ -488,11 +487,72 @@ impl KlineChart {
                 self.recompute_studies(reason);
             }
 
+            // Pre-compute hit rectangles for study overlay labels
+            self.recompute_study_overlay_rects();
+
             // Compute any pending VBP drawing profiles
             self.compute_vbp_drawings();
         }
 
         self.last_tick = Instant::now();
+    }
+
+    /// Pre-compute hit rectangles for the study overlay labels.
+    ///
+    /// Called from `invalidate_inner` after studies are (re)computed.
+    /// The rectangles depend only on the study list structure (which
+    /// studies exist and how many text lines each produces), so they
+    /// are stable between cursor moves.  `draw_study_overlay` reads
+    /// these cached rects instead of recomputing on every frame.
+    fn recompute_study_overlay_rects(&self) {
+        let line_height = crate::chart::TEXT_SIZE + crate::style::tokens::spacing::XXS;
+        let x = crate::style::tokens::spacing::MD;
+        let y_start = crate::style::tokens::spacing::MD + crate::style::tokens::text::HEADING;
+        let hit_width: f32 = 300.0;
+        let pad: f32 = 2.0;
+        let detail_icon_size: f32 = crate::style::tokens::text::TINY;
+        let detail_icon_pad: f32 = crate::style::tokens::spacing::XS;
+
+        let mut rects = self.study_overlay_rects.borrow_mut();
+        let mut detail_rects = self.study_detail_button_rects.borrow_mut();
+        rects.clear();
+        detail_rects.clear();
+
+        let mut y = y_start;
+        for (index, study) in self.studies.iter().enumerate() {
+            let output = study.output();
+            let lines = render::study_line_count(output);
+            if lines == 0 {
+                continue;
+            }
+            let y_before = y;
+            let rect_height = lines as f32 * line_height;
+            y += rect_height;
+
+            rects.push((
+                index,
+                iced::Rectangle {
+                    x: x - pad,
+                    y: y_before - pad,
+                    width: hit_width + 2.0 * pad,
+                    height: rect_height + 2.0 * pad,
+                },
+            ));
+
+            if study.has_detail_modal() {
+                let btn_x = x + hit_width + detail_icon_pad;
+                let btn_y = y_before + (line_height - detail_icon_size) / 2.0;
+                detail_rects.push((
+                    index,
+                    iced::Rectangle {
+                        x: btn_x,
+                        y: btn_y,
+                        width: detail_icon_size + 2.0 * detail_icon_pad,
+                        height: detail_icon_size + 2.0 * detail_icon_pad,
+                    },
+                ));
+            }
+        }
     }
 
     /// Get a reference to the drawing manager
@@ -543,7 +603,9 @@ impl KlineChart {
                     tick_size,
                     visible_range: None,
                 };
-                let _ = vbp.compute(&input);
+                if let Err(e) = vbp.compute(&input) {
+                    log::warn!("VBP compute failed for drawing: {}", e);
+                }
             }
         }
 
@@ -707,16 +769,14 @@ impl KlineChart {
 
         self.aggregate_trade_into_candle(trade);
 
-        let new_candle_created =
-            self.chart_data.candles.len() > candle_count_before;
+        let new_candle_created = self.chart_data.candles.len() > candle_count_before;
         let is_first_candle = candle_count_before == 0 && new_candle_created;
 
         // Only set base_price_y for the very first candle (empty chart).
         // Otherwise base_price_y is managed by invalidate() (FitAll) or
         // stays fixed (CenterLatest/Disabled).
         if is_first_candle {
-            self.chart.base_price_y =
-                Price::from_units(trade.price.units());
+            self.chart.base_price_y = Price::from_units(trade.price.units());
         }
 
         // Update latest_x to the last candle's timestamp
@@ -728,9 +788,9 @@ impl KlineChart {
             .unwrap_or(0);
 
         // Update last price label (cosmetic — doesn't affect coordinates)
-        self.chart.last_price = Some(PriceInfoLabel::Neutral(
-            Price::from_units(trade.price.units()),
-        ));
+        self.chart.last_price = Some(PriceInfoLabel::Neutral(Price::from_units(
+            trade.price.units(),
+        )));
 
         if is_first_candle {
             // First candle: initialize coordinate system + full invalidate

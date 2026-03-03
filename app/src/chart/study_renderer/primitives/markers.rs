@@ -210,14 +210,8 @@ pub fn render_markers(
                     Point::new(center.x, center.y - arm),
                     Point::new(center.x, center.y + arm),
                 );
-                frame.stroke(
-                    &h_line,
-                    Stroke::with_color(stroke, color),
-                );
-                frame.stroke(
-                    &v_line,
-                    Stroke::with_color(stroke, color),
-                );
+                frame.stroke(&h_line, Stroke::with_color(stroke, color));
+                frame.stroke(&v_line, Stroke::with_color(stroke, color));
             }
             MarkerShape::TextOnly => {
                 // No shape drawn, only the text label below

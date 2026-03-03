@@ -16,10 +16,6 @@ pub mod spring {
 
     // SMOOTH was removed — it mapped to Motion::SNAPPY (misleading name) and had zero call sites.
     // If you need a "moderate speed with slight overshoot" motion, add it here using Motion::SNAPPY.
-
-    /// Moderate speed, slight bounce for expand/collapse.
-    /// Use for: collapsible arrow rotation, accordion sections.
-    pub const EXPAND: Motion = Motion::BOUNCY;
 }
 
 /// Duration constants for time-based animations (toast slide, etc.).

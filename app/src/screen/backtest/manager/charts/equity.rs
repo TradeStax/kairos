@@ -2,10 +2,8 @@
 
 use super::super::ManagerMessage;
 use super::{
-    ChartHoverState, draw_crosshair_lines, draw_snap_dot,
-    draw_tooltip_box, format_currency, format_date,
-    grid_lines, handle_cursor_event, position_tooltip,
-    tooltip_size,
+    ChartHoverState, draw_crosshair_lines, draw_snap_dot, draw_tooltip_box, format_currency,
+    format_date, grid_lines, handle_cursor_event, position_tooltip, tooltip_size,
 };
 use crate::config::UserTimezone;
 use crate::style::tokens;
@@ -245,10 +243,7 @@ impl<'a> EquityChart<'a> {
 
         let lines = vec![
             format_date(snap_point.timestamp.0, self.timezone),
-            format!(
-                "Equity: {}",
-                format_currency(snap_point.total_equity_usd)
-            ),
+            format!("Equity: {}", format_currency(snap_point.total_equity_usd)),
             format!("DD: {:.1}%", dd_pct),
             format!("Trade #{}", snap_idx + 1),
         ];
@@ -395,7 +390,6 @@ impl<'a> PropFirmEquityChart<'a> {
             w,
             h,
             n,
-            pad_min,
             pad_max,
             pad_range,
             target_eq,
@@ -576,8 +570,6 @@ struct PropFirmParams {
     w: f32,
     h: f32,
     n: usize,
-    #[allow(dead_code)]
-    pad_min: f64,
     pad_max: f64,
     pad_range: f64,
     target_eq: f64,

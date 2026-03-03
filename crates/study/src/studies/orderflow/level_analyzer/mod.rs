@@ -25,9 +25,7 @@ use std::any::Any;
 
 use data::{Price, SerializableColor, Trade};
 
-use crate::config::{
-    LineStyleValue, ParameterDef, ParameterTab, StudyConfig,
-};
+use crate::config::{LineStyleValue, ParameterDef, ParameterTab, StudyConfig};
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
 use crate::output::{PriceLevel, StudyOutput};
@@ -35,8 +33,7 @@ use crate::output::{PriceLevel, StudyOutput};
 use self::params::TAB_LABELS;
 use self::session::SessionInfo;
 use self::types::{
-    LevelAnalyzerData, LevelRemoval, LevelSource, LevelStatus,
-    MonitoredLevel, SessionKey,
+    LevelAnalyzerData, LevelRemoval, LevelSource, LevelStatus, MonitoredLevel, SessionKey,
 };
 
 /// Level Analyzer study instance.
@@ -64,6 +61,12 @@ pub struct LevelAnalyzerStudy {
     cached_trade_ranges: Vec<(usize, usize)>,
 }
 
+impl Default for LevelAnalyzerStudy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LevelAnalyzerStudy {
     pub fn new() -> Self {
         let params = params::build_params();
@@ -89,28 +92,17 @@ impl LevelAnalyzerStudy {
     }
 
     /// Compute tolerance in price units from config + candle data.
-    fn compute_tolerance(
-        &mut self,
-        candles: &[data::Candle],
-        tick_size: Price,
-    ) {
-        let mode =
-            self.config.get_choice("tolerance_mode", "Fixed Ticks");
+    fn compute_tolerance(&mut self, candles: &[data::Candle], tick_size: Price) {
+        let mode = self.config.get_choice("tolerance_mode", "Fixed Ticks");
 
         if mode == "ATR-Based" {
-            let period =
-                self.config.get_int("atr_period", 14) as usize;
-            let multiplier =
-                self.config.get_float("atr_multiplier", 0.5);
+            let period = self.config.get_int("atr_period", 14) as usize;
+            let multiplier = self.config.get_float("atr_multiplier", 0.5);
 
-            if let Some(atr) =
-                monitoring::compute_atr(candles, period)
-            {
+            if let Some(atr) = monitoring::compute_atr(candles, period) {
                 self.current_atr = Some(atr);
-                let atr_units =
-                    Price::from_f64(atr * multiplier).units();
-                self.tolerance_units =
-                    atr_units.max(tick_size.units());
+                let atr_units = Price::from_f64(atr * multiplier).units();
+                self.tolerance_units = atr_units.max(tick_size.units());
             } else {
                 log::debug!(
                     "level_analyzer: ATR computation returned \
@@ -118,14 +110,12 @@ impl LevelAnalyzerStudy {
                      falling back to fixed ticks",
                     period
                 );
-                let ticks =
-                    self.config.get_int("tolerance_ticks", 4);
+                let ticks = self.config.get_int("tolerance_ticks", 4);
                 self.tolerance_units = ticks * tick_size.units();
                 self.current_atr = None;
             }
         } else {
-            let ticks =
-                self.config.get_int("tolerance_ticks", 4);
+            let ticks = self.config.get_int("tolerance_ticks", 4);
             self.tolerance_units = ticks * tick_size.units();
             self.current_atr = None;
         }
@@ -133,64 +123,38 @@ impl LevelAnalyzerStudy {
 
     /// Rebuild StudyOutput::Levels from current monitored levels.
     fn rebuild_output(&mut self) {
-        let show_labels =
-            self.config.get_bool("show_labels", true);
-        let show_broken =
-            self.config.get_bool("show_broken_levels", true);
-        let show_touch_count =
-            self.config.get_bool("show_touch_count", false);
-        let show_strength =
-            self.config.get_bool("show_strength", false);
-        let show_zones =
-            self.config.get_bool("show_zones", true);
-        let base_width =
-            self.config.get_float("line_width", 1.0) as f32;
-        let is_per_session = self
-            .config
-            .get_choice("session_mode", "Per Session")
-            == "Per Session";
+        let show_labels = self.config.get_bool("show_labels", true);
+        let show_broken = self.config.get_bool("show_broken_levels", true);
+        let show_touch_count = self.config.get_bool("show_touch_count", false);
+        let show_strength = self.config.get_bool("show_strength", false);
+        let show_zones = self.config.get_bool("show_zones", true);
+        let base_width = self.config.get_float("line_width", 1.0) as f32;
+        let is_per_session = self.config.get_choice("session_mode", "Per Session") == "Per Session";
 
-        let zone_hw =
-            if show_zones && self.tolerance_units > 0 {
-                Some(
-                    Price::from_units(self.tolerance_units)
-                        .to_f64(),
-                )
-            } else {
-                None
-            };
+        let zone_hw = if show_zones && self.tolerance_units > 0 {
+            Some(Price::from_units(self.tolerance_units).to_f64())
+        } else {
+            None
+        };
 
         let price_levels: Vec<PriceLevel> = self
             .levels
             .iter()
-            .filter(|l| {
-                show_broken || l.status != LevelStatus::Broken
-            })
+            .filter(|l| show_broken || l.status != LevelStatus::Broken)
             .map(|level| {
-                let base_color =
-                    self.color_for_source(level.source);
+                let base_color = self.color_for_source(level.source);
                 let base_opacity = 0.8_f32;
-                let opacity = base_opacity
-                    * level.status.opacity_multiplier();
+                let opacity = base_opacity * level.status.opacity_multiplier();
 
                 let style = match level.status {
-                    LevelStatus::Broken
-                    | LevelStatus::Weakening => {
-                        LineStyleValue::Dashed
-                    }
+                    LevelStatus::Broken | LevelStatus::Weakening => LineStyleValue::Dashed,
                     _ => LineStyleValue::Solid,
                 };
 
-                let width = base_width
-                    * (0.5 + 1.5 * level.strength);
+                let width = base_width * (0.5 + 1.5 * level.strength);
 
                 let label = if show_labels {
-                    self.build_label(
-                        level,
-                        is_per_session,
-                        show_touch_count,
-                        show_strength,
-                    )
+                    self.build_label(level, is_per_session, show_touch_count, show_strength)
                 } else {
                     String::new()
                 };
@@ -224,27 +188,20 @@ impl LevelAnalyzerStudy {
             StudyOutput::Levels(price_levels)
         };
 
-        let block_min_qty =
-            self.config.get_int("block_min_qty", 25) as f64;
-        let aggregation_window_ms =
-            self.config.get_int("aggregation_window_ms", 40)
-                as u64;
+        let block_min_qty = self.config.get_int("block_min_qty", 25) as f64;
+        let aggregation_window_ms = self.config.get_int("aggregation_window_ms", 40) as u64;
 
-        let session_keys: Vec<SessionKey> = self
-            .cached_sessions
-            .iter()
-            .map(|s| s.key.clone())
-            .collect();
+        let session_keys: Vec<SessionKey> =
+            self.cached_sessions.iter().map(|s| s.key.clone()).collect();
 
-        self.interactive_cache =
-            Some(Box::new(LevelAnalyzerData {
-                levels: self.levels.clone(),
-                tolerance_ticks: self.tolerance_units,
-                current_atr: self.current_atr,
-                block_threshold: block_min_qty,
-                aggregation_window_ms,
-                sessions: session_keys,
-            }));
+        self.interactive_cache = Some(Box::new(LevelAnalyzerData {
+            levels: self.levels.clone(),
+            tolerance_ticks: self.tolerance_units,
+            current_atr: self.current_atr,
+            block_threshold: block_min_qty,
+            aggregation_window_ms,
+            sessions: session_keys,
+        }));
     }
 
     /// Build label string for a level.
@@ -276,59 +233,35 @@ impl LevelAnalyzerStudy {
             s.push_str(&format!(" ({})", level.touch_count));
         }
         if show_strength && level.strength > 0.0 {
-            s.push_str(&format!(
-                " {:.0}%",
-                level.strength * 100.0
-            ));
+            s.push_str(&format!(" {:.0}%", level.strength * 100.0));
         }
 
         s
     }
 
     /// Get color for a level source from config.
-    fn color_for_source(
-        &self,
-        source: LevelSource,
-    ) -> SerializableColor {
+    fn color_for_source(&self, source: LevelSource) -> SerializableColor {
         match source {
-            LevelSource::Poc => self
-                .config
-                .get_color("poc_color", params::POC_COLOR),
-            LevelSource::SessionHigh
-            | LevelSource::SessionLow => self
+            LevelSource::Poc => self.config.get_color("poc_color", params::POC_COLOR),
+            LevelSource::SessionHigh | LevelSource::SessionLow => self
                 .config
                 .get_color("session_color", params::SESSION_COLOR),
-            LevelSource::PriorDayHigh
-            | LevelSource::PriorDayLow
-            | LevelSource::PriorDayClose => self
-                .config
-                .get_color(
-                    "prior_day_color",
-                    params::PRIOR_DAY_COLOR,
-                ),
-            LevelSource::Hvn => self
-                .config
-                .get_color("hvn_color", params::HVN_COLOR),
-            LevelSource::Lvn => self
-                .config
-                .get_color("lvn_color", params::LVN_COLOR),
+            LevelSource::PriorDayHigh | LevelSource::PriorDayLow | LevelSource::PriorDayClose => {
+                self.config
+                    .get_color("prior_day_color", params::PRIOR_DAY_COLOR)
+            }
+            LevelSource::Hvn => self.config.get_color("hvn_color", params::HVN_COLOR),
+            LevelSource::Lvn => self.config.get_color("lvn_color", params::LVN_COLOR),
             LevelSource::Vah | LevelSource::Val => self
                 .config
-                .get_color(
-                    "vah_val_color",
-                    params::VAH_VAL_COLOR,
-                ),
-            LevelSource::HighDeltaZone
-            | LevelSource::LowDeltaZone => self
-                .config
-                .get_color("delta_color", params::DELTA_COLOR),
-            LevelSource::OpeningRangeHigh
-            | LevelSource::OpeningRangeLow => self
-                .config
-                .get_color("or_color", params::OR_COLOR),
-            LevelSource::Manual => self
-                .config
-                .get_color("manual_color", params::MANUAL_COLOR),
+                .get_color("vah_val_color", params::VAH_VAL_COLOR),
+            LevelSource::HighDeltaZone | LevelSource::LowDeltaZone => {
+                self.config.get_color("delta_color", params::DELTA_COLOR)
+            }
+            LevelSource::OpeningRangeHigh | LevelSource::OpeningRangeLow => {
+                self.config.get_color("or_color", params::OR_COLOR)
+            }
+            LevelSource::Manual => self.config.get_color("manual_color", params::MANUAL_COLOR),
         }
     }
 }
@@ -362,10 +295,7 @@ impl Study for LevelAnalyzerStudy {
         &mut self.config
     }
 
-    fn compute(
-        &mut self,
-        input: &StudyInput,
-    ) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let candles = input.candles;
         if candles.is_empty() {
             self.output = StudyOutput::Empty;
@@ -382,57 +312,42 @@ impl Study for LevelAnalyzerStudy {
 
         if session_mode == "Per Session" {
             // Per-session detection
-            let or_minutes = self
-                .config
-                .get_int("opening_range_minutes", 30)
-                as u32;
+            let or_minutes = self.config.get_int("opening_range_minutes", 30) as u32;
             let session_types = self
                 .config
                 .get_choice("session_types", "RTH + ETH")
                 .to_string();
-            let visible_sessions = self
-                .config
-                .get_int("visible_sessions", 3)
-                as usize;
+            let visible_sessions = self.config.get_int("visible_sessions", 3) as usize;
 
             // Extract sessions
-            let all_sessions =
-                session::extract_sessions(candles, or_minutes);
+            let all_sessions = session::extract_sessions(candles, or_minutes);
 
             // Filter by session type preference
-            let filtered_indices =
-                session::filter_sessions_by_type(
-                    &all_sessions,
-                    &session_types,
-                );
+            let filtered_indices = session::filter_sessions_by_type(&all_sessions, &session_types);
             let sessions: Vec<SessionInfo> = filtered_indices
                 .iter()
                 .map(|&i| all_sessions[i].clone())
                 .collect();
 
             // Compute trade ranges
-            let trade_ranges =
-                if let Some(trades) = input.trades {
-                    session::trade_ranges_for_sessions(
-                        trades, &sessions,
-                    )
-                } else {
-                    vec![(0, 0); sessions.len()]
-                };
+            let trade_ranges = if let Some(trades) = input.trades {
+                session::trade_ranges_for_sessions(trades, &sessions)
+            } else {
+                vec![(0, 0); sessions.len()]
+            };
 
             // Detect levels per session
-            self.levels =
-                detection::detect_levels_per_session(
-                    candles,
-                    input.trades,
-                    input.tick_size,
-                    &self.config,
-                    &self.levels,
-                    &mut self.next_id,
-                    &sessions,
-                    &trade_ranges,
-                    visible_sessions,
-                );
+            self.levels = detection::detect_levels_per_session(
+                candles,
+                input.trades,
+                input.tick_size,
+                &self.config,
+                &self.levels,
+                &mut self.next_id,
+                &sessions,
+                &trade_ranges,
+                visible_sessions,
+            );
 
             // Cache sessions
             self.cached_sessions = sessions;
@@ -453,14 +368,9 @@ impl Study for LevelAnalyzerStudy {
 
         // Process all trades for monitoring
         if let Some(trades) = input.trades {
-            let break_threshold =
-                self.config.get_float("break_threshold", 1.5);
-            let block_window = self
-                .config
-                .get_int("aggregation_window_ms", 40)
-                as u64;
-            let block_min =
-                self.config.get_int("block_min_qty", 25) as f64;
+            let break_threshold = self.config.get_float("break_threshold", 1.5);
+            let block_window = self.config.get_int("aggregation_window_ms", 40) as u64;
+            let block_min = self.config.get_int("block_min_qty", 25) as f64;
             monitoring::process_trades(
                 &mut self.levels,
                 trades,
@@ -475,8 +385,7 @@ impl Study for LevelAnalyzerStudy {
         }
 
         // Update fingerprint
-        let last_time =
-            candles.last().map_or(0, |c| c.time.0);
+        let last_time = candles.last().map_or(0, |c| c.time.0);
         self.candle_fingerprint = (candles.len(), last_time);
 
         self.rebuild_output();
@@ -491,8 +400,7 @@ impl Study for LevelAnalyzerStudy {
         let candles = input.candles;
 
         // Check if candle data changed (new candle arrived)
-        let last_time =
-            candles.last().map_or(0, |c| c.time.0);
+        let last_time = candles.last().map_or(0, |c| c.time.0);
         let new_fingerprint = (candles.len(), last_time);
 
         if new_fingerprint != self.candle_fingerprint {
@@ -507,14 +415,9 @@ impl Study for LevelAnalyzerStudy {
 
         self.compute_tolerance(candles, input.tick_size);
 
-        let break_threshold =
-            self.config.get_float("break_threshold", 1.5);
-        let block_window = self
-            .config
-            .get_int("aggregation_window_ms", 40)
-            as u64;
-        let block_min =
-            self.config.get_int("block_min_qty", 25) as f64;
+        let break_threshold = self.config.get_float("break_threshold", 1.5);
+        let block_window = self.config.get_int("aggregation_window_ms", 40) as u64;
+        let block_min = self.config.get_int("block_min_qty", 25) as f64;
         monitoring::process_trades(
             &mut self.levels,
             new_trades,
@@ -545,9 +448,7 @@ impl Study for LevelAnalyzerStudy {
         self.cached_trade_ranges.clear();
     }
 
-    fn tab_labels(
-        &self,
-    ) -> Option<&[(&'static str, ParameterTab)]> {
+    fn tab_labels(&self) -> Option<&[(&'static str, ParameterTab)]> {
         Some(TAB_LABELS)
     }
 
@@ -561,16 +462,13 @@ impl Study for LevelAnalyzerStudy {
         true
     }
 
-    fn accept_external_data(
-        &mut self,
-        data: Box<dyn Any + Send>,
-    ) -> Result<(), StudyError> {
+    fn accept_external_data(&mut self, data: Box<dyn Any + Send>) -> Result<(), StudyError> {
         let data = match data.downcast::<MonitoredLevel>() {
             Ok(level) => {
-                let already_exists = self.levels.iter().any(|l| {
-                    l.source == LevelSource::Manual
-                        && l.price_units == level.price_units
-                });
+                let already_exists = self
+                    .levels
+                    .iter()
+                    .any(|l| l.source == LevelSource::Manual && l.price_units == level.price_units);
 
                 if already_exists {
                     return Err(StudyError::InvalidParameter {
@@ -591,17 +489,14 @@ impl Study for LevelAnalyzerStudy {
         match data.downcast::<LevelRemoval>() {
             Ok(removal) => {
                 self.levels.retain(|l| {
-                    !(l.price_units == removal.price_units
-                        && l.source == removal.source)
+                    !(l.price_units == removal.price_units && l.source == removal.source)
                 });
                 self.rebuild_output();
                 Ok(())
             }
             Err(_) => Err(StudyError::InvalidParameter {
                 key: "external_data".into(),
-                reason:
-                    "expected MonitoredLevel or LevelRemoval"
-                        .into(),
+                reason: "expected MonitoredLevel or LevelRemoval".into(),
             }),
         }
     }
@@ -619,9 +514,7 @@ impl Study for LevelAnalyzerStudy {
             tolerance_units: self.tolerance_units,
             interactive_cache: None,
             cached_sessions: self.cached_sessions.clone(),
-            cached_trade_ranges: self
-                .cached_trade_ranges
-                .clone(),
+            cached_trade_ranges: self.cached_trade_ranges.clone(),
         })
     }
 }

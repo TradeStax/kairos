@@ -263,99 +263,65 @@ impl State {
         use crate::modals::pane::level_detail;
         use study::orderflow::level_analyzer::types::LevelAnalyzerData;
 
-        if let Some(Modal::LevelDetail(ref mut modal)) = self.modal {
-            if let Some(action) = modal.update(message) {
-                match action {
-                    level_detail::Action::AddLevel(level) => {
-                        let idx = modal.study_index();
-                        match &mut self.content {
-                            Content::Candlestick { chart, .. } => {
-                                if let Some(c) = (**chart).as_mut() {
-                                    if let Some(study) =
-                                        c.studies_mut().get_mut(idx)
-                                    {
-                                        let _ = study
-                                            .accept_external_data(
-                                                Box::new(level),
-                                            );
-                                    }
-                                    c.mark_studies_dirty();
-                                    // Refresh modal with updated data
-                                    if let Some(data) = c
-                                        .studies()
-                                        .get(idx)
-                                        .and_then(|s| s.interactive_data())
-                                        .and_then(|a| {
-                                            a.downcast_ref::<
-                                                LevelAnalyzerData,
-                                            >()
-                                        })
-                                    {
-                                        modal.refresh_levels(data);
-                                    }
-                                }
-                            }
-                            _ => {}
+        if let Some(Modal::LevelDetail(ref mut modal)) = self.modal
+            && let Some(action) = modal.update(message)
+        {
+            match action {
+                level_detail::Action::AddLevel(level) => {
+                    let idx = modal.study_index();
+                    if let Content::Candlestick { chart, .. } = &mut self.content
+                        && let Some(c) = (**chart).as_mut()
+                    {
+                        if let Some(study) = c.studies_mut().get_mut(idx) {
+                            let _ = study.accept_external_data(level);
+                        }
+                        c.mark_studies_dirty();
+                        if let Some(data) = c
+                            .studies()
+                            .get(idx)
+                            .and_then(|s| s.interactive_data())
+                            .and_then(|a| a.downcast_ref::<LevelAnalyzerData>())
+                        {
+                            modal.refresh_levels(data);
                         }
                     }
-                    level_detail::Action::RemoveLevel {
-                        price_units,
-                        source,
-                    } => {
-                        use study::orderflow::level_analyzer::types::LevelRemoval;
-                        let idx = modal.study_index();
-                        match &mut self.content {
-                            Content::Candlestick { chart, .. } => {
-                                if let Some(c) = (**chart).as_mut() {
-                                    if let Some(study) =
-                                        c.studies_mut().get_mut(idx)
-                                    {
-                                        let removal = LevelRemoval {
-                                            price_units,
-                                            source,
-                                        };
-                                        let _ = study
-                                            .accept_external_data(
-                                                Box::new(removal),
-                                            );
-                                    }
-                                    c.mark_studies_dirty();
-                                    // Refresh modal with updated data
-                                    if let Some(data) = c
-                                        .studies()
-                                        .get(idx)
-                                        .and_then(|s| s.interactive_data())
-                                        .and_then(|a| {
-                                            a.downcast_ref::<
-                                                LevelAnalyzerData,
-                                            >()
-                                        })
-                                    {
-                                        modal.refresh_levels(data);
-                                    }
-                                }
-                            }
-                            _ => {}
+                }
+                level_detail::Action::RemoveLevel {
+                    price_units,
+                    source,
+                } => {
+                    use study::orderflow::level_analyzer::types::LevelRemoval;
+                    let idx = modal.study_index();
+                    if let Content::Candlestick { chart, .. } = &mut self.content
+                        && let Some(c) = (**chart).as_mut()
+                    {
+                        if let Some(study) = c.studies_mut().get_mut(idx) {
+                            let removal = LevelRemoval {
+                                price_units,
+                                source,
+                            };
+                            let _ = study.accept_external_data(Box::new(removal));
+                        }
+                        c.mark_studies_dirty();
+                        if let Some(data) = c
+                            .studies()
+                            .get(idx)
+                            .and_then(|s| s.interactive_data())
+                            .and_then(|a| a.downcast_ref::<LevelAnalyzerData>())
+                        {
+                            modal.refresh_levels(data);
                         }
                     }
-                    level_detail::Action::CenterOnPrice(price) => {
-                        match &mut self.content {
-                            Content::Candlestick { chart, .. } => {
-                                if let Some(c) = (**chart).as_mut() {
-                                    crate::chart::update(
-                                        c,
-                                        &crate::chart::Message::CenterOnPrice(
-                                            price,
-                                        ),
-                                    );
-                                }
-                            }
-                            _ => {}
-                        }
+                }
+                level_detail::Action::CenterOnPrice(price) => {
+                    if let Content::Candlestick { chart, .. } = &mut self.content
+                        && let Some(c) = (**chart).as_mut()
+                    {
+                        crate::chart::update(c, &crate::chart::Message::CenterOnPrice(price));
                     }
-                    level_detail::Action::Close => {
-                        self.modal = None;
-                    }
+                }
+                level_detail::Action::Close => {
+                    self.modal = None;
                 }
             }
         }

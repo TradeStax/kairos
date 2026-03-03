@@ -31,10 +31,7 @@ impl canvas::Program<super::Message> for Ladder {
                     mouse::ScrollDelta::Pixels { y, .. } => -*y,
                 };
 
-                Some(
-                    canvas::Action::publish(super::Message::Scrolled(scroll_amount))
-                        .and_capture(),
-                )
+                Some(canvas::Action::publish(super::Message::Scrolled(scroll_amount)).and_capture())
             }
             _ => None,
         }

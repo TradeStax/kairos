@@ -13,8 +13,8 @@
 use std::collections::VecDeque;
 
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
-    ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -219,13 +219,10 @@ impl Study for StochasticStudy {
 
         // Step 1: Compute raw %K (fast stochastic) using O(N)
         // monotonic deques for sliding-window min/max.
-        let highs: Vec<f32> =
-            candles.iter().map(|c| c.high.to_f32()).collect();
-        let lows: Vec<f32> =
-            candles.iter().map(|c| c.low.to_f32()).collect();
+        let highs: Vec<f32> = candles.iter().map(|c| c.high.to_f32()).collect();
+        let lows: Vec<f32> = candles.iter().map(|c| c.low.to_f32()).collect();
 
-        let mut raw_k =
-            Vec::with_capacity(candles.len() - k_period + 1);
+        let mut raw_k = Vec::with_capacity(candles.len() - k_period + 1);
 
         // max_deque: indices of decreasing highs (front = max)
         let mut max_deque: VecDeque<usize> = VecDeque::new();
@@ -234,35 +231,23 @@ impl Study for StochasticStudy {
 
         for i in 0..candles.len() {
             // Maintain max deque (decreasing highs)
-            while max_deque
-                .back()
-                .is_some_and(|&j| highs[j] <= highs[i])
-            {
+            while max_deque.back().is_some_and(|&j| highs[j] <= highs[i]) {
                 max_deque.pop_back();
             }
             max_deque.push_back(i);
 
             // Maintain min deque (increasing lows)
-            while min_deque
-                .back()
-                .is_some_and(|&j| lows[j] >= lows[i])
-            {
+            while min_deque.back().is_some_and(|&j| lows[j] >= lows[i]) {
                 min_deque.pop_back();
             }
             min_deque.push_back(i);
 
             // Remove elements outside the window
             let window_start = i + 1 - k_period.min(i + 1);
-            while max_deque
-                .front()
-                .is_some_and(|&j| j < window_start)
-            {
+            while max_deque.front().is_some_and(|&j| j < window_start) {
                 max_deque.pop_front();
             }
-            while min_deque
-                .front()
-                .is_some_and(|&j| j < window_start)
-            {
+            while min_deque.front().is_some_and(|&j| j < window_start) {
                 min_deque.pop_front();
             }
 

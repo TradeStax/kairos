@@ -140,7 +140,6 @@ impl ProfileChart {
             _ => None,
         }
     }
-
 }
 
 impl ChartDrawingAccess for ProfileChart {

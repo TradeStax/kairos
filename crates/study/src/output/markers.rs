@@ -61,9 +61,7 @@ pub struct TradeMarkerDebug {
 }
 
 /// Shape used for rendering trade markers.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MarkerShape {
     /// Filled or hollow circle.
     #[default]

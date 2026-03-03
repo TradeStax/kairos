@@ -70,9 +70,7 @@ impl Kairos {
                     ticker_info,
                     result,
                 } => {
-                    return self.handle_chart_data_loaded(
-                        layout_id, pane_id, ticker_info, result,
-                    );
+                    return self.handle_chart_data_loaded(layout_id, pane_id, ticker_info, result);
                 }
                 ChartMessage::UpdateLoadingStatus => {
                     return self.fetch_loading_statuses();
@@ -104,8 +102,14 @@ impl Kairos {
                     pane_id,
                     current,
                     total,
+                    sub_day_fraction,
                 } => {
-                    return self.handle_download_progress(pane_id, current, total);
+                    return self.handle_download_progress(
+                        pane_id,
+                        current,
+                        total,
+                        sub_day_fraction,
+                    );
                 }
                 DownloadMessage::DataDownloadComplete {
                     pane_id,
@@ -244,8 +248,9 @@ impl Kairos {
                 return self.handle_ai_stream_complete();
             }
             Message::PersistState(windows) => {
-                self.save_state_to_disk(&windows);
+                return self.save_state_to_disk_async(&windows);
             }
+            Message::Noop => {}
         }
         Task::none()
     }

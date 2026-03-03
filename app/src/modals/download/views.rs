@@ -86,26 +86,19 @@ pub fn cache_status_display<'a, Message: 'a>(
 
         let display = format!("{}{}", cache_line, cost_suffix);
 
-        let text_style: fn(&iced::Theme) -> iced::widget::text::Style =
-            if cached == total {
-                |theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(
-                        theme.extended_palette().success.base.color,
-                    ),
-                }
-            } else if cached > 0 {
-                |theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(
-                        theme.extended_palette().primary.base.color,
-                    ),
-                }
-            } else {
-                |theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(
-                        theme.extended_palette().secondary.base.color,
-                    ),
-                }
-            };
+        let text_style: fn(&iced::Theme) -> iced::widget::text::Style = if cached == total {
+            |theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(theme.extended_palette().success.base.color),
+            }
+        } else if cached > 0 {
+            |theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(theme.extended_palette().primary.base.color),
+            }
+        } else {
+            |theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(theme.extended_palette().secondary.base.color),
+            }
+        };
 
         text(display)
             .size(tokens::text::BODY)
@@ -126,9 +119,10 @@ pub fn download_progress_section<'a, Message: 'a>(
         DownloadProgress::Downloading {
             current_day,
             total_days,
+            sub_day_fraction,
         } => {
             let pct = if *total_days > 0 {
-                (*current_day as f32 / *total_days as f32) * 100.0
+                ((*current_day as f32 + *sub_day_fraction) / *total_days as f32) * 100.0
             } else {
                 0.0
             };
@@ -204,15 +198,13 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
         .unwrap_or(0);
     let uncached_days = (total_days as usize).saturating_sub(cached_days);
 
-    let cost_label = cache_status
-        .and_then(|s| s.estimated_cost_usd)
-        .map(|c| {
-            if c < 0.01 {
-                "Estimated cost: <$0.01".to_string()
-            } else {
-                format!("Estimated cost: ${:.2}", c)
-            }
-        });
+    let cost_label = cache_status.and_then(|s| s.estimated_cost_usd).map(|c| {
+        if c < 0.01 {
+            "Estimated cost: <$0.01".to_string()
+        } else {
+            format!("Estimated cost: ${:.2}", c)
+        }
+    });
 
     let status_text = if cached_days == total_days as usize {
         text("All data already cached — no download needed")
@@ -221,8 +213,7 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
                 color: Some(theme.extended_palette().success.base.color),
             })
     } else if uncached_days > 0 {
-        text(format!("{} days will be downloaded", uncached_days))
-            .size(tokens::text::TITLE)
+        text(format!("{} days will be downloaded", uncached_days)).size(tokens::text::TITLE)
     } else {
         text(format!("{} days total", total_days)).size(tokens::text::TITLE)
     };
@@ -249,15 +240,11 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
     .align_x(Alignment::Center);
 
     if let Some(label) = cost_label {
-        confirm_items = confirm_items.push(
-            text(label)
-                .size(tokens::text::BODY)
-                .style(|theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(
-                        theme.extended_palette().primary.base.color,
-                    ),
-                }),
-        );
+        confirm_items = confirm_items.push(text(label).size(tokens::text::BODY).style(
+            |theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(theme.extended_palette().primary.base.color),
+            },
+        ));
     }
 
     confirm_items = confirm_items

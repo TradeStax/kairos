@@ -42,15 +42,9 @@ impl Kairos {
                     return Task::perform(
                         async move {
                             let mut eng = engine.lock().await;
-                            let config =
-                                data::DatabentoConfig::with_api_key(key);
-                            if let Err(e) =
-                                eng.connect_databento(config).await
-                            {
-                                log::error!(
-                                    "Failed to reconnect Databento: {}",
-                                    e
-                                );
+                            let config = data::DatabentoConfig::with_api_key(key);
+                            if let Err(e) = eng.connect_databento(config).await {
+                                log::error!("Failed to reconnect Databento: {}", e);
                             }
                             let index = eng.scan_cache().await;
                             Ok(index)
@@ -178,18 +172,15 @@ impl Kairos {
             ))
         ) {
             let connection_manager = data::lock_or_recover(&self.connections.connection_manager);
-            let downloaded = data::lock_or_recover(&self.persistence.downloaded_tickers);
 
             let mut ticker_infos = std::collections::HashMap::new();
             for (ticker, info) in &self.persistence.tickers_info {
                 ticker_infos.insert(ticker.to_string(), *info);
             }
 
-            self.modals.replay_manager.refresh_streams(
-                &connection_manager,
-                &downloaded,
-                &ticker_infos,
-            );
+            self.modals
+                .replay_manager
+                .refresh_streams(&connection_manager, &ticker_infos);
         }
 
         let (task, action) = self.ui.sidebar.update(message);

@@ -514,7 +514,23 @@ fn draw_trade_markers(
                 cell_height,
             );
         }
-        TradeRenderingMode::Auto => unreachable!(), // Already resolved above
+        TradeRenderingMode::Auto => {
+            debug_assert!(false, "Auto should have been resolved above");
+            // Fallback: treat as dense if we somehow reach here
+            render_dense_trades(
+                frame,
+                chart,
+                heatmap_data,
+                palette,
+                earliest,
+                latest,
+                highest,
+                lowest,
+                visual_config.trade_size_filter,
+                max_trade_qty,
+                cell_height,
+            );
+        }
     }
 }
 

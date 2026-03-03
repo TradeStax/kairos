@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 /// Aggregates tick-by-tick trades into time-based OHLCV candles.
 ///
 /// The `timeframe_millis` must be at least 1000ms. Prices are rounded to
-/// the nearest `tick_size`. In debug builds, unsorted trades return an error.
+/// the nearest `tick_size`. Unsorted trades return an error.
 pub fn aggregate_trades_to_candles(
     trades: &[Trade],
     timeframe_millis: u64,
@@ -29,30 +29,39 @@ pub fn aggregate_trades_to_candles(
         return Err(AggregationError::InvalidTimeframe(timeframe_millis));
     }
 
-    #[cfg(debug_assertions)]
     for window in trades.windows(2) {
         if window[0].time > window[1].time {
             return Err(AggregationError::UnsortedTrades);
         }
     }
 
-    let mut buckets: BTreeMap<u64, Vec<&Trade>> = BTreeMap::new();
+    // Trades are sorted by timestamp, so we can build candles in a single
+    // linear pass rather than paying O(n log n) for BTreeMap insertion.
+    let mut candles = Vec::new();
+    let mut bucket_start = 0;
+    let mut current_bucket = (trades[0].time.to_millis() / timeframe_millis) * timeframe_millis;
 
-    for trade in trades {
-        let bucket_time = (trade.time.to_millis() / timeframe_millis) * timeframe_millis;
-        buckets.entry(bucket_time).or_default().push(trade);
+    for i in 0..trades.len() {
+        let bucket = (trades[i].time.to_millis() / timeframe_millis) * timeframe_millis;
+        if bucket != current_bucket {
+            let candle = build_candle_from_trades(
+                Timestamp::from_millis(current_bucket),
+                &trades[bucket_start..i],
+                tick_size,
+            );
+            candles.push(candle);
+            bucket_start = i;
+            current_bucket = bucket;
+        }
     }
 
-    let mut candles = Vec::with_capacity(buckets.len());
-
-    for (bucket_time, bucket_trades) in buckets {
-        let candle = build_candle_from_trades(
-            Timestamp::from_millis(bucket_time),
-            bucket_trades,
-            tick_size,
-        );
-        candles.push(candle);
-    }
+    // Flush the last bucket
+    let candle = build_candle_from_trades(
+        Timestamp::from_millis(current_bucket),
+        &trades[bucket_start..],
+        tick_size,
+    );
+    candles.push(candle);
 
     Ok(candles)
 }
@@ -92,8 +101,8 @@ pub fn aggregate_candles_to_timeframe(
     Ok(result)
 }
 
-/// Builds a single candle from a bucket of trades, rounding prices to tick size.
-fn build_candle_from_trades(time: Timestamp, trades: Vec<&Trade>, tick_size: Price) -> Candle {
+/// Builds a single candle from a slice of trades, rounding prices to tick size.
+fn build_candle_from_trades(time: Timestamp, trades: &[Trade], tick_size: Price) -> Candle {
     if trades.is_empty() {
         return Candle::new(
             time,

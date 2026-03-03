@@ -42,6 +42,12 @@ impl StudyConfig {
         self.values.get(key)
     }
 
+    // NOTE: The `_ =>` wildcards in the typed getters below are intentional.
+    // They match on `Option<&ParameterValue>` and serve as a combined fallback
+    // for both missing keys (`None`) and type-mismatch cases (e.g. a Float
+    // stored where an Integer is expected). This is correct behavior for a
+    // loosely-typed config store.
+
     /// Get an integer parameter, returning the default if missing or wrong type.
     pub fn get_int(&self, key: &str, default: i64) -> i64 {
         match self.values.get(key) {

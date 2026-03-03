@@ -351,8 +351,7 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                                 }
 
                                 if is_date_label {
-                                    let label_text =
-                                        self.timezone.format_date_boundary(ts_secs);
+                                    let label_text = self.timezone.format_date_boundary(ts_secs);
                                     date_labels.push(AxisLabel::new_x(
                                         snap_x,
                                         label_text,
@@ -361,10 +360,9 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                                         palette,
                                     ));
                                 } else {
-                                    let label_text = self.timezone.format_timestamp(
-                                        ts_secs,
-                                        data::Timeframe::M1s,
-                                    );
+                                    let label_text = self
+                                        .timezone
+                                        .format_timestamp(ts_secs, data::Timeframe::M1s);
                                     labels.push(AxisLabel::new_x(
                                         snap_x,
                                         label_text,

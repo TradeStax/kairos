@@ -220,6 +220,10 @@ pub enum LoadingStatus {
         days_loaded: usize,
         /// Total items loaded across all days
         items_loaded: usize,
+        /// Overall progress fraction `[0.0, 1.0]` including sub-day
+        /// granularity. When `Some`, this takes priority over the
+        /// integer `days_loaded / days_total` ratio for progress bars.
+        progress_fraction: Option<f32>,
     },
     /// Building derived data structures
     Building {

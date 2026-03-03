@@ -8,11 +8,7 @@ mod user;
 
 pub use crate::components::primitives::separator::divider;
 
-use crate::components::primitives::{
-    Icon,
-    icon_text,
-    small,
-};
+use crate::components::primitives::{Icon, icon_text, small};
 use crate::screen::dashboard::pane::types::{AiAssistantEvent, AiAssistantState, Event, Message};
 use crate::style::{palette, tokens};
 use data::domain::assistant::ChatMessageKind;

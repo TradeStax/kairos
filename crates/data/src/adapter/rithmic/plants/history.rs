@@ -12,6 +12,8 @@ use futures_util::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::{
     net::TcpStream,
     sync::{broadcast, mpsc, oneshot},
@@ -42,7 +44,6 @@ use super::super::protocol::{
 };
 
 /// Commands sent to the history plant actor via its mpsc channel.
-#[allow(dead_code)]
 pub(crate) enum HistoryPlantCommand {
     /// Gracefully close the WebSocket connection
     Close,
@@ -71,6 +72,8 @@ pub(crate) enum HistoryPlantCommand {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
         start_time_sec: i32,
         symbol: String,
+        /// Shared counter updated as responses are buffered
+        buffered_count: Option<Arc<AtomicUsize>>,
     },
     /// Load historical time bars (OHLCV) for a time range
     LoadTimeBars {
@@ -97,6 +100,8 @@ pub(crate) enum HistoryPlantCommand {
     ResumeBars {
         request_key: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
+        /// Shared counter updated as responses are buffered
+        buffered_count: Option<Arc<AtomicUsize>>,
     },
     /// Subscribe to or unsubscribe from live time bar updates
     SubscribeTimeBarUpdates {
@@ -124,7 +129,6 @@ pub(crate) enum HistoryPlantCommand {
 /// The background task runs until the WebSocket closes or a `Close`
 /// command is sent. Use [`get_handle`](Self::get_handle) to obtain a
 /// cloneable handle for sending commands.
-#[allow(dead_code)]
 pub struct RithmicHistoryPlant {
     /// Background task running the plant actor loop
     pub connection_handle: JoinHandle<()>,
@@ -161,6 +165,12 @@ impl RithmicHistoryPlant {
     }
 }
 
+impl Drop for RithmicHistoryPlant {
+    fn drop(&mut self) {
+        self.connection_handle.abort();
+    }
+}
+
 impl RithmicHistoryPlant {
     /// Returns a cloneable handle for sending commands to this plant
     pub fn get_handle(&self) -> RithmicHistoryPlantHandle {
@@ -182,6 +192,8 @@ struct HistoryPlant {
     ping_manager: PingManager,
     /// Buffer for `ResponseTickBarReplay` messages during active replay
     replay_buffer: Vec<RithmicResponse>,
+    /// Shared counter for callers to observe buffering progress
+    replay_counter: Option<Arc<AtomicUsize>>,
     /// Oneshot sender to return collected bars when replay completes
     replay_sender: Option<oneshot::Sender<Result<Vec<RithmicResponse>, String>>>,
     request_handler: RithmicRequestHandler,
@@ -196,7 +208,25 @@ struct HistoryPlant {
     subscription_sender: broadcast::Sender<RithmicResponse>,
 }
 
+/// WebSocket send timeout (seconds). Prevents `handle_command` from
+/// stalling indefinitely if the sink is blocked.
+const WS_SEND_TIMEOUT_SECS: u64 = 10;
+
 impl HistoryPlant {
+    /// Send a WebSocket message with a timeout to prevent actor stall.
+    async fn send_ws(&mut self, msg: Message) -> Result<(), String> {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(WS_SEND_TIMEOUT_SECS),
+            self.rithmic_sender.send(msg),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(format!("history_plant: send failed: {}", e)),
+            Err(_) => Err("history_plant: send timed out".to_owned()),
+        }
+    }
+
     pub async fn new(
         request_receiver: mpsc::Receiver<HistoryPlantCommand>,
         subscription_sender: broadcast::Sender<RithmicResponse>,
@@ -209,7 +239,7 @@ impl HistoryPlant {
 
         let rithmic_sender_api = RithmicSenderApi::new(config);
         let rithmic_receiver_api = RithmicReceiverApi {
-            source: "history_plant".to_string(),
+            source: "history_plant".to_owned(),
         };
 
         let interval = get_heartbeat_interval(None);
@@ -223,6 +253,7 @@ impl HistoryPlant {
             logged_in: false,
             ping_manager,
             replay_buffer: Vec::new(),
+            replay_counter: None,
             replay_sender: None,
             request_handler: RithmicRequestHandler::new(),
             request_receiver,
@@ -272,16 +303,16 @@ impl PlantActor for HistoryPlant {
 
                     let error_response = RithmicResponse {
                         request_id:
-                            "websocket_ping_timeout".to_string(),
+                            "websocket_ping_timeout".to_owned(),
                         message:
-                            RithmicMessage::HeartbeatTimeout,
+                            Box::new(RithmicMessage::HeartbeatTimeout),
                         is_update: true,
                         has_more: false,
                         multi_response: false,
                         error: Some(
                             "WebSocket ping timeout \
                              - connection dead"
-                                .to_string(),
+                                .to_owned(),
                         ),
                         source: self
                             .rithmic_receiver_api
@@ -298,13 +329,13 @@ impl PlantActor for HistoryPlant {
                 self.handle_command(message).await;
               }
               Some(message) = self.rithmic_reader.next() => {
-                let stop = self
-                    .handle_rithmic_message(message)
-                    .await
-                    .unwrap();
-
-                if stop {
-                  break;
+                match self.handle_rithmic_message(message).await {
+                    Ok(true) => break,
+                    Ok(false) => {},
+                    Err(()) => {
+                        error!("history_plant: message handler error, stopping");
+                        break;
+                    }
                 }
               }
               else => { break; }
@@ -331,11 +362,11 @@ impl PlantActor for HistoryPlant {
                     Ok(response) => {
                         // Handle heartbeat responses: only forward
                         // if they contain an error
-                        if matches!(response.message, RithmicMessage::ResponseHeartbeat(_)) {
+                        if matches!(*response.message, RithmicMessage::ResponseHeartbeat(_)) {
                             if let Some(error) = response.error {
                                 let error_response = RithmicResponse {
                                     request_id: response.request_id,
-                                    message: RithmicMessage::HeartbeatTimeout,
+                                    message: Box::new(RithmicMessage::HeartbeatTimeout),
                                     is_update: true,
                                     has_more: false,
                                     multi_response: false,
@@ -355,7 +386,7 @@ impl PlantActor for HistoryPlant {
                         // replay_sender is active (from ResumeBars
                         // command), silently consume the ack so it
                         // doesn't go to request_handler.
-                        if matches!(response.message, RithmicMessage::ResponseResumeBars(_))
+                        if matches!(*response.message, RithmicMessage::ResponseResumeBars(_))
                             && self.replay_sender.is_some()
                         {
                             if let Some(ref err) = response.error {
@@ -379,12 +410,13 @@ impl PlantActor for HistoryPlant {
                         // (has_more=true) and send on completion
                         // (has_more=false).
                         else if matches!(
-                            response.message,
+                            *response.message,
                             RithmicMessage::ResponseTickBarReplay(_)
                         ) && self.replay_sender.is_some()
                         {
                             if response.error.is_some() {
                                 // Error — send immediately
+                                self.replay_counter = None;
                                 if let Some(sender) = self.replay_sender.take() {
                                     let _ = sender.send(Err(response.error.unwrap_or_default()));
                                 }
@@ -392,11 +424,15 @@ impl PlantActor for HistoryPlant {
                             } else if response.has_more {
                                 // Intermediate data row — buffer it
                                 self.replay_buffer.push(response);
+                                if let Some(ref counter) = self.replay_counter {
+                                    counter.store(self.replay_buffer.len(), Ordering::Relaxed);
+                                }
                             } else {
                                 // Final message (has_more=false).
                                 // It may also contain data, so
                                 // include it in the buffer.
                                 self.replay_buffer.push(response);
+                                self.replay_counter = None;
                                 let bars = std::mem::take(&mut self.replay_buffer);
                                 if let Some(sender) = self.replay_sender.take() {
                                     info!(
@@ -443,12 +479,12 @@ impl PlantActor for HistoryPlant {
                 error!("history_plant: connection closed");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket connection closed".to_string()),
+                    error: Some("WebSocket connection closed".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -459,12 +495,12 @@ impl PlantActor for HistoryPlant {
                 error!("history_plant: connection already closed");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket connection already closed".to_string()),
+                    error: Some("WebSocket connection already closed".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -475,8 +511,8 @@ impl PlantActor for HistoryPlant {
                 error!("history_plant: I/O error: {}", io_err);
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -494,15 +530,15 @@ impl PlantActor for HistoryPlant {
                 );
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
                     error: Some(
                         "WebSocket connection reset \
                          without closing handshake"
-                            .to_string(),
+                            .to_owned(),
                     ),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
@@ -517,15 +553,15 @@ impl PlantActor for HistoryPlant {
                 );
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
                     error: Some(
                         "WebSocket attempted to send \
                          after closing"
-                            .to_string(),
+                            .to_owned(),
                     ),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
@@ -537,12 +573,12 @@ impl PlantActor for HistoryPlant {
                 error!("history_plant: received data after closing");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket received data after closing".to_string()),
+                    error: Some("WebSocket received data after closing".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -560,10 +596,7 @@ impl PlantActor for HistoryPlant {
     async fn handle_command(&mut self, command: HistoryPlantCommand) {
         match command {
             HistoryPlantCommand::Close => {
-                self.rithmic_sender
-                    .send(Message::Close(None))
-                    .await
-                    .unwrap();
+                let _ = self.send_ws(Message::Close(None)).await;
             }
             HistoryPlantCommand::ListSystemInfo { response_sender } => {
                 let (list_system_info_buf, id) =
@@ -574,10 +607,13 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(list_system_info_buf.into()))
+                if let Err(e) = self
+                    .send_ws(Message::Binary(list_system_info_buf.into()))
                     .await
-                    .unwrap();
+                {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::Login { response_sender } => {
                 let (login_buf, id) = self.rithmic_sender_api.request_login(
@@ -594,10 +630,10 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(login_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(login_buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::SetLogin => {
                 self.logged_in = true;
@@ -610,18 +646,15 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(logout_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(logout_buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::SendHeartbeat => {
                 let (heartbeat_bf, _id) = self.rithmic_sender_api.request_heartbeat();
 
-                let _ = self
-                    .rithmic_sender
-                    .send(Message::Binary(heartbeat_bf.into()))
-                    .await;
+                let _ = self.send_ws(Message::Binary(heartbeat_bf.into())).await;
             }
             HistoryPlantCommand::UpdateHeartbeat { seconds } => {
                 self.interval = get_heartbeat_interval(Some(seconds));
@@ -632,13 +665,21 @@ impl PlantActor for HistoryPlant {
                 start_time_sec,
                 end_time_sec,
                 response_sender,
+                buffered_count,
             } => {
                 // Clear any stale replay state and store the
                 // response sender directly.
                 // ResponseTickBarReplay (207) messages are buffered
                 // in handle_rithmic_message until the final message
                 // (has_more=false), then sent via the oneshot.
+                if self.replay_sender.is_some() {
+                    warn!(
+                        "history_plant: overwriting pending replay_sender \
+                         (previous request will never receive a response)"
+                    );
+                }
                 self.replay_buffer.clear();
+                self.replay_counter = buffered_count;
                 self.replay_sender = Some(response_sender);
 
                 let (tick_bar_replay_buf, _id) = self.rithmic_sender_api.request_tick_bar_replay(
@@ -648,10 +689,13 @@ impl PlantActor for HistoryPlant {
                     end_time_sec,
                 );
 
-                self.rithmic_sender
-                    .send(Message::Binary(tick_bar_replay_buf.into()))
+                if let Err(e) = self
+                    .send_ws(Message::Binary(tick_bar_replay_buf.into()))
                     .await
-                    .unwrap();
+                {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::LoadTimeBars {
                 bar_type,
@@ -676,10 +720,13 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(time_bar_replay_buf.into()))
+                if let Err(e) = self
+                    .send_ws(Message::Binary(time_bar_replay_buf.into()))
                     .await
-                    .unwrap();
+                {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::LoadVolumeProfileMinuteBars {
                 symbol,
@@ -706,27 +753,35 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::ResumeBars {
                 request_key,
                 response_sender,
+                buffered_count,
             } => {
                 // Use replay buffer (same as LoadTicks) so that
                 // the ResponseTickBarReplay (207) data messages
                 // are collected correctly.
+                if self.replay_sender.is_some() {
+                    warn!(
+                        "history_plant: overwriting pending replay_sender \
+                         (previous request will never receive a response)"
+                    );
+                }
                 self.replay_buffer.clear();
+                self.replay_counter = buffered_count;
                 self.replay_sender = Some(response_sender);
 
                 let (buf, _id) = self.rithmic_sender_api.request_resume_bars(&request_key);
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::SubscribeTimeBarUpdates {
                 symbol,
@@ -749,10 +804,10 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
             HistoryPlantCommand::SubscribeTickBarUpdates {
                 symbol,
@@ -777,10 +832,10 @@ impl PlantActor for HistoryPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("history_plant: send failed: {}", e);
+                    return;
+                }
             }
         }
     }
@@ -791,7 +846,6 @@ impl PlantActor for HistoryPlant {
 /// Provides async methods for login, data loading, and bar
 /// subscriptions. Each method sends a command to the actor task
 /// and awaits the response via a oneshot channel.
-#[allow(dead_code)]
 pub struct RithmicHistoryPlantHandle {
     /// Command channel to the actor task
     sender: mpsc::Sender<HistoryPlantCommand>,
@@ -801,8 +855,12 @@ pub struct RithmicHistoryPlantHandle {
     pub subscription_receiver: broadcast::Receiver<RithmicResponse>,
 }
 
-#[allow(dead_code)]
 impl RithmicHistoryPlantHandle {
+    /// Sends a close command to gracefully shut down the plant actor.
+    pub async fn close(&self) {
+        let _ = self.sender.send(HistoryPlantCommand::Close).await;
+    }
+
     /// Lists available Rithmic system infrastructure information
     pub async fn list_system_info(&self) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
@@ -813,10 +871,7 @@ impl RithmicHistoryPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Logs in to the Rithmic History Plant.
@@ -833,10 +888,8 @@ impl RithmicHistoryPlantHandle {
         };
 
         let _ = self.sender.send(command).await;
-        let response = rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0);
+        let response =
+            super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)?;
 
         if let Some(err) = response.error {
             error!("history_plant: login failed {:?}", err);
@@ -844,7 +897,7 @@ impl RithmicHistoryPlantHandle {
         } else {
             let _ = self.sender.send(HistoryPlantCommand::SetLogin).await;
 
-            if let RithmicMessage::ResponseLogin(resp) = &response.message {
+            if let RithmicMessage::ResponseLogin(resp) = &*response.message {
                 if let Some(hb) = resp.heartbeat_interval {
                     let secs = hb.max(HEARTBEAT_SECS as f64) as u64;
                     self.update_heartbeat(secs).await;
@@ -877,10 +930,8 @@ impl RithmicHistoryPlantHandle {
         };
 
         let _ = self.sender.send(command).await;
-        let response = rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0);
+        let response =
+            super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)?;
         let _ = self.sender.send(HistoryPlantCommand::Close).await;
 
         Ok(response)
@@ -905,11 +956,59 @@ impl RithmicHistoryPlantHandle {
             start_time_sec,
             end_time_sec,
             response_sender: tx,
+            buffered_count: None,
         };
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
+    }
+
+    /// Loads historical tick data with real-time buffering progress.
+    ///
+    /// Like [`load_ticks`] but polls a shared atomic counter to
+    /// report buffering progress via `on_progress(buffered_count)`
+    /// while the plant actor buffers WebSocket responses.
+    pub async fn load_ticks_with_buffering_progress(
+        &self,
+        symbol: String,
+        exchange: String,
+        start_time_sec: i32,
+        end_time_sec: i32,
+        on_progress: &(dyn Fn(usize) + Send + Sync),
+    ) -> Result<Vec<RithmicResponse>, String> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let command = HistoryPlantCommand::LoadTicks {
+            exchange,
+            symbol,
+            start_time_sec,
+            end_time_sec,
+            response_sender: tx,
+            buffered_count: Some(counter.clone()),
+        };
+
+        let _ = self.sender.send(command).await;
+
+        // Poll the counter while awaiting the oneshot result.
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        tokio::pin!(rx);
+        loop {
+            tokio::select! {
+                biased;
+                res = &mut rx => {
+                    break res
+                        .map_err(|_| super::CONN_CLOSED_ERR.to_owned())?;
+                }
+                _ = interval.tick() => {
+                    let count = counter.load(Ordering::Relaxed);
+                    if count > 0 {
+                        on_progress(count);
+                    }
+                }
+            }
+        }
     }
 
     /// Loads historical time bar data (OHLCV) for a symbol and time range
@@ -936,7 +1035,7 @@ impl RithmicHistoryPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Loads volume profile minute bars for a symbol and time range
@@ -966,7 +1065,7 @@ impl RithmicHistoryPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Resumes a previously truncated bars request using its
@@ -977,11 +1076,49 @@ impl RithmicHistoryPlantHandle {
         let command = HistoryPlantCommand::ResumeBars {
             request_key,
             response_sender: tx,
+            buffered_count: None,
         };
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
+    }
+
+    /// Resumes a previously truncated bars request with buffering
+    /// progress reporting.
+    pub async fn resume_bars_with_buffering_progress(
+        &self,
+        request_key: String,
+        on_progress: &(dyn Fn(usize) + Send + Sync),
+    ) -> Result<Vec<RithmicResponse>, String> {
+        let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let command = HistoryPlantCommand::ResumeBars {
+            request_key,
+            response_sender: tx,
+            buffered_count: Some(counter.clone()),
+        };
+
+        let _ = self.sender.send(command).await;
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        tokio::pin!(rx);
+        loop {
+            tokio::select! {
+                biased;
+                res = &mut rx => {
+                    break res
+                        .map_err(|_| super::CONN_CLOSED_ERR.to_owned())?;
+                }
+                _ = interval.tick() => {
+                    let count = counter.load(Ordering::Relaxed);
+                    if count > 0 {
+                        on_progress(count);
+                    }
+                }
+            }
+        }
     }
 
     /// Subscribes to or unsubscribes from live time bar updates
@@ -1006,10 +1143,7 @@ impl RithmicHistoryPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Subscribes to or unsubscribes from live tick bar updates
@@ -1036,10 +1170,7 @@ impl RithmicHistoryPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 }
 

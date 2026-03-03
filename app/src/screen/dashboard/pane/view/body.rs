@@ -16,12 +16,18 @@ use iced::{
 };
 use rustc_hash::FxHashMap;
 
-#[cfg(feature = "heatmap")]
-use crate::screen::dashboard::ladder;
 use super::super::{Content, Message, State};
 use super::assistant;
+#[cfg(feature = "heatmap")]
+use super::helpers;
 use super::modal_stack::CompactControls;
 use super::modals::stream::Modifier;
+#[cfg(feature = "heatmap")]
+use crate::modals;
+#[cfg(feature = "heatmap")]
+use crate::screen::dashboard::ladder;
+#[cfg(feature = "heatmap")]
+use crate::screen::dashboard::pane::Event;
 
 /// Build the `uninitialized_base` closure content — shows loading/error/empty states.
 pub(super) fn uninitialized_base<'a>(
@@ -44,12 +50,20 @@ pub(super) fn uninitialized_base<'a>(
                 schema,
                 days_loaded,
                 days_total,
+                progress_fraction,
                 ..
-            } => (
-                format!("Loading {} ({}/{})", schema, days_loaded, days_total),
-                Some(*days_loaded as f32),
-                Some(*days_total as f32),
-            ),
+            } => {
+                let (val, max) = if let Some(pf) = progress_fraction {
+                    (*pf * 100.0, 100.0_f32)
+                } else {
+                    (*days_loaded as f32, *days_total as f32)
+                };
+                (
+                    format!("Loading {} ({}/{})", schema, days_loaded, days_total),
+                    Some(val),
+                    Some(max),
+                )
+            }
             data::LoadingStatus::Building {
                 operation,
                 progress,

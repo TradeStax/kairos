@@ -8,6 +8,13 @@ use crate::output::trade_record::TradeRecord;
 use crate::portfolio::equity::EquityCurve;
 use serde::{Deserialize, Serialize};
 
+/// Number of trading days per year, used for annualizing returns
+/// and risk-adjusted ratios (Sharpe, Sortino, Calmar).
+const TRADING_DAYS_PER_YEAR: f64 = 252.0;
+
+/// Milliseconds in one UTC calendar day.
+const MS_PER_DAY: u64 = 86_400_000;
+
 /// Aggregated performance statistics for a completed backtest run.
 ///
 /// All monetary values are denominated in USD. Percentage values are
@@ -234,7 +241,7 @@ impl PerformanceMetrics {
         let (max_drawdown_usd, max_drawdown_pct) =
             compute_max_drawdown(equity_curve, initial_capital_usd);
 
-        let risk_free_daily = (1.0 + risk_free_annual).powf(1.0 / 252.0) - 1.0;
+        let risk_free_daily = (1.0 + risk_free_annual).powf(1.0 / TRADING_DAYS_PER_YEAR) - 1.0;
         let daily_returns = compute_daily_returns(trades, initial_capital_usd);
         let sharpe_ratio = compute_sharpe(&daily_returns, risk_free_daily);
         let sortino_ratio = compute_sortino(&daily_returns, risk_free_daily);
@@ -246,7 +253,7 @@ impl PerformanceMetrics {
             0.0
         };
         let annualized_return = if trading_days > 0 {
-            (1.0 + total_return_pct / 100.0).powf(252.0 / trading_days as f64) - 1.0
+            (1.0 + total_return_pct / 100.0).powf(TRADING_DAYS_PER_YEAR / trading_days as f64) - 1.0
         } else {
             0.0
         };
@@ -363,7 +370,7 @@ fn compute_daily_returns(trades: &[TradeRecord], initial_capital_usd: f64) -> Ve
 
     let mut daily_pnl: BTreeMap<u64, f64> = BTreeMap::new();
     for trade in trades {
-        let day = trade.exit_time.0 / 86_400_000;
+        let day = trade.exit_time.0 / MS_PER_DAY;
         *daily_pnl.entry(day).or_insert(0.0) += trade.pnl_net_usd;
     }
 
@@ -423,7 +430,7 @@ fn compute_sharpe(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     if sd == 0.0 {
         return 0.0;
     }
-    mean(&excess) / sd * 252_f64.sqrt()
+    mean(&excess) / sd * TRADING_DAYS_PER_YEAR.sqrt()
 }
 
 /// Compute the annualized Sortino ratio from daily returns.
@@ -454,7 +461,7 @@ fn compute_sortino(daily_returns: &[f64], risk_free_daily: f64) -> f64 {
     if downside_dev == 0.0 {
         return 0.0;
     }
-    mean(&excess) / downside_dev * 252_f64.sqrt()
+    mean(&excess) / downside_dev * TRADING_DAYS_PER_YEAR.sqrt()
 }
 
 /// Walk the equity curve to find the maximum peak-to-trough
@@ -511,4 +518,474 @@ fn compute_streaks(trades: &[TradeRecord]) -> (usize, usize) {
         max_loss = max_loss.max(cur_loss);
     }
     (max_win, max_loss)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::trade_record::{ExitReason, TradeRecord};
+    use crate::portfolio::equity::EquityCurve;
+    use kairos_data::{Price, Side, Timestamp};
+
+    fn make_trade(pnl_net: f64, pnl_gross: f64, commission: f64, exit_day_ms: u64) -> TradeRecord {
+        TradeRecord {
+            index: 1,
+            entry_time: Timestamp(exit_day_ms.saturating_sub(1000)),
+            exit_time: Timestamp(exit_day_ms),
+            side: Side::Buy,
+            quantity: 1.0,
+            entry_price: Price::from_f64(5000.0),
+            exit_price: Price::from_f64(5010.0),
+            initial_stop_loss: Price::from_f64(4990.0),
+            initial_take_profit: None,
+            pnl_ticks: (pnl_net * 4.0) as i64, // approximate
+            pnl_gross_usd: pnl_gross,
+            commission_usd: commission,
+            pnl_net_usd: pnl_net,
+            rr_ratio: 0.0,
+            mae_ticks: 2,
+            mfe_ticks: 5,
+            exit_reason: ExitReason::Manual,
+            label: None,
+            instrument: None,
+            duration_ms: Some(1000),
+        }
+    }
+
+    fn make_equity_curve(initial: f64, equity_values: &[f64]) -> EquityCurve {
+        let mut curve = EquityCurve::new(initial);
+        for (i, &eq) in equity_values.iter().enumerate() {
+            curve.record(Timestamp((i as u64 + 1) * 86_400_000), eq, 0.0);
+        }
+        curve
+    }
+
+    // ── Empty trades ──────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_trades_returns_zeroed_metrics() {
+        let curve = EquityCurve::new(100_000.0);
+        let m = PerformanceMetrics::compute(&[], 100_000.0, 10, 0.05, &curve);
+
+        assert_eq!(m.total_trades, 0);
+        assert_eq!(m.net_pnl_usd, 0.0);
+        assert_eq!(m.win_rate, 0.0);
+        assert_eq!(m.profit_factor, 0.0);
+        assert_eq!(m.sharpe_ratio, 0.0);
+        assert_eq!(m.sortino_ratio, 0.0);
+        assert_eq!(m.calmar_ratio, 0.0);
+        assert_eq!(m.max_drawdown_usd, 0.0);
+        assert_eq!(m.final_equity_usd, 100_000.0);
+        assert_eq!(m.total_return_pct, 0.0);
+        assert_eq!(m.expectancy_usd, 0.0);
+    }
+
+    // ── Single winning trade ─────────────────────────────────────
+
+    #[test]
+    fn test_single_winning_trade() {
+        let t = make_trade(500.0, 510.0, 10.0, 86_400_000);
+        let curve = make_equity_curve(100_000.0, &[100_500.0]);
+        let m = PerformanceMetrics::compute(&[t], 100_000.0, 1, 0.05, &curve);
+
+        assert_eq!(m.total_trades, 1);
+        assert_eq!(m.winning_trades, 1);
+        assert_eq!(m.losing_trades, 0);
+        assert_eq!(m.breakeven_trades, 0);
+        assert!((m.win_rate - 1.0).abs() < 1e-10);
+        assert!((m.net_pnl_usd - 500.0).abs() < 1e-10);
+        assert!((m.gross_pnl_usd - 510.0).abs() < 1e-10);
+        assert!((m.total_commission_usd - 10.0).abs() < 1e-10);
+        assert_eq!(m.profit_factor, f64::MAX);
+        assert!((m.avg_win_usd - 500.0).abs() < 1e-10);
+        assert!((m.avg_loss_usd - 0.0).abs() < 1e-10);
+        assert!((m.best_trade_usd - 500.0).abs() < 1e-10);
+        assert!((m.worst_trade_usd - 500.0).abs() < 1e-10);
+    }
+
+    // ── Single losing trade ──────────────────────────────────────
+
+    #[test]
+    fn test_single_losing_trade() {
+        let t = make_trade(-300.0, -290.0, 10.0, 86_400_000);
+        let curve = make_equity_curve(100_000.0, &[99_700.0]);
+        let m = PerformanceMetrics::compute(&[t], 100_000.0, 1, 0.05, &curve);
+
+        assert_eq!(m.winning_trades, 0);
+        assert_eq!(m.losing_trades, 1);
+        assert!((m.win_rate - 0.0).abs() < 1e-10);
+        assert!((m.profit_factor - 0.0).abs() < 1e-10);
+        assert!((m.avg_loss_usd - (-300.0)).abs() < 1e-10);
+    }
+
+    // ── Win rate computation ─────────────────────────────────────
+
+    #[test]
+    fn test_win_rate_mixed_trades() {
+        // 3 wins, 2 losses => 0.6
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 110.0, 10.0, day),
+            make_trade(-50.0, -40.0, 10.0, day * 2),
+            make_trade(200.0, 210.0, 10.0, day * 3),
+            make_trade(-80.0, -70.0, 10.0, day * 4),
+            make_trade(150.0, 160.0, 10.0, day * 5),
+        ];
+        let curve = make_equity_curve(
+            100_000.0,
+            &[100_100.0, 100_050.0, 100_250.0, 100_170.0, 100_320.0],
+        );
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 5, 0.05, &curve);
+
+        assert_eq!(m.total_trades, 5);
+        assert_eq!(m.winning_trades, 3);
+        assert_eq!(m.losing_trades, 2);
+        assert!((m.win_rate - 0.6).abs() < 1e-10);
+    }
+
+    // ── Profit factor ────────────────────────────────────────────
+
+    #[test]
+    fn test_profit_factor_mixed() {
+        // Wins total: 100 + 200 = 300 net
+        // Losses total: -50 + -80 = -130 net
+        // PF = 300 / 130 = 2.307...
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(-50.0, -50.0, 0.0, day * 2),
+            make_trade(200.0, 200.0, 0.0, day * 3),
+            make_trade(-80.0, -80.0, 0.0, day * 4),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0, 100_250.0, 100_170.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 4, 0.05, &curve);
+
+        let expected_pf = 300.0 / 130.0;
+        assert!((m.profit_factor - expected_pf).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_profit_factor_all_winning() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(200.0, 200.0, 0.0, day * 2),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_300.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert_eq!(m.profit_factor, f64::MAX);
+    }
+
+    #[test]
+    fn test_profit_factor_all_losing() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(-100.0, -100.0, 0.0, day),
+            make_trade(-200.0, -200.0, 0.0, day * 2),
+        ];
+        let curve = make_equity_curve(100_000.0, &[99_900.0, 99_700.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert!((m.profit_factor - 0.0).abs() < 1e-10);
+    }
+
+    // ── Streaks ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_win_streak() {
+        let day = 86_400_000;
+        // W W W L W W
+        let trades = vec![
+            make_trade(10.0, 10.0, 0.0, day),
+            make_trade(20.0, 20.0, 0.0, day * 2),
+            make_trade(30.0, 30.0, 0.0, day * 3),
+            make_trade(-10.0, -10.0, 0.0, day * 4),
+            make_trade(40.0, 40.0, 0.0, day * 5),
+            make_trade(50.0, 50.0, 0.0, day * 6),
+        ];
+        let curve = make_equity_curve(
+            100_000.0,
+            &[
+                100_010.0, 100_030.0, 100_060.0, 100_050.0, 100_090.0, 100_140.0,
+            ],
+        );
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 6, 0.05, &curve);
+
+        assert_eq!(m.largest_win_streak, 3);
+        assert_eq!(m.largest_loss_streak, 1);
+    }
+
+    #[test]
+    fn test_loss_streak() {
+        let day = 86_400_000;
+        // L L L W L
+        let trades = vec![
+            make_trade(-10.0, -10.0, 0.0, day),
+            make_trade(-20.0, -20.0, 0.0, day * 2),
+            make_trade(-5.0, -5.0, 0.0, day * 3),
+            make_trade(50.0, 50.0, 0.0, day * 4),
+            make_trade(-15.0, -15.0, 0.0, day * 5),
+        ];
+        let curve = make_equity_curve(
+            100_000.0,
+            &[99_990.0, 99_970.0, 99_965.0, 100_015.0, 100_000.0],
+        );
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 5, 0.05, &curve);
+
+        assert_eq!(m.largest_win_streak, 1);
+        assert_eq!(m.largest_loss_streak, 3);
+    }
+
+    // ── Breakeven trades ─────────────────────────────────────────
+
+    #[test]
+    fn test_breakeven_trade_counts_as_loss_streak() {
+        let day = 86_400_000;
+        // Breakeven (0.0 pnl) counts as non-winning for streak purposes
+        let trades = vec![
+            make_trade(0.0, 0.0, 0.0, day),
+            make_trade(0.0, 0.0, 0.0, day * 2),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_000.0, 100_000.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert_eq!(m.breakeven_trades, 2);
+        assert_eq!(m.largest_loss_streak, 2);
+        assert_eq!(m.largest_win_streak, 0);
+    }
+
+    // ── Max drawdown ─────────────────────────────────────────────
+
+    #[test]
+    fn test_max_drawdown_simple() {
+        // Equity: 100k -> 110k -> 95k -> 105k
+        // Peak at 110k, trough at 95k => dd = 15k, dd_pct = 15/110*100 = 13.636...%
+        let curve = make_equity_curve(100_000.0, &[110_000.0, 95_000.0, 105_000.0]);
+        let (dd_usd, dd_pct) = compute_max_drawdown(&curve, 100_000.0);
+
+        assert!((dd_usd - 15_000.0).abs() < 1e-10);
+        assert!((dd_pct - (15_000.0 / 110_000.0 * 100.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_max_drawdown_no_drawdown() {
+        // Monotonically increasing equity
+        let curve = make_equity_curve(100_000.0, &[101_000.0, 102_000.0, 103_000.0]);
+        let (dd_usd, dd_pct) = compute_max_drawdown(&curve, 100_000.0);
+
+        assert!((dd_usd - 0.0).abs() < 1e-10);
+        assert!((dd_pct - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_max_drawdown_immediate_decline() {
+        // Equity drops from 100k to 80k immediately
+        let curve = make_equity_curve(100_000.0, &[80_000.0, 90_000.0]);
+        let (dd_usd, dd_pct) = compute_max_drawdown(&curve, 100_000.0);
+
+        assert!((dd_usd - 20_000.0).abs() < 1e-10);
+        assert!((dd_pct - 20.0).abs() < 1e-10);
+    }
+
+    // ── Sharpe / Sortino with zero variance ──────────────────────
+
+    #[test]
+    fn test_sharpe_zero_daily_volatility() {
+        // Single day of data => < 2 returns => Sharpe = 0
+        let day = 86_400_000;
+        let trades = vec![make_trade(100.0, 100.0, 0.0, day)];
+        let curve = make_equity_curve(100_000.0, &[100_100.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 1, 0.05, &curve);
+
+        assert!((m.sharpe_ratio - 0.0).abs() < 1e-10);
+        assert!((m.sortino_ratio - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sharpe_with_multiple_days() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(-50.0, -50.0, 0.0, day * 2),
+            make_trade(200.0, 200.0, 0.0, day * 3),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0, 100_250.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 3, 0.05, &curve);
+
+        // Should produce a non-zero sharpe since we have 3 daily returns
+        // with non-zero variance
+        assert!(m.sharpe_ratio.is_finite());
+    }
+
+    // ── Calmar ratio ─────────────────────────────────────────────
+
+    #[test]
+    fn test_calmar_zero_drawdown_returns_zero() {
+        // Monotonically rising => no drawdown => calmar = 0
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(200.0, 200.0, 0.0, day * 2),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_300.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert!((m.calmar_ratio - 0.0).abs() < 1e-10);
+    }
+
+    // ── Total return / final equity ──────────────────────────────
+
+    #[test]
+    fn test_total_return_and_final_equity() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(5000.0, 5000.0, 0.0, day),
+            make_trade(-2000.0, -2000.0, 0.0, day * 2),
+        ];
+        let curve = make_equity_curve(100_000.0, &[105_000.0, 103_000.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert!((m.net_pnl_usd - 3000.0).abs() < 1e-10);
+        assert!((m.final_equity_usd - 103_000.0).abs() < 1e-10);
+        assert!((m.total_return_pct - 3.0).abs() < 1e-10);
+    }
+
+    // ── Best / worst trade ───────────────────────────────────────
+
+    #[test]
+    fn test_best_and_worst_trade() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(500.0, 500.0, 0.0, day),
+            make_trade(-300.0, -300.0, 0.0, day * 2),
+            make_trade(1000.0, 1000.0, 0.0, day * 3),
+            make_trade(-100.0, -100.0, 0.0, day * 4),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_500.0, 100_200.0, 101_200.0, 101_100.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 4, 0.05, &curve);
+
+        assert!((m.best_trade_usd - 1000.0).abs() < 1e-10);
+        assert!((m.worst_trade_usd - (-300.0)).abs() < 1e-10);
+    }
+
+    // ── Average win/loss ─────────────────────────────────────────
+
+    #[test]
+    fn test_avg_win_and_avg_loss() {
+        let day = 86_400_000;
+        // Wins: 100, 200 => avg = 150
+        // Losses: -50, -80 => avg = -65
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(-50.0, -50.0, 0.0, day * 2),
+            make_trade(200.0, 200.0, 0.0, day * 3),
+            make_trade(-80.0, -80.0, 0.0, day * 4),
+        ];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0, 100_250.0, 100_170.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 4, 0.05, &curve);
+
+        assert!((m.avg_win_usd - 150.0).abs() < 1e-10);
+        assert!((m.avg_loss_usd - (-65.0)).abs() < 1e-10);
+    }
+
+    // ── Average MAE/MFE ──────────────────────────────────────────
+
+    #[test]
+    fn test_avg_mae_mfe() {
+        let day = 86_400_000;
+        let mut t1 = make_trade(100.0, 100.0, 0.0, day);
+        t1.mae_ticks = 4;
+        t1.mfe_ticks = 10;
+        let mut t2 = make_trade(-50.0, -50.0, 0.0, day * 2);
+        t2.mae_ticks = 8;
+        t2.mfe_ticks = 2;
+        let trades = vec![t1, t2];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert!((m.avg_mae_ticks - 6.0).abs() < 1e-10);
+        assert!((m.avg_mfe_ticks - 6.0).abs() < 1e-10);
+    }
+
+    // ── Expectancy ───────────────────────────────────────────────
+
+    #[test]
+    fn test_expectancy() {
+        let day = 86_400_000;
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day),
+            make_trade(-50.0, -50.0, 0.0, day * 2),
+            make_trade(200.0, 200.0, 0.0, day * 3),
+        ];
+        // net_pnl = 250, trades = 3, expectancy = 83.333...
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0, 100_250.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 3, 0.05, &curve);
+
+        assert!((m.expectancy_usd - 250.0 / 3.0).abs() < 1e-10);
+    }
+
+    // ── Average trade duration ───────────────────────────────────
+
+    #[test]
+    fn test_avg_trade_duration() {
+        let day = 86_400_000;
+        let mut t1 = make_trade(100.0, 100.0, 0.0, day);
+        t1.duration_ms = Some(5000);
+        let mut t2 = make_trade(-50.0, -50.0, 0.0, day * 2);
+        t2.duration_ms = Some(3000);
+        let trades = vec![t1, t2];
+        let curve = make_equity_curve(100_000.0, &[100_100.0, 100_050.0]);
+        let m = PerformanceMetrics::compute(&trades, 100_000.0, 2, 0.05, &curve);
+
+        assert!((m.avg_trade_duration_ms - 4000.0).abs() < 1e-10);
+    }
+
+    // ── Compute_daily_returns ────────────────────────────────────
+
+    #[test]
+    fn test_daily_returns_grouping() {
+        let day = 86_400_000_u64;
+        // Two trades on day 1, one on day 2
+        let trades = vec![
+            make_trade(100.0, 100.0, 0.0, day + 1000),     // day 1
+            make_trade(50.0, 50.0, 0.0, day + 2000),       // day 1
+            make_trade(-30.0, -30.0, 0.0, day * 2 + 1000), // day 2
+        ];
+        let returns = compute_daily_returns(&trades, 100_000.0);
+
+        assert_eq!(returns.len(), 2);
+        // Day 1: pnl=150, equity=100000 => return = 150/100000 = 0.0015
+        assert!((returns[0] - 0.0015).abs() < 1e-10);
+        // Day 2: pnl=-30, equity=100150 => return = -30/100150
+        let expected_r2 = -30.0 / 100_150.0;
+        assert!((returns[1] - expected_r2).abs() < 1e-10);
+    }
+
+    // ── Helper function tests ────────────────────────────────────
+
+    #[test]
+    fn test_mean_empty() {
+        assert!((mean(&[]) - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_mean_values() {
+        assert!((mean(&[1.0, 2.0, 3.0]) - 2.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_std_dev_single_value() {
+        assert!((std_dev(&[5.0]) - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_std_dev_known() {
+        // data: [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+        // mean = 5.0, sample variance = 32/7, sample std_dev = sqrt(32/7) ~ 2.138
+        let data = vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0];
+        let sd = std_dev(&data);
+        let expected = (32.0_f64 / 7.0).sqrt();
+        assert!((sd - expected).abs() < 1e-10);
+    }
 }

@@ -420,12 +420,10 @@ fn tool_call_summary(name: &str, args: &str) -> String {
                 "Drawing horizontal line".to_string()
             }
         }
-        "add_vertical_line" => {
-            parsed["label"]
-                .as_str()
-                .map(|l| format!("V-Line: {}", l))
-                .unwrap_or_else(|| "Drawing vertical line".to_string())
-        }
+        "add_vertical_line" => parsed["label"]
+            .as_str()
+            .map(|l| format!("V-Line: {}", l))
+            .unwrap_or_else(|| "Drawing vertical line".to_string()),
         "add_text_annotation" => "Adding text annotation".to_string(),
         "add_price_level" => {
             if let Some(p) = parsed["price"].as_f64() {

@@ -47,12 +47,8 @@ impl DateRangeCalendar {
         let range = data::DateRange::last_week();
 
         Self {
-            viewing_month: NaiveDate::from_ymd_opt(
-                range.start.year(),
-                range.start.month(),
-                1,
-            )
-            .unwrap(),
+            viewing_month: NaiveDate::from_ymd_opt(range.start.year(), range.start.month(), 1)
+                .expect("BUG: first-of-month from valid date"),
             start_date: range.start,
             end_date: range.end,
             selection_mode: SelectionMode::SelectingStart,
@@ -99,11 +95,13 @@ impl DateRangeCalendar {
     /// Get the viewing month date range (first to last day)
     pub fn viewing_month_range(&self) -> (NaiveDate, NaiveDate) {
         let month = self.viewing_month;
-        let first_day = NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
+        let first_day = NaiveDate::from_ymd_opt(month.year(), month.month(), 1)
+            .expect("BUG: first-of-month from valid date");
         let next_month = if month.month() == 12 {
-            NaiveDate::from_ymd_opt(month.year() + 1, 1, 1).unwrap()
+            NaiveDate::from_ymd_opt(month.year() + 1, 1, 1).expect("BUG: Jan 1 of next year")
         } else {
-            NaiveDate::from_ymd_opt(month.year(), month.month() + 1, 1).unwrap()
+            NaiveDate::from_ymd_opt(month.year(), month.month() + 1, 1)
+                .expect("BUG: first-of-next-month from valid date")
         };
         let last_day = next_month - chrono::Duration::days(1);
         (first_day, last_day)
@@ -164,7 +162,8 @@ impl DateRangeCalendar {
         let today = data::DateRange::today_et();
         let month = self.viewing_month;
 
-        let first_day = NaiveDate::from_ymd_opt(month.year(), month.month(), 1).unwrap();
+        let first_day = NaiveDate::from_ymd_opt(month.year(), month.month(), 1)
+            .expect("BUG: first-of-month from valid date");
         let days_until_monday = match first_day.weekday() {
             Weekday::Mon => 0,
             Weekday::Tue => 1,

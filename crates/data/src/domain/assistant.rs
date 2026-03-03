@@ -314,42 +314,6 @@ pub struct ChartSnapshot {
     pub is_tick_basis: bool,
 }
 
-// ── Legacy ChatMessage ──────────────────────────────────────────────────
-
-/// A simple chat message used for backward compatibility in the AI
-/// context query flow. Prefer [`DisplayMessage`] for new code.
-#[derive(Debug, Clone)]
-pub struct ChatMessage {
-    /// Message role
-    pub role: ChatRole,
-    /// Message text content
-    pub content: String,
-    /// When the message was created
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-impl ChatMessage {
-    /// Create a user message with the current timestamp
-    #[must_use]
-    pub fn user(content: String) -> Self {
-        Self {
-            role: ChatRole::User,
-            content,
-            timestamp: chrono::Utc::now(),
-        }
-    }
-
-    /// Create an assistant message with the current timestamp
-    #[must_use]
-    pub fn assistant(content: String) -> Self {
-        Self {
-            role: ChatRole::Assistant,
-            content,
-            timestamp: chrono::Utc::now(),
-        }
-    }
-}
-
 // ── Token Usage ─────────────────────────────────────────────────────────
 
 /// Session-total token usage for status bar display.
@@ -404,13 +368,6 @@ mod tests {
         usage.add(1000, 500);
         assert_eq!(usage.total_tokens, 1500);
         assert_eq!(usage.format_display(), "1.5K tokens");
-    }
-
-    #[test]
-    fn test_chat_message_constructors() {
-        let msg = ChatMessage::user("hello".to_string());
-        assert_eq!(msg.role, ChatRole::User);
-        assert_eq!(msg.content, "hello");
     }
 
     #[test]

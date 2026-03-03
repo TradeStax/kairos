@@ -37,6 +37,7 @@ pub(crate) fn build_tickers_info(
         let ticker = FuturesTicker::new_with_display(
             symbol,
             venue,
+            // split('.').next() always returns Some — at minimum the full string
             Some(symbol.split('.').next().unwrap()),
             Some(product_name),
         );

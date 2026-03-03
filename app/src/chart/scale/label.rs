@@ -1,5 +1,6 @@
 use crate::chart::TEXT_SIZE;
 use crate::components::primitives::AZERET_MONO;
+use crate::style::tokens::spacing;
 
 use iced::{
     Alignment, Color, Point, Rectangle, Size,
@@ -72,7 +73,7 @@ impl AxisLabel {
             x: center_x_position - content_width,
             y: 4.0,
             width: 2.0 * content_width,
-            height: axis_bounds.height - 8.0,
+            height: axis_bounds.height - spacing::MD,
         };
 
         let label = LabelContent {

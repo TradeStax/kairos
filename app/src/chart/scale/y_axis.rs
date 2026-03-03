@@ -1,5 +1,6 @@
 use super::label::{AxisLabel, LabelContent, calc_label_rect};
 use super::{Interaction, Message, linear};
+use crate::style::tokens;
 use data::ChartBasis;
 use data::util::round_to_tick;
 use iced::{
@@ -115,7 +116,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        let text_size = 12.0;
+        let text_size = tokens::text::BODY;
         let palette = theme.extended_palette();
 
         let labels = self.labels_cache.draw(renderer, bounds.size(), |frame| {
@@ -165,7 +166,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                                 } else {
                                     Color::WHITE.scale_alpha(0.8)
                                 },
-                                text_size: 11.0,
+                                text_size: tokens::text::SMALL,
                             })
                         } else {
                             None
@@ -191,7 +192,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                             palette.primary.strong.text
                         }
                     },
-                    text_size: 12.0,
+                    text_size: tokens::text::BODY,
                 };
 
                 let y_pos = bounds.height - ((price - lowest) / range * bounds.height);
@@ -216,7 +217,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     content: format!("{:.*}", self.decimals, rounded_price),
                     background_color: Some(palette.secondary.base.color),
                     text_color: palette.secondary.base.text,
-                    text_size: 12.0,
+                    text_size: tokens::text::BODY,
                 };
 
                 all_labels.push(AxisLabel::Y {
@@ -236,7 +237,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     content: format!("{:.*}", self.decimals, rounded_price),
                     background_color: Some(palette.secondary.base.color),
                     text_color: palette.secondary.base.text,
-                    text_size: 12.0,
+                    text_size: tokens::text::BODY,
                 };
 
                 all_labels.push(AxisLabel::Y {

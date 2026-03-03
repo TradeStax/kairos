@@ -11,17 +11,13 @@ pub mod overview;
 pub mod sidebar;
 pub mod trades;
 
-use crate::app::backtest_history::{
-    BacktestHistory, BacktestStatus,
-};
+use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::Icon;
 use crate::config::UserTimezone;
 use crate::style::{self, tokens};
-use iced::widget::{
-    button, canvas, column, container, row, rule, text,
-};
+use iced::widget::{button, canvas, column, container, row, rule, text};
 use iced::{Element, Length};
 
 // ── Tab Enum ────────────────────────────────────────────────────────
@@ -139,17 +135,8 @@ impl BacktestManager {
 
     /// Programmatically select a backtest (used by
     /// app-level handlers).
-    pub fn select(
-        &mut self,
-        id: uuid::Uuid,
-        history: &BacktestHistory,
-        timezone: UserTimezone,
-    ) {
-        self.update(
-            ManagerMessage::SelectBacktest(id),
-            history,
-            timezone,
-        );
+    pub fn select(&mut self, id: uuid::Uuid, history: &BacktestHistory, timezone: UserTimezone) {
+        self.update(ManagerMessage::SelectBacktest(id), history, timezone);
     }
 
     pub fn update(
@@ -168,11 +155,8 @@ impl BacktestManager {
                 if let Some(entry) = history.get(id) {
                     if entry.status == BacktestStatus::Completed {
                         if let Some(ref result) = entry.result {
-                            self.analytics = Some(
-                                computed::ComputedAnalytics::from_result(
-                                    result, timezone,
-                                ),
-                            );
+                            self.analytics =
+                                Some(computed::ComputedAnalytics::from_result(result, timezone));
                             let n = result.trades.len();
                             self.sorted_indices = (0..n).collect();
                             self.sort_column = TradeListSortColumn::Index;
@@ -354,17 +338,9 @@ impl BacktestManager {
 
         // Tab content
         let tab_content = match self.active_tab {
-            ManagerTab::Overview => {
-                overview::view_overview(
-                    self, history, timezone,
-                )
-            }
-            ManagerTab::Trades => {
-                trades::view(self, history, timezone)
-            }
-            ManagerTab::Analytics => {
-                analytics::view(self, history, timezone)
-            }
+            ManagerTab::Overview => overview::view_overview(self, history, timezone),
+            ManagerTab::Trades => trades::view(self, history, timezone),
+            ManagerTab::Analytics => analytics::view(self, history, timezone),
         };
 
         column![tab_bar, tab_content]

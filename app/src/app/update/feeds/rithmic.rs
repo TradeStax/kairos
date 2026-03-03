@@ -9,6 +9,13 @@ impl Kairos {
         feed_id: data::FeedId,
         mut feed_manager: std::sync::MutexGuard<'_, data::ConnectionManager>,
     ) -> Task<Message> {
+        let Some(resolver) = self.services.server_resolver.clone() else {
+            self.ui.push_notification(Toast::error(
+                "Server configuration not loaded. Restart the app.".to_string(),
+            ));
+            return Task::none();
+        };
+
         let Some(password) = self.secrets.get_feed_password(&feed_id.to_string()) else {
             self.modals.data_feeds_modal.sync_snapshot(&feed_manager);
             self.ui.push_notification(Toast::error(
@@ -35,7 +42,7 @@ impl Kairos {
 
         // Run on blocking thread since rithmic_rs futures are not Send
         Task::perform(
-            rithmic_connect_task(engine, rithmic_config, password),
+            rithmic_connect_task(engine, rithmic_config, password, resolver),
             move |result| Message::RithmicConnected { feed_id, result },
         )
     }
@@ -132,14 +139,6 @@ impl Kairos {
             ));
             return Task::none();
         };
-
-        // Remove sentinel entries to prevent cross-provider date inflation
-        // (old Databento dates from the registry would otherwise widen the
-        // range beyond what this feed can serve)
-        {
-            let mut idx = data::lock_or_recover(&self.persistence.data_index);
-            idx.remove_feed(Kairos::REGISTRY_SENTINEL_FEED);
-        }
 
         // Merge cache index BEFORE resolving chart ranges — avoids a race
         // where the async DataIndexUpdated event arrives too late
@@ -283,17 +282,14 @@ impl Kairos {
             if attempts > MAX_RECONNECT_ATTEMPTS {
                 feed_manager.set_status(
                     feed_id,
-                    data::ConnectionStatus::Error(
-                        "Max reconnect attempts exhausted".to_string(),
-                    ),
+                    data::ConnectionStatus::Error("Max reconnect attempts exhausted".to_string()),
                 );
                 drop(feed_manager);
                 let cm_arc = self.connections.connection_manager.clone();
                 let cm = data::lock_or_recover(&cm_arc);
                 self.sync_feed_snapshots(&cm);
                 self.ui.push_notification(Toast::error(
-                    "Rithmic: max reconnect attempts exhausted"
-                        .to_string(),
+                    "Rithmic: max reconnect attempts exhausted".to_string(),
                 ));
                 return Task::none();
             }
@@ -365,10 +361,16 @@ async fn rithmic_connect_task(
     engine: std::sync::Arc<tokio::sync::Mutex<data::engine::DataEngine>>,
     rithmic_config: data::RithmicConnectionConfig,
     password: String,
+    resolver: std::sync::Arc<data::ServerResolver>,
 ) -> Result<(), String> {
     let handle = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
-        handle.block_on(rithmic_init_and_stage(engine, &rithmic_config, &password))
+        handle.block_on(rithmic_init_and_stage(
+            engine,
+            &rithmic_config,
+            &password,
+            &resolver,
+        ))
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -378,10 +380,11 @@ async fn rithmic_init_and_stage(
     engine: std::sync::Arc<tokio::sync::Mutex<data::engine::DataEngine>>,
     rithmic_conn_config: &data::RithmicConnectionConfig,
     password: &str,
+    server_resolver: &data::ServerResolver,
 ) -> Result<(), String> {
     // Build adapter-level configs from the connection config
     let (rithmic_config, protocol_config) =
-        data::RithmicConfig::from_connection_config(rithmic_conn_config, password)
+        data::RithmicConfig::from_connection_config(rithmic_conn_config, password, server_resolver)
             .map_err(|e| e.to_string())?;
 
     let result = tokio::time::timeout(
@@ -405,6 +408,16 @@ async fn rithmic_init_and_stage(
     }
 }
 
+/// Orchestrates Rithmic streaming: subscribes to tickers, fetches product
+/// codes, then runs the `RithmicStream` event loop.
+///
+/// This function lives in the app layer (rather than `DataEngine`) because:
+/// - It needs access to the app-resolved `ticker_map` built from
+///   `FUTURES_PRODUCTS`, which is app-level configuration.
+/// - Its return drives an Iced `Task` that maps the completion to
+///   `Message::DataEvent(ConnectionLost)`.
+/// - The actual protocol-level streaming is delegated to
+///   `data::adapter::rithmic::RithmicStream::run()` in the data crate.
 async fn rithmic_streaming_task(
     client: std::sync::Arc<tokio::sync::Mutex<data::RithmicClient>>,
     subscribed_tickers: Vec<String>,

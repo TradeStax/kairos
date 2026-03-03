@@ -74,6 +74,7 @@ pub enum DownloadMessage {
         pane_id: uuid::Uuid,
         current: usize,
         total: usize,
+        sub_day_fraction: f32,
     },
     DataDownloadComplete {
         pane_id: uuid::Uuid,
@@ -152,4 +153,7 @@ pub enum Message {
     /// Used by intermediate save paths (feed updates, downloads) that collect
     /// window positions asynchronously before writing.
     PersistState(HashMap<window::Id, WindowSpec>),
+    /// No-op message used as completion signal for fire-and-forget async tasks
+    /// (e.g. background disk persistence).
+    Noop,
 }

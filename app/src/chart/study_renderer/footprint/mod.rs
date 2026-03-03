@@ -1,8 +1,7 @@
 //! Footprint study renderer
 //!
-//! Renders `FootprintData` (from the footprint study) onto a chart canvas.
-//! Migrated from `chart::candlestick::footprint` to work with abstract
-//! study output types instead of the internal `BTreeMap<Price, TradeGroup>`.
+//! Renders `FootprintData` (from the footprint study) onto a chart canvas
+//! using abstract study output types.
 
 mod box_mode;
 mod cell;
@@ -35,7 +34,7 @@ const POC_HIGHLIGHT_ALPHA: f32 = 0.15;
 /// Maximum price levels that receive text labels per candle
 const TEXT_BUDGET: usize = 40;
 /// Maximum text size in pixels
-const MAX_TEXT_SIZE: f32 = 14.0;
+const MAX_TEXT_SIZE: f32 = crate::style::tokens::text::TITLE;
 /// Padding subtracted from text size
 const TEXT_SIZE_PADDING: f32 = 2.0;
 /// Ratio of cell width used as the candle width for footprint

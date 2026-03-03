@@ -362,16 +362,15 @@ impl DataFeedsModal {
     }
 
     fn view_tickers_dropdown(&self) -> Element<'_, DataFeedsMessage> {
-        let ticker_source: Vec<(&str, &str)> =
-            if !self.edit_form.available_tickers.is_empty() {
-                self.edit_form
-                    .available_tickers
-                    .iter()
-                    .map(|s| (s.as_str(), s.as_str()))
-                    .collect()
-            } else {
-                RITHMIC_TICKERS.to_vec()
-            };
+        let ticker_source: Vec<(&str, &str)> = if !self.edit_form.available_tickers.is_empty() {
+            self.edit_form
+                .available_tickers
+                .iter()
+                .map(|s| (s.as_str(), s.as_str()))
+                .collect()
+        } else {
+            RITHMIC_TICKERS.to_vec()
+        };
 
         let selected_tickers = &self.edit_form.subscribed_tickers;
         let mut items = column![].spacing(tokens::spacing::XXS);
@@ -399,9 +398,7 @@ impl DataFeedsModal {
             let item = button(item_content)
                 .width(Length::Fill)
                 .padding([tokens::spacing::XS, tokens::spacing::MD])
-                .style(move |theme, status| {
-                    style::button::menu_body(theme, status, is_selected)
-                })
+                .style(move |theme, status| style::button::menu_body(theme, status, is_selected))
                 .on_press(DataFeedsMessage::ToggleTicker(sym));
 
             items = items.push(item);
@@ -570,9 +567,12 @@ impl DataFeedsModal {
             text(display_text).size(tokens::text::BODY).into()
         };
 
-        let trigger_content =
-            row![trigger_display, space::horizontal().width(Length::Fill), arrow]
-                .align_y(Alignment::Center);
+        let trigger_content = row![
+            trigger_display,
+            space::horizontal().width(Length::Fill),
+            arrow
+        ]
+        .align_y(Alignment::Center);
 
         let trigger_btn = button(trigger_content)
             .width(Length::Fill)

@@ -28,12 +28,11 @@ impl Content {
             #[cfg(feature = "heatmap")]
             ContentKind::Ladder => {
                 let state_config = _settings.visual_config.clone().and_then(|v| v.ladder());
-                let panel_config = state_config.map(|cfg| {
-                    crate::screen::dashboard::ladder::Config {
+                let panel_config =
+                    state_config.map(|cfg| crate::screen::dashboard::ladder::Config {
                         levels: cfg.levels,
                         ..Default::default()
-                    }
-                });
+                    });
                 Content::Ladder(Some(crate::screen::dashboard::ladder::Ladder::new(
                     panel_config,
                     _ticker_info.into(),

@@ -4,7 +4,6 @@ description = "Technical studies and indicators for Kairos charts"
 version = "0.1.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
-repository.workspace = true
 homepage.workspace = true
 
 [dependencies]

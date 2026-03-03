@@ -17,8 +17,6 @@ pub(crate) mod shared;
 pub mod study_renderer;
 mod update;
 
-// Re-export KlineChart for backwards compatibility
-
 // Re-export core types for public API
 pub use core::{
     Chart, ChartState, Interaction, PlotLimits, ViewState, base_mouse_interaction,
@@ -234,8 +232,7 @@ pub fn view<'a, T: Chart>(
     // Build the content row: [chart (+side panel) | rule | y_axis].
     // The side panel canvas lives here so it shares the exact same height
     // as the main chart canvas — both are siblings inside this row.
-    let content: Element<'_, Message> = if has_side_panel {
-        let cache = sp_cache.unwrap();
+    let content: Element<'_, Message> = if let (true, Some(cache)) = (has_side_panel, sp_cache) {
         let xhair_cache = chart.side_panel_crosshair_cache().unwrap_or(cache);
 
         let side_canvas_elem: Element<'_, Message> = container(
@@ -309,9 +306,7 @@ pub fn view<'a, T: Chart>(
     let has_panels = !panels.is_empty() && panel_cache.is_some();
     let panel_labels_cache = chart.panel_labels_cache();
 
-    let chart_body: Element<'_, Message> = if has_panels {
-        let cache = panel_cache.unwrap();
-
+    let chart_body: Element<'_, Message> = if let (true, Some(cache)) = (has_panels, panel_cache) {
         let panel_y_axis: Element<'_, Message> = if let Some(labels_cache) = panel_labels_cache {
             Canvas::new(PanelAxisLabelsY {
                 panels: chart.panel_studies(),

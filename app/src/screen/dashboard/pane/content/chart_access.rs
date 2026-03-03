@@ -1,6 +1,6 @@
 use super::Content;
-use crate::chart::drawing::ChartDrawingAccess;
 use crate::chart::Chart;
+use crate::chart::drawing::ChartDrawingAccess;
 use crate::drawing::DrawingTool;
 
 impl Content {

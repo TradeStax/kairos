@@ -59,13 +59,12 @@ impl RithmicSenderApi {
 
     /// Serializes a protobuf message with a 4-byte big-endian length header
     fn request_to_buf(&self, req: impl Message, id: String) -> (Vec<u8>, String) {
-        let mut buf = Vec::new();
         let len = req.encoded_len() as u32;
-        let header = len.to_be_bytes();
+        let mut buf = Vec::with_capacity((len + 4) as usize);
 
-        buf.reserve((len + 4) as usize);
+        // Write header first, then payload — avoids O(n) splice
+        buf.extend_from_slice(&len.to_be_bytes());
         req.encode(&mut buf).unwrap();
-        buf.splice(0..0, header.iter().cloned());
 
         (buf, id)
     }
@@ -97,8 +96,8 @@ impl RithmicSenderApi {
             template_version: Some("5.30".into()),
             user: Some(user.to_string()),
             password: Some(password.to_string()),
-            app_name: Some("mamc:Kairos".to_string()),
-            app_version: Some("1".into()),
+            app_name: Some("mamc:Kairos".to_owned()),
+            app_version: Some(env!("CARGO_PKG_VERSION").into()),
             system_name: Some(system_name.to_string()),
             infra_type: Some(infra_type.into()),
             user_msg: vec![id.clone()],
@@ -344,7 +343,7 @@ impl RithmicSenderApi {
     ///
     /// # Returns
     /// A tuple of (serialized request buffer, request ID)
-    pub fn request_auxilliary_reference_data(
+    pub fn request_auxiliary_reference_data(
         &mut self,
         symbol: &str,
         exchange: &str,
@@ -439,12 +438,9 @@ impl RithmicSenderApi {
     ///
     /// Returns the exchanges the user has permission to trade on.
     ///
-    /// # Arguments
-    /// * `user` - Username for authentication
-    ///
     /// # Returns
     /// A tuple of (serialized request buffer, request ID)
-    pub fn request_list_exchanges(&mut self, _user: &str) -> (Vec<u8>, String) {
+    pub fn request_list_exchanges(&mut self) -> (Vec<u8>, String) {
         let id = self.get_next_message_id();
 
         let req = RequestListExchanges {
@@ -544,7 +540,7 @@ impl RithmicSenderApi {
             symbol: Some(symbol.to_string()),
             bar_type: Some(BarType::TickBar.into()),
             bar_sub_type: Some(BarSubType::Regular.into()),
-            bar_type_specifier: Some("1".to_string()),
+            bar_type_specifier: Some("1".to_owned()),
             start_index: Some(start_index_sec),
             finish_index: Some(finish_index_sec),
             direction: Some(Direction::First.into()),

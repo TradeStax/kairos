@@ -68,46 +68,53 @@ impl RithmicRequestHandler {
     /// Multi-response messages are buffered until the final
     /// message (`has_more == false`), then sent as a batch.
     pub fn handle_response(&mut self, response: RithmicResponse) {
-        match response.message {
-            RithmicMessage::ResponseHeartbeat(_) => {
-                // Handle heartbeat response if a callback is registered
-                if let Some(responder) = self.handle_map.remove(&response.request_id) {
-                    let request_id = response.request_id.clone();
-                    self.send_to_responder(responder, vec![response], &request_id);
-                }
+        if matches!(*response.message, RithmicMessage::ResponseHeartbeat(_)) {
+            // Handle heartbeat response if a callback is registered
+            if let Some(responder) = self.handle_map.remove(&response.request_id) {
+                let request_id = response.request_id.clone();
+                self.send_to_responder(responder, vec![response], &request_id);
             }
-            _ => {
-                if !response.multi_response {
-                    if let Some(responder) = self.handle_map.remove(&response.request_id) {
-                        let request_id = response.request_id.clone();
-                        self.send_to_responder(responder, vec![response], &request_id);
-                    } else {
-                        error!("No responder found for response: {:#?}", response);
-                    }
-                } else {
-                    // If response has more, we store it in a vector and wait for more messages
-                    if response.has_more {
-                        self.response_vec_map
-                            .entry(response.request_id.clone())
-                            .or_default()
-                            .push(response);
-                    } else if let Some(responder) = self.handle_map.remove(&response.request_id) {
-                        let request_id = response.request_id.clone();
-                        let response_vec = match self.response_vec_map.remove(&request_id) {
-                            Some(mut vec) => {
-                                vec.push(response);
-                                vec
-                            }
-                            None => {
-                                vec![response]
-                            }
-                        };
-                        self.send_to_responder(responder, response_vec, &request_id);
-                    } else {
-                        error!("No responder found for response: {:#?}", response);
-                    }
-                }
+        } else if !response.multi_response {
+            if let Some(responder) = self.handle_map.remove(&response.request_id) {
+                let request_id = response.request_id.clone();
+                self.send_to_responder(responder, vec![response], &request_id);
+            } else {
+                error!("No responder found for response: {:#?}", response);
             }
+        } else {
+            // If response has more, we store it in a vector and wait for more messages
+            if response.has_more {
+                self.response_vec_map
+                    .entry(response.request_id.clone())
+                    .or_default()
+                    .push(response);
+            } else if let Some(responder) = self.handle_map.remove(&response.request_id) {
+                let request_id = response.request_id.clone();
+                let response_vec = match self.response_vec_map.remove(&request_id) {
+                    Some(mut vec) => {
+                        vec.push(response);
+                        vec
+                    }
+                    None => {
+                        vec![response]
+                    }
+                };
+                self.send_to_responder(responder, response_vec, &request_id);
+            } else {
+                error!("No responder found for response: {:#?}", response);
+            }
+        }
+    }
+}
+
+impl Drop for RithmicRequestHandler {
+    fn drop(&mut self) {
+        let pending = self.handle_map.len();
+        if pending > 0 {
+            log::warn!(
+                "RithmicRequestHandler dropped with {} pending request(s)",
+                pending,
+            );
         }
     }
 }

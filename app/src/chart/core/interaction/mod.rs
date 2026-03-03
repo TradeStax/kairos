@@ -350,10 +350,8 @@ pub fn canvas_interaction<T: Chart>(
                                 // Hit-test study detail icon buttons first
                                 if let Some(idx) = chart.hit_test_study_detail_button(canvas_pos) {
                                     return Some(
-                                        canvas::Action::publish(
-                                            Message::StudyDetailClick(idx),
-                                        )
-                                        .and_capture(),
+                                        canvas::Action::publish(Message::StudyDetailClick(idx))
+                                            .and_capture(),
                                     );
                                 }
 

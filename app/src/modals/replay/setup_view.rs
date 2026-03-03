@@ -316,7 +316,8 @@ impl ReplayManager {
         };
 
         // Day grid
-        let first_day = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+        let first_day = NaiveDate::from_ymd_opt(year, month, 1)
+            .expect("BUG: first-of-month from valid year/month");
         let offset = first_day.weekday().num_days_from_monday() as usize;
         let total_days = days_in_month(year, month);
 
@@ -330,7 +331,8 @@ impl ReplayManager {
         }
 
         for day in 1..=total_days {
-            let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
+            let date = NaiveDate::from_ymd_opt(year, month, day)
+                .expect("BUG: date from valid year/month/day loop");
             let in_range = date_range.is_some_and(|r| date >= r.start && date <= r.end);
             let is_weekend = date.weekday() == Weekday::Sat || date.weekday() == Weekday::Sun;
             let is_selected = selected_date == Some(date);

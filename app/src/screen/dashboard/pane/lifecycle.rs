@@ -48,11 +48,7 @@ fn restore_studies(
 
 impl State {
     /// Set chart data (called by dashboard after loading)
-    pub fn set_chart_data(
-        &mut self,
-        ticker_info: FuturesTickerInfo,
-        chart_data: ChartData,
-    ) {
+    pub fn set_chart_data(&mut self, ticker_info: FuturesTickerInfo, chart_data: ChartData) {
         self.chart_data = Some(chart_data.clone());
         self.loading_status = LoadingStatus::Ready;
 
@@ -199,6 +195,7 @@ impl State {
             days_total,
             days_loaded: 0,
             items_loaded: 0,
+            progress_fraction: None,
         };
 
         let config = ChartConfig {
@@ -214,7 +211,8 @@ impl State {
         }
     }
 
-    pub fn invalidate(&mut self, _now: Instant) -> Option<TickAction> {
+    pub fn invalidate(&mut self, now: Instant) -> Option<TickAction> {
+        let _ = now; // used by heatmap/ladder feature paths
         match &mut self.content {
             #[cfg(feature = "heatmap")]
             Content::Heatmap { chart, .. } => {
@@ -230,9 +228,12 @@ impl State {
                 None
             }
             #[cfg(feature = "heatmap")]
-            Content::Ladder(panel) => panel
-                .as_mut()
-                .and_then(|p| p.invalidate(Some(now)).map(TickAction::Panel)),
+            Content::Ladder(panel) => {
+                if let Some(p) = panel.as_mut() {
+                    p.invalidate(Some(now));
+                }
+                None
+            }
             Content::Profile { chart, .. } => {
                 if let Some(c) = (**chart).as_mut() {
                     c.invalidate();
@@ -258,10 +259,10 @@ impl State {
 
     /// Exit replay mode: restore the backed-up chart data.
     pub fn exit_replay_mode(&mut self) {
-        if let Some(backup) = self.replay_backup.take() {
-            if let Some(ti) = self.ticker_info {
-                self.set_chart_data(ti, backup);
-            }
+        if let Some(backup) = self.replay_backup.take()
+            && let Some(ti) = self.ticker_info
+        {
+            self.set_chart_data(ti, backup);
         }
     }
 

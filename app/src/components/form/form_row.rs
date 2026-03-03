@@ -1,7 +1,4 @@
 //! FormRow builder — a horizontal label : control row with configurable label width.
-//!
-//! The free-function `form_row()` in `mod.rs` is a thin shim over `FormRow::new()`.
-//! Use `FormRow` directly when you need a non-default label width.
 
 use iced::widget::{container, row, text};
 use iced::{Alignment, Element, Length};

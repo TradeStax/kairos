@@ -1,6 +1,6 @@
 //! Built-in study registration.
 //!
-//! Registers all 16 built-in studies into the [`StudyRegistry`] at
+//! Registers all 18 built-in studies into the [`StudyRegistry`] at
 //! construction time. Each entry pairs a closure factory with
 //! [`StudyInfo`] metadata used by the study picker UI.
 //!
@@ -25,6 +25,8 @@
 //! | Momentum    | RSI                  | Panel          |
 //! | Momentum    | MACD                 | Panel          |
 //! | Momentum    | Stochastic           | Panel          |
+//! | Order Flow  | Speed of Tape        | Panel          |
+//! | Order Flow  | Level Analyzer       | Background     |
 
 use super::{StudyInfo, StudyRegistry};
 use crate::core::{StudyCategory, StudyPlacement};
@@ -241,8 +243,7 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
             name: "Speed of Tape".to_string(),
             category: StudyCategory::OrderFlow,
             placement: StudyPlacement::Panel,
-            description: "Trade activity per time bucket as OHLC mini-candlesticks"
-                .to_string(),
+            description: "Trade activity per time bucket as OHLC mini-candlesticks".to_string(),
         },
         || Box::new(crate::studies::orderflow::SpeedOfTapeStudy::new()),
     );
@@ -255,7 +256,8 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
             name: "Level Analyzer".to_string(),
             category: StudyCategory::OrderFlow,
             placement: StudyPlacement::Background,
-            description: "Auto-detects key price levels and monitors real-time interaction".to_string(),
+            description: "Auto-detects key price levels and monitors real-time interaction"
+                .to_string(),
         },
         || Box::new(crate::studies::orderflow::LevelAnalyzerStudy::new()),
     );

@@ -9,15 +9,15 @@
 //! Each candle is colored green (buy-dominant) or purple
 //! (sell-dominant) based on raw trade counts.
 
+use crate::BULLISH_COLOR;
 use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterSection,
-    ParameterTab, ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
 use crate::output::{StudyCandlePoint, StudyCandleSeries, StudyOutput};
 use crate::util::candle_key;
-use crate::BULLISH_COLOR;
 use data::{ChartBasis, SerializableColor, Side};
 
 const DEFAULT_BUCKET_SECONDS: i64 = 10;
@@ -28,8 +28,7 @@ const DEFAULT_STDDEV_FILTER: f64 = 2.0;
 const DEFAULT_BUY_COLOR: SerializableColor = BULLISH_COLOR;
 
 /// Default sell color — purple #8C52AF.
-const DEFAULT_SELL_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(140, 82, 175);
+const DEFAULT_SELL_COLOR: SerializableColor = SerializableColor::from_rgb8_const(140, 82, 175);
 
 const DEFAULT_BODY_OPACITY: f64 = 0.5;
 const DEFAULT_BORDER_OPACITY: f64 = 1.0;
@@ -58,8 +57,7 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "input_data".into(),
                 label: "Input Data".into(),
-                description: "Measure volume or trade count per bucket"
-                    .into(),
+                description: "Measure volume or trade count per bucket".into(),
                 kind: ParameterKind::Choice {
                     options: &["Volume", "Trades"],
                 },
@@ -76,12 +74,8 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "filter_min".into(),
                 label: "Filter Min".into(),
-                description: "Min trade size to include (0 = none)"
-                    .into(),
-                kind: ParameterKind::Integer {
-                    min: 0,
-                    max: 10000,
-                },
+                description: "Min trade size to include (0 = none)".into(),
+                kind: ParameterKind::Integer { min: 0, max: 10000 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MIN),
                 tab: ParameterTab::Parameters,
                 section: Some(ParameterSection {
@@ -95,12 +89,8 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "filter_max".into(),
                 label: "Filter Max".into(),
-                description: "Max trade size to include (0 = none)"
-                    .into(),
-                kind: ParameterKind::Integer {
-                    min: 0,
-                    max: 10000,
-                },
+                description: "Max trade size to include (0 = none)".into(),
+                kind: ParameterKind::Integer { min: 0, max: 10000 },
                 default: ParameterValue::Integer(DEFAULT_FILTER_MAX),
                 tab: ParameterTab::Parameters,
                 section: Some(ParameterSection {
@@ -115,8 +105,7 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "display_value".into(),
                 label: "Display Value".into(),
-                description: "Which side of activity to display"
-                    .into(),
+                description: "Which side of activity to display".into(),
                 kind: ParameterKind::Choice {
                     options: &["Total", "Buy", "Sell", "Delta"],
                 },
@@ -134,13 +123,8 @@ impl SpeedOfTapeStudy {
                 key: "bucket_seconds".into(),
                 label: "Bucket Seconds".into(),
                 description: "Bucket time window in seconds".into(),
-                kind: ParameterKind::Integer {
-                    min: 1,
-                    max: 120,
-                },
-                default: ParameterValue::Integer(
-                    DEFAULT_BUCKET_SECONDS,
-                ),
+                kind: ParameterKind::Integer { min: 1, max: 120 },
+                default: ParameterValue::Integer(DEFAULT_BUCKET_SECONDS),
                 tab: ParameterTab::Parameters,
                 section: Some(ParameterSection {
                     label: "Mode",
@@ -171,16 +155,13 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "stddev_filter".into(),
                 label: "StdDev Multiplier".into(),
-                description:
-                    "Cap at mean + mult × stddev".into(),
+                description: "Cap at mean + mult × stddev".into(),
                 kind: ParameterKind::Float {
                     min: 0.5,
                     max: 5.0,
                     step: 0.1,
                 },
-                default: ParameterValue::Float(
-                    DEFAULT_STDDEV_FILTER,
-                ),
+                default: ParameterValue::Float(DEFAULT_STDDEV_FILTER),
                 tab: ParameterTab::Parameters,
                 section: Some(ParameterSection {
                     label: "Filter",
@@ -237,16 +218,13 @@ impl SpeedOfTapeStudy {
             ParameterDef {
                 key: "border_opacity".into(),
                 label: "Border Opacity".into(),
-                description: "Opacity of the candle wick and outline"
-                    .into(),
+                description: "Opacity of the candle wick and outline".into(),
                 kind: ParameterKind::Float {
                     min: 0.0,
                     max: 1.0,
                     step: 0.05,
                 },
-                default: ParameterValue::Float(
-                    DEFAULT_BORDER_OPACITY,
-                ),
+                default: ParameterValue::Float(DEFAULT_BORDER_OPACITY),
                 tab: ParameterTab::Style,
                 section: None,
                 order: 3,
@@ -289,10 +267,7 @@ fn lower_bound(trades: &[data::Trade], target_ms: u64) -> usize {
 /// are considered since zero delta is a meaningful data point.
 ///
 /// Returns all zeros if no qualifying buckets exist.
-fn extract_ohlc(
-    buckets: &[f32],
-    skip_zeros: bool,
-) -> (f32, f32, f32, f32) {
+fn extract_ohlc(buckets: &[f32], skip_zeros: bool) -> (f32, f32, f32, f32) {
     let mut open = 0.0f32;
     let mut close = 0.0f32;
     let mut high = f32::NEG_INFINITY;
@@ -333,10 +308,14 @@ fn apply_stddev_filter(buckets: &mut [f32], multiplier: f32) {
 
     let sum: f32 = buckets.iter().sum();
     let mean = sum / n as f32;
-    let variance = buckets.iter().map(|&v| {
-        let d = v - mean;
-        d * d
-    }).sum::<f32>() / n as f32;
+    let variance = buckets
+        .iter()
+        .map(|&v| {
+            let d = v - mean;
+            d * d
+        })
+        .sum::<f32>()
+        / n as f32;
     let stddev = variance.sqrt();
 
     let cap = mean + multiplier * stddev;
@@ -376,10 +355,7 @@ impl Study for SpeedOfTapeStudy {
         &mut self.config
     }
 
-    fn compute(
-        &mut self,
-        input: &StudyInput,
-    ) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
         let trades = match input.trades {
             Some(t) if !t.is_empty() => t,
             _ => {
@@ -394,45 +370,28 @@ impl Study for SpeedOfTapeStudy {
         }
 
         // Read parameters
-        let input_data =
-            self.config.get_choice("input_data", "Volume");
-        let display_value =
-            self.config.get_choice("display_value", "Total");
+        let input_data = self.config.get_choice("input_data", "Volume");
+        let display_value = self.config.get_choice("display_value", "Total");
         let bucket_seconds = self
             .config
             .get_int("bucket_seconds", DEFAULT_BUCKET_SECONDS)
             .max(1);
-        let filter_min = self
-            .config
-            .get_int("filter_min", DEFAULT_FILTER_MIN)
-            .max(0);
-        let filter_max = self
-            .config
-            .get_int("filter_max", DEFAULT_FILTER_MAX)
-            .max(0);
-        let filter_mode =
-            self.config.get_choice("filter_mode", "Automatic");
+        let filter_min = self.config.get_int("filter_min", DEFAULT_FILTER_MIN).max(0);
+        let filter_max = self.config.get_int("filter_max", DEFAULT_FILTER_MAX).max(0);
+        let filter_mode = self.config.get_choice("filter_mode", "Automatic");
         let stddev_mult = self
             .config
-            .get_float("stddev_filter", DEFAULT_STDDEV_FILTER)
-            as f32;
+            .get_float("stddev_filter", DEFAULT_STDDEV_FILTER) as f32;
 
         let use_volume = input_data == "Volume";
         let bucket_ms = (bucket_seconds * 1000) as u64;
 
-        let buy_color =
-            self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
-        let sell_color = self
-            .config
-            .get_color("sell_color", DEFAULT_SELL_COLOR);
-        let body_opacity = self
-            .config
-            .get_float("body_opacity", DEFAULT_BODY_OPACITY)
-            as f32;
-        let border_opacity = self
-            .config
-            .get_float("border_opacity", DEFAULT_BORDER_OPACITY)
-            as f32;
+        let buy_color = self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
+        let sell_color = self.config.get_color("sell_color", DEFAULT_SELL_COLOR);
+        let body_opacity = self.config.get_float("body_opacity", DEFAULT_BODY_OPACITY) as f32;
+        let border_opacity =
+            self.config
+                .get_float("border_opacity", DEFAULT_BORDER_OPACITY) as f32;
 
         // Precompute all 4 color variants
         let buy_body = buy_color.with_alpha(body_opacity);
@@ -444,27 +403,20 @@ impl Study for SpeedOfTapeStudy {
         let mut points = Vec::with_capacity(total);
 
         // Running trade cursor (CRITICAL-2)
-        let first_start =
-            input.candles.first().map_or(0, |c| c.time.0);
+        let first_start = input.candles.first().map_or(0, |c| c.time.0);
         let mut trade_cursor = lower_bound(trades, first_start);
 
         for (ci, candle) in input.candles.iter().enumerate() {
-            let key =
-                candle_key(candle, ci, total, &input.basis);
+            let key = candle_key(candle, ci, total, &input.basis);
 
             let start_ms = candle.time.0;
             let end_ms = match &input.basis {
-                ChartBasis::Time(tf) => {
-                    start_ms + tf.to_milliseconds()
-                }
+                ChartBasis::Time(tf) => start_ms + tf.to_milliseconds(),
                 ChartBasis::Tick(_) => {
                     if ci + 1 < total {
                         input.candles[ci + 1].time.0
                     } else {
-                        trades.last().map_or(
-                            start_ms + 1000,
-                            |t| t.time.0 + 1,
-                        )
+                        trades.last().map_or(start_ms + 1000, |t| t.time.0 + 1)
                     }
                 }
             };
@@ -484,8 +436,7 @@ impl Study for SpeedOfTapeStudy {
 
             // Search from cursor (CRITICAL-2)
             let lo = trade_cursor;
-            let hi =
-                lower_bound(&trades[lo..], end_ms) + lo;
+            let hi = lower_bound(&trades[lo..], end_ms) + lo;
             trade_cursor = hi;
 
             let slice = &trades[lo..hi];
@@ -505,8 +456,7 @@ impl Study for SpeedOfTapeStudy {
 
             // Bucket setup
             let duration_ms = end_ms - start_ms;
-            let num_buckets =
-                duration_ms.div_ceil(bucket_ms).max(1) as usize;
+            let num_buckets = duration_ms.div_ceil(bucket_ms).max(1) as usize;
 
             // Reuse bucket buffer (CRITICAL-1)
             self.bucket_buf.clear();
@@ -520,21 +470,14 @@ impl Study for SpeedOfTapeStudy {
                 let qty = t.quantity.0;
 
                 // Trade size filter
-                if filter_min > 0
-                    && (qty as i64) < filter_min
-                {
+                if filter_min > 0 && (qty as i64) < filter_min {
                     continue;
                 }
-                if filter_max > 0
-                    && (qty as i64) > filter_max
-                {
+                if filter_max > 0 && (qty as i64) > filter_max {
                     continue;
                 }
 
-                let is_buy = matches!(
-                    t.side,
-                    Side::Buy | Side::Ask
-                );
+                let is_buy = matches!(t.side, Side::Buy | Side::Ask);
 
                 // Always count for color determination
                 if is_buy {
@@ -543,15 +486,9 @@ impl Study for SpeedOfTapeStudy {
                     sell_count += 1;
                 }
 
-                let contribution = if use_volume {
-                    qty as f32
-                } else {
-                    1.0
-                };
+                let contribution = if use_volume { qty as f32 } else { 1.0 };
 
-                let idx =
-                    ((t.time.0.saturating_sub(start_ms))
-                        / bucket_ms) as usize;
+                let idx = ((t.time.0.saturating_sub(start_ms)) / bucket_ms) as usize;
                 let idx = idx.min(num_buckets - 1);
 
                 match display_value {
@@ -568,7 +505,7 @@ impl Study for SpeedOfTapeStudy {
                             self.bucket_buf[idx] += contribution;
                         }
                     }
-                    "Delta" | _ => {
+                    _ => {
                         if is_buy {
                             self.bucket_buf[idx] += contribution;
                         } else {
@@ -580,18 +517,14 @@ impl Study for SpeedOfTapeStudy {
 
             // Stddev filter
             if filter_mode == "Automatic" {
-                apply_stddev_filter(
-                    &mut self.bucket_buf,
-                    stddev_mult,
-                );
+                apply_stddev_filter(&mut self.bucket_buf, stddev_mult);
             }
 
             // OHLC from bucket values — skip zeros for
             // Total/Buy/Sell (empty buckets are no-data);
             // include zeros for Delta (zero = balanced)
             let skip_zeros = display_value != "Delta";
-            let (open, high, low, close) =
-                extract_ohlc(&self.bucket_buf, skip_zeros);
+            let (open, high, low, close) = extract_ohlc(&self.bucket_buf, skip_zeros);
 
             let is_buy = buy_count >= sell_count;
             let (body_color, border_color) = if is_buy {
@@ -645,10 +578,7 @@ impl Study for SpeedOfTapeStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{
-        Candle, ChartBasis, Price, Quantity, Timeframe,
-        Timestamp, Trade, Volume,
-    };
+    use data::{Candle, ChartBasis, Price, Quantity, Timeframe, Timestamp, Trade, Volume};
 
     fn make_candle(
         time: u64,
@@ -671,11 +601,7 @@ mod tests {
         .expect("test: valid candle")
     }
 
-    fn make_trade(
-        time: u64,
-        side: Side,
-        qty: f64,
-    ) -> Trade {
+    fn make_trade(time: u64, side: Side, qty: f64) -> Trade {
         Trade::new(
             Timestamp::from_millis(time),
             Price::from_f32(100.0),
@@ -684,10 +610,7 @@ mod tests {
         )
     }
 
-    fn make_input<'a>(
-        candles: &'a [Candle],
-        trades: &'a [Trade],
-    ) -> StudyInput<'a> {
+    fn make_input<'a>(candles: &'a [Candle], trades: &'a [Trade]) -> StudyInput<'a> {
         StudyInput {
             candles,
             trades: Some(trades),
@@ -723,8 +646,8 @@ mod tests {
         let (o, h, l, c) = extract_ohlc(&buckets, true);
         assert_eq!(o, 10.0); // first non-zero
         assert_eq!(h, 30.0); // max non-zero
-        assert_eq!(l, 5.0);  // min non-zero
-        assert_eq!(c, 5.0);  // last non-zero
+        assert_eq!(l, 5.0); // min non-zero
+        assert_eq!(c, 5.0); // last non-zero
     }
 
     #[test]
@@ -732,10 +655,10 @@ mod tests {
         // skip_zeros=false: zeros are included (for Delta mode)
         let buckets = [0.0, 10.0, -5.0, 0.0];
         let (o, h, l, c) = extract_ohlc(&buckets, false);
-        assert_eq!(o, 0.0);   // first value
-        assert_eq!(h, 10.0);  // max
-        assert_eq!(l, -5.0);  // min
-        assert_eq!(c, 0.0);   // last value
+        assert_eq!(o, 0.0); // first value
+        assert_eq!(h, 10.0); // max
+        assert_eq!(l, -5.0); // min
+        assert_eq!(c, 0.0); // last value
     }
 
     #[test]
@@ -757,8 +680,7 @@ mod tests {
         // 9 normal values of 10 + 1 outlier of 100
         let mut buckets = vec![10.0; 9];
         buckets.push(100.0);
-        let mean_before: f32 =
-            buckets.iter().sum::<f32>() / 10.0; // 19.0
+        let mean_before: f32 = buckets.iter().sum::<f32>() / 10.0; // 19.0
         apply_stddev_filter(&mut buckets, 1.0);
         // The outlier should be capped
         assert!(
@@ -768,10 +690,7 @@ mod tests {
         );
         // Normal values should be unchanged
         for &v in &buckets[..9] {
-            assert!(
-                v <= mean_before + 50.0,
-                "normal values shouldn't grow"
-            );
+            assert!(v <= mean_before + 50.0, "normal values shouldn't grow");
         }
     }
 
@@ -780,16 +699,17 @@ mod tests {
     #[test]
     fn test_volume_total() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(10)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(10)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // 6 buckets in 60s at 10s each
         // Bucket 0 (0–10s): qty 5 + 3 = 8
         // Bucket 1 (10–20s): qty 10 = 10
@@ -827,16 +747,17 @@ mod tests {
     #[test]
     fn test_volume_buy_only() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Buy".into())),
-            ("bucket_seconds", ParameterValue::Integer(30)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Buy".into())),
+                ("bucket_seconds", ParameterValue::Integer(30)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // 2 buckets at 30s: bucket 0, bucket 1
         let trades = vec![
             make_trade(5000, Side::Buy, 10.0),
@@ -867,16 +788,17 @@ mod tests {
     #[test]
     fn test_volume_sell_only() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Sell".into())),
-            ("bucket_seconds", ParameterValue::Integer(30)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Sell".into())),
+                ("bucket_seconds", ParameterValue::Integer(30)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         let trades = vec![
             make_trade(5000, Side::Buy, 10.0),
             make_trade(10000, Side::Sell, 20.0),
@@ -906,16 +828,17 @@ mod tests {
     #[test]
     fn test_volume_delta() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Delta".into())),
-            ("bucket_seconds", ParameterValue::Integer(30)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Delta".into())),
+                ("bucket_seconds", ParameterValue::Integer(30)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // Bucket 0: buy 10 - sell 20 = -10
         // Bucket 1: buy 7 - sell 0 = +7
         let trades = vec![
@@ -945,16 +868,17 @@ mod tests {
     #[test]
     fn test_trade_count_mode() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Trades".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(30)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Trades".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(30)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // Bucket 0: 2 trades (regardless of qty)
         // Bucket 1: 1 trade
         let trades = vec![
@@ -984,22 +908,23 @@ mod tests {
     #[test]
     fn test_filter_min() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(60)),
-            ("filter_min", ParameterValue::Integer(5)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(60)),
+                ("filter_min", ParameterValue::Integer(5)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // Only qty >= 5 should pass
         let trades = vec![
             make_trade(1000, Side::Buy, 2.0),   // filtered
             make_trade(2000, Side::Buy, 5.0),   // passes
-            make_trade(3000, Side::Sell, 10.0),  // passes
+            make_trade(3000, Side::Sell, 10.0), // passes
         ];
 
         let input = make_input(&candles, &trades);
@@ -1022,22 +947,23 @@ mod tests {
     #[test]
     fn test_filter_max() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(60)),
-            ("filter_max", ParameterValue::Integer(10)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(60)),
+                ("filter_max", ParameterValue::Integer(10)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // Only qty <= 10 should pass (filter_max > 0)
         let trades = vec![
             make_trade(1000, Side::Buy, 5.0),   // passes
             make_trade(2000, Side::Buy, 10.0),  // passes
-            make_trade(3000, Side::Sell, 50.0),  // filtered
+            make_trade(3000, Side::Sell, 50.0), // filtered
         ];
 
         let input = make_input(&candles, &trades);
@@ -1059,26 +985,27 @@ mod tests {
     #[test]
     fn test_stddev_auto_filter() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(10)),
-            ("filter_mode", ParameterValue::Choice("Automatic".into())),
-            ("stddev_filter", ParameterValue::Float(1.0)),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(10)),
+                ("filter_mode", ParameterValue::Choice("Automatic".into())),
+                ("stddev_filter", ParameterValue::Float(1.0)),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // 6 buckets at 10s each in 60s candle
         // Place a massive outlier in bucket 0, modest in others
         let trades = vec![
-            make_trade(1000, Side::Buy, 500.0),  // bucket 0
-            make_trade(15000, Side::Buy, 10.0),  // bucket 1
-            make_trade(25000, Side::Buy, 10.0),  // bucket 2
-            make_trade(35000, Side::Buy, 10.0),  // bucket 3
-            make_trade(45000, Side::Buy, 10.0),  // bucket 4
-            make_trade(55000, Side::Buy, 10.0),  // bucket 5
+            make_trade(1000, Side::Buy, 500.0), // bucket 0
+            make_trade(15000, Side::Buy, 10.0), // bucket 1
+            make_trade(25000, Side::Buy, 10.0), // bucket 2
+            make_trade(35000, Side::Buy, 10.0), // bucket 3
+            make_trade(45000, Side::Buy, 10.0), // bucket 4
+            make_trade(55000, Side::Buy, 10.0), // bucket 5
         ];
 
         let input = make_input(&candles, &trades);
@@ -1088,11 +1015,7 @@ mod tests {
             StudyOutput::StudyCandles(series) => {
                 let pt = &series[0].points[0];
                 // The high should be less than 500 due to capping
-                assert!(
-                    pt.high < 500.0,
-                    "outlier should be capped, got {}",
-                    pt.high
-                );
+                assert!(pt.high < 500.0, "outlier should be capped, got {}", pt.high);
             }
             other => panic!(
                 "Expected StudyCandles, got {:?}",
@@ -1104,19 +1027,20 @@ mod tests {
     #[test]
     fn test_stddev_filter_none() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Volume".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(10)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Volume".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(10)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         let trades = vec![
-            make_trade(1000, Side::Buy, 500.0),  // bucket 0
-            make_trade(15000, Side::Buy, 10.0),  // bucket 1
+            make_trade(1000, Side::Buy, 500.0), // bucket 0
+            make_trade(15000, Side::Buy, 10.0), // bucket 1
         ];
 
         let input = make_input(&candles, &trades);
@@ -1139,16 +1063,17 @@ mod tests {
     #[test]
     fn test_bucket_seconds() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("input_data", ParameterValue::Choice("Trades".into())),
-            ("display_value", ParameterValue::Choice("Total".into())),
-            ("bucket_seconds", ParameterValue::Integer(20)),
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[
+                ("input_data", ParameterValue::Choice("Trades".into())),
+                ("display_value", ParameterValue::Choice("Total".into())),
+                ("bucket_seconds", ParameterValue::Integer(20)),
+                ("filter_mode", ParameterValue::Choice("None".into())),
+            ],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         // 60s / 20s = 3 buckets
         // Bucket 0 (0–20s): 1 trade
         // Bucket 1 (20–40s): 2 trades
@@ -1185,9 +1110,7 @@ mod tests {
     #[test]
     fn test_empty_trades() {
         let mut study = SpeedOfTapeStudy::new();
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         let trades: Vec<Trade> = vec![];
 
         let input = make_input(&candles, &trades);
@@ -1198,9 +1121,7 @@ mod tests {
     #[test]
     fn test_no_trades_input() {
         let mut study = SpeedOfTapeStudy::new();
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
 
         let input = StudyInput {
             candles: &candles,
@@ -1217,24 +1138,17 @@ mod tests {
     #[test]
     fn test_buy_sell_color() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[("filter_mode", ParameterValue::Choice("None".into()))],
+        );
 
-        let buy_color = study
-            .config
-            .get_color("buy_color", DEFAULT_BUY_COLOR);
-        let sell_color = study
-            .config
-            .get_color("sell_color", DEFAULT_SELL_COLOR);
+        let buy_color = study.config.get_color("buy_color", DEFAULT_BUY_COLOR);
+        let sell_color = study.config.get_color("sell_color", DEFAULT_SELL_COLOR);
 
         let candles = vec![
-            make_candle(
-                0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-            ),
-            make_candle(
-                60_000, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-            ),
+            make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0),
+            make_candle(60_000, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0),
         ];
 
         let trades = vec![
@@ -1275,17 +1189,14 @@ mod tests {
     #[test]
     fn test_tick_basis() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[("filter_mode", ParameterValue::Choice("None".into()))],
+        );
 
         let candles = vec![
-            make_candle(
-                0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-            ),
-            make_candle(
-                5000, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-            ),
+            make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0),
+            make_candle(5000, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0),
         ];
 
         let trades = vec![
@@ -1320,13 +1231,12 @@ mod tests {
     #[test]
     fn test_no_trades_in_range() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[("filter_mode", ParameterValue::Choice("None".into()))],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         let trades = vec![make_trade(120_000, Side::Buy, 1.0)];
 
         let input = make_input(&candles, &trades);
@@ -1350,13 +1260,12 @@ mod tests {
     #[test]
     fn test_reset() {
         let mut study = SpeedOfTapeStudy::new();
-        set_params(&mut study, &[
-            ("filter_mode", ParameterValue::Choice("None".into())),
-        ]);
+        set_params(
+            &mut study,
+            &[("filter_mode", ParameterValue::Choice("None".into()))],
+        );
 
-        let candles = vec![make_candle(
-            0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0,
-        )];
+        let candles = vec![make_candle(0, 100.0, 101.0, 99.0, 100.5, 50.0, 50.0)];
         let trades = vec![make_trade(1000, Side::Buy, 1.0)];
 
         let input = make_input(&candles, &trades);

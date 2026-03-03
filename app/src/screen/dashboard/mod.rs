@@ -1,6 +1,6 @@
 pub(crate) mod grid;
-pub mod pane;
 pub mod ladder;
+pub mod pane;
 pub mod sidebar;
 mod update;
 mod view;
@@ -57,6 +57,7 @@ pub enum Message {
         pane_id: uuid::Uuid,
         current: usize,
         total: usize,
+        sub_day_fraction: f32,
     },
     DataDownloadComplete {
         pane_id: uuid::Uuid,

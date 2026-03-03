@@ -9,7 +9,7 @@ use crate::style::{palette, tokens};
 use data::{Connection, HistoricalDatasetInfo};
 use iced::{
     Alignment, Color, Element, Length,
-    widget::{button, canvas, column, container, row, scrollable, space, text_input},
+    widget::{canvas, column, container, row, scrollable, space, text_input},
 };
 
 use super::{DataFeedsMessage, DataFeedsModal};
@@ -273,22 +273,11 @@ impl DataFeedsModal {
             space::vertical().height(0).into()
         };
 
-        let auto_connect_toggle = row![
-            components::primitives::body("Connect on startup"),
-            space::horizontal().width(Length::Fill),
-            button(components::primitives::small(
-                if self.edit_form.auto_connect {
-                    "On"
-                } else {
-                    "Off"
-                },
-            ))
-            .on_press(DataFeedsMessage::SetAutoConnect(
-                !self.edit_form.auto_connect,
-            ))
-            .padding([tokens::spacing::XXS, tokens::spacing::MD]),
-        ]
-        .align_y(Alignment::Center);
+        let auto_connect_toggle = components::input::toggle_switch::toggle_switch(
+            "Connect on startup",
+            self.edit_form.auto_connect,
+            DataFeedsMessage::SetAutoConnect,
+        );
 
         let form_content = column![
             name_field,

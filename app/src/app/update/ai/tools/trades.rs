@@ -476,8 +476,7 @@ pub fn exec_get_aggregated_trades(
         .as_u64()
         .unwrap_or(60)
         .clamp(10, 3600);
-    let max_buckets =
-        args["count"].as_u64().unwrap_or(100).min(200) as usize;
+    let max_buckets = args["count"].as_u64().unwrap_or(100).min(200) as usize;
     let (start_ms, end_ms) = parse_time_range(args, tz);
 
     if snap.trades.is_empty() {

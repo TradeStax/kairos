@@ -128,3 +128,123 @@ impl PriceInfoLabel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── calc_optimal_ticks ──────────────────────────────────
+
+    #[test]
+    fn optimal_ticks_basic_range() {
+        let (step, max) = calc_optimal_ticks(100.0, 0.0, 5);
+        assert!(step > 0.0, "step must be positive");
+        assert!(max >= 100.0, "max must be >= highest");
+    }
+
+    #[test]
+    fn optimal_ticks_small_range() {
+        let (step, max) = calc_optimal_ticks(1.05, 0.95, 5);
+        assert!(step > 0.0);
+        assert!(step <= 0.1, "step should be small for tight range");
+        assert!(max >= 1.05);
+    }
+
+    #[test]
+    fn optimal_ticks_large_range() {
+        let (step, _max) = calc_optimal_ticks(10000.0, 0.0, 5);
+        assert!(step >= 1000.0, "step should be large for wide range");
+    }
+
+    #[test]
+    fn optimal_ticks_inverted_range() {
+        // When lowest > highest, uses abs(range)
+        let (step, _max) = calc_optimal_ticks(0.0, 100.0, 5);
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn optimal_ticks_single_label() {
+        let (step, _) = calc_optimal_ticks(100.0, 0.0, 1);
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn optimal_ticks_zero_labels_clamped_to_one() {
+        let (step, _) = calc_optimal_ticks(100.0, 0.0, 0);
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn optimal_ticks_negative_labels_clamped_to_one() {
+        let (step, _) = calc_optimal_ticks(100.0, 0.0, -5);
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn optimal_ticks_equal_values() {
+        // range ≈ EPSILON, should still produce a valid step
+        let (step, _) = calc_optimal_ticks(50.0, 50.0, 5);
+        assert!(step > 0.0);
+    }
+
+    #[test]
+    fn optimal_ticks_negative_range() {
+        let (step, max) = calc_optimal_ticks(-10.0, -100.0, 5);
+        assert!(step > 0.0);
+        assert!(max >= -10.0);
+    }
+
+    #[test]
+    fn optimal_ticks_max_is_step_aligned() {
+        let (step, max) = calc_optimal_ticks(100.0, 0.0, 10);
+        // max should be a multiple of step (within floating precision)
+        let remainder = (max / step) - (max / step).round();
+        assert!(
+            remainder.abs() < 1e-5,
+            "max ({}) should be step ({}) aligned",
+            max,
+            step,
+        );
+    }
+
+    #[test]
+    fn optimal_ticks_many_labels() {
+        let (step, _) = calc_optimal_ticks(100.0, 0.0, 50);
+        assert!(step > 0.0);
+        // With many labels, step should be smaller
+        let (step_few, _) = calc_optimal_ticks(100.0, 0.0, 3);
+        assert!(step <= step_few);
+    }
+
+    // ── PriceInfoLabel ──────────────────────────────────────
+
+    #[test]
+    fn price_info_label_up_when_close_above_open() {
+        let label = PriceInfoLabel::new(Price::from_f32(5010.0), Price::from_f32(5000.0));
+        assert!(matches!(label, PriceInfoLabel::Up(_)));
+    }
+
+    #[test]
+    fn price_info_label_up_when_close_equals_open() {
+        let label = PriceInfoLabel::new(Price::from_f32(5000.0), Price::from_f32(5000.0));
+        // >= means equal is Up
+        assert!(matches!(label, PriceInfoLabel::Up(_)));
+    }
+
+    #[test]
+    fn price_info_label_down_when_close_below_open() {
+        let label = PriceInfoLabel::new(Price::from_f32(4990.0), Price::from_f32(5000.0));
+        assert!(matches!(label, PriceInfoLabel::Down(_)));
+    }
+
+    #[test]
+    fn price_info_label_carries_close_price() {
+        let close = Price::from_f32(5010.25);
+        let label = PriceInfoLabel::new(close, Price::from_f32(5000.0));
+        match label {
+            PriceInfoLabel::Up(p) => assert_eq!(p, close),
+            _ => panic!("expected Up"),
+        }
+    }
+}

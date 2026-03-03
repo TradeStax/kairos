@@ -23,20 +23,6 @@ pub enum ToolCategory {
 }
 
 impl ToolCategory {
-    #[allow(dead_code)]
-    pub const ALL: &'static [ToolCategory] = &[
-        ToolCategory::Cursor,
-        ToolCategory::Lines,
-        ToolCategory::Levels,
-        ToolCategory::Fibonacci,
-        ToolCategory::Channels,
-        ToolCategory::Shapes,
-        ToolCategory::Annotations,
-        ToolCategory::Trading,
-        ToolCategory::Analysis,
-        ToolCategory::AiQuery,
-    ];
-
     pub fn tools(&self) -> &'static [DrawingTool] {
         match self {
             ToolCategory::Cursor => &[DrawingTool::None],

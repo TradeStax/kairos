@@ -1,4 +1,6 @@
 use std::{
+    borrow::Cow,
+    collections::HashMap,
     fs,
     io::{self, Write},
     path::PathBuf,
@@ -23,51 +25,111 @@ enum LogMessage {
 }
 
 pub fn setup(is_debug: bool) -> Result<(), Error> {
+    let overrides = parse_rust_log();
+
     let default_level = if is_debug {
-        log::Level::Debug
+        log::LevelFilter::Debug
     } else {
-        log::Level::Info
+        log::LevelFilter::Info
     };
 
-    let level_filter = std::env::var("RUST_LOG")
-        .ok()
-        .as_deref()
-        .map(str::parse::<log::Level>)
-        .transpose()?
-        .unwrap_or(default_level)
-        .to_level_filter();
+    let level_for = |target: &str| -> log::LevelFilter {
+        overrides.get(target).copied().unwrap_or(default_level)
+    };
 
-    let mut io_sink = fern::Dispatch::new().format(|out, message, record| {
-        out.finish(format_args!(
-            "{}:{} -- {}",
-            chrono::Local::now().format("%H:%M:%S%.3f"),
-            record.level(),
-            message
-        ));
-    });
+    let io_sink = if is_debug {
+        use fern::colors::{Color, ColoredLevelConfig};
+        let colors = ColoredLevelConfig::new()
+            .error(Color::Red)
+            .warn(Color::Yellow)
+            .info(Color::Green)
+            .debug(Color::Cyan)
+            .trace(Color::White);
 
-    if is_debug {
-        io_sink = io_sink.chain(std::io::stdout());
+        fern::Dispatch::new()
+            .format(move |out, message, record| {
+                out.finish(format_args!(
+                    "{} {:<5} [{}] {}",
+                    chrono::Local::now().format("%H:%M:%S%.3f"),
+                    colors.color(record.level()),
+                    shorten_target(record.target()),
+                    message
+                ));
+            })
+            .chain(std::io::stdout())
     } else {
         let log_path = data::log::path_under(crate::infra::platform::data_path(None).as_path());
         initial_rotation(&log_path)?;
-
         let logger: Box<dyn Write + Send> = Box::new(BackgroundLogger::new(log_path)?);
 
-        io_sink = io_sink.chain(logger);
-    }
+        fern::Dispatch::new()
+            .format(|out, message, record| {
+                out.finish(format_args!(
+                    "{} {:<5} [{}] {}",
+                    chrono::Local::now().format("%H:%M:%S%.3f"),
+                    record.level(),
+                    shorten_target(record.target()),
+                    message
+                ));
+            })
+            .chain(logger)
+    };
 
     fern::Dispatch::new()
         .level(log::LevelFilter::Off)
         .level_for("panic", log::LevelFilter::Error)
-        .level_for("iced_wgpu", log::LevelFilter::Info)
-        .level_for("kairos_data", level_filter)
-        .level_for("kairos_exchange", level_filter)
-        .level_for("kairos", level_filter)
+        .level_for("iced_wgpu", log::LevelFilter::Warn)
+        .level_for("kairos_data", level_for("kairos_data"))
+        .level_for("kairos_study", level_for("kairos_study"))
+        .level_for("kairos_backtest", level_for("kairos_backtest"))
+        .level_for("kairos", level_for("kairos"))
         .chain(io_sink)
         .apply()?;
 
     Ok(())
+}
+
+fn shorten_target(target: &str) -> Cow<'_, str> {
+    if let Some(rest) = target.strip_prefix("kairos_data::") {
+        Cow::Owned(format!("data::{rest}"))
+    } else if let Some(rest) = target.strip_prefix("kairos_study::") {
+        Cow::Owned(format!("study::{rest}"))
+    } else if let Some(rest) = target.strip_prefix("kairos_backtest::") {
+        Cow::Owned(format!("backtest::{rest}"))
+    } else if let Some(rest) = target.strip_prefix("kairos::") {
+        Cow::Borrowed(rest)
+    } else {
+        Cow::Borrowed(target)
+    }
+}
+
+fn parse_rust_log() -> HashMap<String, log::LevelFilter> {
+    let mut map = HashMap::new();
+    let Ok(val) = std::env::var("RUST_LOG") else {
+        return map;
+    };
+
+    // Bare level: RUST_LOG=debug
+    if let Ok(level) = val.parse::<log::Level>() {
+        let filter = level.to_level_filter();
+        map.insert("kairos".to_string(), filter);
+        map.insert("kairos_data".to_string(), filter);
+        map.insert("kairos_study".to_string(), filter);
+        map.insert("kairos_backtest".to_string(), filter);
+        return map;
+    }
+
+    // Per-target: RUST_LOG=kairos_data=debug,kairos=info
+    for part in val.split(',') {
+        let part = part.trim();
+        if let Some((target, level_str)) = part.split_once('=')
+            && let Ok(level) = level_str.parse::<log::Level>()
+        {
+            map.insert(target.to_string(), level.to_level_filter());
+        }
+    }
+
+    map
 }
 
 fn initial_rotation(log_path: &PathBuf) -> io::Result<()> {

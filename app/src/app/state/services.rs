@@ -13,6 +13,8 @@ pub(crate) struct DataEngineState {
     pub(crate) rithmic_reconnect_attempts: u32,
     pub(crate) replay_engine:
         Option<std::sync::Arc<tokio::sync::Mutex<crate::services::ReplayEngine>>>,
+    /// Resolves Rithmic server variants to WebSocket URLs at runtime.
+    pub(crate) server_resolver: Option<std::sync::Arc<data::ServerResolver>>,
 }
 
 impl DataEngineState {
@@ -25,6 +27,7 @@ impl DataEngineState {
             rithmic_feed_id: None,
             rithmic_reconnect_attempts: 0,
             replay_engine: None,
+            server_resolver: None,
         }
     }
 }

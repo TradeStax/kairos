@@ -51,7 +51,6 @@ impl<T: Send + 'static> EventChannel<T> {
 
 // ── DataEngine event slot ─────────────────────────────────────────────────────
 // The DataEngine's event receiver is taken once by the subscription stream.
-// This replaces the old RITHMIC_CHANNEL and DOWNLOAD_CHANNEL globals.
 
 static DATA_ENGINE_EVENT_SLOT: OnceLock<
     std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<data::DataEvent>>>>,
@@ -99,47 +98,6 @@ static RITHMIC_CLIENT_STAGING: OnceLock<RithmicClientSlot> = OnceLock::new();
 
 pub(crate) fn get_rithmic_client_staging() -> &'static RithmicClientSlot {
     RITHMIC_CLIENT_STAGING.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
-}
-
-// ── Chart loading progress ───────────────────────────────────────────────────
-// Stores per-pane (days_loaded, days_total) progress updated by the DataEngine
-// during multi-day Rithmic fetches and read by the 500ms loading status poll.
-
-static CHART_LOAD_PROGRESS: OnceLock<
-    std::sync::Mutex<std::collections::HashMap<uuid::Uuid, (usize, usize)>>,
-> = OnceLock::new();
-
-fn chart_progress_map()
--> &'static std::sync::Mutex<std::collections::HashMap<uuid::Uuid, (usize, usize)>> {
-    CHART_LOAD_PROGRESS
-        .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-/// Update loading progress for a pane (called from async task).
-pub(crate) fn set_chart_progress(
-    pane_id: uuid::Uuid,
-    days_loaded: usize,
-    days_total: usize,
-) {
-    if let Ok(mut map) = chart_progress_map().lock() {
-        map.insert(pane_id, (days_loaded, days_total));
-    }
-}
-
-/// Drain all current progress entries (called by the polling handler).
-pub(crate) fn take_chart_progress()
--> std::collections::HashMap<uuid::Uuid, (usize, usize)> {
-    match chart_progress_map().lock() {
-        Ok(mut map) => std::mem::take(&mut *map),
-        Err(_) => std::collections::HashMap::new(),
-    }
-}
-
-/// Remove a pane's progress entry (called when load completes).
-pub(crate) fn clear_chart_progress(pane_id: uuid::Uuid) {
-    if let Ok(mut map) = chart_progress_map().lock() {
-        map.remove(&pane_id);
-    }
 }
 
 // ── Replay ────────────────────────────────────────────────────────────────────

@@ -58,28 +58,32 @@ fn render_single_line(
     };
     let stroke = Stroke::with_color(stroke, color);
 
-    let mut prev: Option<Point> = None;
-
-    for &(x_val, y_val) in &series.points {
-        let sx = state.interval_to_x(x_val);
-        let sy = match placement {
-            StudyPlacement::Overlay
-            | StudyPlacement::Background
-            | StudyPlacement::CandleReplace
-            | StudyPlacement::SidePanel => state.price_to_y(Price::from_f32(y_val)),
-            StudyPlacement::Panel => {
-                if let Some((min, max)) = panel_range {
-                    coord::value_to_panel_y(y_val, min, max, bounds.height)
-                } else {
-                    bounds.height
+    let path = Path::new(|builder| {
+        let mut started = false;
+        for &(x_val, y_val) in &series.points {
+            let sx = state.interval_to_x(x_val);
+            let sy = match placement {
+                StudyPlacement::Overlay
+                | StudyPlacement::Background
+                | StudyPlacement::CandleReplace
+                | StudyPlacement::SidePanel => state.price_to_y(Price::from_f32(y_val)),
+                StudyPlacement::Panel => {
+                    if let Some((min, max)) = panel_range {
+                        coord::value_to_panel_y(y_val, min, max, bounds.height)
+                    } else {
+                        bounds.height
+                    }
                 }
-            }
-        };
+            };
 
-        let point = Point::new(sx, sy);
-        if let Some(p) = prev {
-            frame.stroke(&Path::line(p, point), stroke);
+            let point = Point::new(sx, sy);
+            if started {
+                builder.line_to(point);
+            } else {
+                builder.move_to(point);
+                started = true;
+            }
         }
-        prev = Some(point);
-    }
+    });
+    frame.stroke(&path, stroke);
 }

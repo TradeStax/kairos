@@ -316,3 +316,402 @@ impl Default for OrderBook {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::order::request::{BracketOrder, NewOrder};
+    use crate::order::types::{OrderSide, OrderStatus, OrderType, TimeInForce};
+    use kairos_data::{FuturesTicker, Price, Timestamp};
+
+    fn es_ticker() -> FuturesTicker {
+        FuturesTicker::new("ES.c.0", kairos_data::FuturesVenue::CMEGlobex)
+    }
+
+    fn ts(ms: u64) -> Timestamp {
+        Timestamp(ms)
+    }
+
+    fn market_buy_order() -> NewOrder {
+        NewOrder {
+            instrument: es_ticker(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Market,
+            quantity: 1.0,
+            time_in_force: TimeInForce::GTC,
+            label: None,
+            reduce_only: false,
+        }
+    }
+
+    fn limit_buy_order(price: f64) -> NewOrder {
+        NewOrder {
+            instrument: es_ticker(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit {
+                price: Price::from_f64(price),
+            },
+            quantity: 1.0,
+            time_in_force: TimeInForce::GTC,
+            label: None,
+            reduce_only: false,
+        }
+    }
+
+    fn day_order() -> NewOrder {
+        NewOrder {
+            instrument: es_ticker(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit {
+                price: Price::from_f64(5000.0),
+            },
+            quantity: 1.0,
+            time_in_force: TimeInForce::Day,
+            label: None,
+            reduce_only: false,
+        }
+    }
+
+    // ── Create / Active ──────────────────────────────────────────
+
+    #[test]
+    fn test_create_order_is_active() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&market_buy_order(), ts(1000));
+
+        let order = book.get(id).unwrap();
+        assert_eq!(order.status, OrderStatus::Active);
+        assert_eq!(book.active_count(), 1);
+    }
+
+    #[test]
+    fn test_empty_book() {
+        let book = OrderBook::new();
+        assert_eq!(book.active_count(), 0);
+        assert!(book.get(OrderId(999)).is_none());
+    }
+
+    // ── Fill lifecycle ───────────────────────────────────────────
+
+    #[test]
+    fn test_fill_order_fully() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&market_buy_order(), ts(1000));
+
+        let order = book.get_mut(id).unwrap();
+        order.record_fill(1.0, Price::from_f64(5000.0), ts(1001));
+
+        assert_eq!(book.get(id).unwrap().status, OrderStatus::Filled);
+        assert!(book.get(id).unwrap().is_terminal());
+    }
+
+    #[test]
+    fn test_partial_fill() {
+        let mut new = market_buy_order();
+        new.quantity = 5.0;
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&new, ts(1000));
+
+        let order = book.get_mut(id).unwrap();
+        order.record_fill(3.0, Price::from_f64(5000.0), ts(1001));
+
+        let order = book.get(id).unwrap();
+        assert_eq!(order.status, OrderStatus::PartiallyFilled);
+        assert!((order.remaining_quantity() - 2.0).abs() < 1e-9);
+        assert!(order.is_active());
+    }
+
+    // ── Cancel ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_cancel_order() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&limit_buy_order(5000.0), ts(1000));
+
+        book.cancel(id, ts(1001));
+
+        assert_eq!(book.get(id).unwrap().status, OrderStatus::Cancelled);
+        assert_eq!(book.active_count(), 0);
+    }
+
+    #[test]
+    fn test_cancel_already_terminal_is_noop() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&market_buy_order(), ts(1000));
+
+        // Fill it fully
+        book.get_mut(id)
+            .unwrap()
+            .record_fill(1.0, Price::from_f64(5000.0), ts(1001));
+
+        // Cancel a filled order should not change state
+        book.cancel(id, ts(1002));
+        assert_eq!(book.get(id).unwrap().status, OrderStatus::Filled);
+    }
+
+    #[test]
+    fn test_cancel_all() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let _id1 = book.create_order(&market_buy_order(), ts(1000));
+        let _id2 = book.create_order(&limit_buy_order(4950.0), ts(1001));
+        let _id3 = book.create_order(&limit_buy_order(4900.0), ts(1002));
+
+        assert_eq!(book.active_count(), 3);
+        book.cancel_all(None, ts(1003));
+        assert_eq!(book.active_count(), 0);
+    }
+
+    #[test]
+    fn test_cancel_all_filtered_by_instrument() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let _es_id = book.create_order(&market_buy_order(), ts(1000));
+
+        let nq = FuturesTicker::new("NQ.c.0", kairos_data::FuturesVenue::CMEGlobex);
+        let nq_order = NewOrder {
+            instrument: nq,
+            side: OrderSide::Buy,
+            order_type: OrderType::Market,
+            quantity: 1.0,
+            time_in_force: TimeInForce::GTC,
+            label: None,
+            reduce_only: false,
+        };
+        let _nq_id = book.create_order(&nq_order, ts(1001));
+
+        assert_eq!(book.active_count(), 2);
+
+        // Cancel only ES orders
+        book.cancel_all(Some(es_ticker()), ts(1002));
+        assert_eq!(book.active_count(), 1);
+    }
+
+    // ── Modify ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_modify_limit_price() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&limit_buy_order(5000.0), ts(1000));
+
+        let success = book.modify(id, Some(Price::from_f64(4990.0)), None, ts(1001));
+        assert!(success);
+
+        let order = book.get(id).unwrap();
+        match order.order_type {
+            OrderType::Limit { price } => {
+                assert!((price.to_f64() - 4990.0).abs() < 1e-10);
+            }
+            _ => panic!("Expected Limit order type"),
+        }
+    }
+
+    #[test]
+    fn test_modify_quantity() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&market_buy_order(), ts(1000));
+
+        let success = book.modify(id, None, Some(3.0), ts(1001));
+        assert!(success);
+        assert!((book.get(id).unwrap().quantity - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_modify_terminal_returns_false() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let id = book.create_order(&market_buy_order(), ts(1000));
+        book.cancel(id, ts(1001));
+
+        let success = book.modify(id, None, Some(5.0), ts(1002));
+        assert!(!success);
+    }
+
+    #[test]
+    fn test_modify_nonexistent_returns_false() {
+        let mut book = OrderBook::new();
+        let success = book.modify(OrderId(9999), None, Some(5.0), ts(1002));
+        assert!(!success);
+    }
+
+    // ── Day order expiration ─────────────────────────────────────
+
+    #[test]
+    fn test_expire_day_orders() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let day_id = book.create_order(&day_order(), ts(1000));
+        let gtc_id = book.create_order(&limit_buy_order(4990.0), ts(1001));
+
+        book.expire_day_orders(ts(86_400_000));
+
+        assert_eq!(book.get(day_id).unwrap().status, OrderStatus::Expired);
+        assert_eq!(book.get(gtc_id).unwrap().status, OrderStatus::Active);
+        assert_eq!(book.active_count(), 1);
+    }
+
+    // ── Bracket orders ───────────────────────────────────────────
+
+    #[test]
+    fn test_bracket_order_creation() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let bracket = BracketOrder {
+            entry: NewOrder {
+                instrument: es_ticker(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: TimeInForce::GTC,
+                label: None,
+                reduce_only: false,
+            },
+            stop_loss: Price::from_f64(4990.0),
+            take_profit: Some(Price::from_f64(5020.0)),
+        };
+
+        let (entry_id, sl_id, tp_id) = book.create_bracket(&bracket, ts(1000));
+
+        // Entry is active
+        assert_eq!(book.get(entry_id).unwrap().status, OrderStatus::Active);
+        // SL is pending
+        assert_eq!(book.get(sl_id).unwrap().status, OrderStatus::Pending);
+        // TP is pending
+        let tp_id = tp_id.unwrap();
+        assert_eq!(book.get(tp_id).unwrap().status, OrderStatus::Pending);
+        // OCO linkage
+        assert_eq!(book.get(sl_id).unwrap().oco_partner, Some(tp_id));
+        assert_eq!(book.get(tp_id).unwrap().oco_partner, Some(sl_id));
+        // Parent linkage
+        assert_eq!(book.get(sl_id).unwrap().parent_id, Some(entry_id));
+        assert_eq!(book.get(tp_id).unwrap().parent_id, Some(entry_id));
+    }
+
+    #[test]
+    fn test_activate_bracket_children() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let bracket = BracketOrder {
+            entry: NewOrder {
+                instrument: es_ticker(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: TimeInForce::GTC,
+                label: None,
+                reduce_only: false,
+            },
+            stop_loss: Price::from_f64(4990.0),
+            take_profit: Some(Price::from_f64(5020.0)),
+        };
+
+        let (entry_id, sl_id, tp_id) = book.create_bracket(&bracket, ts(1000));
+        let tp_id = tp_id.unwrap();
+
+        book.activate_bracket_children(entry_id);
+
+        assert_eq!(book.get(sl_id).unwrap().status, OrderStatus::Active);
+        assert_eq!(book.get(tp_id).unwrap().status, OrderStatus::Active);
+    }
+
+    #[test]
+    fn test_bracket_oco_cancel() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let bracket = BracketOrder {
+            entry: NewOrder {
+                instrument: es_ticker(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: TimeInForce::GTC,
+                label: None,
+                reduce_only: false,
+            },
+            stop_loss: Price::from_f64(4990.0),
+            take_profit: Some(Price::from_f64(5020.0)),
+        };
+
+        let (entry_id, sl_id, tp_id) = book.create_bracket(&bracket, ts(1000));
+        let tp_id = tp_id.unwrap();
+
+        // Activate children
+        book.activate_bracket_children(entry_id);
+
+        // Cancel the SL => OCO partner (TP) should also be cancelled
+        book.cancel(sl_id, ts(1002));
+
+        assert_eq!(book.get(sl_id).unwrap().status, OrderStatus::Cancelled);
+        assert_eq!(book.get(tp_id).unwrap().status, OrderStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_bracket_without_take_profit() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let bracket = BracketOrder {
+            entry: NewOrder {
+                instrument: es_ticker(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: TimeInForce::GTC,
+                label: None,
+                reduce_only: false,
+            },
+            stop_loss: Price::from_f64(4990.0),
+            take_profit: None,
+        };
+
+        let (entry_id, sl_id, tp_id) = book.create_bracket(&bracket, ts(1000));
+
+        assert!(tp_id.is_none());
+        assert_eq!(book.get(sl_id).unwrap().oco_partner, None);
+        assert_eq!(book.get(sl_id).unwrap().parent_id, Some(entry_id));
+    }
+
+    #[test]
+    fn test_bracket_stop_loss_lookup() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        let bracket = BracketOrder {
+            entry: NewOrder {
+                instrument: es_ticker(),
+                side: OrderSide::Buy,
+                order_type: OrderType::Market,
+                quantity: 1.0,
+                time_in_force: TimeInForce::GTC,
+                label: None,
+                reduce_only: false,
+            },
+            stop_loss: Price::from_f64(4990.0),
+            take_profit: None,
+        };
+
+        let (entry_id, _sl_id, _tp_id) = book.create_bracket(&bracket, ts(1000));
+
+        let sl_price = book.bracket_stop_loss(entry_id).unwrap();
+        assert!((sl_price.to_f64() - 4990.0).abs() < 1e-10);
+    }
+
+    // ── Reset ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_reset_clears_all() {
+        let mut book = OrderBook::new();
+        OrderId::reset();
+        book.create_order(&market_buy_order(), ts(1000));
+        book.create_order(&market_buy_order(), ts(1001));
+
+        assert_eq!(book.active_count(), 2);
+        book.reset();
+        assert_eq!(book.active_count(), 0);
+    }
+}

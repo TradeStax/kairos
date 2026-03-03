@@ -58,6 +58,9 @@ pub enum DownloadProgress {
     Downloading {
         current_day: usize,
         total_days: usize,
+        /// Sub-day progress fraction `[0.0, 1.0)` for smooth
+        /// intra-day progress during paginated Rithmic fetches.
+        sub_day_fraction: f32,
     },
     Complete {
         days_downloaded: usize,

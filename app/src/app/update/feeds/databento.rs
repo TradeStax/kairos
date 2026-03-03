@@ -22,12 +22,6 @@ impl Kairos {
             return Task::none();
         }
 
-        // Remove sentinel entries to prevent cross-provider date inflation
-        {
-            let mut idx = data::lock_or_recover(&self.persistence.data_index);
-            idx.remove_feed(crate::app::Kairos::REGISTRY_SENTINEL_FEED);
-        }
-
         // Immediately seed DataIndex from feed's dataset info (if available)
         // so tickers and ranges are available before the async scan completes.
         if let Some(feed) = feed_manager.get(feed_id)
@@ -55,6 +49,14 @@ impl Kairos {
 
         feed_manager.set_status(feed_id, data::ConnectionStatus::Connected);
         self.sync_feed_snapshots(&feed_manager);
+
+        // Historical feeds only need DataIndex seeding from dataset_info
+        // (done above) — skip async adapter init + full cache scan.
+        if feed_manager.get(feed_id).is_some_and(|f| f.is_historical()) {
+            drop(feed_manager);
+            return Task::none();
+        }
+
         drop(feed_manager);
 
         log::info!("Databento feed connected - triggering adapter init + cache scan");

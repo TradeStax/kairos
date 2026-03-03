@@ -132,7 +132,7 @@ pub struct FlowMetrics {
     pub block_sell_volume: f64,
     pub block_count: u32,
     /// Absorption ratio: passive volume / aggressive volume.
-    /// > 1.0 means passive side is absorbing aggression (level defended).
+    /// Values above 1.0 mean passive side is absorbing aggression (level defended).
     /// Computed per-touch and exponentially smoothed.
     pub absorption_ratio: f64,
 }

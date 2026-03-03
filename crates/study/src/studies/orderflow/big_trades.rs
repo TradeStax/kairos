@@ -358,9 +358,7 @@ impl BigTradesStudy {
                 label: "Max Price Range".into(),
                 description: "Max ticks of price movement in block".into(),
                 kind: ParameterKind::Integer { min: 1, max: 20 },
-                default: ParameterValue::Integer(
-                    DEFAULT_ABSORPTION_MAX_RANGE_TICKS,
-                ),
+                default: ParameterValue::Integer(DEFAULT_ABSORPTION_MAX_RANGE_TICKS),
                 tab: ParameterTab::Absorption,
                 section: None,
                 order: 1,
@@ -372,9 +370,7 @@ impl BigTradesStudy {
                 label: "Confirmation Ticks".into(),
                 description: "Ticks of reversal needed to confirm".into(),
                 kind: ParameterKind::Integer { min: 1, max: 20 },
-                default: ParameterValue::Integer(
-                    DEFAULT_ABSORPTION_CONFIRMATION_TICKS,
-                ),
+                default: ParameterValue::Integer(DEFAULT_ABSORPTION_CONFIRMATION_TICKS),
                 tab: ParameterTab::Absorption,
                 section: None,
                 order: 2,
@@ -385,10 +381,11 @@ impl BigTradesStudy {
                 key: "absorption_timeout_ms".into(),
                 label: "Confirmation Timeout".into(),
                 description: "Max ms to wait for confirmation".into(),
-                kind: ParameterKind::Integer { min: 500, max: 30000 },
-                default: ParameterValue::Integer(
-                    DEFAULT_ABSORPTION_TIMEOUT_MS,
-                ),
+                kind: ParameterKind::Integer {
+                    min: 500,
+                    max: 30000,
+                },
+                default: ParameterValue::Integer(DEFAULT_ABSORPTION_TIMEOUT_MS),
                 tab: ParameterTab::Absorption,
                 section: None,
                 order: 3,
@@ -400,9 +397,7 @@ impl BigTradesStudy {
                 label: "Break Ticks".into(),
                 description: "Ticks of continuation to invalidate".into(),
                 kind: ParameterKind::Integer { min: 1, max: 30 },
-                default: ParameterValue::Integer(
-                    DEFAULT_ABSORPTION_BREAK_TICKS,
-                ),
+                default: ParameterValue::Integer(DEFAULT_ABSORPTION_BREAK_TICKS),
                 tab: ParameterTab::Absorption,
                 section: None,
                 order: 4,
@@ -478,14 +473,13 @@ impl BigTradesStudy {
                 "absorption_confirmation_ticks",
                 DEFAULT_ABSORPTION_CONFIRMATION_TICKS,
             ),
-            absorption_timeout_ms: self.config.get_int(
-                "absorption_timeout_ms",
-                DEFAULT_ABSORPTION_TIMEOUT_MS,
-            ) as u64,
-            absorption_break_ticks: self.config.get_int(
-                "absorption_break_ticks",
-                DEFAULT_ABSORPTION_BREAK_TICKS,
-            ),
+            absorption_timeout_ms: self
+                .config
+                .get_int("absorption_timeout_ms", DEFAULT_ABSORPTION_TIMEOUT_MS)
+                as u64,
+            absorption_break_ticks: self
+                .config
+                .get_int("absorption_break_ticks", DEFAULT_ABSORPTION_BREAK_TICKS),
             absorption_buy_color: self
                 .config
                 .get_color("absorption_buy_color", DEFAULT_BUY_COLOR),
@@ -541,8 +535,7 @@ impl BigTradesStudy {
             };
 
             if let Some(block) = pending {
-                let same_candle =
-                    !is_time_based || candle_open == block.candle_open;
+                let same_candle = !is_time_based || candle_open == block.candle_open;
 
                 if block.is_buy == is_buy
                     && time.saturating_sub(block.last_time) <= params.window_ms
@@ -553,33 +546,25 @@ impl BigTradesStudy {
                     block.total_qty += qty;
                     block.last_time = time;
                     block.fill_count += 1;
-                    block.min_price_units =
-                        block.min_price_units.min(price_units);
-                    block.max_price_units =
-                        block.max_price_units.max(price_units);
+                    block.min_price_units = block.min_price_units.min(price_units);
+                    block.max_price_units = block.max_price_units.max(price_units);
                 } else {
                     // Flush current block
-                    if let Some(marker) = flush_block(
-                        block, params, candles, basis,
-                        candle_boundaries,
-                    ) {
+                    if let Some(marker) =
+                        flush_block(block, params, candles, basis, candle_boundaries)
+                    {
                         markers.push(marker);
                     }
                     // Check if flushed block qualifies as absorption
                     if params.show_absorption
-                        && let Some(pa) =
-                            try_create_pending(block, params)
+                        && let Some(pa) = try_create_pending(block, params)
                     {
                         pending_absorptions.push(pa);
                     }
-                    *pending = Some(TradeBlock::new(
-                        is_buy, price_units, qty, time, candle_open,
-                    ));
+                    *pending = Some(TradeBlock::new(is_buy, price_units, qty, time, candle_open));
                 }
             } else {
-                *pending = Some(TradeBlock::new(
-                    is_buy, price_units, qty, time, candle_open,
-                ));
+                *pending = Some(TradeBlock::new(is_buy, price_units, qty, time, candle_open));
             }
         }
     }
@@ -922,10 +907,7 @@ fn flush_block(
 /// Try to create a [`PendingAbsorption`] from a flushed
 /// [`TradeBlock`]. Returns `None` if the block doesn't qualify
 /// (wrong size or too wide a price range).
-fn try_create_pending(
-    block: &TradeBlock,
-    params: &ComputeParams,
-) -> Option<PendingAbsorption> {
+fn try_create_pending(block: &TradeBlock, params: &ComputeParams) -> Option<PendingAbsorption> {
     // Size filter (reuse same filter_min/max as big trades)
     if params.filter_min > 0.0 && block.total_qty < params.filter_min {
         return None;
@@ -997,7 +979,11 @@ fn update_pendings(
             if reversal_ticks >= params.absorption_confirmation_ticks {
                 let pending = pendings.swap_remove(i);
                 emit_absorption_marker(
-                    &pending, markers, params, candles, basis,
+                    &pending,
+                    markers,
+                    params,
+                    candles,
+                    basis,
                     candle_boundaries,
                 );
                 continue;
@@ -1015,7 +1001,11 @@ fn update_pendings(
             if reversal_ticks >= params.absorption_confirmation_ticks {
                 let pending = pendings.swap_remove(i);
                 emit_absorption_marker(
-                    &pending, markers, params, candles, basis,
+                    &pending,
+                    markers,
+                    params,
+                    candles,
+                    basis,
                     candle_boundaries,
                 );
                 continue;
@@ -1196,9 +1186,7 @@ impl Study for BigTradesStudy {
         StudyPlacement::Overlay
     }
 
-    fn tab_labels(
-        &self,
-    ) -> Option<&[(&'static str, ParameterTab)]> {
+    fn tab_labels(&self) -> Option<&[(&'static str, ParameterTab)]> {
         static LABELS: &[(&str, ParameterTab)] = &[
             ("Data", ParameterTab::Parameters),
             ("Style", ParameterTab::Style),
@@ -1257,11 +1245,9 @@ impl Study for BigTradesStudy {
         };
 
         let params = self.read_params(input.tick_size.units());
-        let candle_boundaries =
-            build_candle_boundaries(input.candles, &input.basis);
+        let candle_boundaries = build_candle_boundaries(input.candles, &input.basis);
 
-        let mut markers: Vec<TradeMarker> =
-            Vec::with_capacity((trades.len() / 100).max(64));
+        let mut markers: Vec<TradeMarker> = Vec::with_capacity((trades.len() / 100).max(64));
         let mut pending: Option<TradeBlock> = None;
         let mut pending_absorptions: Vec<PendingAbsorption> = Vec::new();
 
@@ -1336,8 +1322,7 @@ impl Study for BigTradesStudy {
 
         // Reuse cached candle boundaries if candle count unchanged
         if input.candles.len() != self.cached_boundaries_candle_count {
-            self.cached_candle_boundaries =
-                build_candle_boundaries(input.candles, &input.basis);
+            self.cached_candle_boundaries = build_candle_boundaries(input.candles, &input.basis);
             self.cached_boundaries_candle_count = input.candles.len();
         }
 
@@ -1356,26 +1341,23 @@ impl Study for BigTradesStudy {
 
         self.processed_trade_count = trades.len();
 
-        let markers_changed =
-            self.accumulated_markers.len() != markers_before;
+        let markers_changed = self.accumulated_markers.len() != markers_before;
 
         // Compute pending marker without cloning accumulated
-        let pending_marker =
-            self.pending_block.as_ref().and_then(|block| {
-                flush_block(
-                    block,
-                    &params,
-                    input.candles,
-                    &input.basis,
-                    self.cached_candle_boundaries.as_deref(),
-                )
-            });
+        let pending_marker = self.pending_block.as_ref().and_then(|block| {
+            flush_block(
+                block,
+                &params,
+                input.candles,
+                &input.basis,
+                self.cached_candle_boundaries.as_deref(),
+            )
+        });
 
         // Only rebuild output if something changed
         if markers_changed || pending_marker.is_some() {
             if markers_changed {
-                self.cached_render_config =
-                    self.build_marker_render_config();
+                self.cached_render_config = self.build_marker_render_config();
             }
             self.output = Self::rebuild_output(
                 &self.accumulated_markers,
@@ -2142,36 +2124,21 @@ mod tests {
             .unwrap();
         // 4 tick max range, 3 tick confirm, 6 tick break, 5s timeout
         study
-            .set_parameter(
-                "absorption_max_range_ticks",
-                ParameterValue::Integer(4),
-            )
+            .set_parameter("absorption_max_range_ticks", ParameterValue::Integer(4))
             .unwrap();
         study
-            .set_parameter(
-                "absorption_confirmation_ticks",
-                ParameterValue::Integer(3),
-            )
+            .set_parameter("absorption_confirmation_ticks", ParameterValue::Integer(3))
             .unwrap();
         study
-            .set_parameter(
-                "absorption_break_ticks",
-                ParameterValue::Integer(6),
-            )
+            .set_parameter("absorption_break_ticks", ParameterValue::Integer(6))
             .unwrap();
         study
-            .set_parameter(
-                "absorption_timeout_ms",
-                ParameterValue::Integer(5000),
-            )
+            .set_parameter("absorption_timeout_ms", ParameterValue::Integer(5000))
             .unwrap();
         study
     }
 
-    fn absorption_input<'a>(
-        candles: &'a [Candle],
-        trades: &'a [Trade],
-    ) -> StudyInput<'a> {
+    fn absorption_input<'a>(candles: &'a [Candle], trades: &'a [Trade]) -> StudyInput<'a> {
         StudyInput {
             candles,
             trades: Some(trades),
@@ -2202,21 +2169,14 @@ mod tests {
         let mut trades = vec![];
         // 50 sell fills at 5000.00
         for i in 0..50 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         // Then a buy at 5000.00 to flush the sell block
         trades.push(make_trade(1300, 5000.0, 1.0, Side::Buy));
         // Price rises 3 ticks (0.75) — confirms absorption
         trades.push(make_trade(1400, 5000.75, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
 
         let crosses = cross_markers(&study);
         assert_eq!(
@@ -2225,10 +2185,7 @@ mod tests {
             "expected 1 cross marker, got {}",
             crosses.len()
         );
-        assert_eq!(
-            crosses[0].shape_override,
-            Some(MarkerShape::Cross)
-        );
+        assert_eq!(crosses[0].shape_override, Some(MarkerShape::Cross));
         // Sell aggression absorbed → bullish → marker is_buy=true
         assert!(crosses[0].is_buy);
     }
@@ -2240,12 +2197,7 @@ mod tests {
         // Sell block spanning 5 ticks (1.25) — exceeds 4-tick max
         let mut trades = vec![];
         for i in 0..25 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         for i in 0..25 {
             trades.push(make_trade(
@@ -2259,9 +2211,7 @@ mod tests {
         trades.push(make_trade(1400, 5001.25, 1.0, Side::Buy));
         trades.push(make_trade(1500, 5002.00, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
 
         let crosses = cross_markers(&study);
         assert!(
@@ -2278,21 +2228,14 @@ mod tests {
         // Sell block at 5000.00, then price continues DOWN 6 ticks
         let mut trades = vec![];
         for i in 0..50 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         // Flush block
         trades.push(make_trade(1300, 5000.0, 1.0, Side::Buy));
         // Price drops 6 ticks (1.50) — breaks absorption
         trades.push(make_trade(1400, 4998.50, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
 
         let crosses = cross_markers(&study);
         assert!(
@@ -2309,21 +2252,14 @@ mod tests {
         // Sell block, then no meaningful price action for 5001ms
         let mut trades = vec![];
         for i in 0..50 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         // Flush block
         trades.push(make_trade(1300, 5000.0, 1.0, Side::Buy));
         // Trade after timeout (5001ms later) — reversal is too late
         trades.push(make_trade(6302, 5000.75, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
 
         let crosses = cross_markers(&study);
         assert!(
@@ -2337,28 +2273,18 @@ mod tests {
     fn test_absorption_disabled() {
         let mut study = absorption_study();
         study
-            .set_parameter(
-                "show_absorption",
-                ParameterValue::Boolean(false),
-            )
+            .set_parameter("show_absorption", ParameterValue::Boolean(false))
             .unwrap();
         let candles = vec![make_candle(1000, 5000.0)];
         // Same trades that would normally produce absorption
         let mut trades = vec![];
         for i in 0..50 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         trades.push(make_trade(1300, 5000.0, 1.0, Side::Buy));
         trades.push(make_trade(1400, 5000.75, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
 
         let crosses = cross_markers(&study);
         assert!(
@@ -2375,12 +2301,7 @@ mod tests {
         // Phase 1: sell block
         let mut trades1 = vec![];
         for i in 0..50 {
-            trades1.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades1.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         study
             .compute(&absorption_input(&candles, &trades1))
@@ -2396,26 +2317,17 @@ mod tests {
         study.append_trades(&trades2[50..], &input).unwrap();
 
         let crosses = cross_markers(&study);
-        assert_eq!(
-            crosses.len(),
-            1,
-            "incremental should produce absorption"
-        );
+        assert_eq!(crosses.len(), 1, "incremental should produce absorption");
     }
 
     #[test]
     fn test_absorption_color_semantics() {
         let mut study = absorption_study();
         // Set distinct colors
-        let buy_abs_color =
-            SerializableColor::new(0.0, 1.0, 0.0, 1.0);
-        let sell_abs_color =
-            SerializableColor::new(1.0, 0.0, 0.0, 1.0);
+        let buy_abs_color = SerializableColor::new(0.0, 1.0, 0.0, 1.0);
+        let sell_abs_color = SerializableColor::new(1.0, 0.0, 0.0, 1.0);
         study
-            .set_parameter(
-                "absorption_buy_color",
-                ParameterValue::Color(buy_abs_color),
-            )
+            .set_parameter("absorption_buy_color", ParameterValue::Color(buy_abs_color))
             .unwrap();
         study
             .set_parameter(
@@ -2429,19 +2341,12 @@ mod tests {
         // Sell aggression absorbed → bullish → buy_abs_color
         let mut trades = vec![];
         for i in 0..50 {
-            trades.push(make_trade(
-                1000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Sell,
-            ));
+            trades.push(make_trade(1000 + i * 5, 5000.0, 1.0, Side::Sell));
         }
         trades.push(make_trade(1300, 5000.0, 1.0, Side::Buy));
         trades.push(make_trade(1400, 5000.75, 1.0, Side::Buy));
 
-        study
-            .compute(&absorption_input(&candles, &trades))
-            .unwrap();
+        study.compute(&absorption_input(&candles, &trades)).unwrap();
         let crosses = cross_markers(&study);
         assert_eq!(crosses.len(), 1);
         assert_eq!(
@@ -2452,12 +2357,7 @@ mod tests {
         // Buy aggression absorbed → bearish → sell_abs_color
         let mut trades2 = vec![];
         for i in 0..50 {
-            trades2.push(make_trade(
-                2000 + i * 5,
-                5000.0,
-                1.0,
-                Side::Buy,
-            ));
+            trades2.push(make_trade(2000 + i * 5, 5000.0, 1.0, Side::Buy));
         }
         trades2.push(make_trade(2300, 5000.0, 1.0, Side::Sell));
         // Price drops 3 ticks = confirms buy absorption

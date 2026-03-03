@@ -1,4 +1,4 @@
-<img src=".gitlab/header.svg" alt="Header" style="max-width: 300px; width: 100%;" />
+<img src=".gitlab/kairos.svg" alt="Header" style="max-width: 100px; width: 100%;" />
 
 A native desktop charting platform for futures markets built with Rust and [Iced](https://github.com/iced-rs/iced) (v0.14).
 

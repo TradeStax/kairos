@@ -6,8 +6,8 @@ use crate::split_column;
 use crate::style;
 use crate::style::tokens;
 
-use crate::screen::dashboard::pane::config::{LadderConfig, VisualConfig};
 use crate::screen::dashboard::ladder;
+use crate::screen::dashboard::pane::config::{LadderConfig, VisualConfig};
 
 use iced::{
     Alignment, Element,

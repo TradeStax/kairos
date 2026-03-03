@@ -437,10 +437,7 @@ mod tests {
         let range_uncapped = index
             .resolve_chart_range("ES.c.0", ChartType::Candlestick, None)
             .unwrap();
-        assert_eq!(
-            range_uncapped.start,
-            today - chrono::Duration::days(30)
-        );
+        assert_eq!(range_uncapped.start, today - chrono::Duration::days(30));
         assert_eq!(range_uncapped.end, today);
     }
 
@@ -473,10 +470,7 @@ mod tests {
         let range_default = index
             .resolve_chart_range("NQ.c.0", ChartType::Candlestick, None)
             .unwrap();
-        assert_eq!(
-            range_default.start,
-            today - chrono::Duration::days(4)
-        );
+        assert_eq!(range_default.start, today - chrono::Duration::days(4));
         assert_eq!(range_default.end, today);
     }
 

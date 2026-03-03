@@ -192,10 +192,9 @@ impl DrawingManager {
             DrawingTool::DeltaProfile => {
                 // Create a VBP study pre-configured for Delta mode
                 let mut study = study::studies::orderflow::VbpStudy::new();
-                let _ = study.set_parameter(
-                    "vbp_type",
-                    study::ParameterValue::Choice("Delta".into()),
-                );
+                let result =
+                    study.set_parameter("vbp_type", study::ParameterValue::Choice("Delta".into()));
+                debug_assert!(result.is_ok(), "set_parameter(vbp_type) should succeed");
                 let delta_config = VbpDrawingConfig {
                     params: study.export_config(),
                 };
@@ -203,9 +202,7 @@ impl DrawingManager {
                     stroke_color: data::SerializableColor::new(0.95, 0.55, 0.15, 0.8),
                     stroke_width: 1.0,
                     line_style: LineStyle::Solid,
-                    fill_color: Some(data::SerializableColor::new(
-                        0.95, 0.55, 0.15, 0.15,
-                    )),
+                    fill_color: Some(data::SerializableColor::new(0.95, 0.55, 0.15, 0.15)),
                     fill_opacity: 0.15,
                     vbp_config: Some(delta_config),
                     ..self.default_style.clone()
@@ -552,10 +549,7 @@ impl DrawingManager {
         handle_index: usize,
         new_point: DrawingPoint,
     ) {
-        if self
-            .get(id)
-            .is_some_and(|d| d.tool.is_vbp())
-        {
+        if self.get(id).is_some_and(|d| d.tool.is_vbp()) {
             if let Some(drawing) = self.get_mut(id)
                 && handle_index < drawing.points.len()
                 && !drawing.locked
@@ -574,10 +568,7 @@ impl DrawingManager {
         // Check if we were dragging a VBP drawing that needs recompute
         if let Some((id, _)) = &self.move_edit_before {
             let id = *id;
-            if self
-                .get(id)
-                .is_some_and(|d| d.tool.is_vbp())
-            {
+            if self.get(id).is_some_and(|d| d.tool.is_vbp()) {
                 self.queue_vbp_compute(id);
             }
         }

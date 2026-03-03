@@ -321,3 +321,471 @@ impl Portfolio {
         self.trade_index = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::instrument::InstrumentSpec;
+    use crate::order::types::OrderSide;
+    use kairos_data::{FuturesTicker, FuturesVenue, Price, Timestamp};
+
+    fn es_ticker() -> FuturesTicker {
+        FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex)
+    }
+
+    fn es_spec() -> InstrumentSpec {
+        InstrumentSpec::new(es_ticker(), Price::from_f64(0.25), 50.0)
+    }
+
+    fn make_instruments() -> HashMap<FuturesTicker, InstrumentSpec> {
+        let mut m = HashMap::new();
+        m.insert(es_ticker(), es_spec());
+        m
+    }
+
+    fn make_portfolio(initial: f64, commission: f64) -> Portfolio {
+        Portfolio::new(initial, make_instruments(), commission, None)
+    }
+
+    fn ts(ms: u64) -> Timestamp {
+        Timestamp(ms)
+    }
+
+    // ── Initial state ────────────────────────────────────────────
+
+    #[test]
+    fn test_initial_state() {
+        let p = make_portfolio(100_000.0, 2.50);
+        assert!((p.cash() - 100_000.0).abs() < 1e-10);
+        assert!((p.realized_pnl() - 0.0).abs() < 1e-10);
+        assert!((p.total_equity() - 100_000.0).abs() < 1e-10);
+        assert!(p.positions().is_empty());
+    }
+
+    // ── Open long position ───────────────────────────────────────
+
+    #[test]
+    fn test_open_long_position() {
+        let mut p = make_portfolio(100_000.0, 2.50);
+        let result = p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        assert!(result.is_none()); // Opening fill, no trade record
+        assert!(p.has_position(&es_ticker()));
+        // Commission deducted on entry: 2.50 * 1 = 2.50
+        assert!((p.cash() - (100_000.0 - 2.50)).abs() < 1e-10);
+    }
+
+    // ── Close long position (profit) ─────────────────────────────
+
+    #[test]
+    fn test_close_long_with_profit() {
+        let mut p = make_portfolio(100_000.0, 2.50);
+        // Buy 1 ES at 5000.00
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        // Sell 1 ES at 5010.00 (10 points = 40 ticks * $12.50/tick = $500 gross)
+        let record = p.process_fill(
+            es_ticker(),
+            OrderSide::Sell,
+            Price::from_f64(5010.0),
+            1.0,
+            ts(2000),
+            Some(crate::output::trade_record::ExitReason::Manual),
+            None,
+        );
+
+        let record = record.expect("Should produce a trade record");
+        // 10 points / 0.25 tick_size = 40 ticks
+        assert_eq!(record.pnl_ticks, 40);
+        // 40 ticks * $12.50/tick * 1 contract = $500
+        assert!((record.pnl_gross_usd - 500.0).abs() < 1e-10);
+        // Commission: 2 sides * 2.50 * 1 = 5.00
+        assert!((record.commission_usd - 5.0).abs() < 1e-10);
+        // Net: 500 - 5 = 495
+        assert!((record.pnl_net_usd - 495.0).abs() < 1e-10);
+
+        assert!(!p.has_position(&es_ticker()));
+    }
+
+    // ── Close long position (loss) ───────────────────────────────
+
+    #[test]
+    fn test_close_long_with_loss() {
+        let mut p = make_portfolio(100_000.0, 2.50);
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        let record = p.process_fill(
+            es_ticker(),
+            OrderSide::Sell,
+            Price::from_f64(4990.0),
+            1.0,
+            ts(2000),
+            Some(crate::output::trade_record::ExitReason::StopLoss),
+            None,
+        );
+
+        let record = record.unwrap();
+        // -10 points / 0.25 = -40 ticks
+        assert_eq!(record.pnl_ticks, -40);
+        assert!((record.pnl_gross_usd - (-500.0)).abs() < 1e-10);
+    }
+
+    // ── Short position ───────────────────────────────────────────
+
+    #[test]
+    fn test_short_position_profit() {
+        let mut p = make_portfolio(100_000.0, 2.50);
+        // Sell 1 ES at 5000.00
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Sell,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        // Buy to cover at 4990.00 (10 point profit for short)
+        let record = p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(4990.0),
+            1.0,
+            ts(2000),
+            Some(crate::output::trade_record::ExitReason::TakeProfit),
+            None,
+        );
+
+        let record = record.unwrap();
+        // Short: (entry - exit) / tick = (5000 - 4990) / 0.25 = 40 ticks
+        assert_eq!(record.pnl_ticks, 40);
+        assert!((record.pnl_gross_usd - 500.0).abs() < 1e-10);
+    }
+
+    // ── Scale into position ──────────────────────────────────────
+
+    #[test]
+    fn test_scale_into_long() {
+        let mut p = make_portfolio(100_000.0, 0.0); // no commission for simplicity
+        // Buy 2 at 5000
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            2.0,
+            ts(1000),
+            None,
+            None,
+        );
+        // Buy 1 more at 5010 => VWAP = (5000*2 + 5010*1)/3 = 5003.333...
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5010.0),
+            1.0,
+            ts(1001),
+            None,
+            None,
+        );
+
+        let pos = p.positions().get(&es_ticker()).unwrap();
+        assert!((pos.quantity - 3.0).abs() < 1e-9);
+        let expected_avg = (5000.0 * 2.0 + 5010.0 * 1.0) / 3.0;
+        assert!((pos.avg_entry_price.to_f64() - expected_avg).abs() < 0.01);
+    }
+
+    // ── Multiple instruments ─────────────────────────────────────
+
+    #[test]
+    fn test_multiple_instruments() {
+        let nq = FuturesTicker::new("NQ.c.0", FuturesVenue::CMEGlobex);
+        let mut instruments = make_instruments();
+        instruments.insert(nq, InstrumentSpec::new(nq, Price::from_f64(0.25), 20.0));
+        let mut p = Portfolio::new(100_000.0, instruments, 0.0, None);
+
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        p.process_fill(
+            nq,
+            OrderSide::Sell,
+            Price::from_f64(20000.0),
+            1.0,
+            ts(1001),
+            None,
+            None,
+        );
+
+        assert!(p.has_position(&es_ticker()));
+        assert!(p.has_position(&nq));
+        assert_eq!(p.positions().len(), 2);
+    }
+
+    // ── Realized PnL accumulates ─────────────────────────────────
+
+    #[test]
+    fn test_realized_pnl_accumulates() {
+        let mut p = make_portfolio(100_000.0, 0.0);
+        // Trade 1: buy 5000, sell 5010 => +$500
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Sell,
+            Price::from_f64(5010.0),
+            1.0,
+            ts(2000),
+            Some(crate::output::trade_record::ExitReason::Manual),
+            None,
+        );
+        // Trade 2: buy 5020, sell 5015 => -$250
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5020.0),
+            1.0,
+            ts(3000),
+            None,
+            None,
+        );
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Sell,
+            Price::from_f64(5015.0),
+            1.0,
+            ts(4000),
+            Some(crate::output::trade_record::ExitReason::Manual),
+            None,
+        );
+
+        // Net realized = 500 - 250 = 250
+        assert!((p.realized_pnl() - 250.0).abs() < 1e-10);
+    }
+
+    // ── Commission deduction ─────────────────────────────────────
+
+    #[test]
+    fn test_commission_reduces_cash() {
+        let mut p = make_portfolio(100_000.0, 2.50);
+        // Buy 2 contracts => 2.50 * 2 = 5.00 entry commission
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            2.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        assert!((p.cash() - (100_000.0 - 5.0)).abs() < 1e-10);
+    }
+
+    // ── Mark to market ───────────────────────────────────────────
+
+    #[test]
+    fn test_mark_to_market_updates_equity() {
+        let mut p = make_portfolio(100_000.0, 0.0);
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        let mut prices = HashMap::new();
+        prices.insert(es_ticker(), Price::from_f64(5010.0));
+        p.mark_to_market(&prices);
+
+        // Unrealized: (5010-5000)/0.25 * 12.50 * 1 = 40 * 12.50 = 500
+        assert!((p.total_equity() - 100_500.0).abs() < 1e-10);
+    }
+
+    // ── Drawdown ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_drawdown_calculation() {
+        let mut p = make_portfolio(100_000.0, 0.0);
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        // Mark up to 5050 => equity = 103,125 (peak)
+        let mut prices = HashMap::new();
+        prices.insert(es_ticker(), Price::from_f64(5050.0));
+        p.mark_to_market(&prices);
+
+        // Mark down to 5020 => equity = 101,250
+        prices.insert(es_ticker(), Price::from_f64(5020.0));
+        p.mark_to_market(&prices);
+
+        let dd = p.current_drawdown_pct();
+        // peak = 103125, current = 101250
+        // dd = (103125 - 101250) / 103125 * 100 = 1875/103125*100 ~ 1.818%
+        assert!(dd > 1.0);
+        assert!(dd < 3.0);
+    }
+
+    // ── Margin check (no margin calculator) ──────────────────────
+
+    #[test]
+    fn test_no_margin_always_passes() {
+        let p = make_portfolio(100_000.0, 0.0);
+        assert!(p.check_margin(&es_ticker(), 100.0));
+    }
+
+    // ── Margin check (with calculator) ───────────────────────────
+
+    #[test]
+    fn test_margin_check_with_calculator() {
+        let mc = MarginCalculator::new(Some(15_000.0), Some(14_000.0));
+        let p = Portfolio::new(100_000.0, make_instruments(), 0.0, Some(mc));
+
+        // 6 contracts * 15000 = 90000 < 100000 => pass
+        assert!(p.check_margin(&es_ticker(), 6.0));
+        // 7 contracts * 15000 = 105000 > 100000 => fail
+        assert!(!p.check_margin(&es_ticker(), 7.0));
+    }
+
+    // ── Reset ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_reset() {
+        let mut p = make_portfolio(100_000.0, 0.0);
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        p.reset();
+
+        assert!((p.cash() - 100_000.0).abs() < 1e-10);
+        assert!((p.realized_pnl() - 0.0).abs() < 1e-10);
+        assert!(p.positions().is_empty());
+    }
+
+    // ── Buying power with margin ─────────────────────────────────
+
+    #[test]
+    fn test_buying_power_with_positions() {
+        let mc = MarginCalculator::new(Some(15_000.0), Some(14_000.0));
+        let mut p = Portfolio::new(100_000.0, make_instruments(), 0.0, Some(mc));
+
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            2.0,
+            ts(1000),
+            None,
+            None,
+        );
+
+        // Buying power = cash - maintenance_margin_used
+        // = 100000 - (2 * 14000) = 100000 - 28000 = 72000
+        assert!((p.buying_power() - 72_000.0).abs() < 1e-10);
+    }
+
+    // ── Trade index increments ───────────────────────────────────
+
+    #[test]
+    fn test_trade_index_increments() {
+        let mut p = make_portfolio(100_000.0, 0.0);
+
+        // Trade 1
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5000.0),
+            1.0,
+            ts(1000),
+            None,
+            None,
+        );
+        let r1 = p
+            .process_fill(
+                es_ticker(),
+                OrderSide::Sell,
+                Price::from_f64(5010.0),
+                1.0,
+                ts(2000),
+                Some(crate::output::trade_record::ExitReason::Manual),
+                None,
+            )
+            .unwrap();
+
+        // Trade 2
+        p.process_fill(
+            es_ticker(),
+            OrderSide::Buy,
+            Price::from_f64(5020.0),
+            1.0,
+            ts(3000),
+            None,
+            None,
+        );
+        let r2 = p
+            .process_fill(
+                es_ticker(),
+                OrderSide::Sell,
+                Price::from_f64(5030.0),
+                1.0,
+                ts(4000),
+                Some(crate::output::trade_record::ExitReason::Manual),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(r1.index, 1);
+        assert_eq!(r2.index, 2);
+    }
+}

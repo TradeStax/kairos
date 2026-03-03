@@ -338,20 +338,17 @@ impl canvas::Program<Message> for KlineChart {
             return i;
         }
         if let Some(cursor_position) = cursor.position_in(bounds) {
-            // Check study detail buttons first
+            // Check study detail buttons or overlay labels
             if self
                 .study_detail_button_rects
                 .borrow()
                 .iter()
                 .any(|(_, r)| r.contains(cursor_position))
-            {
-                mouse::Interaction::Pointer
-            // Check study overlay labels
-            } else if self
-                .study_overlay_rects
-                .borrow()
-                .iter()
-                .any(|(_, r)| r.contains(cursor_position))
+                || self
+                    .study_overlay_rects
+                    .borrow()
+                    .iter()
+                    .any(|(_, r)| r.contains(cursor_position))
             {
                 mouse::Interaction::Pointer
             // Check if hovering over a drawing handle
@@ -709,7 +706,9 @@ fn draw_output_entries(
                     .unwrap_or(base_color);
 
                 buf.clear();
-                let val = s.points.iter().find(|p| p.x == at).map(|p| p.value);
+                // Binary search: BarPoints are sorted by x (interval)
+                let idx = s.points.partition_point(|p| p.x < at);
+                let val = s.points.get(idx).filter(|p| p.x == at).map(|p| p.value);
                 if let Some(v) = val {
                     let _ = write!(buf, "{:.2}", v);
                 }
@@ -796,7 +795,9 @@ fn draw_output_entries(
                     .unwrap_or(base_color);
 
                 buf.clear();
-                if let Some(pt) = s.points.iter().find(|p| p.x == at) {
+                // Binary search: StudyCandlePoints are sorted by x
+                let idx = s.points.partition_point(|p| p.x < at);
+                if let Some(pt) = s.points.get(idx).filter(|p| p.x == at) {
                     use std::fmt::Write;
                     let _ = write!(buf, "{:.1}", pt.close);
                 }
@@ -834,7 +835,7 @@ fn draw_output_entries(
 }
 
 /// Count the number of text lines a study output produces.
-fn study_line_count(output: &study::StudyOutput) -> usize {
+pub(super) fn study_line_count(output: &study::StudyOutput) -> usize {
     match output {
         study::StudyOutput::Lines(series) => series.len(),
         study::StudyOutput::Band { .. } => 1,
@@ -858,8 +859,9 @@ fn study_line_count(output: &study::StudyOutput) -> usize {
 /// - No intermediate `Vec` collection — draw directly to frame
 /// - Binary search (O(log n)) for value lookups
 ///
-/// Also populates `hit_rects` so the interaction layer can hit-test
-/// clicks on individual study labels. Non-hovered studies are dimmed
+/// Reads precomputed `hit_rects` / `detail_button_rects` (populated by
+/// `KlineChart::recompute_study_overlay_rects`) so the drawing path
+/// does zero per-frame allocation.  Non-hovered studies are dimmed
 /// when the cursor is over any study label.
 fn draw_study_overlay(
     studies: &[Box<dyn study::Study>],
@@ -878,65 +880,25 @@ fn draw_study_overlay(
 
     let hit_width: f32 = 300.0;
     let pad: f32 = 2.0;
-    let detail_icon_size: f32 = 10.0;
-    let detail_icon_pad: f32 = 4.0;
+    let detail_icon_size: f32 = crate::style::tokens::text::TINY;
+    let detail_icon_pad: f32 = crate::style::tokens::spacing::XS;
 
-    // Pass 1: pre-compute rects to determine hover
-    let mut rects: Vec<(usize, Rectangle)> = Vec::new();
-    let mut detail_rects: Vec<(usize, Rectangle)> = Vec::new();
-    let mut y = y_start;
-    for (index, study) in studies.iter().enumerate() {
-        let output = study.output();
-        let lines = study_line_count(output);
-        if lines == 0 {
-            continue;
-        }
-        let y_before = y;
-        let rect_height = lines as f32 * line_height;
-        y += rect_height;
-
-        rects.push((
-            index,
-            Rectangle {
-                x: x - pad,
-                y: y_before - pad,
-                width: hit_width + 2.0 * pad,
-                height: rect_height + 2.0 * pad,
-            },
-        ));
-
-        // Detail button rect for studies that have a detail modal
-        if study.has_detail_modal() {
-            let btn_x = x + hit_width + detail_icon_pad;
-            let btn_y = y_before + (line_height - detail_icon_size) / 2.0;
-            detail_rects.push((
-                index,
-                Rectangle {
-                    x: btn_x,
-                    y: btn_y,
-                    width: detail_icon_size + 2.0 * detail_icon_pad,
-                    height: detail_icon_size + 2.0 * detail_icon_pad,
-                },
-            ));
-        }
-    }
-
-    let hovered_index = rects
+    // Hit-test against precomputed rects (no allocation)
+    let hovered_index = hit_rects
+        .borrow()
         .iter()
         .find(|(_, r)| r.contains(cursor_position))
         .map(|(idx, _)| *idx);
 
-    let hovered_detail = detail_rects
+    let hovered_detail = detail_button_rects
+        .borrow()
         .iter()
         .find(|(_, r)| r.contains(cursor_position))
         .map(|(idx, _)| *idx);
 
-    *hit_rects.borrow_mut() = rects;
-    *detail_button_rects.borrow_mut() = detail_rects.clone();
-
-    // Pass 2: draw with dim for non-hovered studies
+    // Draw with dim for non-hovered studies
     let mut buf = String::with_capacity(64);
-    y = y_start;
+    let mut y = y_start;
 
     for (index, study) in studies.iter().enumerate() {
         let output = study.output();
@@ -984,17 +946,19 @@ fn draw_study_overlay(
 
         // Draw detail icon for studies with a detail modal
         if study.has_detail_modal() {
-            if let Some((_, btn_rect)) = detail_rects
+            let detail_btn = detail_button_rects
+                .borrow()
                 .iter()
                 .find(|(idx, _)| *idx == index)
-            {
+                .map(|(_, r)| *r);
+
+            if let Some(btn_rect) = detail_btn {
                 let icon_alpha = if hovered_detail == Some(index) {
                     1.0
                 } else {
                     0.5
                 };
-                let icon_color =
-                    base_color.scale_alpha(icon_alpha * alpha);
+                let icon_color = base_color.scale_alpha(icon_alpha * alpha);
 
                 // Draw a simple list/detail icon (three horizontal lines)
                 let cx = btn_rect.x + detail_icon_pad;
@@ -1004,19 +968,22 @@ fn draw_study_overlay(
                 for i in 0..3 {
                     let ly = cy + gap * i as f32 + gap * 0.5;
                     frame.stroke(
-                        &canvas::Path::line(
-                            Point::new(cx, ly),
-                            Point::new(cx + line_w, ly),
-                        ),
-                        Stroke::default()
-                            .with_width(1.5)
-                            .with_color(icon_color),
+                        &canvas::Path::line(Point::new(cx, ly), Point::new(cx + line_w, ly)),
+                        Stroke::default().with_width(1.5).with_color(icon_color),
                     );
                 }
             }
         }
     }
 }
+
+// Debug overlay layout constants
+const DEBUG_LINE_HEIGHT: f32 = crate::style::tokens::text::TITLE;
+const DEBUG_PADDING: f32 = crate::style::tokens::spacing::SM;
+const DEBUG_BOX_WIDTH: f32 = 220.0;
+const DEBUG_BOX_MARGIN: f32 = crate::style::tokens::spacing::MD;
+const DEBUG_TEXT_SIZE: f32 = crate::style::tokens::text::SMALL;
+const DEBUG_BG_ALPHA: f32 = 0.75;
 
 fn draw_debug_overlay(
     frame: &mut canvas::Frame,
@@ -1067,18 +1034,15 @@ fn draw_debug_overlay(
         ),
     ];
 
-    let line_height = 14.0_f32;
-    let padding = 6.0_f32;
-    let box_width = 220.0_f32;
-    let box_height = (lines.len() as f32 * line_height) + padding * 2.0;
-    let box_x = bounds.width - box_width - 8.0;
-    let box_y = bounds.height - box_height - 8.0;
+    let box_height = (lines.len() as f32 * DEBUG_LINE_HEIGHT) + DEBUG_PADDING * 2.0;
+    let box_x = bounds.width - DEBUG_BOX_WIDTH - DEBUG_BOX_MARGIN;
+    let box_y = bounds.height - box_height - DEBUG_BOX_MARGIN;
 
     // Background
     frame.fill_rectangle(
         Point::new(box_x, box_y),
-        iced::Size::new(box_width, box_height),
-        Color::from_rgba(0.0, 0.0, 0.0, 0.75),
+        iced::Size::new(DEBUG_BOX_WIDTH, box_height),
+        Color::from_rgba(0.0, 0.0, 0.0, DEBUG_BG_ALPHA),
     );
 
     // Text lines
@@ -1086,8 +1050,11 @@ fn draw_debug_overlay(
     for (i, line) in lines.iter().enumerate() {
         frame.fill_text(canvas::Text {
             content: line.clone(),
-            position: Point::new(box_x + padding, box_y + padding + (i as f32 * line_height)),
-            size: iced::Pixels(11.0),
+            position: Point::new(
+                box_x + DEBUG_PADDING,
+                box_y + DEBUG_PADDING + (i as f32 * DEBUG_LINE_HEIGHT),
+            ),
+            size: iced::Pixels(DEBUG_TEXT_SIZE),
             color: label_color,
             font: AZERET_MONO,
             ..canvas::Text::default()

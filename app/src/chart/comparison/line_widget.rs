@@ -25,8 +25,7 @@ pub const DEFAULT_ZOOM_POINTS: usize = 150;
 pub const MIN_ZOOM_POINTS: usize = 2;
 pub const MAX_ZOOM_POINTS: usize = 5000;
 
-// Legend constants live in `crate::chart::core::tokens::legend`.
-// Re-exported here for backward compatibility with sibling modules (legend.rs, render.rs, scene.rs).
+// Legend constants re-exported from `crate::chart::core::tokens::legend` for sibling modules.
 pub(super) use chart_tokens::legend::CHAR_W;
 pub(super) use chart_tokens::legend::ICON_BOX;
 pub(super) use chart_tokens::legend::ICON_GAP_AFTER_TEXT;

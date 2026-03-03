@@ -195,8 +195,7 @@ impl State {
         };
 
         let point = screen_to_drawing_point(chart, constrained);
-        let selected: Vec<DrawingId> =
-            chart.drawings().selected_ids().iter().copied().collect();
+        let selected: Vec<DrawingId> = chart.drawings().selected_ids().iter().copied().collect();
 
         if let Some(&id) = selected.first() {
             if chart.drawings().is_dragging() {
@@ -219,14 +218,10 @@ impl State {
             return;
         };
 
-        let selected: Vec<DrawingId> =
-            chart.drawings().selected_ids().iter().copied().collect();
+        let selected: Vec<DrawingId> = chart.drawings().selected_ids().iter().copied().collect();
         let Some(&id) = selected.first() else { return };
 
-        let is_vbp = chart
-            .drawings()
-            .get(id)
-            .is_some_and(|d| d.tool.is_vbp());
+        let is_vbp = chart.drawings().get(id).is_some_and(|d| d.tool.is_vbp());
 
         // Apply shift constraint based on tool/handle (skip for VBP)
         let constrained = if shift_held && !is_vbp {
@@ -278,19 +273,14 @@ impl State {
     }
 
     /// Get the first selected drawing ID, if any
-    pub(in crate::screen::dashboard::pane) fn get_selected_drawing_id(
-        &self,
-    ) -> Option<DrawingId> {
+    pub(in crate::screen::dashboard::pane) fn get_selected_drawing_id(&self) -> Option<DrawingId> {
         self.content
             .drawing_chart()
             .and_then(|c| c.drawings().selected_ids().iter().next().copied())
     }
 
     /// Get the locked state for a drawing by ID
-    pub(in crate::screen::dashboard::pane) fn get_drawing_locked(
-        &self,
-        id: DrawingId,
-    ) -> bool {
+    pub(in crate::screen::dashboard::pane) fn get_drawing_locked(&self, id: DrawingId) -> bool {
         self.content
             .drawing_chart()
             .and_then(|c| c.drawings().get(id))

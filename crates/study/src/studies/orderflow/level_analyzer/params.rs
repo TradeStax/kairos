@@ -1,31 +1,22 @@
 //! Parameter definitions for the Level Analyzer study.
 
 use crate::config::{
-    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab,
-    ParameterValue, Visibility,
+    DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
+    Visibility,
 };
 use data::SerializableColor;
 
 // ── Default colors ───────────────────────────────────────────────
 
-pub const POC_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(255, 215, 0);       // #FFD700
-pub const SESSION_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(255, 107, 107);     // #FF6B6B
-pub const PRIOR_DAY_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(255, 159, 67);      // #FF9F43
-pub const HVN_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(34, 211, 238);      // #22D3EE
-pub const LVN_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(244, 114, 182);     // #F472B6
-pub const VAH_VAL_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(74, 158, 255);      // #4A9EFF
-pub const DELTA_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(168, 85, 247);      // #A855F7
-pub const OR_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(16, 185, 129);      // #10B981
-pub const MANUAL_COLOR: SerializableColor =
-    SerializableColor::from_rgb8_const(226, 232, 240);     // #E2E8F0
+pub const POC_COLOR: SerializableColor = SerializableColor::from_rgb8_const(255, 215, 0); // #FFD700
+pub const SESSION_COLOR: SerializableColor = SerializableColor::from_rgb8_const(255, 107, 107); // #FF6B6B
+pub const PRIOR_DAY_COLOR: SerializableColor = SerializableColor::from_rgb8_const(255, 159, 67); // #FF9F43
+pub const HVN_COLOR: SerializableColor = SerializableColor::from_rgb8_const(34, 211, 238); // #22D3EE
+pub const LVN_COLOR: SerializableColor = SerializableColor::from_rgb8_const(244, 114, 182); // #F472B6
+pub const VAH_VAL_COLOR: SerializableColor = SerializableColor::from_rgb8_const(74, 158, 255); // #4A9EFF
+pub const DELTA_COLOR: SerializableColor = SerializableColor::from_rgb8_const(168, 85, 247); // #A855F7
+pub const OR_COLOR: SerializableColor = SerializableColor::from_rgb8_const(16, 185, 129); // #10B981
+pub const MANUAL_COLOR: SerializableColor = SerializableColor::from_rgb8_const(226, 232, 240); // #E2E8F0
 
 // ── Tab labels ───────────────────────────────────────────────────
 
@@ -101,8 +92,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "tolerance_ticks".into(),
             label: "Tolerance Ticks".into(),
-            description: "Number of ticks around level for touch detection"
-                .into(),
+            description: "Number of ticks around level for touch detection".into(),
             kind: ParameterKind::Integer { min: 1, max: 20 },
             default: ParameterValue::Integer(4),
             tab: ParameterTab::Parameters,
@@ -151,8 +141,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "break_threshold".into(),
             label: "Break Threshold".into(),
-            description: "Multiples of tolerance for a level to be broken"
-                .into(),
+            description: "Multiples of tolerance for a level to be broken".into(),
             kind: ParameterKind::Float {
                 min: 1.0,
                 max: 5.0,
@@ -232,9 +221,7 @@ pub fn build_params() -> Vec<ParameterDef> {
             kind: ParameterKind::Choice {
                 options: &["Per Session", "Aggregate"],
             },
-            default: ParameterValue::Choice(
-                "Per Session".into(),
-            ),
+            default: ParameterValue::Choice("Per Session".into()),
             tab: ParameterTab::Parameters,
             section: Some(SEC_SESSION_CONFIG),
             order: 10,
@@ -244,14 +231,11 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "session_types".into(),
             label: "Session Types".into(),
-            description:
-                "Which session types to detect levels from".into(),
+            description: "Which session types to detect levels from".into(),
             kind: ParameterKind::Choice {
                 options: &["RTH + ETH", "RTH Only", "ETH Only"],
             },
-            default: ParameterValue::Choice(
-                "RTH + ETH".into(),
-            ),
+            default: ParameterValue::Choice("RTH + ETH".into()),
             tab: ParameterTab::Parameters,
             section: Some(SEC_SESSION_CONFIG),
             order: 11,
@@ -264,10 +248,9 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "visible_sessions".into(),
             label: "Sessions to Show".into(),
-            description:
-                "Number of past completed sessions to display \
+            description: "Number of past completed sessions to display \
                 levels from"
-                    .into(),
+                .into(),
             kind: ParameterKind::Integer { min: 1, max: 20 },
             default: ParameterValue::Integer(3),
             tab: ParameterTab::Parameters,
@@ -568,8 +551,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "show_broken_levels".into(),
             label: "Show Broken Levels".into(),
-            description: "Continue showing levels that have been broken"
-                .into(),
+            description: "Continue showing levels that have been broken".into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(true),
             tab: ParameterTab::PocSettings,
@@ -593,8 +575,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "show_strength".into(),
             label: "Show Strength".into(),
-            description: "Append strength percentage to level labels"
-                .into(),
+            description: "Append strength percentage to level labels".into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(false),
             tab: ParameterTab::PocSettings,
@@ -606,9 +587,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "show_zones".into(),
             label: "Show Zones".into(),
-            description:
-                "Render levels as shaded zones instead of lines"
-                    .into(),
+            description: "Render levels as shaded zones instead of lines".into(),
             kind: ParameterKind::Boolean,
             default: ParameterValue::Boolean(true),
             tab: ParameterTab::PocSettings,
@@ -621,9 +600,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "block_min_qty".into(),
             label: "Block Min Qty".into(),
-            description:
-                "Minimum quantity for a block trade detection"
-                    .into(),
+            description: "Minimum quantity for a block trade detection".into(),
             kind: ParameterKind::Integer { min: 5, max: 500 },
             default: ParameterValue::Integer(25),
             tab: ParameterTab::ValueArea,
@@ -635,9 +612,7 @@ pub fn build_params() -> Vec<ParameterDef> {
         ParameterDef {
             key: "aggregation_window_ms".into(),
             label: "Aggregation Window".into(),
-            description:
-                "Max ms between fills to aggregate into one block"
-                    .into(),
+            description: "Max ms between fills to aggregate into one block".into(),
             kind: ParameterKind::Integer { min: 10, max: 200 },
             default: ParameterValue::Integer(40),
             tab: ParameterTab::ValueArea,

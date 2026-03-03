@@ -15,8 +15,8 @@
 //! horizontal levels (overbought / oversold).
 
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
-    ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;

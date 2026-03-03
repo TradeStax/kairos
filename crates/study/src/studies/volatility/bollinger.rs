@@ -44,8 +44,8 @@ use crate::config::{
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
-use crate::util::{candle_key, source_value};
 use crate::util::math;
+use crate::util::{candle_key, source_value};
 use data::SerializableColor;
 
 fn make_params() -> Vec<ParameterDef> {
@@ -280,9 +280,7 @@ impl Study for BollingerStudy {
             let avg = math::mean(window);
             let stddev = math::standard_deviation_with_mean(window, avg);
 
-            let key = candle_key(
-                &candles[i], i, candles.len(), &input.basis,
-            );
+            let key = candle_key(&candles[i], i, candles.len(), &input.basis);
             upper_points.push((key, (avg + std_mult * stddev) as f32));
             middle_points.push((key, avg as f32));
             lower_points.push((key, (avg - std_mult * stddev) as f32));

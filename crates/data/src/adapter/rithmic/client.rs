@@ -121,7 +121,7 @@ impl RithmicClient {
         let handle = self
             .ticker_handle
             .as_mut()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| RithmicError::Connection("Not connected".to_owned()))?;
 
         handle.subscribe(symbol, exchange).await.map_err(|e| {
             RithmicError::Subscription(format!("Failed to subscribe {}: {}", symbol, e))
@@ -140,7 +140,7 @@ impl RithmicClient {
         let handle = self
             .ticker_handle
             .as_mut()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| RithmicError::Connection("Not connected".to_owned()))?;
 
         handle.unsubscribe(symbol, exchange).await.map_err(|e| {
             RithmicError::Subscription(format!("Failed to unsubscribe {}: {}", symbol, e))
@@ -162,7 +162,7 @@ impl RithmicClient {
         let handle = self
             .ticker_handle
             .as_ref()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| RithmicError::Connection("Not connected".to_owned()))?;
 
         let response = handle
             .get_front_month_contract(symbol, exchange, false)
@@ -176,7 +176,7 @@ impl RithmicClient {
         }
 
         // Extract the front month trading symbol from the response
-        if let RithmicMessage::ResponseFrontMonthContract(fmc) = &response.message {
+        if let RithmicMessage::ResponseFrontMonthContract(fmc) = &*response.message {
             if let Some(trading_symbol) = &fmc.trading_symbol {
                 return Ok(trading_symbol.clone());
             }
@@ -210,7 +210,7 @@ impl RithmicClient {
         let pool = self
             .history_pool
             .as_ref()
-            .ok_or_else(|| RithmicError::Connection("History pool not connected".to_string()))?;
+            .ok_or_else(|| RithmicError::Connection("History pool not connected".to_owned()))?;
 
         let handle = pool.acquire().await?;
         handle
@@ -232,7 +232,7 @@ impl RithmicClient {
         let handle = self
             .ticker_handle
             .as_ref()
-            .ok_or_else(|| RithmicError::Connection("Not connected".to_string()))?;
+            .ok_or_else(|| RithmicError::Connection("Not connected".to_owned()))?;
 
         let responses = handle
             .get_product_codes(exchange, None)
@@ -242,7 +242,7 @@ impl RithmicClient {
         let codes: Vec<String> = responses
             .iter()
             .filter_map(|r| {
-                if let super::protocol::RithmicMessage::ResponseProductCodes(pc) = &r.message {
+                if let super::protocol::RithmicMessage::ResponseProductCodes(pc) = &*r.message {
                     pc.product_code.clone()
                 } else {
                     None
@@ -300,17 +300,57 @@ pub async fn load_ticks_paginated(
     start_secs: i32,
     end_secs: i32,
 ) -> Result<Vec<RithmicResponse>, RithmicError> {
+    load_ticks_paginated_with_progress(handle, symbol, exchange, start_secs, end_secs, None).await
+}
+
+/// Loads historical ticks with automatic pagination and optional
+/// per-page progress reporting.
+///
+/// `on_page` is called after the initial load and after each
+/// `resume_bars` page with `(page_number, total_responses_so_far)`.
+pub async fn load_ticks_paginated_with_progress(
+    handle: &RithmicHistoryPlantHandle,
+    symbol: &str,
+    exchange: &str,
+    start_secs: i32,
+    end_secs: i32,
+    on_page: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+) -> Result<Vec<RithmicResponse>, RithmicError> {
     let start_time = std::time::Instant::now();
 
-    let mut all_responses = handle
-        .load_ticks(
-            symbol.to_string(),
-            exchange.to_string(),
-            start_secs,
-            end_secs,
-        )
-        .await
-        .map_err(|e| RithmicError::Data(format!("Failed to load ticks for {}: {}", symbol, e)))?;
+    // Use buffering-progress variant so we get real-time updates
+    // during the (potentially very long) initial load.
+    let buffering_cb = on_page.map(|cb| {
+        move |buffered: usize| {
+            cb(0, buffered);
+        }
+    });
+
+    let mut all_responses = if let Some(ref bcb) = buffering_cb {
+        handle
+            .load_ticks_with_buffering_progress(
+                symbol.to_string(),
+                exchange.to_string(),
+                start_secs,
+                end_secs,
+                bcb,
+            )
+            .await
+    } else {
+        handle
+            .load_ticks(
+                symbol.to_string(),
+                exchange.to_string(),
+                start_secs,
+                end_secs,
+            )
+            .await
+    }
+    .map_err(|e| RithmicError::Data(format!("Failed to load ticks for {}: {}", symbol, e)))?;
+
+    if let Some(cb) = &on_page {
+        cb(0, all_responses.len());
+    }
 
     // Paginate: track batch boundaries so we only inspect the
     // latest batch for a resume key — prevents stale keys from
@@ -334,15 +374,30 @@ pub async fn load_ticks_paginated(
         );
 
         batch_start = all_responses.len();
-        let resumed = handle.resume_bars(key).await.map_err(|e| {
-            RithmicError::Data(format!("Failed to resume bars for {}: {}", symbol, e))
-        })?;
+
+        let prev_total = all_responses.len();
+        let resume_buffering_cb = on_page.map(|cb| {
+            move |buffered: usize| {
+                cb(page + 1, prev_total + buffered);
+            }
+        });
+
+        let resumed = if let Some(ref rcb) = resume_buffering_cb {
+            handle.resume_bars_with_buffering_progress(key, rcb).await
+        } else {
+            handle.resume_bars(key).await
+        }
+        .map_err(|e| RithmicError::Data(format!("Failed to resume bars for {}: {}", symbol, e)))?;
 
         if resumed.is_empty() {
             break;
         }
 
         all_responses.extend(resumed);
+
+        if let Some(cb) = &on_page {
+            cb(page + 1, all_responses.len());
+        }
     }
 
     let elapsed = start_time.elapsed();
@@ -368,7 +423,7 @@ fn extract_resume_key(batch: &[RithmicResponse]) -> Option<String> {
     // Search from end — the terminator or last data row carries
     // the resume key.
     for resp in batch.iter().rev() {
-        if let RithmicMessage::ResponseTickBarReplay(bar) = &resp.message
+        if let RithmicMessage::ResponseTickBarReplay(bar) = &*resp.message
             && bar.request_key.is_some()
         {
             log::debug!(
@@ -406,7 +461,7 @@ pub async fn probe_system_names(server_url: &str) -> Result<Vec<String>, Rithmic
     match result {
         Ok(inner) => inner,
         Err(_) => Err(RithmicError::Connection(
-            "System info probe timed out after 10s".to_string(),
+            "System info probe timed out after 10s".to_owned(),
         )),
     }
 }
@@ -443,7 +498,7 @@ async fn probe_system_names_inner(server_url: &str) -> Result<Vec<String>, Rithm
 
     // Read the response frame
     let receiver = RithmicReceiverApi {
-        source: "probe".to_string(),
+        source: "probe".to_owned(),
     };
 
     while let Some(msg) = ws.next().await {
@@ -460,7 +515,7 @@ async fn probe_system_names_inner(server_url: &str) -> Result<Vec<String>, Rithm
             .buf_to_message(data)
             .map_err(|e| RithmicError::Data(format!("Failed to decode response: {:?}", e.error)))?;
 
-        if let RithmicMessage::ResponseRithmicSystemInfo(info) = response.message {
+        if let RithmicMessage::ResponseRithmicSystemInfo(info) = *response.message {
             // Send close frame (best-effort)
             let _ = ws.send(tungstenite::Message::Close(None)).await;
             return Ok(info.system_name);
@@ -468,6 +523,6 @@ async fn probe_system_names_inner(server_url: &str) -> Result<Vec<String>, Rithm
     }
 
     Err(RithmicError::Data(
-        "No system info response received".to_string(),
+        "No system info response received".to_owned(),
     ))
 }

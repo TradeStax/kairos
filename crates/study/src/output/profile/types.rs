@@ -31,9 +31,7 @@ pub struct ProfileLevel {
 }
 
 /// Direction for extending horizontal lines beyond the profile bounds.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ExtendDirection {
     /// No extension — line ends at profile boundary.
     #[default]
@@ -59,9 +57,7 @@ impl std::fmt::Display for ExtendDirection {
 
 /// Method for detecting high-volume nodes (HVN) and low-volume nodes
 /// (LVN) within a profile.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum NodeDetectionMethod {
     /// Levels above/below a percentile threshold of the volume
     /// distribution.

@@ -14,8 +14,8 @@ use crate::style;
 use crate::style::{palette, tokens};
 
 use super::{
-    DetailTab, LevelDetailModal, Message,
-    fmt_delta, fmt_duration_ms, fmt_volume, status_color, status_label,
+    DetailTab, LevelDetailModal, Message, fmt_delta, fmt_duration_ms, fmt_volume, status_color,
+    status_label,
 };
 
 impl LevelDetailModal {
@@ -23,14 +23,12 @@ impl LevelDetailModal {
         let tab_bar = self.view_tab_bar();
 
         let content: Element<'_, Message> = match self.selected_level() {
-            None => container(
-                primitives::label_text("Select a level to view details"),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center)
-            .into(),
+            None => container(primitives::label_text("Select a level to view details"))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .into(),
             Some(level) => match self.active_tab {
                 DetailTab::Overview => view_overview(level),
                 DetailTab::Touches => view_touches(level),
@@ -61,9 +59,9 @@ impl LevelDetailModal {
             tab_row = if is_active {
                 tab_row.push(btn.style(style::button::primary))
             } else {
-                tab_row.push(btn.style(|theme, status| {
-                    style::button::transparent(theme, status, false)
-                }))
+                tab_row.push(
+                    btn.style(|theme, status| style::button::transparent(theme, status, false)),
+                )
             };
         }
 
@@ -97,18 +95,14 @@ fn kv_row<'a>(
         val_el = val_el.color(c);
     }
 
-    row![key_el, val_el]
-        .spacing(tokens::spacing::XS)
-        .into()
+    row![key_el, val_el].spacing(tokens::spacing::XS).into()
 }
 
 /// Overview tab: identity + metrics sections.
 fn view_overview(level: &MonitoredLevel) -> Element<'_, Message> {
     let status = level.status;
-    let status_badge: Element<'_, Message> = status_badge_themed(
-        status_color(status),
-        status_label(status),
-    );
+    let status_badge: Element<'_, Message> =
+        status_badge_themed(status_color(status), status_label(status));
 
     let hold_rate = if level.touch_count > 0 {
         format!(
@@ -160,7 +154,13 @@ fn view_overview(level: &MonitoredLevel) -> Element<'_, Message> {
 
     let identity = column![
         kv_row("Price", format!("{:.2}", level.price), KEY_W, true, None),
-        kv_row("Source", level.source.label().to_string(), KEY_W, false, None),
+        kv_row(
+            "Source",
+            level.source.label().to_string(),
+            KEY_W,
+            false,
+            None
+        ),
         kv_row("Session", session_str, KEY_W, false, None),
         row![
             primitives::small("Status").width(Length::Fixed(KEY_W)),
@@ -176,15 +176,41 @@ fn view_overview(level: &MonitoredLevel) -> Element<'_, Message> {
         kv_row("Strength", strength_str, KEY_W, true, None),
         kv_row("Touches", level.touch_count.to_string(), KEY_W, true, None),
         kv_row("Hold Rate", hold_rate, KEY_W, true, None),
-        kv_row("Break Count", level.break_count.to_string(), KEY_W, true, None),
-        kv_row("Volume", fmt_volume(level.total_volume_absorbed), KEY_W, true, None),
+        kv_row(
+            "Break Count",
+            level.break_count.to_string(),
+            KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Volume",
+            fmt_volume(level.total_volume_absorbed),
+            KEY_W,
+            true,
+            None
+        ),
         kv_row("Net Delta", fmt_delta(delta_val), KEY_W, true, delta_color),
-        kv_row("Time at Level", fmt_duration_ms(level.time_at_level), KEY_W, true, None),
-        kv_row("Absorption", format!("{:.1}x", level.flow.absorption_ratio), KEY_W, true, None),
+        kv_row(
+            "Time at Level",
+            fmt_duration_ms(level.time_at_level),
+            KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Absorption",
+            format!("{:.1}x", level.flow.absorption_ratio),
+            KEY_W,
+            true,
+            None
+        ),
         kv_row(
             "Blocks",
             format!("{total_blocks} ({block_buy_count}B / {block_sell_count}S)"),
-            KEY_W, true, None,
+            KEY_W,
+            true,
+            None,
         ),
         kv_row("Block Volume", fmt_volume(block_vol), KEY_W, true, None),
     ]
@@ -258,10 +284,8 @@ fn view_touch_item<'a>(
     let mut item = column![header, detail].spacing(tokens::spacing::XXS);
 
     if !touch.blocks.is_empty() {
-        let buy_blocks: Vec<_> =
-            touch.blocks.iter().filter(|b| b.is_buy).collect();
-        let sell_blocks: Vec<_> =
-            touch.blocks.iter().filter(|b| !b.is_buy).collect();
+        let buy_blocks: Vec<_> = touch.blocks.iter().filter(|b| b.is_buy).collect();
+        let sell_blocks: Vec<_> = touch.blocks.iter().filter(|b| !b.is_buy).collect();
 
         let buy_lots: f64 = buy_blocks.iter().map(|b| b.quantity).sum();
         let sell_lots: f64 = sell_blocks.iter().map(|b| b.quantity).sum();
@@ -315,25 +339,73 @@ fn view_flow(level: &MonitoredLevel) -> Element<'_, Message> {
 
     let volume_section = column![
         SectionHeaderBuilder::new("Volume").with_divider(true),
-        kv_row("Buy Volume", fmt_volume(flow.buy_volume), FLOW_KEY_W, true, None),
-        kv_row("Sell Volume", fmt_volume(flow.sell_volume), FLOW_KEY_W, true, None),
-        kv_row("Total Volume", fmt_volume(total_vol), FLOW_KEY_W, true, None),
+        kv_row(
+            "Buy Volume",
+            fmt_volume(flow.buy_volume),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Sell Volume",
+            fmt_volume(flow.sell_volume),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Total Volume",
+            fmt_volume(total_vol),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
         kv_row("Buy/Sell Ratio", ratio_str, FLOW_KEY_W, true, None),
     ]
     .spacing(tokens::spacing::SM);
 
     let block_section = column![
         SectionHeaderBuilder::new("Block Analysis").with_divider(true),
-        kv_row("Block Count", flow.block_count.to_string(), FLOW_KEY_W, true, None),
-        kv_row("Block Buy Vol", fmt_volume(flow.block_buy_volume), FLOW_KEY_W, true, None),
-        kv_row("Block Sell Vol", fmt_volume(flow.block_sell_volume), FLOW_KEY_W, true, None),
+        kv_row(
+            "Block Count",
+            flow.block_count.to_string(),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Block Buy Vol",
+            fmt_volume(flow.block_buy_volume),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Block Sell Vol",
+            fmt_volume(flow.block_sell_volume),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
     ]
     .spacing(tokens::spacing::SM);
 
     let absorption_section = column![
         SectionHeaderBuilder::new("Absorption").with_divider(true),
-        kv_row("Absorption Ratio", format!("{abs:.2}x"), FLOW_KEY_W, true, None),
-        kv_row("Interpretation", interpretation.to_string(), FLOW_KEY_W, false, None),
+        kv_row(
+            "Absorption Ratio",
+            format!("{abs:.2}x"),
+            FLOW_KEY_W,
+            true,
+            None
+        ),
+        kv_row(
+            "Interpretation",
+            interpretation.to_string(),
+            FLOW_KEY_W,
+            false,
+            None
+        ),
     ]
     .spacing(tokens::spacing::SM);
 

@@ -103,7 +103,8 @@ use super::rti::{
 #[derive(Debug, Clone)]
 pub struct RithmicResponse {
     pub request_id: String,
-    pub message: RithmicMessage,
+    /// Boxed to reduce enum size — `RithmicMessage` has many large variants.
+    pub message: Box<RithmicMessage>,
     pub is_update: bool,
     pub has_more: bool,
     pub multi_response: bool,
@@ -147,7 +148,7 @@ impl RithmicResponse {
     #[must_use]
     pub fn is_connection_issue(&self) -> bool {
         matches!(
-            self.message,
+            *self.message,
             RithmicMessage::ConnectionError
                 | RithmicMessage::HeartbeatTimeout
                 | RithmicMessage::ForcedLogout(_)
@@ -172,7 +173,7 @@ impl RithmicResponse {
     #[must_use]
     pub fn is_market_data(&self) -> bool {
         matches!(
-            self.message,
+            *self.message,
             RithmicMessage::BestBidOffer(_)
                 | RithmicMessage::LastTrade(_)
                 | RithmicMessage::DepthByOrder(_)
@@ -197,7 +198,7 @@ impl RithmicResponse {
     #[must_use]
     pub fn is_order_update(&self) -> bool {
         matches!(
-            self.message,
+            *self.message,
             RithmicMessage::RithmicOrderNotification(_)
                 | RithmicMessage::ExchangeOrderNotification(_)
                 | RithmicMessage::BracketUpdates(_)
@@ -219,11 +220,32 @@ impl RithmicResponse {
     #[must_use]
     pub fn is_pnl_update(&self) -> bool {
         matches!(
-            self.message,
+            *self.message,
             RithmicMessage::AccountPnLPositionUpdate(_)
                 | RithmicMessage::InstrumentPnLPositionUpdate(_)
         )
     }
+}
+
+/// Decodes a protobuf message type, returning an error response on failure.
+macro_rules! decode_or_err {
+    ($ty:ty, $payload:expr, $source:expr) => {
+        match <$ty>::decode($payload) {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to decode {}: {}", stringify!($ty), e);
+                return Err(RithmicResponse {
+                    message: Box::new(RithmicMessage::Unknown),
+                    error: Some(format!("Decode error for {}: {}", stringify!($ty), e)),
+                    request_id: String::new(),
+                    is_update: false,
+                    has_more: false,
+                    multi_response: false,
+                    source: $source.clone(),
+                });
+            }
+        }
+    };
 }
 
 /// Decodes raw protobuf bytes from the WebSocket into typed responses.
@@ -242,10 +264,19 @@ impl RithmicReceiverApi {
     ///
     /// Returns `Err(RithmicResponse)` when the frame cannot be decoded
     /// (the error response still carries useful routing information).
-    // TODO: Consider boxing RithmicMessage to reduce Result size (~1296 bytes).
     #[allow(clippy::result_large_err)]
     pub(crate) fn buf_to_message(&self, data: Bytes) -> Result<RithmicResponse, RithmicResponse> {
-        let payload = &data[4..];
+        let Some(payload) = data.get(4..) else {
+            return Err(RithmicResponse {
+                message: Box::new(RithmicMessage::Unknown),
+                error: Some(format!("Frame too short: {} bytes", data.len())),
+                request_id: String::new(),
+                is_update: false,
+                has_more: false,
+                multi_response: false,
+                source: self.source.clone(),
+            });
+        };
 
         let parsed_message = match MessageType::decode(payload) {
             Ok(msg) => msg,
@@ -257,7 +288,7 @@ impl RithmicReceiverApi {
                 );
                 return Err(RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::Unknown,
+                    message: Box::new(RithmicMessage::Unknown),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -269,12 +300,12 @@ impl RithmicReceiverApi {
 
         let response = match parsed_message.template_id {
             11 => {
-                let resp = ResponseLogin::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseLogin, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseLogin(resp),
+                    message: Box::new(RithmicMessage::ResponseLogin(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -283,12 +314,12 @@ impl RithmicReceiverApi {
                 }
             }
             13 => {
-                let resp = ResponseLogout::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseLogout, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseLogout(resp),
+                    message: Box::new(RithmicMessage::ResponseLogout(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -297,12 +328,12 @@ impl RithmicReceiverApi {
                 }
             }
             15 => {
-                let resp = ResponseReferenceData::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseReferenceData, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseReferenceData(resp),
+                    message: Box::new(RithmicMessage::ResponseReferenceData(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -311,12 +342,12 @@ impl RithmicReceiverApi {
                 }
             }
             17 => {
-                let resp = ResponseRithmicSystemInfo::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseRithmicSystemInfo, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseRithmicSystemInfo(resp),
+                    message: Box::new(RithmicMessage::ResponseRithmicSystemInfo(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -325,12 +356,12 @@ impl RithmicReceiverApi {
                 }
             }
             19 => {
-                let resp = ResponseHeartbeat::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseHeartbeat, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseHeartbeat(resp),
+                    message: Box::new(RithmicMessage::ResponseHeartbeat(resp)),
                     is_update: true, // Heartbeats are connection health events - route to subscription channel
                     has_more: false,
                     multi_response: false,
@@ -339,12 +370,12 @@ impl RithmicReceiverApi {
                 }
             }
             21 => {
-                let resp = ResponseRithmicSystemGatewayInfo::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseRithmicSystemGatewayInfo, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseRithmicSystemGatewayInfo(resp),
+                    message: Box::new(RithmicMessage::ResponseRithmicSystemGatewayInfo(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -353,12 +384,12 @@ impl RithmicReceiverApi {
                 }
             }
             75 => {
-                let resp = Reject::decode(payload).unwrap();
+                let resp = decode_or_err!(Reject, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::Reject(resp),
+                    message: Box::new(RithmicMessage::Reject(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -367,11 +398,11 @@ impl RithmicReceiverApi {
                 }
             }
             76 => {
-                let resp = UserAccountUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(UserAccountUpdate, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::UserAccountUpdate(resp),
+                    message: Box::new(RithmicMessage::UserAccountUpdate(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -380,11 +411,11 @@ impl RithmicReceiverApi {
                 }
             }
             77 => {
-                let resp = ForcedLogout::decode(payload).unwrap();
+                let resp = decode_or_err!(ForcedLogout, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::ForcedLogout(resp),
+                    message: Box::new(RithmicMessage::ForcedLogout(resp)),
                     is_update: true, // Forced logout is a connection health event - route to subscription channel
                     has_more: false,
                     multi_response: false,
@@ -393,12 +424,12 @@ impl RithmicReceiverApi {
                 }
             }
             101 => {
-                let resp = ResponseMarketDataUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseMarketDataUpdate, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseMarketDataUpdate(resp),
+                    message: Box::new(RithmicMessage::ResponseMarketDataUpdate(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -407,13 +438,13 @@ impl RithmicReceiverApi {
                 }
             }
             103 => {
-                let resp = ResponseGetInstrumentByUnderlying::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseGetInstrumentByUnderlying, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseGetInstrumentByUnderlying(resp),
+                    message: Box::new(RithmicMessage::ResponseGetInstrumentByUnderlying(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -422,12 +453,13 @@ impl RithmicReceiverApi {
                 }
             }
             104 => {
-                let resp = ResponseGetInstrumentByUnderlyingKeys::decode(payload).unwrap();
+                let resp =
+                    decode_or_err!(ResponseGetInstrumentByUnderlyingKeys, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseGetInstrumentByUnderlyingKeys(resp),
+                    message: Box::new(RithmicMessage::ResponseGetInstrumentByUnderlyingKeys(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -436,12 +468,13 @@ impl RithmicReceiverApi {
                 }
             }
             106 => {
-                let resp = ResponseMarketDataUpdateByUnderlying::decode(payload).unwrap();
+                let resp =
+                    decode_or_err!(ResponseMarketDataUpdateByUnderlying, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseMarketDataUpdateByUnderlying(resp),
+                    message: Box::new(RithmicMessage::ResponseMarketDataUpdateByUnderlying(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -450,13 +483,13 @@ impl RithmicReceiverApi {
                 }
             }
             108 => {
-                let resp = ResponseGiveTickSizeTypeTable::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseGiveTickSizeTypeTable, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseGiveTickSizeTypeTable(resp),
+                    message: Box::new(RithmicMessage::ResponseGiveTickSizeTypeTable(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -465,13 +498,13 @@ impl RithmicReceiverApi {
                 }
             }
             110 => {
-                let resp = ResponseSearchSymbols::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseSearchSymbols, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseSearchSymbols(resp),
+                    message: Box::new(RithmicMessage::ResponseSearchSymbols(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -480,13 +513,13 @@ impl RithmicReceiverApi {
                 }
             }
             112 => {
-                let resp = ResponseProductCodes::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseProductCodes, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseProductCodes(resp),
+                    message: Box::new(RithmicMessage::ResponseProductCodes(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -495,12 +528,12 @@ impl RithmicReceiverApi {
                 }
             }
             114 => {
-                let resp = ResponseFrontMonthContract::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseFrontMonthContract, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseFrontMonthContract(resp),
+                    message: Box::new(RithmicMessage::ResponseFrontMonthContract(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -509,13 +542,13 @@ impl RithmicReceiverApi {
                 }
             }
             116 => {
-                let resp = ResponseDepthByOrderSnapshot::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseDepthByOrderSnapshot, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseDepthByOrderSnapshot(resp),
+                    message: Box::new(RithmicMessage::ResponseDepthByOrderSnapshot(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -524,12 +557,12 @@ impl RithmicReceiverApi {
                 }
             }
             118 => {
-                let resp = ResponseDepthByOrderUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseDepthByOrderUpdates, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseDepthByOrderUpdates(resp),
+                    message: Box::new(RithmicMessage::ResponseDepthByOrderUpdates(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: true,
@@ -538,13 +571,13 @@ impl RithmicReceiverApi {
                 }
             }
             120 => {
-                let resp = ResponseGetVolumeAtPrice::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseGetVolumeAtPrice, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseGetVolumeAtPrice(resp),
+                    message: Box::new(RithmicMessage::ResponseGetVolumeAtPrice(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -553,12 +586,12 @@ impl RithmicReceiverApi {
                 }
             }
             122 => {
-                let resp = ResponseAuxilliaryReferenceData::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseAuxilliaryReferenceData, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseAuxilliaryReferenceData(resp),
+                    message: Box::new(RithmicMessage::ResponseAuxilliaryReferenceData(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -567,11 +600,11 @@ impl RithmicReceiverApi {
                 }
             }
             150 => {
-                let resp = LastTrade::decode(payload).unwrap();
+                let resp = decode_or_err!(LastTrade, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::LastTrade(resp),
+                    message: Box::new(RithmicMessage::LastTrade(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -580,11 +613,11 @@ impl RithmicReceiverApi {
                 }
             }
             151 => {
-                let resp = BestBidOffer::decode(payload).unwrap();
+                let resp = decode_or_err!(BestBidOffer, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::BestBidOffer(resp),
+                    message: Box::new(RithmicMessage::BestBidOffer(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -593,11 +626,11 @@ impl RithmicReceiverApi {
                 }
             }
             152 => {
-                let resp = TradeStatistics::decode(payload).unwrap();
+                let resp = decode_or_err!(TradeStatistics, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::TradeStatistics(resp),
+                    message: Box::new(RithmicMessage::TradeStatistics(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -606,11 +639,11 @@ impl RithmicReceiverApi {
                 }
             }
             153 => {
-                let resp = QuoteStatistics::decode(payload).unwrap();
+                let resp = decode_or_err!(QuoteStatistics, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::QuoteStatistics(resp),
+                    message: Box::new(RithmicMessage::QuoteStatistics(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -619,11 +652,11 @@ impl RithmicReceiverApi {
                 }
             }
             154 => {
-                let resp = IndicatorPrices::decode(payload).unwrap();
+                let resp = decode_or_err!(IndicatorPrices, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::IndicatorPrices(resp),
+                    message: Box::new(RithmicMessage::IndicatorPrices(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -632,11 +665,11 @@ impl RithmicReceiverApi {
                 }
             }
             155 => {
-                let resp = EndOfDayPrices::decode(payload).unwrap();
+                let resp = decode_or_err!(EndOfDayPrices, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::EndOfDayPrices(resp),
+                    message: Box::new(RithmicMessage::EndOfDayPrices(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -645,11 +678,11 @@ impl RithmicReceiverApi {
                 }
             }
             156 => {
-                let resp = OrderBook::decode(payload).unwrap();
+                let resp = decode_or_err!(OrderBook, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::OrderBook(resp),
+                    message: Box::new(RithmicMessage::OrderBook(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -658,11 +691,11 @@ impl RithmicReceiverApi {
                 }
             }
             157 => {
-                let resp = MarketMode::decode(payload).unwrap();
+                let resp = decode_or_err!(MarketMode, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::MarketMode(resp),
+                    message: Box::new(RithmicMessage::MarketMode(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -671,11 +704,11 @@ impl RithmicReceiverApi {
                 }
             }
             158 => {
-                let resp = OpenInterest::decode(payload).unwrap();
+                let resp = decode_or_err!(OpenInterest, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::OpenInterest(resp),
+                    message: Box::new(RithmicMessage::OpenInterest(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -684,11 +717,11 @@ impl RithmicReceiverApi {
                 }
             }
             159 => {
-                let resp = FrontMonthContractUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(FrontMonthContractUpdate, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::FrontMonthContractUpdate(resp),
+                    message: Box::new(RithmicMessage::FrontMonthContractUpdate(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -697,11 +730,11 @@ impl RithmicReceiverApi {
                 }
             }
             160 => {
-                let resp = DepthByOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(DepthByOrder, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::DepthByOrder(resp),
+                    message: Box::new(RithmicMessage::DepthByOrder(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -710,11 +743,11 @@ impl RithmicReceiverApi {
                 }
             }
             161 => {
-                let resp = DepthByOrderEndEvent::decode(payload).unwrap();
+                let resp = decode_or_err!(DepthByOrderEndEvent, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::DepthByOrderEndEvent(resp),
+                    message: Box::new(RithmicMessage::DepthByOrderEndEvent(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -723,11 +756,11 @@ impl RithmicReceiverApi {
                 }
             }
             162 => {
-                let resp = SymbolMarginRate::decode(payload).unwrap();
+                let resp = decode_or_err!(SymbolMarginRate, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::SymbolMarginRate(resp),
+                    message: Box::new(RithmicMessage::SymbolMarginRate(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -736,11 +769,11 @@ impl RithmicReceiverApi {
                 }
             }
             163 => {
-                let resp = OrderPriceLimits::decode(payload).unwrap();
+                let resp = decode_or_err!(OrderPriceLimits, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::OrderPriceLimits(resp),
+                    message: Box::new(RithmicMessage::OrderPriceLimits(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -749,12 +782,12 @@ impl RithmicReceiverApi {
                 }
             }
             201 => {
-                let resp = ResponseTimeBarUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseTimeBarUpdate, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseTimeBarUpdate(resp),
+                    message: Box::new(RithmicMessage::ResponseTimeBarUpdate(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -763,13 +796,13 @@ impl RithmicReceiverApi {
                 }
             }
             203 => {
-                let resp = ResponseTimeBarReplay::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseTimeBarReplay, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseTimeBarReplay(resp),
+                    message: Box::new(RithmicMessage::ResponseTimeBarReplay(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -778,12 +811,12 @@ impl RithmicReceiverApi {
                 }
             }
             205 => {
-                let resp = ResponseTickBarUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseTickBarUpdate, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseTickBarUpdate(resp),
+                    message: Box::new(RithmicMessage::ResponseTickBarUpdate(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -792,13 +825,13 @@ impl RithmicReceiverApi {
                 }
             }
             207 => {
-                let resp = ResponseTickBarReplay::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseTickBarReplay, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseTickBarReplay(resp),
+                    message: Box::new(RithmicMessage::ResponseTickBarReplay(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -807,13 +840,13 @@ impl RithmicReceiverApi {
                 }
             }
             209 => {
-                let resp = ResponseVolumeProfileMinuteBars::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseVolumeProfileMinuteBars, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseVolumeProfileMinuteBars(resp),
+                    message: Box::new(RithmicMessage::ResponseVolumeProfileMinuteBars(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -822,12 +855,12 @@ impl RithmicReceiverApi {
                 }
             }
             211 => {
-                let resp = ResponseResumeBars::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseResumeBars, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseResumeBars(resp),
+                    message: Box::new(RithmicMessage::ResponseResumeBars(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -836,11 +869,11 @@ impl RithmicReceiverApi {
                 }
             }
             250 => {
-                let resp = TimeBar::decode(payload).unwrap();
+                let resp = decode_or_err!(TimeBar, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::TimeBar(resp),
+                    message: Box::new(RithmicMessage::TimeBar(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -849,11 +882,11 @@ impl RithmicReceiverApi {
                 }
             }
             251 => {
-                let resp = TickBar::decode(payload).unwrap();
+                let resp = decode_or_err!(TickBar, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::TickBar(resp),
+                    message: Box::new(RithmicMessage::TickBar(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -862,12 +895,12 @@ impl RithmicReceiverApi {
                 }
             }
             301 => {
-                let resp = ResponseLoginInfo::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseLoginInfo, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseLoginInfo(resp),
+                    message: Box::new(RithmicMessage::ResponseLoginInfo(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -876,13 +909,13 @@ impl RithmicReceiverApi {
                 }
             }
             303 => {
-                let resp = ResponseAccountList::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseAccountList, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseAccountList(resp),
+                    message: Box::new(RithmicMessage::ResponseAccountList(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -891,13 +924,13 @@ impl RithmicReceiverApi {
                 }
             }
             305 => {
-                let resp = ResponseAccountRmsInfo::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseAccountRmsInfo, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseAccountRmsInfo(resp),
+                    message: Box::new(RithmicMessage::ResponseAccountRmsInfo(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -906,13 +939,13 @@ impl RithmicReceiverApi {
                 }
             }
             307 => {
-                let resp = ResponseProductRmsInfo::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseProductRmsInfo, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseProductRmsInfo(resp),
+                    message: Box::new(RithmicMessage::ResponseProductRmsInfo(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -921,12 +954,12 @@ impl RithmicReceiverApi {
                 }
             }
             309 => {
-                let resp = ResponseSubscribeForOrderUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseSubscribeForOrderUpdates, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseSubscribeForOrderUpdates(resp),
+                    message: Box::new(RithmicMessage::ResponseSubscribeForOrderUpdates(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -935,13 +968,13 @@ impl RithmicReceiverApi {
                 }
             }
             311 => {
-                let resp = ResponseTradeRoutes::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseTradeRoutes, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseTradeRoutes(resp),
+                    message: Box::new(RithmicMessage::ResponseTradeRoutes(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -950,13 +983,13 @@ impl RithmicReceiverApi {
                 }
             }
             313 => {
-                let resp = ResponseNewOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseNewOrder, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseNewOrder(resp),
+                    message: Box::new(RithmicMessage::ResponseNewOrder(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -965,13 +998,13 @@ impl RithmicReceiverApi {
                 }
             }
             315 => {
-                let resp = ResponseModifyOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseModifyOrder, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseModifyOrder(resp),
+                    message: Box::new(RithmicMessage::ResponseModifyOrder(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -980,13 +1013,13 @@ impl RithmicReceiverApi {
                 }
             }
             317 => {
-                let resp = ResponseCancelOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseCancelOrder, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseCancelOrder(resp),
+                    message: Box::new(RithmicMessage::ResponseCancelOrder(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -995,13 +1028,13 @@ impl RithmicReceiverApi {
                 }
             }
             319 => {
-                let resp = ResponseShowOrderHistoryDates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowOrderHistoryDates, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowOrderHistoryDates(resp),
+                    message: Box::new(RithmicMessage::ResponseShowOrderHistoryDates(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1010,12 +1043,12 @@ impl RithmicReceiverApi {
                 }
             }
             321 => {
-                let resp = ResponseShowOrders::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowOrders, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowOrders(resp),
+                    message: Box::new(RithmicMessage::ResponseShowOrders(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1024,12 +1057,12 @@ impl RithmicReceiverApi {
                 }
             }
             323 => {
-                let resp = ResponseShowOrderHistory::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowOrderHistory, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowOrderHistory(resp),
+                    message: Box::new(RithmicMessage::ResponseShowOrderHistory(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1038,12 +1071,12 @@ impl RithmicReceiverApi {
                 }
             }
             325 => {
-                let resp = ResponseShowOrderHistorySummary::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowOrderHistorySummary, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowOrderHistorySummary(resp),
+                    message: Box::new(RithmicMessage::ResponseShowOrderHistorySummary(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1052,12 +1085,12 @@ impl RithmicReceiverApi {
                 }
             }
             327 => {
-                let resp = ResponseShowOrderHistoryDetail::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowOrderHistoryDetail, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowOrderHistoryDetail(resp),
+                    message: Box::new(RithmicMessage::ResponseShowOrderHistoryDetail(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1066,13 +1099,13 @@ impl RithmicReceiverApi {
                 }
             }
             329 => {
-                let resp = ResponseOcoOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseOcoOrder, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseOcoOrder(resp),
+                    message: Box::new(RithmicMessage::ResponseOcoOrder(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1081,13 +1114,13 @@ impl RithmicReceiverApi {
                 }
             }
             331 => {
-                let resp = ResponseBracketOrder::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseBracketOrder, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseBracketOrder(resp),
+                    message: Box::new(RithmicMessage::ResponseBracketOrder(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1096,12 +1129,12 @@ impl RithmicReceiverApi {
                 }
             }
             333 => {
-                let resp = ResponseUpdateTargetBracketLevel::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseUpdateTargetBracketLevel, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseUpdateTargetBracketLevel(resp),
+                    message: Box::new(RithmicMessage::ResponseUpdateTargetBracketLevel(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1110,12 +1143,12 @@ impl RithmicReceiverApi {
                 }
             }
             335 => {
-                let resp = ResponseUpdateStopBracketLevel::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseUpdateStopBracketLevel, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseUpdateStopBracketLevel(resp),
+                    message: Box::new(RithmicMessage::ResponseUpdateStopBracketLevel(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1124,12 +1157,12 @@ impl RithmicReceiverApi {
                 }
             }
             337 => {
-                let resp = ResponseSubscribeToBracketUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseSubscribeToBracketUpdates, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseSubscribeToBracketUpdates(resp),
+                    message: Box::new(RithmicMessage::ResponseSubscribeToBracketUpdates(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1138,13 +1171,13 @@ impl RithmicReceiverApi {
                 }
             }
             339 => {
-                let resp = ResponseShowBrackets::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowBrackets, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowBrackets(resp),
+                    message: Box::new(RithmicMessage::ResponseShowBrackets(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1153,13 +1186,13 @@ impl RithmicReceiverApi {
                 }
             }
             341 => {
-                let resp = ResponseShowBracketStops::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowBracketStops, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowBracketStops(resp),
+                    message: Box::new(RithmicMessage::ResponseShowBracketStops(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1168,13 +1201,13 @@ impl RithmicReceiverApi {
                 }
             }
             343 => {
-                let resp = ResponseListExchangePermissions::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseListExchangePermissions, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseListExchangePermissions(resp),
+                    message: Box::new(RithmicMessage::ResponseListExchangePermissions(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1183,12 +1216,12 @@ impl RithmicReceiverApi {
                 }
             }
             345 => {
-                let resp = ResponseLinkOrders::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseLinkOrders, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseLinkOrders(resp),
+                    message: Box::new(RithmicMessage::ResponseLinkOrders(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1197,12 +1230,12 @@ impl RithmicReceiverApi {
                 }
             }
             347 => {
-                let resp = ResponseCancelAllOrders::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseCancelAllOrders, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseCancelAllOrders(resp),
+                    message: Box::new(RithmicMessage::ResponseCancelAllOrders(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1211,13 +1244,13 @@ impl RithmicReceiverApi {
                 }
             }
             349 => {
-                let resp = ResponseEasyToBorrowList::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseEasyToBorrowList, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseEasyToBorrowList(resp),
+                    message: Box::new(RithmicMessage::ResponseEasyToBorrowList(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1226,11 +1259,11 @@ impl RithmicReceiverApi {
                 }
             }
             350 => {
-                let resp = TradeRoute::decode(payload).unwrap();
+                let resp = decode_or_err!(TradeRoute, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::TradeRoute(resp),
+                    message: Box::new(RithmicMessage::TradeRoute(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1239,11 +1272,11 @@ impl RithmicReceiverApi {
                 }
             }
             351 => {
-                let resp = RithmicOrderNotification::decode(payload).unwrap();
+                let resp = decode_or_err!(RithmicOrderNotification, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::RithmicOrderNotification(resp),
+                    message: Box::new(RithmicMessage::RithmicOrderNotification(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1252,11 +1285,11 @@ impl RithmicReceiverApi {
                 }
             }
             352 => {
-                let resp = ExchangeOrderNotification::decode(payload).unwrap();
+                let resp = decode_or_err!(ExchangeOrderNotification, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::ExchangeOrderNotification(resp),
+                    message: Box::new(RithmicMessage::ExchangeOrderNotification(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1265,11 +1298,11 @@ impl RithmicReceiverApi {
                 }
             }
             353 => {
-                let resp = BracketUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(BracketUpdates, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::BracketUpdates(resp),
+                    message: Box::new(RithmicMessage::BracketUpdates(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1278,11 +1311,11 @@ impl RithmicReceiverApi {
                 }
             }
             354 => {
-                let resp = AccountListUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(AccountListUpdates, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::AccountListUpdates(resp),
+                    message: Box::new(RithmicMessage::AccountListUpdates(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1291,11 +1324,11 @@ impl RithmicReceiverApi {
                 }
             }
             355 => {
-                let resp = UpdateEasyToBorrowList::decode(payload).unwrap();
+                let resp = decode_or_err!(UpdateEasyToBorrowList, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::UpdateEasyToBorrowList(resp),
+                    message: Box::new(RithmicMessage::UpdateEasyToBorrowList(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1304,11 +1337,11 @@ impl RithmicReceiverApi {
                 }
             }
             356 => {
-                let resp = AccountRmsUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(AccountRmsUpdates, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::AccountRmsUpdates(resp),
+                    message: Box::new(RithmicMessage::AccountRmsUpdates(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1317,12 +1350,12 @@ impl RithmicReceiverApi {
                 }
             }
             401 => {
-                let resp = ResponsePnLPositionUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponsePnLPositionUpdates, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponsePnLPositionUpdates(resp),
+                    message: Box::new(RithmicMessage::ResponsePnLPositionUpdates(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1331,12 +1364,12 @@ impl RithmicReceiverApi {
                 }
             }
             403 => {
-                let resp = ResponsePnLPositionSnapshot::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponsePnLPositionSnapshot, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponsePnLPositionSnapshot(resp),
+                    message: Box::new(RithmicMessage::ResponsePnLPositionSnapshot(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1345,11 +1378,11 @@ impl RithmicReceiverApi {
                 }
             }
             450 => {
-                let resp = InstrumentPnLPositionUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(InstrumentPnLPositionUpdate, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::InstrumentPnLPositionUpdate(resp),
+                    message: Box::new(RithmicMessage::InstrumentPnLPositionUpdate(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1358,11 +1391,11 @@ impl RithmicReceiverApi {
                 }
             }
             451 => {
-                let resp = AccountPnLPositionUpdate::decode(payload).unwrap();
+                let resp = decode_or_err!(AccountPnLPositionUpdate, payload, self.source);
 
                 RithmicResponse {
                     request_id: "".to_string(),
-                    message: RithmicMessage::AccountPnLPositionUpdate(resp),
+                    message: Box::new(RithmicMessage::AccountPnLPositionUpdate(resp)),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -1371,13 +1404,13 @@ impl RithmicReceiverApi {
                 }
             }
             501 => {
-                let resp = ResponseListUnacceptedAgreements::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseListUnacceptedAgreements, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseListUnacceptedAgreements(resp),
+                    message: Box::new(RithmicMessage::ResponseListUnacceptedAgreements(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1386,13 +1419,13 @@ impl RithmicReceiverApi {
                 }
             }
             503 => {
-                let resp = ResponseListAcceptedAgreements::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseListAcceptedAgreements, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseListAcceptedAgreements(resp),
+                    message: Box::new(RithmicMessage::ResponseListAcceptedAgreements(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1401,12 +1434,12 @@ impl RithmicReceiverApi {
                 }
             }
             505 => {
-                let resp = ResponseAcceptAgreement::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseAcceptAgreement, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseAcceptAgreement(resp),
+                    message: Box::new(RithmicMessage::ResponseAcceptAgreement(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1415,13 +1448,13 @@ impl RithmicReceiverApi {
                 }
             }
             507 => {
-                let resp = ResponseShowAgreement::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseShowAgreement, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseShowAgreement(resp),
+                    message: Box::new(RithmicMessage::ResponseShowAgreement(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1430,12 +1463,18 @@ impl RithmicReceiverApi {
                 }
             }
             509 => {
-                let resp = ResponseSetRithmicMrktDataSelfCertStatus::decode(payload).unwrap();
+                let resp = decode_or_err!(
+                    ResponseSetRithmicMrktDataSelfCertStatus,
+                    payload,
+                    self.source
+                );
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseSetRithmicMrktDataSelfCertStatus(resp),
+                    message: Box::new(RithmicMessage::ResponseSetRithmicMrktDataSelfCertStatus(
+                        resp,
+                    )),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1444,12 +1483,12 @@ impl RithmicReceiverApi {
                 }
             }
             3501 => {
-                let resp = ResponseModifyOrderReferenceData::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseModifyOrderReferenceData, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseModifyOrderReferenceData(resp),
+                    message: Box::new(RithmicMessage::ResponseModifyOrderReferenceData(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1458,12 +1497,12 @@ impl RithmicReceiverApi {
                 }
             }
             3503 => {
-                let resp = ResponseOrderSessionConfig::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseOrderSessionConfig, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseOrderSessionConfig(resp),
+                    message: Box::new(RithmicMessage::ResponseOrderSessionConfig(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1472,13 +1511,13 @@ impl RithmicReceiverApi {
                 }
             }
             3505 => {
-                let resp = ResponseExitPosition::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseExitPosition, payload, self.source);
                 let has_more = has_multiple(&resp.rq_handler_rp_code);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseExitPosition(resp),
+                    message: Box::new(RithmicMessage::ResponseExitPosition(resp)),
                     is_update: false,
                     has_more,
                     multi_response: true,
@@ -1487,12 +1526,12 @@ impl RithmicReceiverApi {
                 }
             }
             3507 => {
-                let resp = ResponseReplayExecutions::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseReplayExecutions, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseReplayExecutions(resp),
+                    message: Box::new(RithmicMessage::ResponseReplayExecutions(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1501,12 +1540,12 @@ impl RithmicReceiverApi {
                 }
             }
             3509 => {
-                let resp = ResponseAccountRmsUpdates::decode(payload).unwrap();
+                let resp = decode_or_err!(ResponseAccountRmsUpdates, payload, self.source);
                 let error = get_error(&resp.rp_code);
 
                 RithmicResponse {
                     request_id: resp.user_msg.first().cloned().unwrap_or_default(),
-                    message: RithmicMessage::ResponseAccountRmsUpdates(resp),
+                    message: Box::new(RithmicMessage::ResponseAccountRmsUpdates(resp)),
                     is_update: false,
                     has_more: false,
                     multi_response: false,
@@ -1515,16 +1554,20 @@ impl RithmicReceiverApi {
                 }
             }
             _ => {
-                error!(
+                log::warn!(
                     "Unknown message type received - template_id: {}, data_size: {} bytes",
                     parsed_message.template_id,
                     data.len()
                 );
 
-                return Err(RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::Unknown,
-                    is_update: false,
+                // Treat unknown template IDs as updates (broadcast to
+                // subscribers) rather than request-response — unknown
+                // messages are more likely to be new subscription types
+                // than responses to a pending request.
+                RithmicResponse {
+                    request_id: String::new(),
+                    message: Box::new(RithmicMessage::Unknown),
+                    is_update: true,
                     has_more: false,
                     multi_response: false,
                     error: Some(format!(
@@ -1532,7 +1575,7 @@ impl RithmicReceiverApi {
                         parsed_message.template_id
                     )),
                     source: self.source.clone(),
-                });
+                }
             }
         };
 
@@ -1555,13 +1598,13 @@ fn has_multiple(rq_handler_rp_code: &[String]) -> bool {
 ///
 /// Returns `None` for success (code "0" or empty), otherwise
 /// returns the human-readable error text from `rp_code[1]`.
+/// Does not log -- callers decide the appropriate log level.
 fn get_error(rp_code: &[String]) -> Option<String> {
-    if (rp_code.len() == 1 && rp_code[0] == "0") || (rp_code.is_empty()) {
-        None
-    } else {
-        error!("receiver_api: error {:#?}", rp_code);
-
-        Some(rp_code[1].clone())
+    match rp_code {
+        [] => None,
+        [s] if s == "0" => None,
+        [code] => Some(format!("Error code: {}", code)),
+        [_, msg, ..] => Some(msg.clone()),
     }
 }
 
@@ -1578,7 +1621,7 @@ mod tests {
     fn make_response(message: RithmicMessage) -> RithmicResponse {
         RithmicResponse {
             request_id: String::new(),
-            message,
+            message: Box::new(message),
             is_update: false,
             has_more: false,
             multi_response: false,

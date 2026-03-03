@@ -7,10 +7,7 @@ use crate::components::primitives::{
 };
 use crate::screen::dashboard::pane::types::Message;
 use crate::style::{palette, tokens};
-use iced::{
-    Alignment, Element, Theme,
-    widget::container,
-};
+use iced::{Alignment, Element, Theme, widget::container};
 
 /// Compact tool result row — merged view of a completed tool call + result.
 pub fn view_tool_result<'a>(

@@ -137,6 +137,7 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
     // RTH: 09:30-16:00 ET, ETH: 18:00-09:30 ET
     // We approximate ET as UTC-5 (EST). DST handling would require
     // the chrono-tz crate which may not be available.
+    // SAFETY: 5*3600 = 18000 seconds is a valid west offset (EST = UTC-5)
     let et_offset = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
 
     let filtered: Vec<_> = snap
@@ -149,6 +150,7 @@ pub fn exec_get_session_stats(snap: &ChartSnapshot, args: &Value) -> ToolExecRes
             };
             let et = dt.with_timezone(&et_offset);
             let time = et.time();
+            // SAFETY: 09:30 and 16:00 are valid times
             let rth_start = chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap();
             let rth_end = chrono::NaiveTime::from_hms_opt(16, 0, 0).unwrap();
 

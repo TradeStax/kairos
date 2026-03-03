@@ -103,6 +103,18 @@ impl LodCalculator {
         }
     }
 
+    /// Get effective decimation for a given max item budget.
+    ///
+    /// Returns how many items to skip so the total rendered count
+    /// stays within `max_items`.
+    #[allow(dead_code)] // used by heatmap feature
+    pub fn effective_decimation(&self, max_items: usize) -> usize {
+        if max_items == 0 || self.visible_item_count <= max_items {
+            return 1;
+        }
+        self.visible_item_count.div_ceil(max_items)
+    }
+
     /// Calculate appropriate LOD level
     ///
     /// Decision factors:

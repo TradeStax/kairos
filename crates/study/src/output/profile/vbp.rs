@@ -11,9 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::types::{ExtendDirection, NodeDetectionMethod, ProfileLevel};
 
 /// Visualization type for VBP bars.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum VbpType {
     /// Total volume per level (single color).
     #[default]
@@ -43,9 +41,7 @@ impl std::fmt::Display for VbpType {
 }
 
 /// Time period mode for VBP computation range.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum VbpPeriod {
     /// Split the visible range into multiple profiles by time interval.
     #[default]
@@ -151,9 +147,7 @@ impl Default for VbpPocConfig {
             poc_extend: ExtendDirection::None,
             show_poc_label: false,
             show_developing_poc: false,
-            developing_poc_color: SerializableColor::new(
-                1.0, 0.84, 0.0, 0.5,
-            ),
+            developing_poc_color: SerializableColor::new(1.0, 0.84, 0.0, 0.5),
             developing_poc_line_width: 1.0,
             developing_poc_line_style: LineStyleValue::Dashed,
         }
@@ -210,9 +204,7 @@ impl Default for VbpValueAreaConfig {
             val_line_width: 1.0,
             val_line_style: LineStyleValue::Solid,
             show_va_fill: false,
-            va_fill_color: SerializableColor::new(
-                0.0, 0.7, 1.0, 0.15,
-            ),
+            va_fill_color: SerializableColor::new(0.0, 0.7, 1.0, 0.15),
             va_fill_opacity: 0.15,
             va_extend: ExtendDirection::None,
             show_va_labels: false,
@@ -315,9 +307,7 @@ impl Default for VbpNodeConfig {
             min_prominence: 0.15,
 
             show_hvn_zones: false,
-            hvn_zone_color: SerializableColor::new(
-                0.0, 0.9, 0.4, 0.5,
-            ),
+            hvn_zone_color: SerializableColor::new(0.0, 0.9, 0.4, 0.5),
             hvn_zone_opacity: 0.08,
 
             show_peak_line: false,
@@ -328,16 +318,12 @@ impl Default for VbpNodeConfig {
             show_peak_label: false,
 
             show_developing_peak: false,
-            developing_peak_color: SerializableColor::new(
-                0.0, 0.9, 0.4, 0.5,
-            ),
+            developing_peak_color: SerializableColor::new(0.0, 0.9, 0.4, 0.5),
             developing_peak_line_width: 1.0,
             developing_peak_line_style: LineStyleValue::Dashed,
 
             show_lvn_zones: false,
-            lvn_zone_color: SerializableColor::new(
-                0.9, 0.2, 0.2, 0.5,
-            ),
+            lvn_zone_color: SerializableColor::new(0.9, 0.2, 0.2, 0.5),
             lvn_zone_opacity: 0.08,
 
             show_valley_line: false,
@@ -348,9 +334,7 @@ impl Default for VbpNodeConfig {
             show_valley_label: false,
 
             show_developing_valley: false,
-            developing_valley_color: SerializableColor::new(
-                0.9, 0.2, 0.2, 0.5,
-            ),
+            developing_valley_color: SerializableColor::new(0.9, 0.2, 0.2, 0.5),
             developing_valley_line_width: 1.0,
             developing_valley_line_style: LineStyleValue::Dashed,
         }

@@ -38,7 +38,7 @@ impl RithmicStream {
     /// or the sender is dropped.
     pub async fn run(
         mut self,
-        ticker_map: FxHashMap<String, FuturesTickerInfo>,
+        mut ticker_map: FxHashMap<String, FuturesTickerInfo>,
         event_tx: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     ) {
         log::info!(
@@ -97,47 +97,42 @@ impl RithmicStream {
                 continue;
             }
 
-            match &response.message {
+            match &*response.message {
                 RithmicMessage::LastTrade(lt) => {
-                    let Some(ticker) = resolve_ticker(lt.symbol.as_deref(), &ticker_map) else {
+                    let Some(ticker) =
+                        resolve_ticker_with_cache(lt.symbol.as_deref(), &mut ticker_map)
+                    else {
                         continue;
                     };
-                    match mapper::map_last_trade(&response.message) {
-                        Some(trade) => {
-                            trade_count += 1;
-                            if !first_trade_logged {
-                                first_trade_logged = true;
-                                log::info!(
-                                    "Rithmic stream: first live trade — \
-                                     {} @ {} ({:?})",
-                                    ticker.as_str(),
-                                    trade.price,
-                                    trade.side,
-                                );
-                            }
-                            if event_tx
-                                .send(DataEvent::TradeReceived { ticker, trade })
-                                .is_err()
-                            {
-                                log::info!(
-                                    "Event channel closed, stopping \
-                                     Rithmic stream"
-                                );
-                                break;
-                            }
-                        }
-                        None => {
-                            log::debug!(
-                                "Rithmic stream: map_last_trade returned \
-                                 None for {:?}",
-                                lt.symbol
+                    if let Some(trade) = mapper::map_last_trade(&response.message) {
+                        trade_count += 1;
+                        if !first_trade_logged {
+                            first_trade_logged = true;
+                            log::info!(
+                                "Rithmic stream: first live trade — \
+                                 {} @ {} ({:?})",
+                                ticker.as_str(),
+                                trade.price,
+                                trade.side,
                             );
+                        }
+                        if event_tx
+                            .send(DataEvent::TradeReceived { ticker, trade })
+                            .is_err()
+                        {
+                            log::info!(
+                                "Event channel closed, stopping \
+                                 Rithmic stream"
+                            );
+                            break;
                         }
                     }
                 }
                 #[cfg(feature = "heatmap")]
                 RithmicMessage::BestBidOffer(bbo) => {
-                    let Some(ticker) = resolve_ticker(bbo.symbol.as_deref(), &ticker_map) else {
+                    let Some(ticker) =
+                        resolve_ticker_with_cache(bbo.symbol.as_deref(), &mut ticker_map)
+                    else {
                         continue;
                     };
                     if let Some(depth) = mapper::map_bbo_to_depth(&response.message) {
@@ -152,7 +147,9 @@ impl RithmicStream {
                 }
                 #[cfg(feature = "heatmap")]
                 RithmicMessage::OrderBook(ob) => {
-                    let Some(ticker) = resolve_ticker(ob.symbol.as_deref(), &ticker_map) else {
+                    let Some(ticker) =
+                        resolve_ticker_with_cache(ob.symbol.as_deref(), &mut ticker_map)
+                    else {
                         continue;
                     };
                     if let Some(depth) = mapper::map_orderbook_to_depth(&response.message) {
@@ -209,31 +206,35 @@ impl RithmicStream {
 
 /// Resolves a Rithmic symbol string to a [`FuturesTicker`].
 ///
-/// Tries exact match first, then prefix match (e.g. "ESH6" matching
-/// "ES"). Returns `None` with a warning if no match is found.
-fn resolve_ticker(
+/// Uses O(1) exact lookup first (covers both base symbols like "ES"
+/// and contract-month symbols like "ESH6"). On a cache miss, performs
+/// a prefix scan and inserts the result into the map so subsequent
+/// lookups are O(1).
+fn resolve_ticker_with_cache(
     symbol: Option<&str>,
-    ticker_map: &FxHashMap<String, FuturesTickerInfo>,
+    ticker_map: &mut FxHashMap<String, FuturesTickerInfo>,
 ) -> Option<FuturesTicker> {
-    let info = if let Some(sym) = symbol {
-        if let Some(info) = ticker_map.get(sym) {
-            *info
-        } else {
-            let found = ticker_map
-                .iter()
-                .find(|(key, _)| sym.starts_with(key.as_str()));
-            if let Some((_, info)) = found {
-                *info
-            } else {
-                log::warn!("Unknown Rithmic symbol '{}', no matching ticker info", sym);
-                return None;
-            }
-        }
-    } else {
-        *ticker_map.values().next()?
-    };
+    let sym = symbol?;
 
-    Some(info.ticker)
+    // Fast path: exact match (covers base symbols and cached contract months)
+    if let Some(info) = ticker_map.get(sym) {
+        return Some(info.ticker);
+    }
+
+    // Slow path: prefix scan (first encounter of a contract-month symbol)
+    let found = ticker_map
+        .iter()
+        .find(|(key, _)| sym.starts_with(key.as_str()))
+        .map(|(_, info)| *info);
+
+    if let Some(info) = found {
+        // Cache the contract-month symbol for O(1) next time
+        ticker_map.insert(sym.to_owned(), info);
+        Some(info.ticker)
+    } else {
+        log::warn!("Unknown Rithmic symbol '{}', no matching ticker info", sym);
+        None
+    }
 }
 
 /// Builds a [`StreamKind`] for a Rithmic depth-and-trades subscription

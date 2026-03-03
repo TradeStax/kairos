@@ -393,7 +393,7 @@ fn sub_daily_labels_gen(
         let current_date = timezone.date_components(ts_secs);
 
         let is_date_label = match (current_date, prev_date) {
-            (Some(_), None) => true, // first label
+            (Some(_), None) => true,                // first label
             (Some(cur), Some(prev)) => cur != prev, // day changed
             _ => false,
         };
@@ -412,8 +412,7 @@ fn sub_daily_labels_gen(
                 palette,
             ));
         } else {
-            let label_text =
-                timezone.format_timestamp(ts_secs, timeframe);
+            let label_text = timezone.format_timestamp(ts_secs, timeframe);
             all_labels.push(AxisLabel::new_x(
                 x_pos,
                 label_text,
@@ -439,6 +438,7 @@ fn to_user_fixed_offset<Tz: chrono::TimeZone>(
             dt.with_timezone(&offset)
         }
         UserTimezone::Utc => {
+            // SAFETY: 0 is always a valid east offset (UTC)
             let offset = chrono::FixedOffset::east_opt(0).unwrap();
             dt.with_timezone(&offset)
         }
@@ -453,5 +453,119 @@ where
     move |dt| {
         let dt_in_timezone = to_user_fixed_offset(dt, timezone);
         f(&dt_in_timezone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use data::Timeframe;
+
+    // ── calc_time_step ──────────────────────────────────────
+
+    #[test]
+    fn time_step_m1_basic() {
+        let hour = 1000 * 60 * 60;
+        let earliest = 1_700_000_000_000_u64;
+        let latest = earliest + 4 * hour;
+        let (step, rounded) = calc_time_step(earliest, latest, 5, Timeframe::M1);
+        assert!(step > 0);
+        assert!(rounded <= earliest);
+    }
+
+    #[test]
+    fn time_step_m1_wide_range_uses_larger_step() {
+        let hour = 1000 * 60 * 60;
+        let earliest = 1_700_000_000_000_u64;
+        let (step_narrow, _) = calc_time_step(earliest, earliest + hour, 5, Timeframe::M1);
+        let (step_wide, _) = calc_time_step(earliest, earliest + 12 * hour, 5, Timeframe::M1);
+        assert!(step_wide >= step_narrow);
+    }
+
+    #[test]
+    fn time_step_m5_uses_m5_steps() {
+        let earliest = 1_700_000_000_000_u64;
+        let latest = earliest + 1000 * 60 * 120; // 2 hours
+        let (step, _) = calc_time_step(earliest, latest, 5, Timeframe::M5);
+        // M5 steps are in M5_TIME_STEPS: smallest is 5 min = 300_000
+        assert!(step >= 1000 * 60 * 5);
+    }
+
+    #[test]
+    fn time_step_hourly() {
+        let earliest = 1_700_000_000_000_u64;
+        let latest = earliest + 1000 * 60 * 60 * 24; // 24 hours
+        let (step, _) = calc_time_step(earliest, latest, 5, Timeframe::H1);
+        assert!(step >= 1000 * 60 * 60); // at least 1 hour
+    }
+
+    #[test]
+    fn time_step_rounded_earliest_is_aligned() {
+        let earliest = 1_700_000_123_456_u64;
+        let latest = earliest + 1000 * 60 * 60 * 2;
+        let (step, rounded) = calc_time_step(earliest, latest, 5, Timeframe::M1);
+        // rounded should be aligned to step
+        assert_eq!(rounded % step, 0);
+        assert!(rounded <= earliest);
+    }
+
+    #[test]
+    fn time_step_single_label_still_works() {
+        let earliest = 1_700_000_000_000_u64;
+        let latest = earliest + 1000 * 60 * 30;
+        let (step, _) = calc_time_step(earliest, latest, 1, Timeframe::M1);
+        assert!(step > 0);
+    }
+
+    // ── calc_x_pos ──────────────────────────────────────────
+
+    #[test]
+    fn x_pos_at_start() {
+        let pos = calc_x_pos(1000, 1000, 2000, 800.0);
+        assert!((pos - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn x_pos_at_end() {
+        let pos = calc_x_pos(2000, 1000, 2000, 800.0);
+        assert!((pos - 800.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn x_pos_at_midpoint() {
+        let pos = calc_x_pos(1500, 1000, 2000, 800.0);
+        assert!((pos - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn x_pos_equal_min_max_returns_zero() {
+        let pos = calc_x_pos(1000, 1000, 1000, 800.0);
+        assert!((pos - 0.0).abs() < 0.01);
+    }
+
+    // ── is_drawable ─────────────────────────────────────────
+
+    #[test]
+    fn drawable_within_bounds() {
+        assert!(is_drawable(100.0, 800.0));
+        assert!(is_drawable(0.0, 800.0));
+        assert!(is_drawable(800.0, 800.0));
+    }
+
+    #[test]
+    fn drawable_allows_margin() {
+        // Slightly outside viewport is still drawable due to margin
+        assert!(is_drawable(-10.0, 800.0));
+        assert!(is_drawable(810.0, 800.0));
+    }
+
+    #[test]
+    fn not_drawable_far_left() {
+        assert!(!is_drawable(-1000.0, 800.0));
+    }
+
+    #[test]
+    fn not_drawable_far_right() {
+        assert!(!is_drawable(2000.0, 800.0));
     }
 }

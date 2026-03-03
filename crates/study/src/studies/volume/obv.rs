@@ -7,8 +7,8 @@
 //! Output: `StudyOutput::Lines` — a single cumulative line.
 
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
-    ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -289,5 +289,91 @@ mod tests {
         assert!((pts[0].1).abs() < 0.01);
         assert!((pts[1].1 - (-100.0)).abs() < 0.01);
         assert!((pts[2].1 - (-200.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn obv_zero_volume_candles_unchanged() {
+        let mut study = ObvStudy::new();
+        let candles = vec![
+            make_candle(1000, 100.0, 50.0, 50.0),
+            // Close up but zero volume -> OBV should still add 0
+            Candle::new(
+                Timestamp(2000),
+                Price::from_f32(105.0),
+                Price::from_f32(106.0),
+                Price::from_f32(104.0),
+                Price::from_f32(105.0),
+                Volume(0.0),
+                Volume(0.0),
+            )
+            .expect("valid candle"),
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        let pts = &lines[0].points;
+        assert!((pts[0].1).abs() < 0.01); // first candle OBV = 0
+        assert!((pts[1].1).abs() < 0.01); // close up, but vol=0 => 0+0=0
+    }
+
+    #[test]
+    fn obv_all_equal_closes() {
+        let mut study = ObvStudy::new();
+        let candles = vec![
+            make_candle(1000, 100.0, 50.0, 50.0),
+            make_candle(2000, 100.0, 60.0, 40.0), // equal close, vol=100 => unchanged
+            make_candle(3000, 100.0, 70.0, 30.0), // equal close, vol=100 => unchanged
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        let pts = &lines[0].points;
+        // All closes equal => OBV stays at 0 throughout
+        assert!((pts[0].1).abs() < 0.01);
+        assert!((pts[1].1).abs() < 0.01);
+        assert!((pts[2].1).abs() < 0.01);
+    }
+
+    #[test]
+    fn obv_reset_clears_output() {
+        let mut study = ObvStudy::new();
+        let candles = vec![make_candle(1000, 100.0, 50.0, 50.0)];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+        assert!(!matches!(study.output(), StudyOutput::Empty));
+
+        study.reset();
+        assert!(matches!(study.output(), StudyOutput::Empty));
+    }
+
+    #[test]
+    fn obv_alternating_direction() {
+        let mut study = ObvStudy::new();
+        let candles = vec![
+            make_candle(1000, 100.0, 50.0, 50.0), // OBV = 0
+            make_candle(2000, 110.0, 40.0, 60.0), // up, vol=100 => +100
+            make_candle(3000, 105.0, 30.0, 70.0), // down, vol=100 => 0
+            make_candle(4000, 115.0, 80.0, 20.0), // up, vol=100 => +100
+            make_candle(5000, 108.0, 25.0, 75.0), // down, vol=100 => 0
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        let pts = &lines[0].points;
+        assert_eq!(pts.len(), 5);
+        assert!((pts[0].1 - 0.0).abs() < 0.01);
+        assert!((pts[1].1 - 100.0).abs() < 0.01);
+        assert!((pts[2].1 - 0.0).abs() < 0.01);
+        assert!((pts[3].1 - 100.0).abs() < 0.01);
+        assert!((pts[4].1 - 0.0).abs() < 0.01);
     }
 }

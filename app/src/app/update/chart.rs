@@ -1,6 +1,5 @@
 use iced::Task;
 
-use crate::app::core::globals;
 use crate::components::display::toast::Toast;
 use crate::screen::dashboard;
 use data::LoadingStatus;
@@ -15,7 +14,7 @@ impl Kairos {
         config: data::ChartConfig,
         ticker_info: data::FuturesTickerInfo,
     ) -> Task<Message> {
-        log::info!(
+        log::debug!(
             "LoadChartData message received for pane {}: {:?} chart",
             pane_id,
             config.chart_type
@@ -71,7 +70,7 @@ impl Kairos {
         }
 
         let provider = resolved.provider;
-        log::info!("Chart load: provider={:?}", provider);
+        log::debug!("Chart load: provider={:?}", provider);
 
         let Some(engine) = self.services.engine.clone() else {
             log::warn!("No data engine available");
@@ -91,9 +90,14 @@ impl Kairos {
             });
         };
 
+        // Clone event_tx so the progress callback can push ChartLoadProgress
+        // events directly through the DataEvent channel (push-based) instead
+        // of writing to a polled static HashMap.
+        let event_tx = self.services.event_tx.clone();
+
         Task::perform(
             async move {
-                log::info!(
+                log::debug!(
                     "Starting async get_chart_data: {:?} {} range={} to {}",
                     config.chart_type,
                     config.ticker,
@@ -103,12 +107,20 @@ impl Kairos {
 
                 let mut guard = engine.lock().await;
 
-                // Set progress callback so the per-day Rithmic loop
-                // reports (days_loaded, days_total) to the UI poll.
-                guard.progress_callback =
-                    Some(Box::new(move |loaded, total| {
-                        globals::set_chart_progress(pane_id, loaded, total);
-                    }));
+                // Push progress via the DataEvent channel for immediate delivery
+                // to the UI subscription, avoiding the old 500ms polling delay.
+                let progress_tx = event_tx.clone();
+                guard.set_progress_callback(std::sync::Arc::new(
+                    move |loaded: f32, total: usize| {
+                        if let Some(tx) = &progress_tx {
+                            let _ = tx.send(data::DataEvent::ChartLoadProgress {
+                                pane_id,
+                                days_loaded: loaded,
+                                days_total: total,
+                            });
+                        }
+                    },
+                ));
 
                 let result = guard
                     .get_chart_data(
@@ -120,12 +132,11 @@ impl Kairos {
                     )
                     .await;
 
-                guard.progress_callback = None;
+                guard.clear_progress_callback();
                 drop(guard);
-                globals::clear_chart_progress(pane_id);
 
                 match &result {
-                    Ok(cd) => log::info!(
+                    Ok(cd) => log::debug!(
                         "get_chart_data completed: {} trades, {} candles",
                         cd.trades.len(),
                         cd.candles.len(),
@@ -300,8 +311,7 @@ impl Kairos {
         let mut reload_tasks = Vec::new();
 
         let fallback_days = {
-            let feed_manager =
-                data::lock_or_recover(&self.connections.connection_manager);
+            let feed_manager = data::lock_or_recover(&self.connections.connection_manager);
             self.services
                 .rithmic_feed_id
                 .and_then(|fid| feed_manager.get(fid))
@@ -379,40 +389,11 @@ impl Kairos {
         Task::none()
     }
 
+    /// Chart loading progress is now push-based via
+    /// `DataEvent::ChartLoadProgress`, delivered through the subscription
+    /// monitor. This stub exists for the 500ms poll that may handle other
+    /// status queries in the future.
     pub(crate) fn fetch_loading_statuses(&mut self) -> Task<Message> {
-        let progress = globals::take_chart_progress();
-        if progress.is_empty() {
-            return Task::none();
-        }
-
-        let lid = self
-            .persistence
-            .layout_manager
-            .active_layout_id()
-            .map(|id| id.unique);
-
-        let Some(layout_id) = lid else {
-            return Task::none();
-        };
-
-        let tasks: Vec<_> = progress
-            .into_iter()
-            .map(|(pane_id, (days_loaded, days_total))| {
-                let status = LoadingStatus::LoadingFromCache {
-                    schema: data::DataSchema::Trades,
-                    days_total,
-                    days_loaded,
-                    items_loaded: 0,
-                };
-                Task::done(Message::Dashboard {
-                    layout_id: Some(layout_id),
-                    event: Box::new(
-                        dashboard::Message::ChangePaneStatus(pane_id, status),
-                    ),
-                })
-            })
-            .collect();
-
-        Task::batch(tasks)
+        Task::none()
     }
 }

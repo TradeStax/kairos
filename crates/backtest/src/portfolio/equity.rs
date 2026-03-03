@@ -10,6 +10,9 @@
 use kairos_data::Timestamp;
 use serde::{Deserialize, Serialize};
 
+/// Milliseconds in one UTC calendar day.
+const MS_PER_DAY: u64 = 86_400_000;
+
 /// A single sample point on the equity curve.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EquityPoint {
@@ -118,11 +121,11 @@ impl DailyEquityTracker {
         realized_pnl: f64,
         positions_count: usize,
     ) {
-        let day = timestamp_ms / 86_400_000;
+        let day = timestamp_ms / MS_PER_DAY;
         if self.last_day != Some(day) {
             self.last_day = Some(day);
             self.snapshots.push(DailySnapshot {
-                date_ms: day * 86_400_000,
+                date_ms: day * MS_PER_DAY,
                 equity,
                 realized_pnl,
                 positions_count,
@@ -146,5 +149,120 @@ impl DailyEquityTracker {
 impl Default for DailyEquityTracker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kairos_data::Timestamp;
+
+    // ── EquityCurve ──────────────────────────────────────────────
+
+    #[test]
+    fn test_equity_curve_new() {
+        let curve = EquityCurve::new(100_000.0);
+        assert!((curve.initial_equity_usd - 100_000.0).abs() < 1e-10);
+        assert!(curve.points.is_empty());
+        assert!((curve.current_realized() - 100_000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_equity_curve_record() {
+        let mut curve = EquityCurve::new(100_000.0);
+        curve.record(Timestamp(1000), 100_500.0, 200.0);
+
+        assert_eq!(curve.points.len(), 1);
+        let p = &curve.points[0];
+        assert!((p.realized_equity_usd - 100_500.0).abs() < 1e-10);
+        assert!((p.unrealized_pnl_usd - 200.0).abs() < 1e-10);
+        assert!((p.total_equity_usd - 100_700.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_equity_curve_current_realized() {
+        let mut curve = EquityCurve::new(100_000.0);
+        curve.record(Timestamp(1000), 100_500.0, 0.0);
+        curve.record(Timestamp(2000), 101_000.0, 0.0);
+
+        assert!((curve.current_realized() - 101_000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_equity_curve_multiple_points() {
+        let mut curve = EquityCurve::new(50_000.0);
+        curve.record(Timestamp(1000), 51_000.0, 100.0);
+        curve.record(Timestamp(2000), 50_500.0, -200.0);
+        curve.record(Timestamp(3000), 52_000.0, 500.0);
+
+        assert_eq!(curve.points.len(), 3);
+        assert!((curve.points[2].total_equity_usd - 52_500.0).abs() < 1e-10);
+    }
+
+    // ── DailyEquityTracker ───────────────────────────────────────
+
+    #[test]
+    fn test_daily_tracker_new() {
+        let tracker = DailyEquityTracker::new();
+        assert!(tracker.snapshots().is_empty());
+    }
+
+    #[test]
+    fn test_daily_tracker_records_new_day() {
+        let mut tracker = DailyEquityTracker::new();
+        tracker.maybe_record(86_400_000, 100_000.0, 0.0, 0);
+
+        assert_eq!(tracker.snapshots().len(), 1);
+        assert!((tracker.snapshots()[0].equity - 100_000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_daily_tracker_skips_same_day() {
+        let mut tracker = DailyEquityTracker::new();
+        let day1_start = 86_400_000_u64;
+        tracker.maybe_record(day1_start, 100_000.0, 0.0, 0);
+        // Same day, different timestamp
+        tracker.maybe_record(day1_start + 1000, 100_500.0, 500.0, 1);
+
+        // Only one snapshot (first call for the day wins)
+        assert_eq!(tracker.snapshots().len(), 1);
+        assert!((tracker.snapshots()[0].equity - 100_000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_daily_tracker_records_different_days() {
+        let mut tracker = DailyEquityTracker::new();
+        let day = 86_400_000_u64;
+        tracker.maybe_record(day, 100_000.0, 0.0, 0);
+        tracker.maybe_record(day * 2, 101_000.0, 1_000.0, 1);
+        tracker.maybe_record(day * 3, 100_500.0, 500.0, 0);
+
+        assert_eq!(tracker.snapshots().len(), 3);
+    }
+
+    #[test]
+    fn test_daily_tracker_reset() {
+        let mut tracker = DailyEquityTracker::new();
+        tracker.maybe_record(86_400_000, 100_000.0, 0.0, 0);
+        tracker.maybe_record(86_400_000 * 2, 101_000.0, 1_000.0, 0);
+
+        tracker.reset();
+
+        assert!(tracker.snapshots().is_empty());
+        // Should be able to record the same day again
+        tracker.maybe_record(86_400_000, 99_000.0, 0.0, 0);
+        assert_eq!(tracker.snapshots().len(), 1);
+    }
+
+    #[test]
+    fn test_daily_tracker_date_ms_is_midnight() {
+        let mut tracker = DailyEquityTracker::new();
+        // Timestamp is mid-day on day 1
+        let mid_day = 86_400_000 + 43_200_000; // 1.5 days
+        tracker.maybe_record(mid_day, 100_000.0, 0.0, 0);
+
+        // date_ms should be midnight of that day
+        let snap = &tracker.snapshots()[0];
+        assert_eq!(snap.date_ms, 86_400_000);
     }
 }

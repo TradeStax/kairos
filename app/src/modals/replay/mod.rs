@@ -156,12 +156,10 @@ impl ReplayManager {
         }
     }
 
-    /// Refresh available streams from connected historical feeds
-    /// and downloaded tickers.
+    /// Refresh available streams from connected historical feeds.
     pub fn refresh_streams(
         &mut self,
         feed_manager: &ConnectionManager,
-        downloaded_tickers: &data::DownloadedTickersRegistry,
         ticker_infos: &std::collections::HashMap<String, FuturesTickerInfo>,
     ) {
         self.available_streams.clear();
@@ -169,29 +167,27 @@ impl ReplayManager {
         for feed in feed_manager
             .connections()
             .iter()
-            .filter(|f| f.status.is_connected() && !f.is_realtime())
+            .filter(|f| f.status.is_connected() && f.is_historical())
         {
-            for ticker_str in downloaded_tickers.list_tickers() {
-                if let Some(range) = downloaded_tickers.get_range_by_ticker_str(&ticker_str)
-                    && let Some(info) = ticker_infos.get(&ticker_str)
-                {
-                    let label = format!(
-                        "{} {} {}-{}",
-                        ticker_str,
-                        feed.provider.display_name(),
-                        range.start.format("%m/%d"),
-                        range.end.format("%m/%d"),
-                    );
-                    self.available_streams.push(StreamEntry {
-                        feed_id: feed.id,
-                        ticker: info.ticker,
-                        ticker_info: *info,
-                        date_range: range,
-                        provider: feed.provider,
-                        feed_name: feed.name.clone(),
-                        label,
-                    });
-                }
+            if let Some(info) = feed.dataset_info()
+                && let Some(ticker_info) = ticker_infos.get(&info.ticker)
+            {
+                let label = format!(
+                    "{} {} {}-{}",
+                    info.ticker,
+                    feed.provider.display_name(),
+                    info.date_range.start.format("%m/%d"),
+                    info.date_range.end.format("%m/%d"),
+                );
+                self.available_streams.push(StreamEntry {
+                    feed_id: feed.id,
+                    ticker: ticker_info.ticker,
+                    ticker_info: *ticker_info,
+                    date_range: info.date_range,
+                    provider: feed.provider,
+                    feed_name: feed.name.clone(),
+                    label,
+                });
             }
         }
 
@@ -352,7 +348,7 @@ impl ReplayManager {
 // ── Free Functions ────────────────────────────────────────────────────
 
 pub(super) fn first_of_month(d: NaiveDate) -> NaiveDate {
-    NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap()
+    NaiveDate::from_ymd_opt(d.year(), d.month(), 1).expect("BUG: first-of-month from valid date")
 }
 
 pub(super) fn days_in_month(year: i32, month: u32) -> u32 {
@@ -361,7 +357,10 @@ pub(super) fn days_in_month(year: i32, month: u32) -> u32 {
     } else {
         NaiveDate::from_ymd_opt(year, month + 1, 1)
     };
-    next.unwrap()
-        .signed_duration_since(NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+    next.expect("BUG: first-of-next-month from valid year/month")
+        .signed_duration_since(
+            NaiveDate::from_ymd_opt(year, month, 1)
+                .expect("BUG: first-of-month from valid year/month"),
+        )
         .num_days() as u32
 }

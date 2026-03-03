@@ -48,14 +48,9 @@ fn compute_volume_stats(volumes: &[f32]) -> Option<VolumeStats> {
     }
     let mean = total / volumes.len() as f32;
     // Pass 2: numerically stable variance via sum of squared deviations
-    let sum_sq_dev: f32 =
-        volumes.iter().map(|&v| (v - mean).powi(2)).sum();
+    let sum_sq_dev: f32 = volumes.iter().map(|&v| (v - mean).powi(2)).sum();
     let std_dev = (sum_sq_dev / volumes.len() as f32).sqrt();
-    Some(VolumeStats {
-        max,
-        mean,
-        std_dev,
-    })
+    Some(VolumeStats { max, mean, std_dev })
 }
 
 /// Compute a detection cutoff value for a given method and threshold.
@@ -67,17 +62,11 @@ fn detection_cutoff(
     is_high: bool,
 ) -> f32 {
     match method {
-        NodeDetectionMethod::Percentile => {
-            percentile_value(volumes, threshold)
-        }
+        NodeDetectionMethod::Percentile => percentile_value(volumes, threshold),
         NodeDetectionMethod::Relative => stats.max * threshold,
         NodeDetectionMethod::StdDev => {
             if stats.std_dev < f32::EPSILON {
-                if is_high {
-                    stats.max + 1.0
-                } else {
-                    -1.0
-                }
+                if is_high { stats.max + 1.0 } else { -1.0 }
             } else if is_high {
                 stats.mean + stats.std_dev * threshold
             } else {
@@ -358,10 +347,8 @@ pub fn detect_volume_nodes(
         None => return (Vec::new(), Vec::new()),
     };
 
-    let hvn_cutoff =
-        detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
-    let lvn_cutoff =
-        detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
+    let hvn_cutoff = detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
+    let lvn_cutoff = detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
 
     let mut hvn = Vec::new();
     let mut lvn = Vec::new();
@@ -369,9 +356,7 @@ pub fn detect_volume_nodes(
     for (i, level) in levels.iter().enumerate() {
         let vol = volumes[i];
 
-        if vol >= hvn_cutoff
-            && prominence(i, &volumes) >= min_prominence
-        {
+        if vol >= hvn_cutoff && prominence(i, &volumes) >= min_prominence {
             hvn.push(VolumeNode {
                 price_units: level.price_units,
                 price: level.price,
@@ -379,10 +364,7 @@ pub fn detect_volume_nodes(
             });
         }
 
-        if vol <= lvn_cutoff
-            && vol > 0.0
-            && prominence_inverse(i, &volumes) >= min_prominence
-        {
+        if vol <= lvn_cutoff && vol > 0.0 && prominence_inverse(i, &volumes) >= min_prominence {
             lvn.push(VolumeNode {
                 price_units: level.price_units,
                 price: level.price,
@@ -423,16 +405,11 @@ pub fn detect_volume_zones(
         None => return (Vec::new(), Vec::new(), None, None),
     };
 
-    let hvn_cutoff =
-        detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
-    let lvn_cutoff =
-        detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
+    let hvn_cutoff = detection_cutoff(hvn_method, hvn_threshold, &stats, &volumes, true);
+    let lvn_cutoff = detection_cutoff(lvn_method, lvn_threshold, &stats, &volumes, false);
 
-    let hvn_zones =
-        build_contiguous_zones(levels, &volumes, |v| v >= hvn_cutoff);
-    let lvn_zones = build_contiguous_zones(levels, &volumes, |v| {
-        v <= lvn_cutoff && v > 0.0
-    });
+    let hvn_zones = build_contiguous_zones(levels, &volumes, |v| v >= hvn_cutoff);
+    let lvn_zones = build_contiguous_zones(levels, &volumes, |v| v <= lvn_cutoff && v > 0.0);
 
     // Find single dominant peak: max-volume level above HVN
     // cutoff. No prominence filter -- the cutoff already ensures
@@ -513,11 +490,7 @@ fn find_valley_node(
     let mut valley: Option<VolumeNode> = None;
     for i in 1..volumes.len().saturating_sub(1) {
         let vol = volumes[i];
-        if vol <= lvn_cutoff
-            && vol > 0.0
-            && vol < volumes[i - 1]
-            && vol < volumes[i + 1]
-        {
+        if vol <= lvn_cutoff && vol > 0.0 && vol < volumes[i - 1] && vol < volumes[i + 1] {
             let better = match &valley {
                 Some(v) => vol < v.volume,
                 None => true,

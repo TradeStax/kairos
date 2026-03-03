@@ -32,7 +32,15 @@ impl DatabentoAdapter {
             Schema::Trades => CacheSchema::Trades,
             Schema::Mbp10 => CacheSchema::Depth,
             Schema::Ohlcv1M => CacheSchema::Ohlcv,
-            _ => CacheSchema::Trades,
+            // External enum (databento::dbn::Schema) with many variants;
+            // default unmapped schemas to Trades for cache key purposes.
+            _ => {
+                log::debug!(
+                    "Unmapped schema {:?} for cache key, defaulting to Trades",
+                    schema
+                );
+                CacheSchema::Trades
+            }
         };
 
         if self
@@ -45,13 +53,17 @@ impl DatabentoAdapter {
         }
 
         if DatabentoAdapter::is_expensive_schema(schema) {
-            log::error!("COST WARNING: Fetching {:?} is very expensive!", schema);
+            log::warn!("Fetching {:?} is very expensive", schema);
         }
 
+        // Use a UUID suffix to avoid collisions when multiple downloads
+        // run in parallel for the same symbol/schema/date.
+        let unique = uuid::Uuid::new_v4().simple();
         let temp_path = std::env::temp_dir().join(format!(
-            "databento_{}_{}_{}.dbn.zst",
+            "databento_{}_{}_{}_{}.dbn.zst",
             symbol.replace('.', "-"),
             format!("{:?}", schema).to_lowercase(),
+            unique,
             date.format("%Y%m%d")
         ));
 
@@ -107,28 +119,26 @@ impl DatabentoAdapter {
         }
 
         if let Some(e) = last_err {
+            // Clean up temp file on download failure
+            let _ = tokio::fs::remove_file(&temp_path).await;
             return Err(DatabentoError::Api(e));
         }
 
-        // Decode the .dbn.zst file and write to unified cache
-        match schema {
-            Schema::Trades => {
-                self.decode_and_cache_trades(symbol, date, &temp_path)
-                    .await?;
-            }
-            Schema::Mbp10 => {
-                self.decode_and_cache_depth(symbol, date, &temp_path)
-                    .await?;
-            }
+        // Decode the .dbn.zst file and write to unified cache.
+        // Always clean up the temp file, even if decoding fails.
+        let decode_result = match schema {
+            Schema::Trades => self.decode_and_cache_trades(symbol, date, &temp_path).await,
+            Schema::Mbp10 => self.decode_and_cache_depth(symbol, date, &temp_path).await,
             _ => {
                 log::warn!("Unsupported schema {:?} for unified cache", schema);
+                Ok(())
             }
-        }
+        };
 
-        // Clean up temp file
+        // Always clean up temp file regardless of decode outcome
         let _ = tokio::fs::remove_file(&temp_path).await;
 
-        Ok(())
+        decode_result
     }
 
     /// Decodes trade records from a temp file and writes them to the cache

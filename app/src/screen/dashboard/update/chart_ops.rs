@@ -12,8 +12,8 @@ impl Dashboard {
         ticker_info: FuturesTickerInfo,
         content_kind: ContentKind,
     ) -> Task<Message> {
-        log::info!(
-            "DASHBOARD: init_focused_pane called with {:?} ContentKind::{:?}",
+        log::debug!(
+            "init_focused_pane: ticker={:?} content={:?}",
             ticker_info.ticker,
             content_kind
         );
@@ -41,8 +41,8 @@ impl Dashboard {
                 DateRange::last_n_days(1)
             });
 
-        log::info!(
-            "DASHBOARD: Using date range {} to {} for {}",
+        log::debug!(
+            "resolved date range {} to {} for {}",
             date_range.start,
             date_range.end,
             ticker_info.ticker
@@ -175,24 +175,12 @@ impl Dashboard {
                 let effect =
                     pane_state.set_content_with_range(ticker_info, content_kind, date_range);
 
-                log::info!(
-                    "  Pane {} effect received: {:?}",
-                    pane_id,
-                    match &effect {
-                        pane::Action::LoadChart { config, .. } =>
-                            format!("LoadChart({:?})", config.chart_type),
-                        pane::Action::SwitchTickersInGroup(_) => "SwitchTickersInGroup".to_string(),
-                        _ => "Other".to_string(),
-                    }
-                );
-
                 // Handle the LoadChart effect
                 if let pane::Action::LoadChart {
                     config,
                     ticker_info,
                 } = effect
                 {
-                    log::info!("  Creating LoadChart event for pane {}", pane_id);
                     let event = self.load_chart(pane_id, config, ticker_info);
                     if let Event::LoadChart {
                         pane_id,
@@ -200,7 +188,6 @@ impl Dashboard {
                         ticker_info,
                     } = event
                     {
-                        log::info!("  Pushing LoadChart message to task queue");
                         tasks.push(Message::LoadChart {
                             pane_id,
                             config,
@@ -240,7 +227,6 @@ impl Dashboard {
                     pane_state.content.append_trade(trade);
                 }
             }
-            log::info!("Chart data loaded for pane {}", pane_id);
         } else {
             log::warn!("Pane {} not found for chart data", pane_id);
         }

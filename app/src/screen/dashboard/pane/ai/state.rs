@@ -1,8 +1,6 @@
 use crate::app::core::globals::AiStreamEventClone;
 
-use data::domain::assistant::{
-    ApiMessage, ChatMessageKind, ChatRole, DisplayMessage, TokenUsage,
-};
+use data::domain::assistant::{ApiMessage, ChatMessageKind, ChatRole, DisplayMessage, TokenUsage};
 use iced::Point;
 use std::collections::HashSet;
 

@@ -99,7 +99,7 @@ impl SessionClock {
         let hhmm = local_hour * 100 + local_minute;
 
         // UTC day boundary detection
-        let utc_day_ms = (ms / 86_400_000) * 86_400_000;
+        let utc_day_ms = (ms / MS_PER_DAY as u64) * MS_PER_DAY as u64;
         let new_day = self.current_utc_day_ms != Some(utc_day_ms);
 
         if new_day {

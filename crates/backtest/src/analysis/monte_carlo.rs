@@ -191,3 +191,219 @@ fn compute_percentiles(data: &mut [f64]) -> Percentiles {
         p95: data[((0.95 * n as f64) as usize).min(n - 1)],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::trade_record::{ExitReason, TradeRecord};
+    use kairos_data::{Price, Side, Timestamp};
+
+    fn make_trade_record(pnl_net: f64) -> TradeRecord {
+        TradeRecord {
+            index: 1,
+            entry_time: Timestamp(1000),
+            exit_time: Timestamp(2000),
+            side: Side::Buy,
+            quantity: 1.0,
+            entry_price: Price::from_f64(5000.0),
+            exit_price: Price::from_f64(5010.0),
+            initial_stop_loss: Price::from_f64(4990.0),
+            initial_take_profit: None,
+            pnl_ticks: 0,
+            pnl_gross_usd: pnl_net,
+            commission_usd: 0.0,
+            pnl_net_usd: pnl_net,
+            rr_ratio: 0.0,
+            mae_ticks: 0,
+            mfe_ticks: 0,
+            exit_reason: ExitReason::Manual,
+            label: None,
+            instrument: None,
+            duration_ms: Some(1000),
+        }
+    }
+
+    // ── Empty trades ─────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_trades() {
+        let sim = MonteCarloSimulator::new(100);
+        let result = sim.simulate(&[], 100_000.0);
+
+        assert_eq!(result.final_equities.len(), 1);
+        assert!((result.final_equities[0] - 100_000.0).abs() < 1e-10);
+        assert!((result.probability_of_loss - 0.0).abs() < 1e-10);
+    }
+
+    // ── Deterministic with seed ──────────────────────────────────
+
+    #[test]
+    fn test_deterministic_same_seed() {
+        let trades = vec![
+            make_trade_record(100.0),
+            make_trade_record(-50.0),
+            make_trade_record(200.0),
+            make_trade_record(-30.0),
+        ];
+
+        let sim = MonteCarloSimulator::new(500).with_seed(42);
+        let r1 = sim.simulate(&trades, 100_000.0);
+
+        let sim2 = MonteCarloSimulator::new(500).with_seed(42);
+        let r2 = sim2.simulate(&trades, 100_000.0);
+
+        assert_eq!(r1.final_equities, r2.final_equities);
+        assert_eq!(r1.max_drawdowns, r2.max_drawdowns);
+    }
+
+    #[test]
+    fn test_different_seed_different_results() {
+        let trades = vec![
+            make_trade_record(100.0),
+            make_trade_record(-50.0),
+            make_trade_record(200.0),
+        ];
+
+        let r1 = MonteCarloSimulator::new(100)
+            .with_seed(42)
+            .simulate(&trades, 100_000.0);
+        let r2 = MonteCarloSimulator::new(100)
+            .with_seed(99)
+            .simulate(&trades, 100_000.0);
+
+        // Very unlikely to be exactly equal with different seeds
+        assert_ne!(r1.final_equities, r2.final_equities);
+    }
+
+    // ── All winning trades ───────────────────────────────────────
+
+    #[test]
+    fn test_all_winning_zero_probability_of_loss() {
+        let trades = vec![
+            make_trade_record(100.0),
+            make_trade_record(200.0),
+            make_trade_record(150.0),
+        ];
+
+        let sim = MonteCarloSimulator::new(1000);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        // All trades are winners, so no iteration should end below initial
+        assert!((result.probability_of_loss - 0.0).abs() < 1e-10);
+        // All final equities should be > initial capital
+        for &eq in &result.final_equities {
+            assert!(eq > 100_000.0);
+        }
+    }
+
+    // ── All losing trades ────────────────────────────────────────
+
+    #[test]
+    fn test_all_losing_full_probability_of_loss() {
+        let trades = vec![
+            make_trade_record(-100.0),
+            make_trade_record(-200.0),
+            make_trade_record(-150.0),
+        ];
+
+        let sim = MonteCarloSimulator::new(1000);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        // Every iteration should end below initial capital
+        assert!((result.probability_of_loss - 1.0).abs() < 1e-10);
+    }
+
+    // ── Iteration count ──────────────────────────────────────────
+
+    #[test]
+    fn test_iteration_count_matches() {
+        let trades = vec![make_trade_record(50.0), make_trade_record(-30.0)];
+
+        let sim = MonteCarloSimulator::new(500);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        assert_eq!(result.final_equities.len(), 500);
+        assert_eq!(result.max_drawdowns.len(), 500);
+    }
+
+    // ── Percentile ordering ──────────────────────────────────────
+
+    #[test]
+    fn test_percentiles_are_ordered() {
+        let trades = vec![
+            make_trade_record(100.0),
+            make_trade_record(-80.0),
+            make_trade_record(200.0),
+            make_trade_record(-50.0),
+            make_trade_record(150.0),
+        ];
+
+        let sim = MonteCarloSimulator::new(2000);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        let ep = &result.equity_percentiles;
+        assert!(ep.p5 <= ep.p25);
+        assert!(ep.p25 <= ep.p50);
+        assert!(ep.p50 <= ep.p75);
+        assert!(ep.p75 <= ep.p95);
+
+        let dp = &result.drawdown_percentiles;
+        assert!(dp.p5 <= dp.p25);
+        assert!(dp.p25 <= dp.p50);
+        assert!(dp.p50 <= dp.p75);
+        assert!(dp.p75 <= dp.p95);
+    }
+
+    // ── Max drawdown always non-negative ─────────────────────────
+
+    #[test]
+    fn test_max_drawdowns_non_negative() {
+        let trades = vec![
+            make_trade_record(100.0),
+            make_trade_record(-80.0),
+            make_trade_record(50.0),
+        ];
+
+        let sim = MonteCarloSimulator::new(500);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        for &dd in &result.max_drawdowns {
+            assert!(dd >= 0.0, "Drawdown should be non-negative, got {dd}");
+        }
+    }
+
+    // ── Single trade ─────────────────────────────────────────────
+
+    #[test]
+    fn test_single_trade() {
+        let trades = vec![make_trade_record(500.0)];
+
+        let sim = MonteCarloSimulator::new(100);
+        let result = sim.simulate(&trades, 100_000.0);
+
+        // Every iteration resamples exactly 1 trade (always the same one)
+        for &eq in &result.final_equities {
+            assert!((eq - 100_500.0).abs() < 1e-10);
+        }
+        assert!((result.probability_of_loss - 0.0).abs() < 1e-10);
+    }
+
+    // ── compute_percentiles helper ───────────────────────────────
+
+    #[test]
+    fn test_compute_percentiles_empty() {
+        let pct = compute_percentiles(&mut []);
+        assert!((pct.p50 - 0.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_compute_percentiles_sorted() {
+        let mut data: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        let pct = compute_percentiles(&mut data);
+
+        // p50 should be around 50 (nearest-rank)
+        assert!((pct.p50 - 50.0).abs() <= 1.0);
+        assert!(pct.p5 < pct.p50);
+        assert!(pct.p50 < pct.p95);
+    }
+}

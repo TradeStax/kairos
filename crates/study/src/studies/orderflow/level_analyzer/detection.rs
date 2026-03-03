@@ -15,6 +15,9 @@ use crate::config::StudyConfig;
 use crate::output::NodeDetectionMethod;
 use crate::studies::orderflow::vbp::profile_core;
 
+/// Milliseconds in one UTC calendar day.
+const MS_PER_DAY: u64 = 86_400_000;
+
 /// Raw detected level before deduplication.
 struct RawLevel {
     price_units: i64,
@@ -41,13 +44,9 @@ pub fn detect_levels(
         return Vec::new();
     }
 
-    let last_candle_time =
-        candles.last().map_or(0, |c| c.time.0);
+    let last_candle_time = candles.last().map_or(0, |c| c.time.0);
     let session_key = SessionKey {
-        trade_date: format!(
-            "{}",
-            last_candle_time / 86_400_000
-        ),
+        trade_date: format!("{}", last_candle_time / MS_PER_DAY),
         session_type: SessionType::Rth,
     };
 
@@ -74,31 +73,23 @@ pub fn detect_levels(
     );
 
     // Delta zones
-    if config.get_bool("enable_delta_zones", false) {
-        if let Some(trades) = trades {
-            let delta_threshold =
-                config.get_float("delta_threshold", 2.0);
-            detect_delta_zones(
-                trades,
-                tick_size,
-                delta_threshold,
-                &session_key,
-                last_candle_time,
-                &mut raw_levels,
-            );
-        }
+    if config.get_bool("enable_delta_zones", false)
+        && let Some(trades) = trades
+    {
+        let delta_threshold = config.get_float("delta_threshold", 2.0);
+        detect_delta_zones(
+            trades,
+            tick_size,
+            delta_threshold,
+            &session_key,
+            last_candle_time,
+            &mut raw_levels,
+        );
     }
 
     // Deduplicate and build result
-    let max_levels =
-        config.get_int("max_levels", 30) as usize;
-    dedup_and_build(
-        raw_levels,
-        existing_levels,
-        tick_size,
-        max_levels,
-        next_id,
-    )
+    let max_levels = config.get_int("max_levels", 30) as usize;
+    dedup_and_build(raw_levels, existing_levels, tick_size, max_levels, next_id)
 }
 
 // ── Per-session mode ────────────────────────────────────────────
@@ -129,18 +120,13 @@ pub fn detect_levels_per_session(
         .map(|(i, _)| i)
         .collect();
 
-    let start_idx = completed
-        .len()
-        .saturating_sub(visible_session_count);
+    let start_idx = completed.len().saturating_sub(visible_session_count);
     let visible_completed = &completed[start_idx..];
 
     // Detect levels for each completed session
     for &si in visible_completed {
         let session = &sessions[si];
-        let trade_range = trade_ranges
-            .get(si)
-            .copied()
-            .unwrap_or((0, 0));
+        let trade_range = trade_ranges.get(si).copied().unwrap_or((0, 0));
 
         detect_levels_for_session(
             session,
@@ -155,87 +141,72 @@ pub fn detect_levels_per_session(
     }
 
     // Cross-session levels
-    detect_cross_session_levels(
-        sessions,
-        config,
-        &mut raw_levels,
-    );
+    detect_cross_session_levels(sessions, config, &mut raw_levels);
 
     // Active session: only Session H/L, Opening Range, delta
-    if let Some(active) = sessions.last() {
-        if !active.is_complete {
-            let cross_key = SessionKey::cross_session();
+    if let Some(active) = sessions.last()
+        && !active.is_complete
+    {
+        let cross_key = SessionKey::cross_session();
 
-            if config.get_bool("enable_session_hl", true) {
+        if config.get_bool("enable_session_hl", true) {
+            raw_levels.push(RawLevel {
+                price_units: active.high_units,
+                source: LevelSource::SessionHigh,
+                session_key: cross_key.clone(),
+                detected_at: 0,
+            });
+            raw_levels.push(RawLevel {
+                price_units: active.low_units,
+                source: LevelSource::SessionLow,
+                session_key: cross_key.clone(),
+                detected_at: 0,
+            });
+        }
+
+        if config.get_bool("enable_opening_range", true)
+            && active.key.session_type == SessionType::Rth
+        {
+            if let Some(orh) = active.or_high_units {
                 raw_levels.push(RawLevel {
-                    price_units: active.high_units,
-                    source: LevelSource::SessionHigh,
-                    session_key: cross_key.clone(),
-                    detected_at: 0,
-                });
-                raw_levels.push(RawLevel {
-                    price_units: active.low_units,
-                    source: LevelSource::SessionLow,
+                    price_units: orh,
+                    source: LevelSource::OpeningRangeHigh,
                     session_key: cross_key.clone(),
                     detected_at: 0,
                 });
             }
-
-            if config.get_bool("enable_opening_range", true)
-                && active.key.session_type == SessionType::Rth
-            {
-                if let Some(orh) = active.or_high_units {
-                    raw_levels.push(RawLevel {
-                        price_units: orh,
-                        source: LevelSource::OpeningRangeHigh,
-                        session_key: cross_key.clone(),
-                        detected_at: 0,
-                    });
-                }
-                if let Some(orl) = active.or_low_units {
-                    raw_levels.push(RawLevel {
-                        price_units: orl,
-                        source: LevelSource::OpeningRangeLow,
-                        session_key: cross_key.clone(),
-                        detected_at: 0,
-                    });
-                }
+            if let Some(orl) = active.or_low_units {
+                raw_levels.push(RawLevel {
+                    price_units: orl,
+                    source: LevelSource::OpeningRangeLow,
+                    session_key: cross_key.clone(),
+                    detected_at: 0,
+                });
             }
+        }
 
-            // Delta zones from active session
-            if config.get_bool("enable_delta_zones", false) {
-                if let Some(trades) = trades {
-                    let tr = trade_ranges
-                        .last()
-                        .copied()
-                        .unwrap_or((0, 0));
-                    if tr.1 > tr.0 {
-                        let delta_threshold = config
-                            .get_float("delta_threshold", 2.0);
-                        detect_delta_zones(
-                            &trades[tr.0..tr.1],
-                            tick_size,
-                            delta_threshold,
-                            &cross_key,
-                            0,
-                            &mut raw_levels,
-                        );
-                    }
-                }
+        // Delta zones from active session
+        if config.get_bool("enable_delta_zones", false)
+            && let Some(trades) = trades
+        {
+            let tr = trade_ranges.last().copied().unwrap_or((0, 0));
+            if tr.1 > tr.0 {
+                let delta_threshold = config.get_float("delta_threshold", 2.0);
+                detect_delta_zones(
+                    &trades[tr.0..tr.1],
+                    tick_size,
+                    delta_threshold,
+                    &cross_key,
+                    0,
+                    &mut raw_levels,
+                );
             }
         }
     }
 
     // Deduplicate within each session (NOT cross-session)
-    let max_levels =
-        config.get_int("max_levels", 30) as usize;
-    dedup_per_session_and_build(
-        raw_levels,
-        existing_levels,
-        tick_size,
-        max_levels,
-        next_id,
-    )
+    let max_levels = config.get_int("max_levels", 30) as usize;
+    dedup_per_session_and_build(raw_levels, existing_levels, tick_size, max_levels, next_id)
 }
 
 /// Detect levels from a single completed session's data.
@@ -253,8 +224,7 @@ fn detect_levels_for_session(
     if ce < cs || cs >= candles.len() {
         return;
     }
-    let session_candles =
-        &candles[cs..=(ce.min(candles.len() - 1))];
+    let session_candles = &candles[cs..=(ce.min(candles.len() - 1))];
     if session_candles.is_empty() {
         return;
     }
@@ -298,19 +268,11 @@ fn detect_levels_for_session(
     }
 
     // Delta zones for this session
-    if config.get_bool("enable_delta_zones", false) {
-        if let Some(t) = session_trades {
-            let delta_threshold =
-                config.get_float("delta_threshold", 2.0);
-            detect_delta_zones(
-                t,
-                tick_size,
-                delta_threshold,
-                &session.key,
-                anchor,
-                out,
-            );
-        }
+    if config.get_bool("enable_delta_zones", false)
+        && let Some(t) = session_trades
+    {
+        let delta_threshold = config.get_float("delta_threshold", 2.0);
+        detect_delta_zones(t, tick_size, delta_threshold, &session.key, anchor, out);
     }
 
     let _ = next_id; // IDs assigned during build phase
@@ -328,10 +290,7 @@ fn detect_cross_session_levels(
     if config.get_bool("enable_prior_day", true) {
         let completed_rth: Vec<&SessionInfo> = sessions
             .iter()
-            .filter(|s| {
-                s.is_complete
-                    && s.key.session_type == SessionType::Rth
-            })
+            .filter(|s| s.is_complete && s.key.session_type == SessionType::Rth)
             .collect();
 
         if let Some(prior) = completed_rth.last() {
@@ -374,27 +333,17 @@ fn detect_profile_levels(
     let enable_hvn = config.get_bool("enable_hvn", true);
     let enable_lvn = config.get_bool("enable_lvn", true);
     let enable_poc = config.get_bool("enable_poc", true);
-    let enable_vah_val =
-        config.get_bool("enable_vah_val", true);
+    let enable_vah_val = config.get_bool("enable_vah_val", true);
 
-    if !(enable_hvn || enable_lvn || enable_poc || enable_vah_val)
-    {
+    if !(enable_hvn || enable_lvn || enable_poc || enable_vah_val) {
         return;
     }
 
     let profile = match trades {
         Some(t) if !t.is_empty() => {
-            profile_core::build_profile_from_trades(
-                t,
-                tick_size,
-                tick_size.units(),
-            )
+            profile_core::build_profile_from_trades(t, tick_size, tick_size.units())
         }
-        _ => profile_core::build_profile_from_candles(
-            candles,
-            tick_size,
-            tick_size.units(),
-        ),
+        _ => profile_core::build_profile_from_candles(candles, tick_size, tick_size.units()),
     };
 
     if profile.is_empty() {
@@ -416,12 +365,9 @@ fn detect_profile_levels(
 
         // Value area
         if enable_vah_val {
-            let va_pct =
-                config.get_float("va_percentage", 0.7);
+            let va_pct = config.get_float("va_percentage", 0.7);
             if let Some((vah_idx, val_idx)) =
-                profile_core::calculate_value_area(
-                    &profile, poc_idx, va_pct,
-                )
+                profile_core::calculate_value_area(&profile, poc_idx, va_pct)
             {
                 out.push(RawLevel {
                     price_units: profile[vah_idx].price_units,
@@ -441,34 +387,27 @@ fn detect_profile_levels(
 
     // HVN / LVN with configurable thresholds + POC exclusion
     if enable_hvn || enable_lvn {
-        let hvn_threshold =
-            config.get_float("hvn_threshold", 1.5) as f32;
-        let hvn_prominence =
-            config.get_float("hvn_min_prominence", 0.25) as f32;
-        let poc_exclusion_ticks =
-            config.get_int("hvn_poc_exclusion", 10);
-        let poc_exclusion_units =
-            poc_exclusion_ticks * tick_size.units();
+        let hvn_threshold = config.get_float("hvn_threshold", 1.5) as f32;
+        let hvn_prominence = config.get_float("hvn_min_prominence", 0.25) as f32;
+        let poc_exclusion_ticks = config.get_int("hvn_poc_exclusion", 10);
+        let poc_exclusion_units = poc_exclusion_ticks * tick_size.units();
 
-        let poc_price_units = poc_idx
-            .map(|i| profile[i].price_units);
+        let poc_price_units = poc_idx.map(|i| profile[i].price_units);
 
-        let (hvn_nodes, lvn_nodes) =
-            profile_core::detect_volume_nodes(
-                &profile,
-                NodeDetectionMethod::StdDev,
-                hvn_threshold,
-                NodeDetectionMethod::StdDev,
-                -0.5,
-                hvn_prominence,
-            );
+        let (hvn_nodes, lvn_nodes) = profile_core::detect_volume_nodes(
+            &profile,
+            NodeDetectionMethod::StdDev,
+            hvn_threshold,
+            NodeDetectionMethod::StdDev,
+            -0.5,
+            hvn_prominence,
+        );
 
         if enable_hvn {
             for node in &hvn_nodes {
                 // Skip HVNs within exclusion zone of POC
                 if let Some(poc_pu) = poc_price_units {
-                    let dist = (node.price_units - poc_pu)
-                        .abs();
+                    let dist = (node.price_units - poc_pu).abs();
                     if dist <= poc_exclusion_units {
                         continue;
                     }
@@ -503,24 +442,16 @@ fn detect_session_and_prior_day(
     detected_at: u64,
     out: &mut Vec<RawLevel>,
 ) {
-    let enable_session_hl =
-        config.get_bool("enable_session_hl", true);
-    let enable_prior_day =
-        config.get_bool("enable_prior_day", true);
-    let enable_opening_range =
-        config.get_bool("enable_opening_range", true);
-    let or_minutes =
-        config.get_int("opening_range_minutes", 30) as u32;
+    let enable_session_hl = config.get_bool("enable_session_hl", true);
+    let enable_prior_day = config.get_bool("enable_prior_day", true);
+    let enable_opening_range = config.get_bool("enable_opening_range", true);
+    let or_minutes = config.get_int("opening_range_minutes", 30) as u32;
 
-    if !(enable_session_hl
-        || enable_prior_day
-        || enable_opening_range)
-    {
+    if !(enable_session_hl || enable_prior_day || enable_opening_range) {
         return;
     }
 
-    let sessions =
-        session::extract_sessions(candles, or_minutes);
+    let sessions = session::extract_sessions(candles, or_minutes);
 
     // Current session
     if let Some(current) = sessions.last() {
@@ -539,9 +470,7 @@ fn detect_session_and_prior_day(
             });
         }
 
-        if enable_opening_range
-            && current.key.session_type == SessionType::Rth
-        {
+        if enable_opening_range && current.key.session_type == SessionType::Rth {
             if let Some(orh) = current.or_high_units {
                 out.push(RawLevel {
                     price_units: orh,
@@ -565,10 +494,7 @@ fn detect_session_and_prior_day(
     if enable_prior_day {
         let completed_rth: Vec<&SessionInfo> = sessions
             .iter()
-            .filter(|s| {
-                s.is_complete
-                    && s.key.session_type == SessionType::Rth
-            })
+            .filter(|s| s.is_complete && s.key.session_type == SessionType::Rth)
             .collect();
 
         if let Some(prior) = completed_rth.last() {
@@ -614,8 +540,8 @@ fn detect_delta_zones(
     for t in trades {
         let pu = (t.price.units() / step) * step;
         let signed_qty = match t.side {
-            Side::Buy | Side::Ask => t.quantity.0 as f64,
-            Side::Sell | Side::Bid => -(t.quantity.0 as f64),
+            Side::Buy | Side::Ask => t.quantity.0,
+            Side::Sell | Side::Bid => -t.quantity.0,
         };
         *delta_map.entry(pu).or_default() += signed_qty;
     }
@@ -627,9 +553,7 @@ fn detect_delta_zones(
     let deltas: Vec<f64> = delta_map.values().copied().collect();
     let n = deltas.len() as f64;
     let mean = deltas.iter().sum::<f64>() / n;
-    let variance =
-        deltas.iter().map(|d| (d - mean).powi(2)).sum::<f64>()
-            / n;
+    let variance = deltas.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n;
     let std_dev = variance.sqrt();
 
     if std_dev < f64::EPSILON {
@@ -674,29 +598,22 @@ fn dedup_and_build(
     let dedup_range = dedup_ticks * tick_units;
 
     // Sort by priority descending
-    raw_levels.sort_by(|a, b| {
-        b.source.priority().cmp(&a.source.priority())
-    });
+    raw_levels.sort_by(|a, b| b.source.priority().cmp(&a.source.priority()));
 
     let mut used: Vec<i64> = Vec::new();
     let mut deduped: Vec<RawLevel> = Vec::new();
 
     for raw in raw_levels {
-        let dominated = used.iter().any(|&existing| {
-            (raw.price_units - existing).abs() <= dedup_range
-        });
+        let dominated = used
+            .iter()
+            .any(|&existing| (raw.price_units - existing).abs() <= dedup_range);
         if !dominated {
             used.push(raw.price_units);
             deduped.push(raw);
         }
     }
 
-    build_monitored_levels(
-        deduped,
-        existing_levels,
-        max_levels,
-        next_id,
-    )
+    build_monitored_levels(deduped, existing_levels, max_levels, next_id)
 }
 
 /// Deduplicate levels within each session (per-session mode) and
@@ -716,35 +633,25 @@ fn dedup_per_session_and_build(
     let dedup_range = dedup_ticks * tick_units;
 
     // Sort by priority descending
-    raw_levels.sort_by(|a, b| {
-        b.source.priority().cmp(&a.source.priority())
-    });
+    raw_levels.sort_by(|a, b| b.source.priority().cmp(&a.source.priority()));
 
     // Group by session key and dedup within each group
     let mut deduped: Vec<RawLevel> = Vec::new();
-    let mut session_used: HashMap<SessionKey, Vec<i64>> =
-        HashMap::new();
+    let mut session_used: HashMap<SessionKey, Vec<i64>> = HashMap::new();
 
     for raw in raw_levels {
-        let used = session_used
-            .entry(raw.session_key.clone())
-            .or_default();
+        let used = session_used.entry(raw.session_key.clone()).or_default();
 
-        let dominated = used.iter().any(|&existing| {
-            (raw.price_units - existing).abs() <= dedup_range
-        });
+        let dominated = used
+            .iter()
+            .any(|&existing| (raw.price_units - existing).abs() <= dedup_range);
         if !dominated {
             used.push(raw.price_units);
             deduped.push(raw);
         }
     }
 
-    build_monitored_levels(
-        deduped,
-        existing_levels,
-        max_levels,
-        next_id,
-    )
+    build_monitored_levels(deduped, existing_levels, max_levels, next_id)
 }
 
 /// Convert raw levels into `MonitoredLevel` instances, re-using
@@ -756,15 +663,11 @@ fn build_monitored_levels(
     next_id: &mut u64,
 ) -> Vec<MonitoredLevel> {
     // Build lookup: (price_units, source, session_key) -> existing
-    let existing_by_key: HashMap<
-        (i64, LevelSource, &SessionKey),
-        &MonitoredLevel,
-    > = existing_levels
-        .iter()
-        .map(|l| {
-            ((l.price_units, l.source, &l.session_key), l)
-        })
-        .collect();
+    let existing_by_key: HashMap<(i64, LevelSource, &SessionKey), &MonitoredLevel> =
+        existing_levels
+            .iter()
+            .map(|l| ((l.price_units, l.source, &l.session_key), l))
+            .collect();
 
     // Preserve all manual levels
     let mut result: Vec<MonitoredLevel> = existing_levels
@@ -780,17 +683,14 @@ fn build_monitored_levels(
 
         // Try to match existing level (price + source +
         // session_key)
-        if let Some(existing) = existing_by_key.get(&(
-            raw.price_units,
-            raw.source,
-            &raw.session_key,
-        )) {
+        if let Some(existing) =
+            existing_by_key.get(&(raw.price_units, raw.source, &raw.session_key))
+        {
             result.push((*existing).clone());
         } else {
             let id = *next_id;
             *next_id += 1;
-            let price =
-                Price::from_units(raw.price_units).to_f64();
+            let price = Price::from_units(raw.price_units).to_f64();
             result.push(MonitoredLevel::new(
                 id,
                 raw.price_units,
@@ -810,13 +710,7 @@ mod tests {
     use super::*;
     use data::{Price, Quantity, Side, Timestamp, Volume};
 
-    fn make_candle(
-        time: u64,
-        o: f64,
-        h: f64,
-        l: f64,
-        c: f64,
-    ) -> Candle {
+    fn make_candle(time: u64, o: f64, h: f64, l: f64, c: f64) -> Candle {
         Candle {
             time: Timestamp(time),
             open: Price::from_f64(o),
@@ -840,34 +734,21 @@ mod tests {
         let config = StudyConfig::new("level_analyzer");
         let mut next_id = 1;
 
-        let levels = detect_levels(
-            &candles,
-            None,
-            tick,
-            &config,
-            &[],
-            &mut next_id,
-        );
+        let levels = detect_levels(&candles, None, tick, &config, &[], &mut next_id);
 
         assert!(!levels.is_empty());
         let ids: Vec<u64> = levels.iter().map(|l| l.id).collect();
-        let unique: std::collections::HashSet<u64> =
-            ids.iter().copied().collect();
+        let unique: std::collections::HashSet<u64> = ids.iter().copied().collect();
         assert_eq!(ids.len(), unique.len());
     }
 
     #[test]
     fn test_deduplication() {
         let tick = Price::from_f64(0.25);
-        let candles = vec![make_candle(
-            1_000_000, 100.0, 101.0, 99.0, 100.5,
-        )];
+        let candles = vec![make_candle(1_000_000, 100.0, 101.0, 99.0, 100.5)];
 
         let mut config = StudyConfig::new("level_analyzer");
-        config.set(
-            "enable_lvn",
-            crate::config::ParameterValue::Boolean(false),
-        );
+        config.set("enable_lvn", crate::config::ParameterValue::Boolean(false));
         config.set(
             "enable_vah_val",
             crate::config::ParameterValue::Boolean(false),
@@ -886,22 +767,13 @@ mod tests {
         );
 
         let mut next_id = 1;
-        let levels = detect_levels(
-            &candles,
-            None,
-            tick,
-            &config,
-            &[],
-            &mut next_id,
-        );
+        let levels = detect_levels(&candles, None, tick, &config, &[], &mut next_id);
 
         for (i, a) in levels.iter().enumerate() {
             for b in &levels[i + 1..] {
-                let diff =
-                    (a.price_units - b.price_units).abs();
+                let diff = (a.price_units - b.price_units).abs();
                 assert!(
-                    diff > tick.units() * 2
-                        || a.source != b.source,
+                    diff > tick.units() * 2 || a.source != b.source,
                     "Duplicate levels within dedup range: \
                      {:?}@{} and {:?}@{}",
                     a.source,
@@ -940,18 +812,10 @@ mod tests {
 
         // Balanced at several other levels
         for level_idx in 1..6 {
-            let p = Price::from_f64(
-                100.0 + level_idx as f64 * 0.25,
-            );
+            let p = Price::from_f64(100.0 + level_idx as f64 * 0.25);
             for i in 0..30 {
-                let base =
-                    (level_idx * 100_000 + i * 1000) as u64;
-                trades.push(Trade::new(
-                    Timestamp(base),
-                    p,
-                    Quantity(10.0),
-                    Side::Buy,
-                ));
+                let base = (level_idx * 100_000 + i * 1000) as u64;
+                trades.push(Trade::new(Timestamp(base), p, Quantity(10.0), Side::Buy));
                 trades.push(Trade::new(
                     Timestamp(base + 500),
                     p,
@@ -967,10 +831,7 @@ mod tests {
         };
         let mut raw = Vec::new();
         detect_delta_zones(&trades, tick, 1.5, &key, 0, &mut raw);
-        assert!(
-            !raw.is_empty(),
-            "Expected delta zones from skewed data"
-        );
+        assert!(!raw.is_empty(), "Expected delta zones from skewed data");
     }
 
     #[test]
@@ -978,22 +839,13 @@ mod tests {
         // Create a profile where HVNs would cluster near POC
         let tick = Price::from_f64(0.25);
         let mut config = StudyConfig::new("level_analyzer");
-        config.set(
-            "enable_hvn",
-            crate::config::ParameterValue::Boolean(true),
-        );
-        config.set(
-            "enable_poc",
-            crate::config::ParameterValue::Boolean(true),
-        );
+        config.set("enable_hvn", crate::config::ParameterValue::Boolean(true));
+        config.set("enable_poc", crate::config::ParameterValue::Boolean(true));
         config.set(
             "hvn_poc_exclusion",
             crate::config::ParameterValue::Integer(10),
         );
-        config.set(
-            "hvn_threshold",
-            crate::config::ParameterValue::Float(1.0),
-        );
+        config.set("hvn_threshold", crate::config::ParameterValue::Float(1.0));
         config.set(
             "hvn_min_prominence",
             crate::config::ParameterValue::Float(0.1),
@@ -1002,13 +854,7 @@ mod tests {
         // Build candles with high volume at center
         let mut candles = Vec::new();
         for i in 0..50 {
-            candles.push(make_candle(
-                i * 60_000,
-                100.0,
-                101.0,
-                99.0,
-                100.5,
-            ));
+            candles.push(make_candle(i * 60_000, 100.0, 101.0, 99.0, 100.5));
         }
 
         let key = SessionKey {
@@ -1016,9 +862,7 @@ mod tests {
             session_type: SessionType::Rth,
         };
         let mut out = Vec::new();
-        detect_profile_levels(
-            &candles, None, tick, &config, &key, 0, &mut out,
-        );
+        detect_profile_levels(&candles, None, tick, &config, &key, 0, &mut out);
 
         // Check that no HVN is within 10 ticks of any POC
         let pocs: Vec<i64> = out
@@ -1075,13 +919,7 @@ mod tests {
 
         let tick = Price::from_f64(0.25);
         let mut next_id = 1;
-        let result = dedup_per_session_and_build(
-            raw,
-            &[],
-            tick,
-            30,
-            &mut next_id,
-        );
+        let result = dedup_per_session_and_build(raw, &[], tick, 30, &mut next_id);
 
         // Both should be kept (different sessions)
         let pocs: Vec<_> = result

@@ -42,9 +42,7 @@ pub enum FootprintGroupingMode {
 }
 
 /// Style for the thin candle marker drawn alongside footprint bars.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum OutsideBarStyle {
     /// Filled body only (no wicks).
     #[default]
@@ -66,9 +64,7 @@ impl std::fmt::Display for OutsideBarStyle {
 }
 
 /// Text formatting mode for footprint level values.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TextFormat {
     /// Choose formatting automatically based on value magnitude.
     #[default]
@@ -90,9 +86,7 @@ impl std::fmt::Display for TextFormat {
 }
 
 /// Background coloring mode for footprint cells.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BackgroundColorMode {
     /// Color intensity proportional to total volume at each level.
     #[default]
@@ -118,9 +112,7 @@ impl std::fmt::Display for BackgroundColorMode {
 }
 
 /// Rendering mode for footprint candles.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FootprintRenderMode {
     /// Grid of cells with buy/sell values at each price level.
     Box,
@@ -139,9 +131,7 @@ impl std::fmt::Display for FootprintRenderMode {
 }
 
 /// Data type shown in footprint cells.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FootprintDataType {
     /// Total volume per level.
     #[default]
@@ -168,9 +158,7 @@ impl std::fmt::Display for FootprintDataType {
 }
 
 /// Position of the thin candle body relative to the footprint bars.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FootprintCandlePosition {
     /// No candle body marker.
     None,

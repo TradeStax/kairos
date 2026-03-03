@@ -1,6 +1,6 @@
 mod action;
-mod ai_context;
 pub(crate) mod ai;
+mod ai_context;
 pub mod config;
 mod content;
 mod context_menu;

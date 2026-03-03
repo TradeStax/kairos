@@ -13,8 +13,7 @@ use iced::{
 };
 
 use study::orderflow::level_analyzer::types::{
-    LevelAnalyzerData, LevelSource, LevelStatus, MonitoredLevel,
-    SessionKey, SessionType,
+    LevelAnalyzerData, LevelSource, LevelStatus, MonitoredLevel, SessionKey, SessionType,
 };
 
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
@@ -115,8 +114,11 @@ pub enum Message {
 
 /// Actions emitted to the parent pane.
 pub enum Action {
-    AddLevel(MonitoredLevel),
-    RemoveLevel { price_units: i64, source: LevelSource },
+    AddLevel(Box<MonitoredLevel>),
+    RemoveLevel {
+        price_units: i64,
+        source: LevelSource,
+    },
     CenterOnPrice(f64),
     Close,
 }
@@ -245,7 +247,7 @@ impl LevelDetailModal {
                         SessionKey::manual(),
                     );
                     self.manual_price_input.clear();
-                    Some(Action::AddLevel(level))
+                    Some(Action::AddLevel(Box::new(level)))
                 } else {
                     None
                 }
@@ -287,14 +289,11 @@ impl LevelDetailModal {
             .collect();
 
         levels.sort_by(|a, b| {
-            a.status
-                .order()
-                .cmp(&b.status.order())
-                .then_with(|| {
-                    b.strength
-                        .partial_cmp(&a.strength)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+            a.status.order().cmp(&b.status.order()).then_with(|| {
+                b.strength
+                    .partial_cmp(&a.strength)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         levels
@@ -306,20 +305,13 @@ impl LevelDetailModal {
         let level_count = filtered.len();
 
         let header = ModalHeaderBuilder::new("Level Analyzer")
-            .push_control(primitives::small(format!(
-                "{level_count} levels"
-            )))
+            .push_control(primitives::small(format!("{level_count} levels")))
             .on_close(Message::Close);
 
         let left = self.view_left_panel(&filtered);
         let right = self.view_right_panel();
 
-        let body = row![
-            left,
-            rule::vertical(1).style(style::split_ruler),
-            right,
-        ]
-        .height(420);
+        let body = row![left, rule::vertical(1).style(style::split_ruler), right,].height(420);
 
         container(column![header, body])
             .width(680)
@@ -344,9 +336,7 @@ fn matches_source_filter(filter: SourceFilter, source: LevelSource) -> bool {
         }
         SourceFilter::PriorDay => matches!(
             source,
-            LevelSource::PriorDayHigh
-                | LevelSource::PriorDayLow
-                | LevelSource::PriorDayClose
+            LevelSource::PriorDayHigh | LevelSource::PriorDayLow | LevelSource::PriorDayClose
         ),
         SourceFilter::Manual => source == LevelSource::Manual,
         SourceFilter::Delta => {
@@ -368,8 +358,7 @@ fn matches_session_filter(filter: &SessionFilter, level: &MonitoredLevel) -> boo
     match filter {
         SessionFilter::All => true,
         SessionFilter::CurrentSession => {
-            level.session_key.is_cross_session()
-                || level.source == LevelSource::Manual
+            level.session_key.is_cross_session() || level.source == LevelSource::Manual
         }
         SessionFilter::RthOnly => {
             level.session_key.session_type == SessionType::Rth

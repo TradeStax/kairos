@@ -14,8 +14,8 @@ use crate::style;
 use crate::style::tokens;
 
 use super::{
-    LevelDetailModal, Message, SessionFilter, SourceFilter, StatusFilter,
-    status_color, status_label,
+    LevelDetailModal, Message, SessionFilter, SourceFilter, StatusFilter, status_color,
+    status_label,
 };
 
 impl LevelDetailModal {
@@ -108,22 +108,19 @@ impl LevelDetailModal {
         .align_y(Alignment::Center);
 
         // Only show Remove for selected Manual levels
-        if let Some(idx) = self.selected_index {
-            let levels = self.filtered_sorted_levels();
-            if let Some(level) = levels.get(idx) {
-                if level.source == LevelSource::Manual {
-                    footer_row = footer_row.push(
-                        button(primitives::small("- Remove"))
-                            .on_press(Message::RemoveSelected)
-                            .padding([tokens::spacing::XXS, tokens::spacing::SM])
-                            .style(style::button::secondary),
-                    );
-                }
-            }
+        if let Some(idx) = self.selected_index
+            && let Some(level) = self.filtered_sorted_levels().get(idx)
+            && level.source == LevelSource::Manual
+        {
+            footer_row = footer_row.push(
+                button(primitives::small("- Remove"))
+                    .on_press(Message::RemoveSelected)
+                    .padding([tokens::spacing::XXS, tokens::spacing::SM])
+                    .style(style::button::secondary),
+            );
         }
 
-        let footer = container(footer_row)
-            .padding([tokens::spacing::SM, tokens::spacing::SM]);
+        let footer = container(footer_row).padding([tokens::spacing::SM, tokens::spacing::SM]);
 
         column![
             filter_bar,

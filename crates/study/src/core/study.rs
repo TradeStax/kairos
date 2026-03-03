@@ -161,10 +161,7 @@ pub trait Study: Send + Sync {
     ///
     /// Type-erased via `Box<dyn Any + Send>`; the study downcasts internally
     /// to its expected payload type. Default: returns an error.
-    fn accept_external_data(
-        &mut self,
-        _data: Box<dyn Any + Send>,
-    ) -> Result<(), StudyError> {
+    fn accept_external_data(&mut self, _data: Box<dyn Any + Send>) -> Result<(), StudyError> {
         Err(StudyError::InvalidParameter {
             key: "external_data".into(),
             reason: "not supported".into(),

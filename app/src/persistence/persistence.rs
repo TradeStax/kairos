@@ -149,6 +149,25 @@ mod tests {
     }
 
     #[test]
+    fn test_state_version_display() {
+        assert_eq!(StateVersion(1).to_string(), "v1");
+        assert_eq!(StateVersion(42).to_string(), "v42");
+    }
+
+    #[test]
+    fn test_state_version_ordering() {
+        assert!(StateVersion(1) < StateVersion(2));
+        assert!(StateVersion(2) > StateVersion(1));
+        assert_eq!(StateVersion(1), StateVersion(1));
+    }
+
+    #[test]
+    fn test_state_version_not_current() {
+        assert!(!StateVersion(0).is_current());
+        assert!(!StateVersion(99).is_current());
+    }
+
+    #[test]
     fn test_save_and_load() {
         let state = AppState::default();
         let temp_dir = std::env::temp_dir();
@@ -161,5 +180,83 @@ mod tests {
 
         let path = state_file_path(&temp_dir, &temp_file);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_missing_file_returns_default() {
+        let temp_dir = std::env::temp_dir();
+        let loaded = load_state(&temp_dir, "nonexistent_file_12345.json").unwrap();
+        assert_eq!(loaded.version, StateVersion::CURRENT);
+    }
+
+    #[test]
+    fn test_load_corrupt_json_returns_default() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = format!("test-corrupt-{}.json", chrono::Utc::now().timestamp());
+        let path = state_file_path(&temp_dir, &temp_file);
+
+        // Write invalid JSON
+        std::fs::write(&path, "{ not valid json }}}").unwrap();
+
+        let loaded = load_state(&temp_dir, &temp_file).unwrap();
+        assert_eq!(loaded.version, StateVersion::CURRENT);
+
+        // Clean up (backup file created by load_state)
+        let _ = std::fs::remove_file(&path);
+        // Also try to clean the backup
+        for entry in std::fs::read_dir(&temp_dir).into_iter().flatten() {
+            if let Ok(entry) = entry {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("test-corrupt-") && name.contains("_backup_") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_save_creates_parent_dirs() {
+        let temp_dir = std::env::temp_dir();
+        let sub_dir = temp_dir.join(format!(
+            "kairos_test_nested_{}",
+            chrono::Utc::now().timestamp()
+        ));
+        let temp_file = "state.json";
+
+        let state = AppState::default();
+        save_state(&state, &sub_dir, temp_file).unwrap();
+
+        let loaded = load_state(&sub_dir, temp_file).unwrap();
+        assert_eq!(loaded.version, state.version);
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&sub_dir);
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_fields() {
+        let mut state = AppState::default();
+        state.trade_fetch_enabled = true;
+        state.databento_config.cache_max_days = 180;
+        state.ai_preferences.temperature = 0.7;
+
+        let temp_dir = std::env::temp_dir();
+        let temp_file = format!("test-fields-{}.json", chrono::Utc::now().timestamp());
+
+        save_state(&state, &temp_dir, &temp_file).unwrap();
+        let loaded = load_state(&temp_dir, &temp_file).unwrap();
+
+        assert!(loaded.trade_fetch_enabled);
+        assert_eq!(loaded.databento_config.cache_max_days, 180);
+        assert!((loaded.ai_preferences.temperature - 0.7).abs() < 0.01);
+
+        let path = state_file_path(&temp_dir, &temp_file);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_persistence_error_display() {
+        let err = PersistenceError::InvalidPath("bad/path".to_string());
+        assert!(err.to_string().contains("bad/path"));
     }
 }

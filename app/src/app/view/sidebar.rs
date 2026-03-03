@@ -5,20 +5,12 @@ use crate::components::overlay::modal_shell::ModalShell;
 use crate::modals::cache_management::CacheManagementMessage;
 use crate::modals::{main_dialog_modal, positioned_overlay, preferences};
 use crate::screen::dashboard;
-use crate::style::tokens;
 
 use iced::{Alignment, Element, padding};
 
 use super::super::{DownloadMessage, Kairos, Message};
 
 impl Kairos {
-    /// Vertical offset for top-positioned sidebar modals to account for
-    /// the custom title bar on Windows/Linux.
-    #[cfg(target_os = "macos")]
-    const HEADER_OFFSET: f32 = 0.0;
-    #[cfg(not(target_os = "macos"))]
-    const HEADER_OFFSET: f32 = tokens::layout::TITLE_BAR_HEIGHT + tokens::layout::MENU_BAR_HEIGHT;
-
     pub(crate) fn view_with_modal<'a>(
         &'a self,
         base: Element<'a, Message>,

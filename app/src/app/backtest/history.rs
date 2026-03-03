@@ -10,18 +10,19 @@ pub enum BacktestStatus {
 }
 
 /// A single entry in the backtest history.
-#[allow(dead_code)]
 pub struct BacktestHistoryEntry {
     pub id: Uuid,
     pub status: BacktestStatus,
     pub strategy_name: String,
     pub ticker: String,
+    #[allow(dead_code)]
     pub config: ::backtest::BacktestConfig,
     pub started_at_ms: u64,
     pub progress: f32,
     pub progress_message: String,
     pub live_trades: Vec<::backtest::TradeRecord>,
     pub live_equity: Vec<::backtest::EquityPoint>,
+    #[allow(dead_code)]
     pub initial_capital: f64,
     pub result: Option<Arc<::backtest::BacktestResult>>,
     pub error: Option<String>,
@@ -116,15 +117,6 @@ impl BacktestHistory {
 
     pub fn remove(&mut self, id: Uuid) {
         self.entries.retain(|e| e.id != id);
-    }
-
-    #[allow(dead_code)]
-    pub fn running_ids(&self) -> Vec<Uuid> {
-        self.entries
-            .iter()
-            .filter(|e| e.status == BacktestStatus::Running)
-            .map(|e| e.id)
-            .collect()
     }
 }
 

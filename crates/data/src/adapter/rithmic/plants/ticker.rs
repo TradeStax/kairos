@@ -133,7 +133,7 @@ pub(crate) enum TickerPlantCommand {
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
     },
     /// Request auxiliary reference data
-    GetAuxilliaryReferenceData {
+    GetAuxiliaryReferenceData {
         symbol: String,
         exchange: String,
         response_sender: oneshot::Sender<Result<Vec<RithmicResponse>, String>>,
@@ -165,7 +165,6 @@ pub(crate) enum TickerPlantCommand {
 /// and application-level heartbeats (secondary). Successful heartbeat
 /// responses are silently dropped; only errors are surfaced as
 /// `HeartbeatTimeout` messages.
-#[allow(dead_code)]
 pub struct RithmicTickerPlant {
     /// Background task running the plant actor loop
     pub connection_handle: tokio::task::JoinHandle<()>,
@@ -199,6 +198,12 @@ impl RithmicTickerPlant {
             sender: req_tx,
             subscription_sender: sub_tx,
         })
+    }
+}
+
+impl Drop for RithmicTickerPlant {
+    fn drop(&mut self) {
+        self.connection_handle.abort();
     }
 }
 
@@ -237,7 +242,25 @@ struct TickerPlant {
     last_stats_log: std::time::Instant,
 }
 
+/// WebSocket send timeout (seconds). Prevents `handle_command` from
+/// stalling indefinitely if the sink is blocked.
+const WS_SEND_TIMEOUT_SECS: u64 = 10;
+
 impl TickerPlant {
+    /// Send a WebSocket message with a timeout to prevent actor stall.
+    async fn send_ws(&mut self, msg: Message) -> Result<(), String> {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(WS_SEND_TIMEOUT_SECS),
+            self.rithmic_sender.send(msg),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(format!("ticker_plant: send failed: {}", e)),
+            Err(_) => Err("ticker_plant: send timed out".to_owned()),
+        }
+    }
+
     async fn new(
         request_receiver: mpsc::Receiver<TickerPlantCommand>,
         subscription_sender: broadcast::Sender<RithmicResponse>,
@@ -250,7 +273,7 @@ impl TickerPlant {
 
         let rithmic_sender_api = RithmicSenderApi::new(config);
         let rithmic_receiver_api = RithmicReceiverApi {
-            source: "ticker_plant".to_string(),
+            source: "ticker_plant".to_owned(),
         };
 
         let interval = get_heartbeat_interval(None);
@@ -317,15 +340,15 @@ impl PlantActor for TickerPlant {
 
                         let error_response = RithmicResponse {
                             request_id:
-                                "websocket_ping_timeout".to_string(),
-                            message: RithmicMessage::HeartbeatTimeout,
+                                "websocket_ping_timeout".to_owned(),
+                            message: Box::new(RithmicMessage::HeartbeatTimeout),
                             is_update: true,
                             has_more: false,
                             multi_response: false,
                             error: Some(
                                 "WebSocket ping timeout \
                                  - connection dead"
-                                    .to_string(),
+                                    .to_owned(),
                             ),
                             source: self
                                 .rithmic_receiver_api
@@ -342,13 +365,13 @@ impl PlantActor for TickerPlant {
                     self.handle_command(message).await;
                 }
                 Some(message) = self.rithmic_reader.next() => {
-                    let stop = self
-                        .handle_rithmic_message(message)
-                        .await
-                        .unwrap();
-
-                    if stop {
-                        break;
+                    match self.handle_rithmic_message(message).await {
+                        Ok(true) => break,
+                        Ok(false) => {},
+                        Err(()) => {
+                            error!("ticker_plant: message handler error, stopping");
+                            break;
+                        }
                     }
                 }
                 else => { break }
@@ -376,11 +399,11 @@ impl PlantActor for TickerPlant {
                     Ok(response) => {
                         // Handle heartbeat responses: only forward
                         // if they contain an error
-                        if matches!(response.message, RithmicMessage::ResponseHeartbeat(_)) {
+                        if matches!(*response.message, RithmicMessage::ResponseHeartbeat(_)) {
                             if let Some(error) = response.error {
                                 let error_response = RithmicResponse {
                                     request_id: response.request_id,
-                                    message: RithmicMessage::HeartbeatTimeout,
+                                    message: Box::new(RithmicMessage::HeartbeatTimeout),
                                     is_update: true,
                                     has_more: false,
                                     multi_response: false,
@@ -452,12 +475,12 @@ impl PlantActor for TickerPlant {
                 error!("ticker_plant: connection closed");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket connection closed".to_string()),
+                    error: Some("WebSocket connection closed".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -468,12 +491,12 @@ impl PlantActor for TickerPlant {
                 error!("ticker_plant: connection already closed");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket connection already closed".to_string()),
+                    error: Some("WebSocket connection already closed".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -484,8 +507,8 @@ impl PlantActor for TickerPlant {
                 error!("ticker_plant: I/O error: {}", io_err);
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
@@ -503,15 +526,15 @@ impl PlantActor for TickerPlant {
                 );
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
                     error: Some(
                         "WebSocket connection reset \
                          without closing handshake"
-                            .to_string(),
+                            .to_owned(),
                     ),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
@@ -523,12 +546,12 @@ impl PlantActor for TickerPlant {
                 error!("ticker_plant: attempted to send after closing");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket attempted to send after closing".to_string()),
+                    error: Some("WebSocket attempted to send after closing".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -539,12 +562,12 @@ impl PlantActor for TickerPlant {
                 error!("ticker_plant: received data after closing");
 
                 let error_response = RithmicResponse {
-                    request_id: "".to_string(),
-                    message: RithmicMessage::ConnectionError,
+                    request_id: "".to_owned(),
+                    message: Box::new(RithmicMessage::ConnectionError),
                     is_update: true,
                     has_more: false,
                     multi_response: false,
-                    error: Some("WebSocket received data after closing".to_string()),
+                    error: Some("WebSocket received data after closing".to_owned()),
                     source: self.rithmic_receiver_api.source.clone(),
                 };
                 let _ = self.subscription_sender.send(error_response);
@@ -562,10 +585,7 @@ impl PlantActor for TickerPlant {
     async fn handle_command(&mut self, command: TickerPlantCommand) {
         match command {
             TickerPlantCommand::Close => {
-                self.rithmic_sender
-                    .send(Message::Close(None))
-                    .await
-                    .unwrap();
+                let _ = self.send_ws(Message::Close(None)).await;
             }
             TickerPlantCommand::ListSystemInfo { response_sender } => {
                 let (list_system_info_buf, id) =
@@ -576,10 +596,13 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(list_system_info_buf.into()))
+                if let Err(e) = self
+                    .send_ws(Message::Binary(list_system_info_buf.into()))
                     .await
-                    .unwrap();
+                {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::Login { response_sender } => {
                 let (login_buf, id) = self.rithmic_sender_api.request_login(
@@ -596,10 +619,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(login_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(login_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::SetLogin => {
                 self.logged_in = true;
@@ -612,18 +635,15 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(logout_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(logout_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::SendHeartbeat => {
                 let (heartbeat_buf, _id) = self.rithmic_sender_api.request_heartbeat();
 
-                let _ = self
-                    .rithmic_sender
-                    .send(Message::Binary(heartbeat_buf.into()))
-                    .await;
+                let _ = self.send_ws(Message::Binary(heartbeat_buf.into())).await;
             }
             TickerPlantCommand::UpdateHeartbeat { seconds } => {
                 self.interval = get_heartbeat_interval(Some(seconds));
@@ -647,10 +667,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(sub_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(sub_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::SubscribeOrderBook {
                 symbol,
@@ -669,10 +689,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(sub_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(sub_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::RequestDepthByOrderSnapshot {
                 symbol,
@@ -688,10 +708,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(snapshot_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(snapshot_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::SearchSymbols {
                 search_text,
@@ -714,26 +734,27 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(search_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(search_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::ListExchanges {
                 user,
                 response_sender,
             } => {
-                let (list_buf, id) = self.rithmic_sender_api.request_list_exchanges(&user);
+                let _ = user; // field kept for API compat; not sent to server
+                let (list_buf, id) = self.rithmic_sender_api.request_list_exchanges();
 
                 self.request_handler.register_request(RithmicRequest {
                     request_id: id,
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(list_buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(list_buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetInstrumentByUnderlying {
                 underlying_symbol,
@@ -754,10 +775,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::SubscribeByUnderlying {
                 underlying_symbol,
@@ -782,10 +803,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetTickSizeTypeTable {
                 tick_size_type,
@@ -800,10 +821,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetProductCodes {
                 exchange,
@@ -819,10 +840,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetVolumeAtPrice {
                 symbol,
@@ -838,29 +859,29 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
-            TickerPlantCommand::GetAuxilliaryReferenceData {
+            TickerPlantCommand::GetAuxiliaryReferenceData {
                 symbol,
                 exchange,
                 response_sender,
             } => {
                 let (buf, id) = self
                     .rithmic_sender_api
-                    .request_auxilliary_reference_data(&symbol, &exchange);
+                    .request_auxiliary_reference_data(&symbol, &exchange);
 
                 self.request_handler.register_request(RithmicRequest {
                     request_id: id,
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetReferenceData {
                 symbol,
@@ -876,10 +897,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetFrontMonthContract {
                 symbol,
@@ -898,10 +919,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
             TickerPlantCommand::GetSystemGatewayInfo {
                 system_name,
@@ -916,10 +937,10 @@ impl PlantActor for TickerPlant {
                     responder: response_sender,
                 });
 
-                self.rithmic_sender
-                    .send(Message::Binary(buf.into()))
-                    .await
-                    .unwrap();
+                if let Err(e) = self.send_ws(Message::Binary(buf.into())).await {
+                    warn!("ticker_plant: send failed: {}", e);
+                    return;
+                }
             }
         }
     }
@@ -949,12 +970,8 @@ impl RithmicTickerPlantHandle {
         };
 
         let _ = self.sender.send(command).await;
-        let response = rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0);
 
-        Ok(response)
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Logs in to the Rithmic Ticker Plant.
@@ -971,10 +988,8 @@ impl RithmicTickerPlantHandle {
         };
 
         let _ = self.sender.send(command).await;
-        let response = rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0);
+        let response =
+            super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)?;
 
         if let Some(err) = response.error {
             error!("ticker_plant: login failed {:?}", err);
@@ -982,7 +997,7 @@ impl RithmicTickerPlantHandle {
         } else {
             let _ = self.sender.send(TickerPlantCommand::SetLogin).await;
 
-            if let RithmicMessage::ResponseLogin(resp) = &response.message {
+            if let RithmicMessage::ResponseLogin(resp) = &*response.message {
                 if let Some(hb) = resp.heartbeat_interval {
                     let secs = hb.max(HEARTBEAT_SECS as f64) as u64;
                     self.update_heartbeat(secs).await;
@@ -1008,11 +1023,11 @@ impl RithmicTickerPlantHandle {
         };
 
         let _ = self.sender.send(command).await;
-        let mut r = rx.await.map_err(|_| "Connection closed".to_string())??;
+        let r = rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??;
         let _ = self.sender.send(TickerPlantCommand::Close).await;
-        let response = r.remove(0);
+        let response = super::take_first(r)?;
 
-        self.subscription_sender.send(response.clone()).unwrap();
+        let _ = self.subscription_sender.send(response.clone());
 
         Ok(response)
     }
@@ -1031,10 +1046,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Subscribes to depth-by-order updates for a symbol
@@ -1054,10 +1066,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Unsubscribes from market data for a symbol
@@ -1078,10 +1087,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Unsubscribes from depth-by-order updates for a symbol
@@ -1101,10 +1107,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Requests a one-time depth-by-order snapshot for a symbol
@@ -1123,7 +1126,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Sends a command to update the heartbeat interval
@@ -1155,7 +1158,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Lists exchanges available to the specified user
@@ -1169,7 +1172,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Returns instruments for an underlying symbol
@@ -1190,7 +1193,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Subscribes to market data for all instruments of an underlying
@@ -1215,10 +1218,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Returns the tick size type table for a given type identifier
@@ -1235,7 +1235,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Returns available product codes, optionally filtered by exchange
@@ -1254,7 +1254,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Returns volume-at-price data for a symbol
@@ -1273,7 +1273,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        rx.await.map_err(|_| "Connection closed".to_string())?
+        rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())?
     }
 
     /// Returns auxiliary reference data for a symbol
@@ -1284,7 +1284,7 @@ impl RithmicTickerPlantHandle {
     ) -> Result<RithmicResponse, String> {
         let (tx, rx) = oneshot::channel::<Result<Vec<RithmicResponse>, String>>();
 
-        let command = TickerPlantCommand::GetAuxilliaryReferenceData {
+        let command = TickerPlantCommand::GetAuxiliaryReferenceData {
             symbol: symbol.to_string(),
             exchange: exchange.to_string(),
             response_sender: tx,
@@ -1292,10 +1292,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Returns instrument reference data (tick size, point value, etc.)
@@ -1314,10 +1311,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Returns the current front-month contract for a product
@@ -1338,10 +1332,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 
     /// Returns Rithmic system gateway information
@@ -1358,10 +1349,7 @@ impl RithmicTickerPlantHandle {
 
         let _ = self.sender.send(command).await;
 
-        Ok(rx
-            .await
-            .map_err(|_| "Connection closed".to_string())??
-            .remove(0))
+        super::take_first(rx.await.map_err(|_| super::CONN_CLOSED_ERR.to_owned())??)
     }
 }
 

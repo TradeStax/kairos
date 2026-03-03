@@ -58,7 +58,7 @@ pub use domain::{
 pub use connection::{
     Connection, ConnectionCapability, ConnectionConfig, ConnectionKind, ConnectionManager,
     ConnectionProvider, ConnectionStatus, DatabentoConnectionConfig, HistoricalDatasetInfo,
-    ResolvedConnection, RithmicConnectionConfig, RithmicEnvironment, RithmicServer,
+    ResolvedConnection, RithmicConnectionConfig, RithmicEnvironment, RithmicServer, ServerResolver,
 };
 
 pub use event::DataEvent;

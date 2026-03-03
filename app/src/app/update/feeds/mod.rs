@@ -72,32 +72,51 @@ impl Kairos {
                 Task::none()
             }
             crate::modals::data_feeds::Action::SaveApiKey { provider, key } => {
-                if let Err(e) = self.secrets.set_api_key(provider, &key) {
-                    log::warn!("Failed to save API key for {:?}: {}", provider, e);
-                }
-                self.handle_feeds_updated()
+                // Save API key off the UI thread (keyring may block)
+                let secrets = self.secrets.clone();
+                let feeds_task = self.handle_feeds_updated();
+                Task::perform(
+                    async move {
+                        if let Err(e) = secrets.set_api_key(provider, &key) {
+                            log::warn!("Failed to save API key for {:?}: {}", provider, e);
+                        }
+                    },
+                    |()| Message::Noop,
+                )
+                .chain(feeds_task)
             }
             crate::modals::data_feeds::Action::SaveFeedPassword { feed_id, password } => {
-                if let Err(e) = self
-                    .secrets
-                    .set_feed_password(&feed_id.to_string(), &password)
-                {
-                    log::warn!("Failed to save password for feed {}: {}", feed_id, e);
-                }
-                self.handle_feeds_updated()
+                // Save feed password off the UI thread (keyring may block)
+                let secrets = self.secrets.clone();
+                let feeds_task = self.handle_feeds_updated();
+                Task::perform(
+                    async move {
+                        if let Err(e) = secrets.set_feed_password(&feed_id.to_string(), &password) {
+                            log::warn!("Failed to save password for feed {}: {}", feed_id, e);
+                        }
+                    },
+                    |()| Message::Noop,
+                )
+                .chain(feeds_task)
             }
-            crate::modals::data_feeds::Action::ProbeSystemNames(server) => Task::perform(
-                async move {
-                    let handle = tokio::runtime::Handle::current();
-                    tokio::task::spawn_blocking(move || {
-                        handle.block_on(data::probe_system_names(server.url()))
-                    })
-                    .await
-                    .map_err(|e| format!("Task join error: {}", e))
-                    .and_then(|r| r.map_err(|e| e.to_string()))
-                },
-                move |result| Message::RithmicSystemNames { server, result },
-            ),
+            crate::modals::data_feeds::Action::ProbeSystemNames(server) => {
+                let resolver = self.services.server_resolver.clone();
+                Task::perform(
+                    async move {
+                        let resolver = resolver
+                            .ok_or_else(|| "Server configuration not loaded".to_string())?;
+                        let url = resolver.resolve(server).map_err(|e| e.to_string())?;
+                        let handle = tokio::runtime::Handle::current();
+                        tokio::task::spawn_blocking(move || {
+                            handle.block_on(data::probe_system_names(&url))
+                        })
+                        .await
+                        .map_err(|e| format!("Task join error: {}", e))
+                        .and_then(|r| r.map_err(|e| e.to_string()))
+                    },
+                    move |result| Message::RithmicSystemNames { server, result },
+                )
+            }
         }
     }
 

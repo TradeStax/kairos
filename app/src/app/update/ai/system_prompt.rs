@@ -8,9 +8,7 @@
 //! - Coordinate changes with the tool definitions in tools/mod.rs
 
 /// Build the system prompt with user timezone information injected.
-pub(super) fn build_system_prompt(
-    timezone: crate::config::UserTimezone,
-) -> String {
+pub(super) fn build_system_prompt(timezone: crate::config::UserTimezone) -> String {
     format!(
         "{SYSTEM_PROMPT}\n\n\
         USER TIMEZONE: {timezone}\n\

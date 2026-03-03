@@ -20,9 +20,6 @@ pub enum Message {
     Invalidate(Option<Instant>),
 }
 
-/// Placeholder for future ladder-level actions.
-pub enum Action {}
-
 // ── Feature-gated implementation ───────────────────────────────────
 
 #[cfg(feature = "heatmap")]
@@ -292,12 +289,11 @@ impl Ladder {
         }
     }
 
-    pub fn invalidate(&mut self, now: Option<Instant>) -> Option<Action> {
+    pub fn invalidate(&mut self, now: Option<Instant>) {
         self.cache.clear();
         if let Some(now) = now {
             self.last_tick = now;
         }
-        None
     }
 
     pub fn tick_size(&self) -> f32 {

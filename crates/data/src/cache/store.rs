@@ -396,6 +396,15 @@ mod tests {
     use super::*;
     use crate::domain::{Price, Quantity, Side, Timestamp, Trade};
 
+    fn make_trade(time: u64, price: f32, qty: f64, side: Side) -> Trade {
+        Trade::new(
+            Timestamp::from_millis(time),
+            Price::from_f32(price),
+            Quantity(qty),
+            side,
+        )
+    }
+
     #[tokio::test]
     async fn test_write_read_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
@@ -403,18 +412,8 @@ mod tests {
         store.init().await.unwrap();
 
         let trades = vec![
-            Trade::new(
-                Timestamp::from_millis(1000),
-                Price::from_f32(5000.0),
-                Quantity(10.0),
-                Side::Buy,
-            ),
-            Trade::new(
-                Timestamp::from_millis(2000),
-                Price::from_f32(5001.25),
-                Quantity(5.0),
-                Side::Sell,
-            ),
+            make_trade(1000, 5000.0, 10.0, Side::Buy),
+            make_trade(2000, 5001.25, 5.0, Side::Sell),
         ];
 
         let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
@@ -453,6 +452,234 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].price.to_f32(), 5000.0);
         assert_eq!(loaded[1].price.to_f32(), 5001.25);
+        assert_eq!(loaded[0].side, Side::Buy);
+        assert_eq!(loaded[1].side, Side::Sell);
+        assert!((loaded[0].quantity.0 - 10.0).abs() < 0.01);
+        assert!((loaded[1].quantity.0 - 5.0).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn roundtrip_preserves_all_trade_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let trades = vec![make_trade(1736899200000, 5432.75, 42.0, Side::Buy)];
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+
+        store
+            .write_day(
+                CacheProvider::Rithmic,
+                "ES.c.0",
+                CacheSchema::Trades,
+                date,
+                &trades,
+            )
+            .await
+            .unwrap();
+
+        let loaded: Vec<Trade> = store
+            .read_day(CacheProvider::Rithmic, "ES.c.0", CacheSchema::Trades, date)
+            .await
+            .unwrap();
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].time.to_millis(), 1736899200000);
+        assert!((loaded[0].price.to_f64() - 5432.75).abs() < 0.01);
+        assert!((loaded[0].quantity.0 - 42.0).abs() < 0.01);
+        assert_eq!(loaded[0].side, Side::Buy);
+    }
+
+    #[tokio::test]
+    async fn per_day_keying_different_dates_stored_separately() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let day1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let day2 = NaiveDate::from_ymd_opt(2025, 1, 11).unwrap();
+
+        let trades1 = vec![make_trade(1000, 100.0, 5.0, Side::Buy)];
+        let trades2 = vec![
+            make_trade(2000, 200.0, 10.0, Side::Sell),
+            make_trade(3000, 201.0, 15.0, Side::Buy),
+        ];
+
+        store
+            .write_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                day1,
+                &trades1,
+            )
+            .await
+            .unwrap();
+        store
+            .write_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                day2,
+                &trades2,
+            )
+            .await
+            .unwrap();
+
+        let loaded1: Vec<Trade> = store
+            .read_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                day1,
+            )
+            .await
+            .unwrap();
+        let loaded2: Vec<Trade> = store
+            .read_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                day2,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(loaded1.len(), 1);
+        assert_eq!(loaded2.len(), 2);
+        assert_eq!(loaded1[0].price.to_f32(), 100.0);
+        assert_eq!(loaded2[0].price.to_f32(), 200.0);
+    }
+
+    #[tokio::test]
+    async fn has_day_false_for_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2025, 6, 1).unwrap();
+        assert!(
+            !store
+                .has_day(
+                    CacheProvider::Databento,
+                    "ES.c.0",
+                    CacheSchema::Trades,
+                    date
+                )
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn read_missing_file_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2025, 6, 1).unwrap();
+        let result: Result<Vec<Trade>, _> = store
+            .read_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                date,
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn corrupted_data_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap();
+        let path = store.day_file_path(
+            CacheProvider::Databento,
+            "ES.c.0",
+            CacheSchema::Trades,
+            date,
+        );
+
+        // Create parent dirs and write garbage
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await.unwrap();
+        }
+        fs::write(&path, b"this is not valid cache data")
+            .await
+            .unwrap();
+
+        let result: Result<Vec<Trade>, _> = store
+            .read_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                date,
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn atomic_write_no_leftover_tmp() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let trades = vec![make_trade(1000, 100.0, 1.0, Side::Buy)];
+
+        store
+            .write_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                date,
+                &trades,
+            )
+            .await
+            .unwrap();
+
+        // Check the final file exists
+        let path = store.day_file_path(
+            CacheProvider::Databento,
+            "ES.c.0",
+            CacheSchema::Trades,
+            date,
+        );
+        assert!(fs::try_exists(&path).await.unwrap());
+
+        // Check no .tmp leftover
+        let tmp = path.with_extension("bin.zst.tmp");
+        assert!(!fs::try_exists(&tmp).await.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn write_empty_records_then_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let date = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
+        let empty: Vec<Trade> = vec![];
+
+        store
+            .write_day(
+                CacheProvider::Rithmic,
+                "NQ.c.0",
+                CacheSchema::Trades,
+                date,
+                &empty,
+            )
+            .await
+            .unwrap();
+
+        let loaded: Vec<Trade> = store
+            .read_day(CacheProvider::Rithmic, "NQ.c.0", CacheSchema::Trades, date)
+            .await
+            .unwrap();
+        assert!(loaded.is_empty());
     }
 
     #[tokio::test]
@@ -480,6 +707,47 @@ mod tests {
             .list_dates(CacheProvider::Rithmic, "NQ.c.0", CacheSchema::Trades)
             .await;
         assert_eq!(dates.len(), 3);
+        // Dates should be ordered (BTreeSet)
+        let dates_vec: Vec<_> = dates.into_iter().collect();
+        assert!(dates_vec[0] < dates_vec[1]);
+        assert!(dates_vec[1] < dates_vec[2]);
+    }
+
+    #[tokio::test]
+    async fn list_dates_empty_for_nonexistent_symbol() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let dates = store
+            .list_dates(CacheProvider::Databento, "FAKE.c.0", CacheSchema::Trades)
+            .await;
+        assert!(dates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_symbols_converts_dash_to_dot() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().to_path_buf());
+        store.init().await.unwrap();
+
+        let trades: Vec<Trade> = vec![];
+        let date = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        store
+            .write_day(
+                CacheProvider::Databento,
+                "ES.c.0",
+                CacheSchema::Trades,
+                date,
+                &trades,
+            )
+            .await
+            .unwrap();
+
+        let symbols = store.list_symbols(CacheProvider::Databento).await;
+        assert_eq!(symbols.len(), 1);
+        // The directory is "ES-c-0", list_symbols converts back to "ES.c.0"
+        assert_eq!(symbols[0], "ES.c.0");
     }
 
     #[tokio::test]
@@ -505,5 +773,32 @@ mod tests {
 
         let index = store.scan_to_index(CacheProvider::Databento, feed_id).await;
         assert!(index.has_data("ES.c.0"));
+    }
+
+    #[tokio::test]
+    async fn day_file_path_format() {
+        let store = CacheStore::new(PathBuf::from("/tmp/cache"));
+        let date = NaiveDate::from_ymd_opt(2025, 3, 15).unwrap();
+        let path = store.day_file_path(
+            CacheProvider::Databento,
+            "ES.c.0",
+            CacheSchema::Trades,
+            date,
+        );
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        assert!(path_str.ends_with("databento/ES-c-0/trades/2025-03-15.bin.zst"));
+    }
+
+    #[tokio::test]
+    async fn provider_dir_names() {
+        assert_eq!(CacheProvider::Databento.dir_name(), "databento");
+        assert_eq!(CacheProvider::Rithmic.dir_name(), "rithmic");
+    }
+
+    #[tokio::test]
+    async fn schema_dir_names() {
+        assert_eq!(CacheSchema::Trades.dir_name(), "trades");
+        assert_eq!(CacheSchema::Depth.dir_name(), "depth");
+        assert_eq!(CacheSchema::Ohlcv.dir_name(), "ohlcv");
     }
 }

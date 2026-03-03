@@ -55,11 +55,23 @@ pub enum DataEvent {
         request_id: Uuid,
         current_day: usize,
         total_days: usize,
+        /// Sub-day progress fraction `[0.0, 1.0)` for smooth
+        /// intra-day progress during paginated Rithmic fetches.
+        sub_day_fraction: f32,
     },
     /// A data download completed successfully
     DownloadComplete {
         request_id: Uuid,
         days_cached: usize,
+    },
+
+    // ── Chart loading ────────────────────────────────────────────────
+    /// Per-pane chart loading progress, pushed from the async data fetch.
+    /// Replaces the old polling-based `CHART_LOAD_PROGRESS` HashMap.
+    ChartLoadProgress {
+        pane_id: Uuid,
+        days_loaded: f32,
+        days_total: usize,
     },
 
     // ── Data availability ─────────────────────────────────────────────

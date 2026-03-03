@@ -94,24 +94,33 @@ impl SecretsManager {
             provider.keyring_user()
         );
 
-        // Try keyring first
-        let keyring_result = self.save_to_keyring(provider, key);
-
-        // Always save to file as backup
-        let file_result = self.save_to_file(provider, key);
-
-        // If both failed, return error
-        if let (Err(e), Err(_)) = (&keyring_result, &file_result) {
-            return Err(e.clone());
-        }
-
-        if keyring_result.is_ok() {
-            log::info!("Stored {} API key in OS keyring", provider.display_name());
-        } else {
-            log::info!(
-                "Stored {} API key in file storage (keyring unavailable)",
-                provider.display_name()
-            );
+        // Try keyring first — only fall back to file when keyring is unavailable
+        match self.save_to_keyring(provider, key) {
+            Ok(()) => {
+                log::info!("Stored {} API key in OS keyring", provider.display_name());
+            }
+            Err(keyring_err) => {
+                log::warn!(
+                    "Keyring unavailable for {}: {}. Falling back to file storage.",
+                    provider.display_name(),
+                    keyring_err
+                );
+                // Only write to file when keyring fails.
+                // NOTE: File storage uses base64 encoding only — not encrypted.
+                // Long-term this should use platform encryption (DPAPI on
+                // Windows, Keychain on macOS, libsecret on Linux).
+                self.save_to_file(provider, key).map_err(|_file_err| {
+                    log::error!(
+                        "Both keyring and file storage failed for {}",
+                        provider.display_name()
+                    );
+                    keyring_err.clone()
+                })?;
+                log::info!(
+                    "Stored {} API key in file storage (keyring unavailable)",
+                    provider.display_name()
+                );
+            }
         }
 
         Ok(())
@@ -123,6 +132,14 @@ impl SecretsManager {
     }
 
     // ── Per-feed password storage ────────────────────────────────────────
+    //
+    // Passwords are keyed by the feed's UUID string. UUIDs are ephemeral
+    // identifiers generated at connection creation time and persisted in
+    // app-state.json. SECURITY NOTE: app-state.json should not be shared
+    // publicly — while it does not contain passwords, the UUIDs can be
+    // used to look up stored credentials from the OS keyring or file
+    // fallback. A future improvement would be to key by connection name
+    // instead, but that requires migration of existing stored passwords.
 
     const FEED_KEYRING_SERVICE: &'static str = "kairos-feed";
 
@@ -151,23 +168,29 @@ impl SecretsManager {
                     .map_err(|e| SecretsError::StoreFailed(e.to_string()))
             });
 
-        // File fallback
-        let file_result = Self::feed_key_file_path(feed_id)
-            .ok_or_else(|| SecretsError::StoreFailed("No data path".to_string()))
-            .and_then(|path| {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| SecretsError::StoreFailed(e.to_string()))?;
-                }
-                std::fs::write(&path, base64_encode(password))
-                    .map_err(|e| SecretsError::StoreFailed(e.to_string()))
-            });
-
-        if let (Err(e), Err(_)) = (&keyring_result, &file_result) {
-            return Err(e.clone());
+        match keyring_result {
+            Ok(()) => {
+                log::info!("Stored password for feed {} in OS keyring", feed_id);
+            }
+            Err(keyring_err) => {
+                // Only fall back to file when keyring is unavailable
+                Self::feed_key_file_path(feed_id)
+                    .ok_or_else(|| SecretsError::StoreFailed("No data path".to_string()))
+                    .and_then(|path| {
+                        if let Some(parent) = path.parent() {
+                            std::fs::create_dir_all(parent)
+                                .map_err(|e| SecretsError::StoreFailed(e.to_string()))?;
+                        }
+                        std::fs::write(&path, base64_encode(password))
+                            .map_err(|e| SecretsError::StoreFailed(e.to_string()))
+                    })
+                    .map_err(|_| keyring_err)?;
+                log::info!(
+                    "Stored password for feed {} in file storage (keyring unavailable)",
+                    feed_id
+                );
+            }
         }
-
-        log::info!("Stored password for feed {}", feed_id);
         Ok(())
     }
 

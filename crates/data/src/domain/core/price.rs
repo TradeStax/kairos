@@ -124,10 +124,16 @@ impl PriceStep {
         Some(Self { units })
     }
 
-    /// Create from an `f32` step. Panics on non-positive or too-small input.
+    /// Create from an `f32` step. **Panics** on non-positive or too-small input.
     ///
-    /// Prefer [`from_f32_lossy`](Self::from_f32_lossy) at API boundaries.
-    /// This convenience method is for internal use with known-good constants.
+    /// # Panics
+    /// Panics if `step <= 0.0` or if `step` is too small to be representable
+    /// at the current `PRICE_SCALE`.
+    ///
+    /// Prefer [`from_f32_lossy`](Self::from_f32_lossy) at API boundaries where
+    /// the value may come from user input. This convenience method is intended
+    /// for use with known-good constants (e.g. tick sizes from
+    /// `FuturesTickerInfo`).
     #[must_use]
     pub fn from_f32(step: f32) -> Self {
         Self::from_f32_lossy(step)

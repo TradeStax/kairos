@@ -5,7 +5,6 @@
 //! during conversion.
 
 use databento::dbn::{Mbp10Msg, SType, TradeMsg};
-use time::OffsetDateTime;
 
 use crate::domain::{Depth, Price, Quantity, Side, Timestamp, Trade};
 
@@ -18,26 +17,8 @@ use super::DatabentoError;
 /// Uses banker-style rounding: adds half of the divisor (5) before dividing by 10,
 /// with sign-aware adjustment for negative prices.
 #[must_use]
-pub fn convert_databento_price(databento_price: i64) -> Price {
+pub(crate) fn convert_databento_price(databento_price: i64) -> Price {
     Price::from_units((databento_price + databento_price.signum() * 5) / 10)
-}
-
-// ── Time conversions ─────────────────────────────────────────────────────
-
-/// Converts a `chrono::DateTime<Utc>` to a `time::OffsetDateTime`
-pub fn chrono_to_time(dt: chrono::DateTime<chrono::Utc>) -> Result<OffsetDateTime, DatabentoError> {
-    let unix_ts = dt.timestamp();
-    let nanos = dt.timestamp_subsec_nanos();
-
-    OffsetDateTime::from_unix_timestamp(unix_ts)
-        .map(|odt| {
-            if nanos > 0 {
-                odt + time::Duration::nanoseconds(nanos as i64)
-            } else {
-                odt
-            }
-        })
-        .map_err(|e| DatabentoError::Config(format!("Invalid timestamp: {}", e)))
 }
 
 // ── Symbol type ──────────────────────────────────────────────────────────
@@ -48,7 +29,7 @@ pub fn chrono_to_time(dt: chrono::DateTime<chrono::Utc>) -> Result<OffsetDateTim
 /// - `"ES.FUT"` / `"ES.OPT"` → [`SType::Parent`]
 /// - `"ESH4"` → [`SType::RawSymbol`]
 #[must_use]
-pub fn determine_stype(symbol: &str) -> SType {
+pub(crate) fn determine_stype(symbol: &str) -> SType {
     if symbol.contains(".c.") {
         SType::Continuous
     } else if symbol.ends_with(".FUT") || symbol.ends_with(".OPT") {
@@ -61,7 +42,7 @@ pub fn determine_stype(symbol: &str) -> SType {
 // ── Domain type conversion ───────────────────────────────────────────────
 
 /// Converts a Databento [`TradeMsg`] to a domain [`Trade`]
-pub fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
+pub(crate) fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
     let ts = msg
         .ts_recv()
         .ok_or_else(|| DatabentoError::Config("missing ts_recv".to_string()))?;
@@ -70,7 +51,11 @@ pub fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
     let dbn_side = msg.side()?;
     let side = match dbn_side {
         databento::dbn::Side::Ask => Side::Sell,
-        _ => Side::Buy,
+        databento::dbn::Side::Bid => Side::Buy,
+        databento::dbn::Side::None => {
+            log::debug!("Trade with no side specified, defaulting to Buy");
+            Side::Buy
+        }
     };
 
     Ok(Trade::new(
@@ -82,7 +67,7 @@ pub fn trade_msg_to_domain(msg: &TradeMsg) -> Result<Trade, DatabentoError> {
 }
 
 /// Converts a Databento [`Mbp10Msg`] to a domain [`Depth`] snapshot
-pub fn mbp10_to_domain(msg: &Mbp10Msg) -> Result<Depth, DatabentoError> {
+pub(crate) fn mbp10_to_domain(msg: &Mbp10Msg) -> Result<Depth, DatabentoError> {
     let ts = msg
         .ts_recv()
         .ok_or_else(|| DatabentoError::Config("missing ts_recv".to_string()))?;

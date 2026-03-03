@@ -1,9 +1,9 @@
 use super::Content;
+use super::context_menu::ContextMenuKind;
 use crate::components::display::toast::Toast;
 use crate::config::UserTimezone;
 use crate::modals::pane::Modal;
 use crate::screen::dashboard::pane::config::{LinkGroup, Settings};
-use super::context_menu::ContextMenuKind;
 use data::FuturesTickerInfo;
 use data::{ChartData, LoadingStatus, domain::assistant::ApiMessage};
 

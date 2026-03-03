@@ -251,14 +251,9 @@ pub(super) fn tooltip_size(lines: &[String]) -> (f32, f32) {
 
 /// Format a timestamp (ms) to a short date string in the
 /// user's timezone.
-pub(super) fn format_date(
-    ts_ms: u64,
-    tz: UserTimezone,
-) -> String {
+pub(super) fn format_date(ts_ms: u64, tz: UserTimezone) -> String {
     let millis = ts_ms as i64;
-    let Some(dt) =
-        chrono::DateTime::from_timestamp_millis(millis)
-    else {
+    let Some(dt) = chrono::DateTime::from_timestamp_millis(millis) else {
         return format!("{}", ts_ms);
     };
     match tz {
@@ -266,8 +261,6 @@ pub(super) fn format_date(
             .with_timezone(&chrono::Local)
             .format("%m/%d %H:%M")
             .to_string(),
-        UserTimezone::Utc => {
-            dt.format("%m/%d %H:%M").to_string()
-        }
+        UserTimezone::Utc => dt.format("%m/%d %H:%M").to_string(),
     }
 }

@@ -145,7 +145,7 @@ impl ComparisonChart {
             original_data.push((*ticker_info, points.clone()));
 
             let ser = Series {
-                ticker_info: ticker_info_to_old_format(*ticker_info),
+                ticker_info: *ticker_info,
                 name,
                 points,
                 color,
@@ -189,12 +189,10 @@ impl ComparisonChart {
                     None
                 }
                 LineComparisonEvent::SeriesCog(ticker_info) => {
-                    let futures_ticker_info = old_format_to_ticker_info(&ticker_info);
-                    self.open_editor_for_ticker(futures_ticker_info)
+                    self.open_editor_for_ticker(ticker_info)
                 }
                 LineComparisonEvent::SeriesRemove(ticker_info) => {
-                    let futures_ticker_info = old_format_to_ticker_info(&ticker_info);
-                    Some(Action::RemoveSeries(futures_ticker_info))
+                    Some(Action::RemoveSeries(ticker_info))
                 }
                 LineComparisonEvent::XAxisDoubleClick => {
                     self.zoom = Zoom(DEFAULT_ZOOM_POINTS);
@@ -277,7 +275,7 @@ impl ComparisonChart {
         self.original_data.push((*ticker_info, points.clone()));
 
         let new_series = Series {
-            ticker_info: ticker_info_to_old_format(*ticker_info),
+            ticker_info: *ticker_info,
             name,
             points,
             color,
@@ -386,8 +384,7 @@ impl ComparisonChart {
         let mut names = vec![];
 
         for s in &self.series {
-            let futures_info = old_format_to_ticker_info(&s.ticker_info);
-            let ticker_str = futures_info.ticker.as_str().to_string();
+            let ticker_str = s.ticker_info.ticker.as_str().to_string();
 
             colors.push((
                 ticker_str.clone(),
@@ -407,10 +404,7 @@ impl ComparisonChart {
 
     /// Get list of selected tickers
     pub fn selected_tickers(&self) -> Vec<FuturesTickerInfo> {
-        self.series
-            .iter()
-            .map(|s| old_format_to_ticker_info(&s.ticker_info))
-            .collect()
+        self.series.iter().map(|s| s.ticker_info).collect()
     }
 
     // ── Private methods ────────────────────────────────────────────────
@@ -434,8 +428,7 @@ impl ComparisonChart {
     fn rebuild_series_index(&mut self) {
         self.series_index.clear();
         for (i, s) in self.series.iter().enumerate() {
-            let futures_info = old_format_to_ticker_info(&s.ticker_info);
-            self.series_index.insert(futures_info, i);
+            self.series_index.insert(s.ticker_info, i);
         }
     }
 
@@ -523,15 +516,4 @@ fn default_color_for(ticker: &FuturesTickerInfo) -> iced::Color {
         s.min(1.0),
         v.min(1.0),
     ))
-}
-
-// ── Compatibility Layer (Temporary Bridge) ────────────────────────────
-// These are now identity functions since Series.ticker_info is FuturesTickerInfo.
-
-pub(crate) fn ticker_info_to_old_format(info: FuturesTickerInfo) -> FuturesTickerInfo {
-    info
-}
-
-pub(crate) fn old_format_to_ticker_info(info: &FuturesTickerInfo) -> FuturesTickerInfo {
-    *info
 }

@@ -4,31 +4,6 @@ use super::super::{Kairos, Message};
 use super::services;
 
 impl Kairos {
-    /// Seed the DataIndex from the persisted DownloadedTickersRegistry.
-    pub(crate) fn seed_data_index_from_registry(
-        registry: &data::DownloadedTickersRegistry,
-        data_index: &std::sync::Arc<std::sync::Mutex<data::DataIndex>>,
-    ) {
-        let mut idx = data::lock_or_recover(data_index);
-        for ticker_str in registry.list_tickers() {
-            if let Some(range) = registry.get_range_by_ticker_str(&ticker_str) {
-                let mut dates = std::collections::BTreeSet::new();
-                for d in range.dates() {
-                    dates.insert(d);
-                }
-                idx.add_contribution(
-                    data::DataKey {
-                        ticker: ticker_str,
-                        schema: "trades".to_string(),
-                    },
-                    Self::REGISTRY_SENTINEL_FEED,
-                    dates,
-                    false,
-                );
-            }
-        }
-    }
-
     /// Auto-connect feeds with `auto_connect` enabled and an API key
     /// present. Returns tasks for async operations.
     pub(crate) fn auto_connect_feeds(
@@ -36,7 +11,7 @@ impl Kairos {
         secrets: &crate::infra::secrets::SecretsManager,
     ) -> Vec<Task<Message>> {
         let mut scan_tasks: Vec<Task<Message>> = Vec::new();
-        let mut connection_manager = data::lock_or_recover(&state.connections.connection_manager);
+        let connection_manager = data::lock_or_recover(&state.connections.connection_manager);
 
         let auto_connect_ids: Vec<data::FeedId> = connection_manager
             .connections()
@@ -61,8 +36,11 @@ impl Kairos {
                     if !has_key {
                         continue;
                     }
-                    connection_manager.set_status(*fid, data::ConnectionStatus::Connected);
-                    log::info!("Auto-connected Databento connection {} on startup", fid);
+                    // Route through full connect_databento_feed flow
+                    // (handles DataIndex seeding, cache scan, rebuild)
+                    scan_tasks.push(iced::Task::done(Message::DataFeeds(
+                        crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(*fid),
+                    )));
                 }
                 data::ConnectionProvider::Rithmic => {
                     if secrets.has_feed_password(&fid.to_string()) {
@@ -109,13 +87,13 @@ impl Kairos {
                     crate::app::core::globals::set_data_event_receiver(rx);
                 }
 
-                // Store the wrapped engine
+                // Store the wrapped engine and server resolver
                 self.services.engine = Some(init.engine.clone());
+                self.services.server_resolver = init.server_resolver;
 
-                // Clone the event sender for direct use by streaming tasks
-                // (avoids locking the engine mutex at connect time)
-                let event_tx = init.engine.blocking_lock().event_sender();
-                self.services.event_tx = Some(event_tx);
+                // Store the event sender extracted at init time (no Mutex
+                // lock needed — it was captured before wrapping the engine).
+                self.services.event_tx = Some(init.event_tx);
 
                 // Wire up the trade provider for the backtest engine
                 self.modals.backtest.backtest_trade_provider = Some(std::sync::Arc::new(
@@ -158,6 +136,16 @@ impl Kairos {
             log::error!("No layouts available at startup");
             Task::none()
         };
+
+        // Migrate existing historical feeds to auto_connect
+        {
+            let mut cm = data::lock_or_recover(&self.connections.connection_manager);
+            for conn in cm.connections_mut() {
+                if conn.is_historical() && !conn.auto_connect {
+                    conn.auto_connect = true;
+                }
+            }
+        }
 
         // Auto-connect feeds
         let mut scan_tasks = Self::auto_connect_feeds(self, &self.secrets.clone());

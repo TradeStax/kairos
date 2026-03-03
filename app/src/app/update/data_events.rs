@@ -16,22 +16,18 @@ impl Kairos {
                     provider,
                     feed_id
                 );
-                // Update connection status in the ConnectionManager
-                self.connections.with_connection_manager(|cm| {
-                    cm.set_status(feed_id, data::ConnectionStatus::Connected);
-                });
+                // Update connection status and sync snapshots in a single lock scope
                 let cm_arc = self.connections.connection_manager.clone();
-                let cm = data::lock_or_recover(&cm_arc);
+                let mut cm = data::lock_or_recover(&cm_arc);
+                cm.set_status(feed_id, data::ConnectionStatus::Connected);
                 self.sync_feed_snapshots(&cm);
                 Task::none()
             }
             data::DataEvent::Disconnected { feed_id, reason } => {
                 log::info!("DataEngine: disconnected feed {} — {}", feed_id, reason);
-                self.connections.with_connection_manager(|cm| {
-                    cm.set_status(feed_id, data::ConnectionStatus::Disconnected);
-                });
                 let cm_arc = self.connections.connection_manager.clone();
-                let cm = data::lock_or_recover(&cm_arc);
+                let mut cm = data::lock_or_recover(&cm_arc);
+                cm.set_status(feed_id, data::ConnectionStatus::Disconnected);
                 self.sync_feed_snapshots(&cm);
                 Task::none()
             }
@@ -48,26 +44,19 @@ impl Kairos {
                     feed_id,
                     attempt
                 );
-                self.connections.with_connection_manager(|cm| {
-                    cm.set_status(
-                        feed_id,
-                        data::ConnectionStatus::Reconnecting { attempt },
-                    );
-                });
                 let cm_arc = self.connections.connection_manager.clone();
-                let cm = data::lock_or_recover(&cm_arc);
+                let mut cm = data::lock_or_recover(&cm_arc);
+                cm.set_status(feed_id, data::ConnectionStatus::Reconnecting { attempt });
                 self.sync_feed_snapshots(&cm);
                 Task::none()
             }
-            data::DataEvent::TradeReceived { .. } => self.handle_dashboard(
-                None,
-                crate::screen::dashboard::Message::LiveData(event),
-            ),
+            data::DataEvent::TradeReceived { .. } => {
+                self.handle_dashboard(None, crate::screen::dashboard::Message::LiveData(event))
+            }
             #[cfg(feature = "heatmap")]
-            data::DataEvent::DepthReceived { .. } => self.handle_dashboard(
-                None,
-                crate::screen::dashboard::Message::LiveData(event),
-            ),
+            data::DataEvent::DepthReceived { .. } => {
+                self.handle_dashboard(None, crate::screen::dashboard::Message::LiveData(event))
+            }
             data::DataEvent::SubscriptionActive { ticker } => {
                 log::debug!("DataEngine: subscription active for {}", ticker);
                 Task::none()
@@ -92,6 +81,7 @@ impl Kairos {
                 request_id: _,
                 current_day,
                 total_days,
+                sub_day_fraction,
             } => {
                 // Route download progress to the active download pane.
                 // The pane_id is not available here; progress is broadcast.
@@ -104,6 +94,7 @@ impl Kairos {
                         pane_id,
                         current: current_day,
                         total: total_days,
+                        sub_day_fraction,
                     },
                 ))
             }
@@ -114,6 +105,42 @@ impl Kairos {
                 // Trigger a DataIndex rebuild after download completes.
                 self.rebuild_ticker_data();
                 Task::none()
+            }
+            data::DataEvent::ChartLoadProgress {
+                pane_id,
+                days_loaded,
+                days_total,
+            } => {
+                // Push-based chart loading progress — replaces the old
+                // polled CHART_LOAD_PROGRESS HashMap.
+                let layout_id = self
+                    .persistence
+                    .layout_manager
+                    .active_layout_id()
+                    .map(|id| id.unique);
+
+                let Some(layout_id) = layout_id else {
+                    return Task::none();
+                };
+
+                let progress_fraction = if days_total > 0 {
+                    Some(days_loaded / days_total as f32)
+                } else {
+                    None
+                };
+                let status = data::LoadingStatus::LoadingFromCache {
+                    schema: data::DataSchema::Trades,
+                    days_total,
+                    days_loaded: days_loaded.floor() as usize,
+                    items_loaded: 0,
+                    progress_fraction,
+                };
+                Task::done(Message::Dashboard {
+                    layout_id: Some(layout_id),
+                    event: Box::new(crate::screen::dashboard::Message::ChangePaneStatus(
+                        pane_id, status,
+                    )),
+                })
             }
             data::DataEvent::DataIndexUpdated(index) => {
                 // Merge updated index into our shared DataIndex.

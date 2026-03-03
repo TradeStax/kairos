@@ -262,10 +262,7 @@ impl State {
             }
             Some(Modal::LevelDetail(modal)) => {
                 let content = modal.view().map(move |msg| {
-                    Message::PaneEvent(
-                        pane,
-                        Box::new(Event::LevelDetailInteraction(msg)),
-                    )
+                    Message::PaneEvent(pane, Box::new(Event::LevelDetailInteraction(msg)))
                 });
                 crate::modals::main_dialog_modal(
                     base,

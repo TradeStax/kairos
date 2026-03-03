@@ -305,8 +305,7 @@ impl BacktestLaunchModal {
         }
 
         // Connection picker
-        let conn_names: Vec<String> =
-            self.connections.iter().map(|c| c.to_string()).collect();
+        let conn_names: Vec<String> = self.connections.iter().map(|c| c.to_string()).collect();
         let selected_conn = self
             .selected_connection_idx
             .map(|idx| conn_names[idx].clone());
@@ -315,10 +314,7 @@ impl BacktestLaunchModal {
             conn_names.clone(),
             selected_conn,
             move |selected: String| {
-                let idx = conn_names
-                    .iter()
-                    .position(|n| n == &selected)
-                    .unwrap_or(0);
+                let idx = conn_names.iter().position(|n| n == &selected).unwrap_or(0);
                 Message::ConnectionSelected(idx)
             },
         )
@@ -336,18 +332,13 @@ impl BacktestLaunchModal {
         );
 
         // Instrument section — only if a connection is selected
-        let instrument_section: Element<'_, Message> = if self
-            .selected_connection_idx
-            .is_some()
-        {
+        let instrument_section: Element<'_, Message> = if self.selected_connection_idx.is_some() {
             if self.connection_tickers.is_empty() {
                 container(
                     text("No data available for this connection")
                         .size(tokens::text::BODY)
                         .style(|theme: &iced::Theme| text::Style {
-                            color: Some(
-                                theme.extended_palette().background.weak.text,
-                            ),
+                            color: Some(theme.extended_palette().background.weak.text),
                         }),
                 )
                 .padding(tokens::spacing::LG)
@@ -360,11 +351,8 @@ impl BacktestLaunchModal {
                         row![
                             text("Ticker")
                                 .size(tokens::text::BODY)
-                                .width(Length::Fixed(
-                                    tokens::component::form::LABEL_WIDTH,
-                                )),
-                            text(format!("{} ({})", sym, name))
-                                .size(tokens::text::BODY),
+                                .width(Length::Fixed(tokens::component::form::LABEL_WIDTH,)),
+                            text(format!("{} ({})", sym, name)).size(tokens::text::BODY),
                         ]
                         .spacing(tokens::spacing::MD)
                         .align_y(Alignment::Center),
@@ -377,35 +365,26 @@ impl BacktestLaunchModal {
                     .iter()
                     .map(|(sym, name)| format!("{} ({})", sym, name))
                     .collect();
-                let selected_display =
-                    self.selected_ticker.as_ref().and_then(|sel| {
-                        self.connection_tickers
-                            .iter()
-                            .find(|(sym, _)| sym == sel)
-                            .map(|(sym, name)| format!("{} ({})", sym, name))
-                    });
+                let selected_display = self.selected_ticker.as_ref().and_then(|sel| {
+                    self.connection_tickers
+                        .iter()
+                        .find(|(sym, _)| sym == sel)
+                        .map(|(sym, name)| format!("{} ({})", sym, name))
+                });
 
-                let ticker_dropdown = pick_list(
-                    display_names,
-                    selected_display,
-                    move |selected: String| {
-                        let sym = selected
-                            .split(' ')
-                            .next()
-                            .unwrap_or(&selected);
+                let ticker_dropdown =
+                    pick_list(display_names, selected_display, move |selected: String| {
+                        let sym = selected.split(' ').next().unwrap_or(&selected);
                         Message::TickerSelected(sym.to_string())
-                    },
-                )
-                .width(Length::Fill);
+                    })
+                    .width(Length::Fill);
 
                 FormSectionBuilder::new("Instrument")
                     .push(
                         row![
                             text("Ticker")
                                 .size(tokens::text::BODY)
-                                .width(Length::Fixed(
-                                    tokens::component::form::LABEL_WIDTH,
-                                )),
+                                .width(Length::Fixed(tokens::component::form::LABEL_WIDTH,)),
                             ticker_dropdown,
                         ]
                         .spacing(tokens::spacing::MD)
@@ -420,17 +399,14 @@ impl BacktestLaunchModal {
         // Date Range section
         let calendar_view = self.calendar.view(Message::Calendar);
 
-        let mut date_section =
-            FormSectionBuilder::new("Date Range").push(calendar_view);
+        let mut date_section = FormSectionBuilder::new("Date Range").push(calendar_view);
 
         if self.calendar_mode == CalendarMode::AnyDate {
             date_section = date_section.push(
                 text("Data will be downloaded automatically")
                     .size(tokens::text::TINY)
                     .style(|theme: &iced::Theme| text::Style {
-                        color: Some(
-                            theme.extended_palette().background.weak.text,
-                        ),
+                        color: Some(theme.extended_palette().background.weak.text),
                     }),
             );
         }
@@ -466,10 +442,8 @@ impl BacktestLaunchModal {
         )
         .width(Length::Fill);
 
-        let engine_section = FormSectionBuilder::new("Engine").push(form_row(
-            "Timeframe",
-            timeframe_dropdown,
-        ));
+        let engine_section =
+            FormSectionBuilder::new("Engine").push(form_row("Timeframe", timeframe_dropdown));
 
         // Capital section
         let capital_section = FormSectionBuilder::new("Capital")

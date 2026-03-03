@@ -79,7 +79,7 @@ impl std::error::Error for ConfigError {}
 ///
 /// Contains both account information (IDs) and connection details
 /// (URLs, credentials, environment).
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RithmicConnectionConfig {
     /// Rithmic account identifier
     pub account_id: String,
@@ -94,11 +94,30 @@ pub struct RithmicConnectionConfig {
     /// Login username
     pub user: String,
     /// Login password
+    ///
+    /// Ideally wrapped in `zeroize::Zeroizing<String>` to wipe from memory
+    /// on drop, preventing passwords from lingering in freed heap allocations.
     pub password: String,
     /// Rithmic system name (e.g. "Rithmic Paper Trading")
     pub system_name: String,
     /// Target environment
     pub env: RithmicEnv,
+}
+
+impl fmt::Debug for RithmicConnectionConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RithmicConnectionConfig")
+            .field("account_id", &self.account_id)
+            .field("fcm_id", &self.fcm_id)
+            .field("ib_id", &self.ib_id)
+            .field("url", &self.url)
+            .field("beta_url", &self.beta_url)
+            .field("user", &self.user)
+            .field("password", &"[REDACTED]")
+            .field("system_name", &self.system_name)
+            .field("env", &self.env)
+            .finish()
+    }
 }
 
 impl RithmicConnectionConfig {

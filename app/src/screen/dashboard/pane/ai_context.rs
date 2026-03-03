@@ -1,5 +1,5 @@
-use super::types::{AiContextBubble, AiContextSummary};
 use super::State;
+use super::types::{AiContextBubble, AiContextSummary};
 use crate::drawing::{DrawingId, DrawingTool};
 use iced::Point;
 
@@ -21,10 +21,7 @@ impl State {
     ///
     /// Extracts chart context from the drawing's time range and builds
     /// a summary for the floating input panel.
-    pub(in crate::screen::dashboard::pane) fn show_ai_context_bubble(
-        &mut self,
-        id: DrawingId,
-    ) {
+    pub(in crate::screen::dashboard::pane) fn show_ai_context_bubble(&mut self, id: DrawingId) {
         let chart = match self.content.drawing_chart() {
             Some(c) => c,
             None => return,
@@ -39,14 +36,9 @@ impl State {
 
         // Compute screen anchor (bottom-center of the drawing rectangle)
         let view_state = chart.view_state();
-        let bounds_size = iced::Size::new(
-            view_state.bounds.width,
-            view_state.bounds.height,
-        );
-        let screen_p1 =
-            drawing.points[0].as_screen_point(view_state, bounds_size);
-        let screen_p2 =
-            drawing.points[1].as_screen_point(view_state, bounds_size);
+        let bounds_size = iced::Size::new(view_state.bounds.width, view_state.bounds.height);
+        let screen_p1 = drawing.points[0].as_screen_point(view_state, bounds_size);
+        let screen_p2 = drawing.points[1].as_screen_point(view_state, bounds_size);
         let anchor_x = (screen_p1.x + screen_p2.x) / 2.0;
         let anchor_y = screen_p1.y.max(screen_p2.y);
 
@@ -119,9 +111,7 @@ impl State {
         let tz = self.timezone;
         let fmt_ts = |ms: u64| -> String {
             let millis = ms as i64;
-            let Some(dt) =
-                chrono::DateTime::from_timestamp_millis(millis)
-            else {
+            let Some(dt) = chrono::DateTime::from_timestamp_millis(millis) else {
                 return "?".into();
             };
             match tz {
@@ -129,9 +119,7 @@ impl State {
                     .with_timezone(&chrono::Local)
                     .format("%m/%d %H:%M")
                     .to_string(),
-                crate::config::UserTimezone::Utc => {
-                    dt.format("%m/%d %H:%M").to_string()
-                }
+                crate::config::UserTimezone::Utc => dt.format("%m/%d %H:%M").to_string(),
             }
         };
 
@@ -141,19 +129,14 @@ impl State {
             .iter()
             .take(max_lines)
             .map(|c| {
-                let ts = chrono::DateTime::from_timestamp_millis(
-                    c.time.0 as i64,
-                )
-                .map(|dt| match tz {
-                    crate::config::UserTimezone::Local => dt
-                        .with_timezone(&chrono::Local)
-                        .format("%H:%M")
-                        .to_string(),
-                    crate::config::UserTimezone::Utc => {
-                        dt.format("%H:%M").to_string()
-                    }
-                })
-                .unwrap_or_else(|| "?".into());
+                let ts = chrono::DateTime::from_timestamp_millis(c.time.0 as i64)
+                    .map(|dt| match tz {
+                        crate::config::UserTimezone::Local => {
+                            dt.with_timezone(&chrono::Local).format("%H:%M").to_string()
+                        }
+                        crate::config::UserTimezone::Utc => dt.format("%H:%M").to_string(),
+                    })
+                    .unwrap_or_else(|| "?".into());
                 let delta = c.buy_volume.0 as i64 - c.sell_volume.0 as i64;
                 let sign = if delta >= 0 { "+" } else { "" };
                 format!(

@@ -22,7 +22,6 @@ use std::path::PathBuf;
 use databento::dbn::Dataset;
 
 pub use fetcher::DatabentoAdapter;
-pub use mapper::convert_databento_price;
 pub use symbology::get_continuous_ticker_info;
 
 /// Databento dataset identifier for CME Globex

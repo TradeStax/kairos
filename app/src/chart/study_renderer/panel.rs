@@ -194,7 +194,7 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                 frame.fill_text(canvas::Text {
                     content: panel.name.to_string(),
                     position: Point::new(4.0, y_off + 2.0),
-                    size: iced::Pixels(10.0),
+                    size: iced::Pixels(style::tokens::text::TINY),
                     color: palette.background.base.text.scale_alpha(0.5),
                     font: AZERET_MONO,
                     ..canvas::Text::default()
@@ -322,15 +322,13 @@ pub fn panel_value_range(output: &StudyOutput) -> Option<(f32, f32)> {
                 .chain(middle.iter().flat_map(|m| m.points.iter()))
                 .map(|(_, v)| *v),
         ),
-        StudyOutput::StudyCandles(series) => {
-            coord::value_range(
-                series
-                    .iter()
-                    .flat_map(|s| s.points.iter())
-                    .flat_map(|p| [p.low, p.high]),
-            )
-            .map(|(lo, hi)| (lo.min(0.0), hi))
-        }
+        StudyOutput::StudyCandles(series) => coord::value_range(
+            series
+                .iter()
+                .flat_map(|s| s.points.iter())
+                .flat_map(|p| [p.low, p.high]),
+        )
+        .map(|(lo, hi)| (lo.min(0.0), hi)),
         StudyOutput::Composite(outputs) => {
             let mut min = f32::MAX;
             let mut max = f32::MIN;
@@ -482,16 +480,21 @@ fn render_line_with_range(
         color,
     );
 
-    let mut prev: Option<Point> = None;
-    for &(x_val, y_val) in &series.points {
-        let sx = interval_to_screen_x(state, x_val, canvas_width);
-        let sy = value_to_y(y_val, range.0, range.1, panel_height, y_offset);
-        let pt = Point::new(sx, sy);
-        if let Some(p) = prev {
-            frame.stroke(&Path::line(p, pt), stroke);
+    let path = Path::new(|builder| {
+        let mut started = false;
+        for &(x_val, y_val) in &series.points {
+            let sx = interval_to_screen_x(state, x_val, canvas_width);
+            let sy = value_to_y(y_val, range.0, range.1, panel_height, y_offset);
+            let pt = Point::new(sx, sy);
+            if started {
+                builder.line_to(pt);
+            } else {
+                builder.move_to(pt);
+                started = true;
+            }
         }
-        prev = Some(pt);
-    }
+    });
+    frame.stroke(&path, stroke);
 }
 
 // ── Bars ─────────────────────────────────────────────────────────────
@@ -725,7 +728,7 @@ impl canvas::Program<Message> for PanelAxisLabelsY<'_> {
 
         let palette = theme.extended_palette();
         let text_color = palette.background.base.text;
-        let text_size = 10.0;
+        let text_size = style::tokens::text::TINY;
 
         let geo = self.cache.draw(renderer, bounds.size(), |frame| {
             let num = self.panels.len();

@@ -1,6 +1,5 @@
 pub mod button_group;
 pub mod card;
-pub mod collapsible;
 pub mod decorate;
 pub mod dragger_row;
 pub mod interactive_card;

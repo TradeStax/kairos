@@ -29,6 +29,7 @@ impl State {
             days_total,
             days_loaded: 0,
             items_loaded: 0,
+            progress_fraction: None,
         };
 
         let basis = self
@@ -48,9 +49,7 @@ impl State {
     }
 
     /// Rebuild the current chart by re-requesting data load
-    pub(in crate::screen::dashboard::pane) fn rebuild_current_chart(
-        &mut self,
-    ) -> Option<Action> {
+    pub(in crate::screen::dashboard::pane) fn rebuild_current_chart(&mut self) -> Option<Action> {
         let ticker_info = self.ticker_info?;
         let kind = self.content.kind();
 
@@ -75,6 +74,7 @@ impl State {
             days_total,
             days_loaded: 0,
             items_loaded: 0,
+            progress_fraction: None,
         };
 
         let basis = self

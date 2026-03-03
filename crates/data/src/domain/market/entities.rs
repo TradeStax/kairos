@@ -382,6 +382,32 @@ mod tests {
     }
 
     #[test]
+    fn trade_from_raw_buy() {
+        let trade = Trade::from_raw(5000, 4523.75, 3.0, false);
+        assert!(trade.is_buy());
+        assert_eq!(trade.time.to_millis(), 5000);
+        assert!((trade.price.to_f64() - 4523.75).abs() < 0.01);
+        assert!((trade.quantity.0 - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn trade_from_raw_sell() {
+        let trade = Trade::from_raw(1000, 100.0, 10.0, true);
+        assert!(trade.is_sell());
+        assert!(!trade.is_buy());
+    }
+
+    #[test]
+    fn trade_is_on_date() {
+        // 2025-01-15 00:00:00 UTC = 1736899200000 ms
+        let trade = Trade::from_raw(1736899200000, 100.0, 1.0, false);
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        assert!(trade.is_on_date(date));
+        let other_date = NaiveDate::from_ymd_opt(2025, 1, 16).unwrap();
+        assert!(!trade.is_on_date(other_date));
+    }
+
+    #[test]
     fn test_candle_creation() {
         let candle = Candle::new(
             Timestamp::from_millis(1000),
@@ -397,6 +423,105 @@ mod tests {
         assert_eq!(candle.total_volume().value(), 180.0);
         assert_eq!(candle.volume_delta(), 20.0);
         assert!(candle.is_bullish());
+    }
+
+    #[test]
+    fn candle_new_high_below_open_returns_error() {
+        let result = Candle::new(
+            Timestamp::from_millis(1000),
+            Price::from_f32(105.0),
+            Price::from_f32(104.0), // high < open
+            Price::from_f32(99.0),
+            Price::from_f32(102.0),
+            Volume(10.0),
+            Volume(10.0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn candle_new_high_below_close_returns_error() {
+        let result = Candle::new(
+            Timestamp::from_millis(1000),
+            Price::from_f32(100.0),
+            Price::from_f32(101.0), // high < close
+            Price::from_f32(99.0),
+            Price::from_f32(102.0),
+            Volume(10.0),
+            Volume(10.0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn candle_new_low_above_open_returns_error() {
+        let result = Candle::new(
+            Timestamp::from_millis(1000),
+            Price::from_f32(100.0),
+            Price::from_f32(105.0),
+            Price::from_f32(101.0), // low > open
+            Price::from_f32(103.0),
+            Volume(10.0),
+            Volume(10.0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn candle_new_low_above_close_returns_error() {
+        let result = Candle::new(
+            Timestamp::from_millis(1000),
+            Price::from_f32(103.0),
+            Price::from_f32(105.0),
+            Price::from_f32(102.0), // low > close at 101
+            Price::from_f32(101.0),
+            Volume(10.0),
+            Volume(10.0),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn candle_bearish_and_body_size() {
+        let candle = Candle::new(
+            Timestamp::from_millis(1000),
+            Price::from_f32(105.0),
+            Price::from_f32(108.0),
+            Price::from_f32(99.0),
+            Price::from_f32(100.0),
+            Volume(20.0),
+            Volume(80.0),
+        )
+        .unwrap();
+
+        assert!(candle.is_bearish());
+        assert!(!candle.is_bullish());
+        assert_eq!(candle.body_size().to_f32(), 5.0);
+        assert_eq!(candle.range().to_f32(), 9.0);
+        assert!((candle.volume_delta() - (-60.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn candle_to_raw_tuple() {
+        let candle = Candle::new(
+            Timestamp::from_millis(5000),
+            Price::from_f32(100.0),
+            Price::from_f32(102.0),
+            Price::from_f32(99.0),
+            Price::from_f32(101.0),
+            Volume(30.0),
+            Volume(20.0),
+        )
+        .unwrap();
+
+        let (t, o, h, l, c, (bv, sv)) = candle.to_raw_tuple();
+        assert_eq!(t, 5000);
+        assert_eq!(o, 100.0);
+        assert_eq!(h, 102.0);
+        assert_eq!(l, 99.0);
+        assert_eq!(c, 101.0);
+        assert!((bv - 30.0).abs() < 0.01);
+        assert!((sv - 20.0).abs() < 0.01);
     }
 
     #[test]
@@ -426,5 +551,56 @@ mod tests {
 
         depth.update_bid(Price::from_f32(100.0), 0.0);
         assert!(depth.bids.is_empty());
+    }
+
+    #[test]
+    fn depth_empty_book_returns_none() {
+        let depth = Depth::new(0);
+        assert!(depth.best_bid().is_none());
+        assert!(depth.best_ask().is_none());
+        assert!(depth.mid_price().is_none());
+        assert!(depth.spread().is_none());
+        assert!(depth.top_bids(5).is_empty());
+        assert!(depth.top_asks(5).is_empty());
+    }
+
+    #[test]
+    fn depth_bid_only_no_mid_or_spread() {
+        let mut depth = Depth::new(0);
+        depth.update_bid(Price::from_f32(100.0), 10.0);
+        assert!(depth.best_bid().is_some());
+        assert!(depth.best_ask().is_none());
+        assert!(depth.mid_price().is_none());
+        assert!(depth.spread().is_none());
+    }
+
+    #[test]
+    fn depth_get_qty_at_missing_price_returns_zero() {
+        let depth = Depth::new(0);
+        assert_eq!(depth.get_bid_qty(Price::from_f32(100.0)), 0.0);
+        assert_eq!(depth.get_ask_qty(Price::from_f32(100.0)), 0.0);
+    }
+
+    #[test]
+    fn depth_top_asks_sorted_ascending() {
+        let mut depth = Depth::new(0);
+        depth.update_ask(Price::from_f32(105.0), 5.0);
+        depth.update_ask(Price::from_f32(101.0), 15.0);
+        depth.update_ask(Price::from_f32(103.0), 10.0);
+
+        let top = depth.top_asks(3);
+        assert_eq!(top.len(), 3);
+        assert_eq!(top[0].0.to_f32(), 101.0); // lowest ask first
+        assert_eq!(top[1].0.to_f32(), 103.0);
+        assert_eq!(top[2].0.to_f32(), 105.0);
+    }
+
+    #[test]
+    fn market_data_timestamp() {
+        let trade = MarketData::Trade(Trade::from_raw(5000, 100.0, 1.0, false));
+        assert_eq!(trade.timestamp().to_millis(), 5000);
+        assert!(trade.as_trade().is_some());
+        assert!(trade.as_candle().is_none());
+        assert!(trade.as_depth().is_none());
     }
 }

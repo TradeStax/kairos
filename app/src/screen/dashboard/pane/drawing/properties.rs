@@ -111,10 +111,7 @@ impl State {
     }
 
     /// Toggle lock state of a drawing
-    pub(in crate::screen::dashboard::pane) fn handle_drawing_toggle_lock(
-        &mut self,
-        id: DrawingId,
-    ) {
+    pub(in crate::screen::dashboard::pane) fn handle_drawing_toggle_lock(&mut self, id: DrawingId) {
         if let Some(chart) = self.content.drawing_chart_mut() {
             if let Some(d) = chart.drawings_mut().get_mut(id) {
                 d.locked = !d.locked;

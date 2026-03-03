@@ -78,7 +78,7 @@ impl EngineClock {
     pub fn elapsed_ms(&self) -> u64 {
         match (self.start, self.end) {
             (Some(s), Some(e)) => e.0.saturating_sub(s.0),
-            _ => 0,
+            (None, _) | (_, None) => 0,
         }
     }
 

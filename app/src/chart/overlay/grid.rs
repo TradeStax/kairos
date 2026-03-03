@@ -51,23 +51,19 @@ pub fn draw_price_grid(
     };
     let grid_stroke = Stroke::with_color(grid_stroke, grid_color);
 
-    let mut price = rounded_highest;
-    let mut iterations = 0;
+    let grid_path = Path::new(|builder| {
+        let mut price = rounded_highest;
+        let mut iterations = 0;
 
-    while price >= lowest && iterations < 200 {
-        let y = state.price_to_y(data::Price::from_f32(price));
-
-        frame.stroke(
-            &Path::line(
-                Point::new(region.x, y),
-                Point::new(region.x + region.width, y),
-            ),
-            grid_stroke,
-        );
-
-        price -= step;
-        iterations += 1;
-    }
+        while price >= lowest && iterations < 200 {
+            let y = state.price_to_y(data::Price::from_f32(price));
+            builder.move_to(Point::new(region.x, y));
+            builder.line_to(Point::new(region.x + region.width, y));
+            price -= step;
+            iterations += 1;
+        }
+    });
+    frame.stroke(&grid_path, grid_stroke);
 }
 
 /// Draw vertical time grid lines at X-axis intervals.
@@ -112,20 +108,18 @@ pub fn draw_time_grid(
 
             let start = (earliest / step_ms) * step_ms;
 
-            let mut t = start;
-            let mut iterations = 0;
-            while t <= latest && iterations < 200 {
-                let x = state.interval_to_x(t);
-                frame.stroke(
-                    &Path::line(
-                        Point::new(x, region.y),
-                        Point::new(x, region.y + region.height),
-                    ),
-                    grid_stroke,
-                );
-                t += step_ms;
-                iterations += 1;
-            }
+            let time_grid_path = Path::new(|builder| {
+                let mut t = start;
+                let mut iterations = 0;
+                while t <= latest && iterations < 200 {
+                    let x = state.interval_to_x(t);
+                    builder.move_to(Point::new(x, region.y));
+                    builder.line_to(Point::new(x, region.y + region.height));
+                    t += step_ms;
+                    iterations += 1;
+                }
+            });
+            frame.stroke(&time_grid_path, grid_stroke);
         }
         ChartBasis::Tick(_) => {
             // For tick-based charts, draw vertical lines at regular cell intervals
@@ -139,20 +133,18 @@ pub fn draw_time_grid(
 
             let start = (earliest_idx / step) * step;
 
-            let mut idx = start;
-            let mut iterations = 0;
-            while idx <= latest_idx && iterations < 200 {
-                let x = state.interval_to_x(idx);
-                frame.stroke(
-                    &Path::line(
-                        Point::new(x, region.y),
-                        Point::new(x, region.y + region.height),
-                    ),
-                    grid_stroke,
-                );
-                idx += step;
-                iterations += 1;
-            }
+            let tick_grid_path = Path::new(|builder| {
+                let mut idx = start;
+                let mut iterations = 0;
+                while idx <= latest_idx && iterations < 200 {
+                    let x = state.interval_to_x(idx);
+                    builder.move_to(Point::new(x, region.y));
+                    builder.line_to(Point::new(x, region.y + region.height));
+                    idx += step;
+                    iterations += 1;
+                }
+            });
+            frame.stroke(&tick_grid_path, grid_stroke);
         }
     }
 }
@@ -198,22 +190,20 @@ pub fn draw_date_separators(
     let sep_stroke = Stroke::with_color(sep_stroke, sep_color);
 
     // Find first midnight at or after earliest
-    let first_midnight = ((earliest + ONE_DAY_MS - 1) / ONE_DAY_MS) * ONE_DAY_MS;
+    let first_midnight = earliest.div_ceil(ONE_DAY_MS) * ONE_DAY_MS;
 
-    let mut t = first_midnight;
-    let mut iterations = 0;
-    while t <= latest && iterations < 100 {
-        let x = state.interval_to_x(t);
-        frame.stroke(
-            &Path::line(
-                Point::new(x, region.y),
-                Point::new(x, region.y + region.height),
-            ),
-            sep_stroke,
-        );
-        t += ONE_DAY_MS;
-        iterations += 1;
-    }
+    let sep_path = Path::new(|builder| {
+        let mut t = first_midnight;
+        let mut iterations = 0;
+        while t <= latest && iterations < 100 {
+            let x = state.interval_to_x(t);
+            builder.move_to(Point::new(x, region.y));
+            builder.line_to(Point::new(x, region.y + region.height));
+            t += ONE_DAY_MS;
+            iterations += 1;
+        }
+    });
+    frame.stroke(&sep_path, sep_stroke);
 }
 
 /// Calculate optimal tick step and starting value for grid lines.

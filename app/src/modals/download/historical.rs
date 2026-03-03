@@ -103,6 +103,7 @@ impl HistoricalDownloadModal {
                 self.download_progress = DownloadProgress::Downloading {
                     current_day: 0,
                     total_days: num_days as usize,
+                    sub_day_fraction: 0.0,
                 };
                 let ticker = DownloadConfig::ticker_from_idx(self.selected_ticker_idx);
                 let schema = DownloadConfig::schema_from_idx(self.selected_schema_idx);

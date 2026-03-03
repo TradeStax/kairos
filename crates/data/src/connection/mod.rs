@@ -7,6 +7,7 @@
 
 pub mod config;
 pub mod manager;
+pub mod server_resolver;
 pub mod types;
 
 pub use config::{
@@ -14,6 +15,7 @@ pub use config::{
     RithmicServer,
 };
 pub use manager::{ConnectionManager, ResolvedConnection};
+pub use server_resolver::ServerResolver;
 pub use types::{
     Connection, ConnectionCapability, ConnectionKind, ConnectionProvider, ConnectionStatus,
     HistoricalDatasetInfo,

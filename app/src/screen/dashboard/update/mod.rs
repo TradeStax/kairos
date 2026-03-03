@@ -3,9 +3,8 @@ pub(crate) mod feed_ops;
 
 use super::{Dashboard, Event, Message, pane};
 use crate::{
-    components::display::toast::Toast, config::UserTimezone,
-    modals::download::DownloadProgress, modals::pane::Modal,
-    window::Window,
+    components::display::toast::Toast, config::UserTimezone, modals::download::DownloadProgress,
+    modals::pane::Modal, window::Window,
 };
 use data::LoadingStatus;
 use iced::Task;
@@ -53,16 +52,8 @@ impl Dashboard {
                     }
                 }
                 pane::Message::SplitPane(axis, pane) => {
-                    let focus_pane = if let Some((new_pane, _)) =
-                        self.panes.split(axis, pane, pane::State::new())
-                    {
-                        Some(new_pane)
-                    } else {
-                        None
-                    };
-
-                    if Some(focus_pane).is_some() {
-                        self.focus = Some((window, focus_pane.unwrap()));
+                    if let Some((new_pane, _)) = self.panes.split(axis, pane, pane::State::new()) {
+                        self.focus = Some((window, new_pane));
                     }
                 }
                 pane::Message::ClosePane(pane) => {
@@ -83,7 +74,8 @@ impl Dashboard {
                 }
                 pane::Message::VisualConfigChanged(pane, cfg, to_sync) => {
                     if to_sync {
-                        if let Some(_state) = self.get_pane(main_window.id, window, pane) {
+                        #[allow(unused_variables)]
+                        if let Some(state) = self.get_pane(main_window.id, window, pane) {
                             // Extract studies from heatmap content if present
                             #[cfg(feature = "heatmap")]
                             let studies_cfg: Option<
@@ -355,12 +347,7 @@ impl Dashboard {
                 chart_data,
             } => {
                 return (
-                    self.handle_chart_data_loaded(
-                        main_window.id,
-                        pane_id,
-                        ticker_info,
-                        chart_data,
-                    ),
+                    self.handle_chart_data_loaded(main_window.id, pane_id, ticker_info, chart_data),
                     None,
                 );
             }
@@ -413,6 +400,7 @@ impl Dashboard {
                 pane_id,
                 current,
                 total,
+                sub_day_fraction,
             } => {
                 // Update progress in data management modal
                 if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id)
@@ -421,6 +409,7 @@ impl Dashboard {
                     panel.set_download_progress(DownloadProgress::Downloading {
                         current_day: current,
                         total_days: total,
+                        sub_day_fraction,
                     });
                 }
             }
@@ -574,7 +563,10 @@ impl Dashboard {
                                 if state.content.initialized() {
                                     state.content.append_trade(&trade);
                                 } else {
-                                    state.pending_live_trades.push(trade.clone());
+                                    // Clone needed: trade is borrowed for the
+                                    // loop body but multiple uninitialized panes
+                                    // may buffer the same trade independently.
+                                    state.pending_live_trades.push(trade);
                                 }
                             }
                         }
@@ -587,7 +579,9 @@ impl Dashboard {
                                     if state.content.initialized() {
                                         state.content.append_trade(&trade);
                                     } else {
-                                        state.pending_live_trades.push(trade.clone());
+                                        // Clone needed: same trade may be
+                                        // buffered by multiple panes.
+                                        state.pending_live_trades.push(trade);
                                     }
                                 }
                             }

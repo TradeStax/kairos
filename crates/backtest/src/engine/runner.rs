@@ -135,7 +135,12 @@ fn build_fill_simulator(config: &BacktestConfig) -> Box<dyn FillSimulator> {
         SlippageModel::DepthBased => {
             Box::new(DepthBasedFillSimulator::new(config.slippage.clone()))
         }
-        _ => Box::new(StandardFillSimulator::new(config.slippage.clone())),
+        SlippageModel::None
+        | SlippageModel::FixedTick(_)
+        | SlippageModel::Percentage(_)
+        | SlippageModel::VolumeImpact { .. } => {
+            Box::new(StandardFillSimulator::new(config.slippage.clone()))
+        }
     }
 }
 

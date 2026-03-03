@@ -9,6 +9,9 @@ use data::{Candle, Price, Trade};
 
 use super::VbpStudy;
 
+/// Milliseconds in one UTC calendar day.
+const MS_PER_DAY: u64 = 86_400_000;
+
 /// Time-series point: (timestamp_ms, value).
 pub(super) type TimeSeries = Vec<(u64, f32)>;
 
@@ -44,7 +47,7 @@ impl VbpStudy {
         }
 
         let segments = match split {
-            VbpSplitPeriod::Day => split_by_duration(candles, 86_400_000),
+            VbpSplitPeriod::Day => split_by_duration(candles, MS_PER_DAY),
             VbpSplitPeriod::Hours(h) => {
                 let ms = h as u64 * 3_600_000;
                 split_by_duration(candles, ms)

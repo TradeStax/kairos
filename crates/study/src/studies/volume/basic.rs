@@ -287,4 +287,135 @@ mod tests {
         study.reset();
         assert!(matches!(study.output(), StudyOutput::Empty));
     }
+
+    #[test]
+    fn single_candle_produces_one_bar() {
+        let mut study = VolumeStudy::new();
+        let candles = vec![make_candle(1000, 100.0, 105.0, 200.0)];
+
+        let input = StudyInput {
+            candles: &candles,
+            trades: None,
+            basis: ChartBasis::Time(Timeframe::M1),
+            tick_size: Price::from_f32(0.25),
+            visible_range: None,
+        };
+
+        study.compute(&input).unwrap();
+
+        match study.output() {
+            StudyOutput::Bars(series) => {
+                assert_eq!(series.len(), 1);
+                assert_eq!(series[0].points.len(), 1);
+                assert!((series[0].points[0].value - 200.0).abs() < 1.0);
+            }
+            _ => panic!("Expected Bars output"),
+        }
+    }
+
+    #[test]
+    fn zero_volume_candle_produces_zero_bar() {
+        let mut study = VolumeStudy::new();
+        let candles = vec![
+            Candle::new(
+                Timestamp::from_millis(1000),
+                Price::from_f32(100.0),
+                Price::from_f32(101.0),
+                Price::from_f32(99.0),
+                Price::from_f32(100.5),
+                Volume(0.0),
+                Volume(0.0),
+            )
+            .expect("valid candle"),
+        ];
+
+        let input = StudyInput {
+            candles: &candles,
+            trades: None,
+            basis: ChartBasis::Time(Timeframe::M1),
+            tick_size: Price::from_f32(0.25),
+            visible_range: None,
+        };
+
+        study.compute(&input).unwrap();
+
+        match study.output() {
+            StudyOutput::Bars(series) => {
+                assert_eq!(series[0].points.len(), 1);
+                assert!(series[0].points[0].value.abs() < 0.01);
+            }
+            _ => panic!("Expected Bars output"),
+        }
+    }
+
+    #[test]
+    fn flat_candle_uses_up_color() {
+        // close == open => bullish coloring (close >= open)
+        let mut study = VolumeStudy::new();
+        let candles = vec![
+            Candle::new(
+                Timestamp::from_millis(1000),
+                Price::from_f32(100.0),
+                Price::from_f32(101.0),
+                Price::from_f32(99.0),
+                Price::from_f32(100.0),
+                Volume(50.0),
+                Volume(50.0),
+            )
+            .expect("valid candle"),
+        ];
+
+        let input = StudyInput {
+            candles: &candles,
+            trades: None,
+            basis: ChartBasis::Time(Timeframe::M1),
+            tick_size: Price::from_f32(0.25),
+            visible_range: None,
+        };
+
+        study.compute(&input).unwrap();
+
+        match study.output() {
+            StudyOutput::Bars(series) => {
+                // close >= open, so should use up_color (green-ish)
+                assert!(series[0].points[0].color.g > series[0].points[0].color.r);
+            }
+            _ => panic!("Expected Bars output"),
+        }
+    }
+
+    #[test]
+    fn volume_is_sum_of_buy_and_sell() {
+        let mut study = VolumeStudy::new();
+        let candles = vec![
+            Candle::new(
+                Timestamp::from_millis(1000),
+                Price::from_f32(100.0),
+                Price::from_f32(103.0),
+                Price::from_f32(98.0),
+                Price::from_f32(102.0),
+                Volume(300.0),
+                Volume(200.0),
+            )
+            .expect("valid candle"),
+        ];
+
+        let input = StudyInput {
+            candles: &candles,
+            trades: None,
+            basis: ChartBasis::Time(Timeframe::M1),
+            tick_size: Price::from_f32(0.25),
+            visible_range: None,
+        };
+
+        study.compute(&input).unwrap();
+
+        match study.output() {
+            StudyOutput::Bars(series) => {
+                // Total volume = buy + sell = 300 + 200 = 500
+                assert!((series[0].points[0].value - 500.0).abs() < 1.0);
+            }
+            _ => panic!("Expected Bars output"),
+        }
+    }
 }

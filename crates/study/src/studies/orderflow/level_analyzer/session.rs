@@ -10,19 +10,14 @@ use data::{Candle, Trade};
 use serde::{Deserialize, Serialize};
 
 /// Session type: Regular or Extended trading hours.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SessionType {
     Rth,
     Eth,
 }
 
 impl std::fmt::Display for SessionType {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Rth => write!(f, "RTH"),
             Self::Eth => write!(f, "ETH"),
@@ -31,15 +26,7 @@ impl std::fmt::Display for SessionType {
 }
 
 /// Uniquely identifies a trading session.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionKey {
     /// Trade date in "YYYY-MM-DD" format.
     pub trade_date: String,
@@ -92,28 +79,23 @@ impl SessionKey {
 
 impl Ord for SessionKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.trade_date
-            .cmp(&other.trade_date)
-            .then_with(|| {
-                // ETH comes before RTH within the same date
-                let a = match self.session_type {
-                    SessionType::Eth => 0,
-                    SessionType::Rth => 1,
-                };
-                let b = match other.session_type {
-                    SessionType::Eth => 0,
-                    SessionType::Rth => 1,
-                };
-                a.cmp(&b)
-            })
+        self.trade_date.cmp(&other.trade_date).then_with(|| {
+            // ETH comes before RTH within the same date
+            let a = match self.session_type {
+                SessionType::Eth => 0,
+                SessionType::Rth => 1,
+            };
+            let b = match other.session_type {
+                SessionType::Eth => 0,
+                SessionType::Rth => 1,
+            };
+            a.cmp(&b)
+        })
     }
 }
 
 impl PartialOrd for SessionKey {
-    fn partial_cmp(
-        &self,
-        other: &Self,
-    ) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -171,8 +153,7 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     let z = days + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u32;
-    let yoe =
-        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe as i64 + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
@@ -196,7 +177,7 @@ pub fn assign_session(ts_ms: u64) -> Option<SessionKey> {
     let (hour, minute, date, next_date) = decompose_ts(ts_ms);
     let hm = hour * 60 + minute;
 
-    if hm >= RTH_OPEN_MIN && hm < RTH_CLOSE_MIN {
+    if (RTH_OPEN_MIN..RTH_CLOSE_MIN).contains(&hm) {
         // RTH: 14:30 – 21:00 UTC
         Some(SessionKey {
             trade_date: date,
@@ -225,7 +206,7 @@ pub fn assign_session(ts_ms: u64) -> Option<SessionKey> {
 pub fn is_rth(ts_ms: u64) -> bool {
     let (hour, minute, _, _) = decompose_ts(ts_ms);
     let hm = hour * 60 + minute;
-    hm >= RTH_OPEN_MIN && hm < RTH_CLOSE_MIN
+    (RTH_OPEN_MIN..RTH_CLOSE_MIN).contains(&hm)
 }
 
 /// Extract sessions from candles, grouping into RTH and ETH.
@@ -234,18 +215,13 @@ pub fn is_rth(ts_ms: u64) -> bool {
 /// the same date). The last session is the current (potentially
 /// incomplete) one. `is_complete` is set based on whether a later
 /// session exists in the data.
-pub fn extract_sessions(
-    candles: &[Candle],
-    opening_range_minutes: u32,
-) -> Vec<SessionInfo> {
+pub fn extract_sessions(candles: &[Candle], opening_range_minutes: u32) -> Vec<SessionInfo> {
     if candles.is_empty() {
         return Vec::new();
     }
 
-    let or_duration_ms =
-        u64::from(opening_range_minutes) * 60 * 1000;
-    let mut session_map: BTreeMap<SessionKey, SessionInfo> =
-        BTreeMap::new();
+    let or_duration_ms = u64::from(opening_range_minutes) * 60 * 1000;
+    let mut session_map: BTreeMap<SessionKey, SessionInfo> = BTreeMap::new();
 
     for (idx, c) in candles.iter().enumerate() {
         let ts = c.time.0;
@@ -271,9 +247,7 @@ pub fn extract_sessions(
                 session.candle_range.1 = idx;
 
                 // Opening range (RTH only)
-                if key.session_type == SessionType::Rth
-                    && ts < session.open_time + or_duration_ms
-                {
+                if key.session_type == SessionType::Rth && ts < session.open_time + or_duration_ms {
                     match session.or_high_units {
                         Some(orh) if h > orh => {
                             session.or_high_units = Some(h);
@@ -291,16 +265,12 @@ pub fn extract_sessions(
                 }
             }
             None => {
-                let or_high = if key.session_type
-                    == SessionType::Rth
-                {
+                let or_high = if key.session_type == SessionType::Rth {
                     Some(h)
                 } else {
                     None
                 };
-                let or_low = if key.session_type
-                    == SessionType::Rth
-                {
+                let or_low = if key.session_type == SessionType::Rth {
                     Some(l)
                 } else {
                     None
@@ -327,8 +297,7 @@ pub fn extract_sessions(
     }
 
     // Convert to sorted Vec and mark completion
-    let mut sessions: Vec<SessionInfo> =
-        session_map.into_values().collect();
+    let mut sessions: Vec<SessionInfo> = session_map.into_values().collect();
 
     // Mark all sessions except the last as complete
     let len = sessions.len();
@@ -355,33 +324,23 @@ pub fn trade_ranges_for_sessions(
     sessions
         .iter()
         .map(|session| {
-            let start = trades
-                .partition_point(|t| t.time.0 < session.open_time);
+            let start = trades.partition_point(|t| t.time.0 < session.open_time);
             // Add 1ms buffer after close_time to include the
             // closing candle's trades
-            let end = trades.partition_point(|t| {
-                t.time.0 <= session.close_time + 60_000
-            });
+            let end = trades.partition_point(|t| t.time.0 <= session.close_time + 60_000);
             (start, end)
         })
         .collect()
 }
 
 /// Filter sessions by type preference.
-pub fn filter_sessions_by_type(
-    sessions: &[SessionInfo],
-    session_types: &str,
-) -> Vec<usize> {
+pub fn filter_sessions_by_type(sessions: &[SessionInfo], session_types: &str) -> Vec<usize> {
     sessions
         .iter()
         .enumerate()
         .filter(|(_, s)| match session_types {
-            "RTH Only" => {
-                s.key.session_type == SessionType::Rth
-            }
-            "ETH Only" => {
-                s.key.session_type == SessionType::Eth
-            }
+            "RTH Only" => s.key.session_type == SessionType::Rth,
+            "ETH Only" => s.key.session_type == SessionType::Eth,
             _ => true, // "RTH + ETH"
         })
         .map(|(i, _)| i)
@@ -475,13 +434,7 @@ mod tests {
         assert!(extract_sessions(&[], 30).is_empty());
     }
 
-    fn make_candle(
-        time: u64,
-        o: f64,
-        h: f64,
-        l: f64,
-        c: f64,
-    ) -> Candle {
+    fn make_candle(time: u64, o: f64, h: f64, l: f64, c: f64) -> Candle {
         Candle {
             time: Timestamp(time),
             open: Price::from_f64(o),
@@ -507,14 +460,8 @@ mod tests {
 
         let sessions = extract_sessions(&candles, 30);
         assert_eq!(sessions.len(), 2);
-        assert_eq!(
-            sessions[0].key.session_type,
-            SessionType::Eth,
-        );
-        assert_eq!(
-            sessions[1].key.session_type,
-            SessionType::Rth,
-        );
+        assert_eq!(sessions[0].key.session_type, SessionType::Eth,);
+        assert_eq!(sessions[1].key.session_type, SessionType::Rth,);
         // First session is complete (second exists)
         assert!(sessions[0].is_complete);
         // Last session is not complete

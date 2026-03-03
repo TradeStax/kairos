@@ -20,11 +20,12 @@ pub struct CachedEntry {
 
 /// What should be deleted when the user confirms.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum DeleteTarget {
     All,
     Selected,
+    #[allow(dead_code)]
     Symbol(String),
+    #[allow(dead_code)]
     SchemaGroup(String, String),
 }
 
@@ -50,13 +51,14 @@ impl DeleteTarget {
 // ── Messages ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum CacheManagementMessage {
     CacheScanned(Result<Vec<CachedEntry>, String>),
     ToggleSymbolExpanded(String),
     ToggleSchemaExpanded(String, String),
     ToggleEntrySelected(usize),
+    #[allow(dead_code)]
     SelectAllInSymbol(String),
+    #[allow(dead_code)]
     SelectAllInSchema(String, String),
     DeselectAll,
     SearchChanged(String),
@@ -307,15 +309,10 @@ pub async fn scan_databento_cache() -> Result<Vec<CachedEntry>, String> {
         for provider in [CacheProvider::Databento, CacheProvider::Rithmic] {
             let symbols = store.list_symbols(provider).await;
             for symbol in symbols {
-                for schema in
-                    [CacheSchema::Trades, CacheSchema::Depth, CacheSchema::Ohlcv]
-                {
-                    let dates =
-                        store.list_dates(provider, &symbol, schema).await;
+                for schema in [CacheSchema::Trades, CacheSchema::Depth, CacheSchema::Ohlcv] {
+                    let dates = store.list_dates(provider, &symbol, schema).await;
                     for date in dates {
-                        let path = store.day_file_path(
-                            provider, &symbol, schema, date,
-                        );
+                        let path = store.day_file_path(provider, &symbol, schema, date);
                         // Deduplicate across cache roots
                         if !seen_paths.insert(path.clone()) {
                             continue;
@@ -386,9 +383,7 @@ pub async fn clear_all_cache() -> Result<usize, String> {
                 .map_err(|e| format!("Failed to clear cache at {:?}: {}", root, e))?;
             tokio::fs::create_dir_all(&root)
                 .await
-                .map_err(|e| {
-                    format!("Failed to recreate cache dir {:?}: {}", root, e)
-                })?;
+                .map_err(|e| format!("Failed to recreate cache dir {:?}: {}", root, e))?;
         }
     }
 

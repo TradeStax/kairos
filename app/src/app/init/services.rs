@@ -19,6 +19,10 @@ pub(crate) struct DataEngineInit {
     pub(crate) event_rx: std::sync::Arc<
         std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<data::DataEvent>>>,
     >,
+    /// Event sender extracted from the engine *before* it is wrapped in a
+    /// Mutex, so the sync Iced event loop never needs to lock the engine.
+    pub(crate) event_tx: tokio::sync::mpsc::UnboundedSender<data::DataEvent>,
+    pub(crate) server_resolver: Option<std::sync::Arc<data::ServerResolver>>,
 }
 
 impl std::fmt::Debug for DataEngineInit {
@@ -36,6 +40,20 @@ pub(crate) async fn initialize_data_engine(
     databento_key: Option<String>,
 ) -> Result<DataEngineInit, String> {
     let cache_root = crate::infra::platform::data_path(Some("cache"));
+
+    // Resolve Rithmic server URLs (non-fatal — Databento-only users unaffected)
+    let data_dir = crate::infra::platform::data_path(None);
+    let server_resolver = match data::ServerResolver::initialize(data_dir).await {
+        Ok(resolver) => {
+            log::info!("Rithmic server resolver initialized");
+            Some(std::sync::Arc::new(resolver))
+        }
+        Err(e) => {
+            log::warn!("Server resolver init (non-fatal): {}", e);
+            None
+        }
+    };
+
     match data::engine::DataEngine::new(cache_root).await {
         Ok((mut engine, event_rx)) => {
             log::info!("DataEngine initialized successfully");
@@ -44,16 +62,19 @@ pub(crate) async fn initialize_data_engine(
             if let Some(key) = databento_key {
                 let config = data::DatabentoConfig::with_api_key(key);
                 if let Err(e) = engine.connect_databento(config).await {
-                    log::warn!(
-                        "Databento adapter init failed (non-fatal): {}",
-                        e
-                    );
+                    log::warn!("Databento adapter init failed (non-fatal): {}", e);
                 }
             }
+
+            // Extract the event sender BEFORE wrapping in Mutex so the
+            // sync Iced event loop never needs blocking_lock().
+            let event_tx = engine.event_sender();
 
             Ok(DataEngineInit {
                 engine: std::sync::Arc::new(tokio::sync::Mutex::new(engine)),
                 event_rx: std::sync::Arc::new(std::sync::Mutex::new(Some(event_rx))),
+                event_tx,
+                server_resolver,
             })
         }
         Err(e) => {

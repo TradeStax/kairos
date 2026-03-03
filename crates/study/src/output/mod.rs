@@ -14,24 +14,18 @@ pub mod profile;
 mod series;
 
 pub use footprint::{
-    BackgroundColorMode, CandleRenderConfig, FootprintCandle,
-    FootprintCandlePosition, FootprintData, FootprintDataType,
-    FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
+    BackgroundColorMode, CandleRenderConfig, FootprintCandle, FootprintCandlePosition,
+    FootprintData, FootprintDataType, FootprintGroupingMode, FootprintLevel, FootprintRenderMode,
     FootprintScaling, OutsideBarStyle, TextFormat,
 };
-pub use markers::{
-    MarkerData, MarkerRenderConfig, MarkerShape, TradeMarker,
-    TradeMarkerDebug,
-};
+pub use markers::{MarkerData, MarkerRenderConfig, MarkerShape, TradeMarker, TradeMarkerDebug};
 pub use profile::{
-    ExtendDirection, NodeDetectionMethod, ProfileLevel, ProfileOutput,
-    ProfileRenderConfig, ProfileSide, VbpGroupingMode, VbpNodeConfig,
-    VbpPeriod, VbpPocConfig, VbpResolvedCache, VbpSplitPeriod, VbpType,
-    VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
+    ExtendDirection, NodeDetectionMethod, ProfileLevel, ProfileOutput, ProfileRenderConfig,
+    ProfileSide, VbpGroupingMode, VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpResolvedCache,
+    VbpSplitPeriod, VbpType, VbpValueAreaConfig, VbpVwapConfig, VolumeNode,
 };
 pub use series::{
-    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel,
-    StudyCandlePoint, StudyCandleSeries,
+    BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel, StudyCandlePoint, StudyCandleSeries,
 };
 
 /// Top-level enum of all study output variants.

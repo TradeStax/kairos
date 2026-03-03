@@ -8,8 +8,7 @@
 use data::{Side, Trade};
 
 use super::types::{
-    ActiveTouch, BlockEvent, LevelStatus, MonitoredLevel,
-    PendingBlock, TouchEvent,
+    ActiveTouch, BlockEvent, LevelStatus, MonitoredLevel, PendingBlock, TouchEvent,
 };
 
 /// Process new trades against all monitored levels.
@@ -29,23 +28,17 @@ pub fn process_trades(
         return;
     }
 
-    let break_distance =
-        (tolerance_units as f64 * break_threshold) as i64;
+    let break_distance = (tolerance_units as f64 * break_threshold) as i64;
 
     for trade in trades {
         let trade_units = trade.price.units();
         let trade_time = trade.time.0;
-        let trade_volume = trade.quantity.0 as f64;
+        let trade_volume = trade.quantity.0;
         let is_buy = matches!(trade.side, Side::Buy | Side::Ask);
-        let signed_delta = if is_buy {
-            trade_volume
-        } else {
-            -trade_volume
-        };
+        let signed_delta = if is_buy { trade_volume } else { -trade_volume };
 
         for level in levels.iter_mut() {
-            let distance =
-                (trade_units - level.price_units).abs();
+            let distance = (trade_units - level.price_units).abs();
             let within_tolerance = distance <= tolerance_units;
             let beyond_break = distance > break_distance;
 
@@ -68,16 +61,14 @@ pub fn process_trades(
                 // Trade moved away beyond break distance
                 (LevelStatus::BeingTested, false, true) => {
                     // Check if this is a break
-                    let excursion_ticks =
-                        trade_units - level.price_units;
+                    let excursion_ticks = trade_units - level.price_units;
                     finalize_touch(level, trade_time, false, block_min_qty);
                     level.break_count += 1;
                     level.status = LevelStatus::Broken;
 
                     // Record excursion on the last touch
                     if let Some(last) = level.touches.last_mut() {
-                        last.max_excursion_ticks =
-                            excursion_ticks as i32;
+                        last.max_excursion_ticks = excursion_ticks as i32;
                     }
                 }
 
@@ -106,9 +97,7 @@ fn handle_touch(
     block_min_qty: f64,
 ) {
     let excursion =
-        ((trade_units - level.price_units).abs() as f64
-            / tolerance_units as f64
-            * 100.0) as i32;
+        ((trade_units - level.price_units).abs() as f64 / tolerance_units as f64 * 100.0) as i32;
 
     match &mut level.active_touch {
         Some(touch) => {
@@ -128,14 +117,7 @@ fn handle_touch(
             }
 
             // Block aggregation
-            accumulate_block(
-                touch,
-                time,
-                volume,
-                is_buy,
-                block_window_ms,
-                block_min_qty,
-            );
+            accumulate_block(touch, time, volume, is_buy, block_window_ms, block_min_qty);
         }
         None => {
             // Start new touch
@@ -144,11 +126,7 @@ fn handle_touch(
             }
             level.touch_count += 1;
 
-            let (buy_vol, sell_vol) = if is_buy {
-                (volume, 0.0)
-            } else {
-                (0.0, volume)
-            };
+            let (buy_vol, sell_vol) = if is_buy { (volume, 0.0) } else { (0.0, volume) };
 
             level.active_touch = Some(ActiveTouch {
                 start_time: time,
@@ -184,11 +162,7 @@ fn accumulate_block(
     min_qty: f64,
 ) {
     match &mut touch.pending_block {
-        Some(pb)
-            if pb.is_buy == is_buy
-                && time.saturating_sub(pb.last_fill_time)
-                    <= window_ms =>
-        {
+        Some(pb) if pb.is_buy == is_buy && time.saturating_sub(pb.last_fill_time) <= window_ms => {
             // Same side, within window — merge
             pb.quantity += volume;
             pb.last_fill_time = time;
@@ -211,25 +185,20 @@ fn accumulate_block(
 
 /// Flush pending block into blocks vec if it meets min quantity.
 fn flush_pending_block(touch: &mut ActiveTouch, min_qty: f64) {
-    if let Some(pb) = touch.pending_block.take() {
-        if pb.quantity >= min_qty {
-            touch.blocks.push(BlockEvent {
-                time: pb.start_time,
-                quantity: pb.quantity,
-                is_buy: pb.is_buy,
-                fill_count: pb.fill_count,
-            });
-        }
+    if let Some(pb) = touch.pending_block.take()
+        && pb.quantity >= min_qty
+    {
+        touch.blocks.push(BlockEvent {
+            time: pb.start_time,
+            quantity: pb.quantity,
+            is_buy: pb.is_buy,
+            fill_count: pb.fill_count,
+        });
     }
 }
 
 /// Finalize an active touch and record it as a TouchEvent.
-fn finalize_touch(
-    level: &mut MonitoredLevel,
-    end_time: u64,
-    held: bool,
-    block_min_qty: f64,
-) {
+fn finalize_touch(level: &mut MonitoredLevel, end_time: u64, held: bool, block_min_qty: f64) {
     if let Some(mut active) = level.active_touch.take() {
         let duration = end_time.saturating_sub(active.start_time);
         let rejection_velocity = if duration > 0 {
@@ -244,21 +213,13 @@ fn finalize_touch(
         let block_count = active.blocks.len() as u32;
 
         // Compute touch quality score (0.0–1.0)
-        let rejection_speed =
-            (rejection_velocity / 500.0).clamp(0.0, 1.0);
-        let delta_quality = active.delta.abs()
-            / (active.volume + 1e-9);
-        let block_quality =
-            (block_count.min(3) as f64) / 3.0;
-        let excursion_inv =
-            1.0 - (active.max_excursion_ticks as f64 / 100.0)
-                .clamp(0.0, 1.0);
+        let rejection_speed = (rejection_velocity / 500.0).clamp(0.0, 1.0);
+        let delta_quality = active.delta.abs() / (active.volume + 1e-9);
+        let block_quality = (block_count.min(3) as f64) / 3.0;
+        let excursion_inv = 1.0 - (active.max_excursion_ticks as f64 / 100.0).clamp(0.0, 1.0);
 
-        let quality = ((rejection_speed
-            + delta_quality
-            + block_quality
-            + excursion_inv)
-            / 4.0) as f32;
+        let quality =
+            ((rejection_speed + delta_quality + block_quality + excursion_inv) / 4.0) as f32;
 
         // Update absorption on level flow
         if held {
@@ -266,16 +227,13 @@ fn finalize_touch(
 
             let defending = active.buy_volume.max(active.sell_volume);
             let attacking = active.buy_volume.min(active.sell_volume);
-            let touch_absorption =
-                defending / (attacking + 1e-9);
+            let touch_absorption = defending / (attacking + 1e-9);
 
             let flow = &mut level.flow;
             if flow.absorption_ratio == 0.0 {
                 flow.absorption_ratio = touch_absorption;
             } else {
-                flow.absorption_ratio = 0.7
-                    * flow.absorption_ratio
-                    + 0.3 * touch_absorption;
+                flow.absorption_ratio = 0.7 * flow.absorption_ratio + 0.3 * touch_absorption;
             }
         }
 
@@ -334,22 +292,17 @@ fn evaluate_status(level: &mut MonitoredLevel) {
     // Signal 2: Recent touch quality trend (last 3 touches)
     let quality_signal = if level.touches.len() >= 3 {
         let n = level.touches.len();
-        let sum: f32 = level.touches[n - 3..]
-            .iter()
-            .map(|t| t.quality_score)
-            .sum();
+        let sum: f32 = level.touches[n - 3..].iter().map(|t| t.quality_score).sum();
         (sum / 3.0) as f64
     } else {
         0.5
     };
 
     // Signal 3: Absorption strength
-    let absorption_signal =
-        (level.flow.absorption_ratio / 2.0).clamp(0.0, 1.0);
+    let absorption_signal = (level.flow.absorption_ratio / 2.0).clamp(0.0, 1.0);
 
     // Signal 4: Block trade presence on defending side
-    let total_block = level.flow.block_buy_volume
-        + level.flow.block_sell_volume;
+    let total_block = level.flow.block_buy_volume + level.flow.block_sell_volume;
     let defending_block_ratio = if total_block > 0.0 {
         level
             .flow
@@ -362,10 +315,8 @@ fn evaluate_status(level: &mut MonitoredLevel) {
     let block_signal = defending_block_ratio.clamp(0.0, 1.0);
 
     // Weighted composite
-    let composite = 0.35 * hold_signal
-        + 0.25 * quality_signal
-        + 0.25 * absorption_signal
-        + 0.15 * block_signal;
+    let composite =
+        0.35 * hold_signal + 0.25 * quality_signal + 0.25 * absorption_signal + 0.15 * block_signal;
 
     level.strength = composite as f32;
 
@@ -383,8 +334,7 @@ pub fn compute_atr(candles: &[data::Candle], period: usize) -> Option<f64> {
         return None;
     }
 
-    let mut true_ranges: Vec<f64> =
-        Vec::with_capacity(candles.len() - 1);
+    let mut true_ranges: Vec<f64> = Vec::with_capacity(candles.len() - 1);
 
     for i in 1..candles.len() {
         let h = candles[i].high.to_f64();
@@ -395,14 +345,11 @@ pub fn compute_atr(candles: &[data::Candle], period: usize) -> Option<f64> {
     }
 
     if true_ranges.len() < period {
-        return Some(
-            true_ranges.iter().sum::<f64>() / true_ranges.len() as f64,
-        );
+        return Some(true_ranges.iter().sum::<f64>() / true_ranges.len() as f64);
     }
 
     // Initial SMA
-    let mut atr: f64 =
-        true_ranges[..period].iter().sum::<f64>() / period as f64;
+    let mut atr: f64 = true_ranges[..period].iter().sum::<f64>() / period as f64;
 
     // Wilder smoothing
     for tr in &true_ranges[period..] {
@@ -421,8 +368,8 @@ mod tests {
     const BLOCK_MIN: f64 = 25.0;
 
     fn make_level(price_units: i64) -> MonitoredLevel {
-        use super::super::types::LevelSource;
         use super::super::session::{SessionKey, SessionType};
+        use super::super::types::LevelSource;
         MonitoredLevel::new(
             1,
             price_units,
@@ -436,12 +383,7 @@ mod tests {
         )
     }
 
-    fn make_trade(
-        time: u64,
-        price_units: i64,
-        qty: u32,
-        side: Side,
-    ) -> Trade {
+    fn make_trade(time: u64, price_units: i64, qty: u32, side: Side) -> Trade {
         Trade::new(
             Timestamp(time),
             Price::from_units(price_units),
@@ -450,19 +392,8 @@ mod tests {
         )
     }
 
-    fn pt(
-        levels: &mut [MonitoredLevel],
-        trades: &[Trade],
-        tolerance: i64,
-    ) {
-        process_trades(
-            levels,
-            trades,
-            tolerance,
-            1.5,
-            BLOCK_WINDOW,
-            BLOCK_MIN,
-        );
+    fn pt(levels: &mut [MonitoredLevel], trades: &[Trade], tolerance: i64) {
+        process_trades(levels, trades, tolerance, 1.5, BLOCK_WINDOW, BLOCK_MIN);
     }
 
     #[test]
@@ -472,12 +403,7 @@ mod tests {
         let level_price = 100_000_000i64;
 
         let mut levels = vec![make_level(level_price)];
-        let trades = vec![make_trade(
-            1000,
-            level_price,
-            10,
-            Side::Buy,
-        )];
+        let trades = vec![make_trade(1000, level_price, 10, Side::Buy)];
 
         pt(&mut levels, &trades, tolerance);
         assert_eq!(levels[0].status, LevelStatus::BeingTested);
@@ -492,20 +418,10 @@ mod tests {
 
         let mut levels = vec![make_level(level_price)];
 
-        let touch = vec![make_trade(
-            1000,
-            level_price,
-            10,
-            Side::Buy,
-        )];
+        let touch = vec![make_trade(1000, level_price, 10, Side::Buy)];
         pt(&mut levels, &touch, tolerance);
 
-        let away = vec![make_trade(
-            2000,
-            level_price + tolerance + 1,
-            10,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, level_price + tolerance + 1, 10, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         assert_eq!(levels[0].status, LevelStatus::Holding);
@@ -521,12 +437,7 @@ mod tests {
 
         let mut levels = vec![make_level(level_price)];
 
-        let touch = vec![make_trade(
-            1000,
-            level_price,
-            10,
-            Side::Buy,
-        )];
+        let touch = vec![make_trade(1000, level_price, 10, Side::Buy)];
         pt(&mut levels, &touch, tolerance);
 
         let far = vec![make_trade(
@@ -556,12 +467,7 @@ mod tests {
         pt(&mut levels, &trades, tolerance);
 
         // Move away to finalize
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         let touch = &levels[0].touches[0];
@@ -590,12 +496,7 @@ mod tests {
         pt(&mut levels, &trades, tolerance);
 
         // Move away to finalize (flushes pending block)
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         let touch = &levels[0].touches[0];
@@ -616,17 +517,12 @@ mod tests {
         // Buy block then sell — side change flushes
         let trades = vec![
             make_trade(1000, lp, 15, Side::Buy),
-            make_trade(1020, lp, 15, Side::Buy),  // 30 buy (block)
-            make_trade(1040, lp, 10, Side::Sell),  // side change
+            make_trade(1020, lp, 15, Side::Buy), // 30 buy (block)
+            make_trade(1040, lp, 10, Side::Sell), // side change
         ];
         pt(&mut levels, &trades, tolerance);
 
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         let touch = &levels[0].touches[0];
@@ -651,12 +547,7 @@ mod tests {
         ];
         pt(&mut levels, &trades, tolerance);
 
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         let touch = &levels[0].touches[0];
@@ -679,12 +570,7 @@ mod tests {
         ];
         pt(&mut levels, &trades, tolerance);
 
-        let away = vec![make_trade(
-            1100,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(1100, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         let touch = &levels[0].touches[0];
@@ -710,12 +596,7 @@ mod tests {
         pt(&mut levels, &trades, tolerance);
 
         // Hold (move away within break distance)
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         // Absorption = 100 / (20 + 1e-9) ≈ 5.0
@@ -733,17 +614,10 @@ mod tests {
         // 3 touches that all hold → strong composite score
         for i in 0..3 {
             let t = (i * 2000) as u64;
-            let trades = vec![
-                make_trade(t + 1000, lp, 50, Side::Buy),
-            ];
+            let trades = vec![make_trade(t + 1000, lp, 50, Side::Buy)];
             pt(&mut levels, &trades, tolerance);
 
-            let away = vec![make_trade(
-                t + 1500,
-                lp + tolerance + 1,
-                1,
-                Side::Buy,
-            )];
+            let away = vec![make_trade(t + 1500, lp + tolerance + 1, 1, Side::Buy)];
             pt(&mut levels, &away, tolerance);
         }
 
@@ -780,12 +654,7 @@ mod tests {
         );
         pt(
             &mut levels,
-            &[make_trade(
-                3500,
-                lp + break_dist + 1,
-                10,
-                Side::Buy,
-            )],
+            &[make_trade(3500, lp + break_dist + 1, 10, Side::Buy)],
             tolerance,
         );
 
@@ -810,12 +679,7 @@ mod tests {
         ];
         pt(&mut levels, &trades, tolerance);
 
-        let away = vec![make_trade(
-            2000,
-            lp + tolerance + 1,
-            1,
-            Side::Buy,
-        )];
+        let away = vec![make_trade(2000, lp + tolerance + 1, 1, Side::Buy)];
         pt(&mut levels, &away, tolerance);
 
         assert_eq!(levels[0].flow.block_buy_volume, 30.0);

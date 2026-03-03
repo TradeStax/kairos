@@ -8,7 +8,7 @@ use data::ChartBasis;
 use data::domain::chart::heatmap::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
 use iced::{
     Element, padding,
-    widget::{button, checkbox, column, container, row, space},
+    widget::{button, checkbox, column, container, row, slider, space, text},
 };
 
 #[derive(Debug, Clone, Copy)]

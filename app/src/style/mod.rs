@@ -1,5 +1,5 @@
 pub mod animation;
-#[allow(dead_code)]
+#[allow(dead_code)] // Design-system tokens are pre-defined ahead of usage
 pub mod tokens;
 
 pub(crate) mod theme;
@@ -12,14 +12,11 @@ pub use widgets::slider;
 
 // Preserve function re-exports: style::dashed_line, style::chart_modal, etc.
 pub use widgets::canvas::{dashed_line, dashed_line_from_palette};
+pub use widgets::common::{pane_grid, progress_bar, scroll_bar, split_ruler, validated_text_input};
 pub use widgets::container::{
-    chart_modal, colored_circle_container, confirm_modal, dashboard_modal,
-    dragger_row_container, dropdown_container, floating_panel, floating_panel_header,
-    menu_bar, modal_container, pane_background, pane_title_bar, ticker_card,
-    tooltip, window_title_bar,
-};
-pub use widgets::common::{
-    pane_grid, progress_bar, scroll_bar, split_ruler, validated_text_input,
+    chart_modal, colored_circle_container, confirm_modal, dashboard_modal, dragger_row_container,
+    dropdown_container, floating_panel, floating_panel_header, menu_bar, modal_container,
+    pane_background, pane_title_bar, ticker_card, tooltip, window_title_bar,
 };
 
 /// Use `tokens::layout::TITLE_PADDING_TOP` for new code.

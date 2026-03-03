@@ -13,8 +13,8 @@
 //! Output: `StudyOutput::Lines` — a single cumulative line.
 
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
-    ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -107,7 +107,6 @@ impl CvdStudy {
             params,
         }
     }
-
 }
 
 impl Default for CvdStudy {
@@ -175,9 +174,7 @@ impl Study for CvdStudy {
         for (i, candle) in candles.iter().enumerate() {
             if needs_reset {
                 let curr_secs = (candle.time.to_millis() / 1000) as i64;
-                if let Some(curr_dt) =
-                    chrono::DateTime::from_timestamp(curr_secs, 0)
-                {
+                if let Some(curr_dt) = chrono::DateTime::from_timestamp(curr_secs, 0) {
                     if is_daily {
                         let curr_date = curr_dt.date_naive();
                         if prev_day.is_some_and(|pd| curr_date != pd) {
@@ -187,10 +184,7 @@ impl Study for CvdStudy {
                     } else {
                         // Weekly
                         use chrono::Datelike;
-                        let curr_wk = (
-                            curr_dt.iso_week().year(),
-                            curr_dt.iso_week().week(),
-                        );
+                        let curr_wk = (curr_dt.iso_week().year(), curr_dt.iso_week().week());
                         if prev_week.is_some_and(|pw| curr_wk != pw) {
                             cum_delta = 0.0;
                         }
@@ -358,5 +352,71 @@ mod tests {
         // No reset, so cumulative continues
         assert!((pts[0].1 - 100.0).abs() < 1.0);
         assert!((pts[1].1 - (-100.0)).abs() < 1.0);
+    }
+
+    #[test]
+    fn single_candle_cvd_equals_delta() {
+        let mut study = CvdStudy::new();
+        let candles = vec![make_candle(1000, 500.0, 200.0)]; // delta = +300
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        assert_eq!(lines[0].points.len(), 1);
+        assert!((lines[0].points[0].1 - 300.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn zero_volume_candles_cvd_stays_flat() {
+        let mut study = CvdStudy::new();
+        let candles = vec![
+            make_candle(1000, 100.0, 50.0), // delta = +50
+            make_candle(2000, 0.0, 0.0),    // delta = 0
+            make_candle(3000, 0.0, 0.0),    // delta = 0
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        let pts = &lines[0].points;
+        assert!((pts[0].1 - 50.0).abs() < 1.0);
+        assert!((pts[1].1 - 50.0).abs() < 1.0); // unchanged
+        assert!((pts[2].1 - 50.0).abs() < 1.0); // unchanged
+    }
+
+    #[test]
+    fn cvd_all_negative_deltas() {
+        let mut study = CvdStudy::new();
+        let candles = vec![
+            make_candle(1000, 100.0, 200.0), // delta = -100
+            make_candle(2000, 50.0, 300.0),  // delta = -250
+            make_candle(3000, 0.0, 100.0),   // delta = -100
+        ];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+
+        let StudyOutput::Lines(lines) = study.output() else {
+            panic!("expected Lines output")
+        };
+        let pts = &lines[0].points;
+        assert!((pts[0].1 - (-100.0)).abs() < 1.0);
+        assert!((pts[1].1 - (-350.0)).abs() < 1.0);
+        assert!((pts[2].1 - (-450.0)).abs() < 1.0);
+    }
+
+    #[test]
+    fn cvd_reset_clears_output() {
+        let mut study = CvdStudy::new();
+        let candles = vec![make_candle(1000, 200.0, 100.0)];
+        let input = make_input(&candles);
+        study.compute(&input).unwrap();
+        assert!(!matches!(study.output(), StudyOutput::Empty));
+
+        study.reset();
+        assert!(matches!(study.output(), StudyOutput::Empty));
     }
 }

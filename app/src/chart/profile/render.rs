@@ -1,12 +1,11 @@
+use super::ProfileChart;
 use crate::chart::drawing;
 use crate::chart::{Chart, ChartState, Interaction, Message, TEXT_SIZE, base_mouse_interaction};
 use crate::components::primitives::AZERET_MONO;
+use crate::style::tokens::{spacing, text};
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Event, Frame, Geometry, Text};
 use iced::{Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
-use study::output::ProfileLevel;
-
-use super::ProfileChart;
 
 impl canvas::Program<Message> for ProfileChart {
     type State = ChartState;
@@ -41,9 +40,8 @@ impl canvas::Program<Message> for ProfileChart {
             return vec![];
         }
 
-        // For tooltip: collect all levels from all profiles
-        let all_levels: Vec<&ProfileLevel> =
-            profiles.iter().flat_map(|p| p.levels.iter()).collect();
+        // Tooltip uses an iterator over all profile levels — no Vec needed.
+        // The actual iteration happens in draw_profile_tooltip below.
 
         let bounds_size = bounds.size();
         let palette = theme.extended_palette();
@@ -135,7 +133,7 @@ impl canvas::Program<Message> for ProfileChart {
 
                 // Profile tooltip
                 draw_profile_tooltip(
-                    &all_levels,
+                    profiles,
                     &self.ticker_info,
                     frame,
                     palette,
@@ -186,7 +184,7 @@ impl canvas::Program<Message> for ProfileChart {
 
 /// Draw profile tooltip showing volume at cursor price.
 fn draw_profile_tooltip(
-    levels: &[&ProfileLevel],
+    profiles: &[study::output::ProfileOutput],
     ticker_info: &data::FuturesTickerInfo,
     frame: &mut Frame,
     palette: &Extended,
@@ -194,20 +192,19 @@ fn draw_profile_tooltip(
     cursor_position: Point,
     bounds: Size,
 ) {
-    if levels.is_empty() {
-        return;
-    }
-
     // Convert cursor Y to chart-space Y, then to price
     let chart_y = (cursor_position.y - bounds.height / 2.0) / chart.scaling - chart.translation.y;
     let price = chart.y_to_price(chart_y);
     let price_units = price.units();
 
-    // Find nearest level across all profiles
-    let nearest = levels
+    // Find nearest level across all profiles (no Vec allocation)
+    let Some(nearest) = profiles
         .iter()
+        .flat_map(|p| p.levels.iter())
         .min_by_key(|l| (l.price_units - price_units).abs())
-        .unwrap();
+    else {
+        return;
+    };
 
     let total = nearest.buy_volume + nearest.sell_volume;
     let delta = nearest.buy_volume - nearest.sell_volume;
@@ -249,13 +246,13 @@ fn draw_profile_tooltip(
         .map(|(s, _, _)| s.len() as f32 * (TEXT_SIZE * 0.8))
         .sum();
 
-    let position = Point::new(8.0, 8.0);
+    let position = Point::new(spacing::MD, spacing::MD);
 
     let tooltip_rect = Rectangle {
         x: position.x,
         y: position.y,
         width: total_width,
-        height: 16.0,
+        height: spacing::XL,
     };
 
     frame.fill_rectangle(
@@ -269,12 +266,12 @@ fn draw_profile_tooltip(
         frame.fill_text(Text {
             content: text.to_string(),
             position: Point::new(x, position.y),
-            size: iced::Pixels(12.0),
+            size: iced::Pixels(text::BODY),
             color: seg_color,
             font: AZERET_MONO,
             ..Text::default()
         });
-        x += text.len() as f32 * 8.0;
+        x += text.len() as f32 * spacing::MD;
         x += if is_value { 6.0 } else { 2.0 };
     }
 }

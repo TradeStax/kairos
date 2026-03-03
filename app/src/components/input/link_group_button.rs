@@ -21,9 +21,7 @@ where
         .align_y(Alignment::Center);
 
     button(icon)
-        .style(move |theme: &Theme, status| {
-            style::button::modifier(theme, status, is_active)
-        })
+        .style(move |theme: &Theme, status| style::button::modifier(theme, status, is_active))
         .on_press(on_press)
         .width(tokens::component::button::LINK_GROUP_WIDTH)
         .padding([4, 6])

@@ -62,7 +62,11 @@ pub struct RithmicConfig {
     pub env: protocol::RithmicEnv,
     /// WebSocket connection strategy (simple, retry, alternate)
     pub connect_strategy: protocol::ConnectStrategy,
-    /// Whether to automatically reconnect on disconnect
+    /// Whether to automatically reconnect on disconnect.
+    ///
+    /// Currently stored for configuration purposes but not acted upon
+    /// by the plant actors (they exit on disconnect). A future
+    /// reconnect loop would consult this flag.
     pub auto_reconnect: bool,
     /// Directory for local Rithmic data cache
     pub cache_dir: std::path::PathBuf,
@@ -80,7 +84,7 @@ impl Default for RithmicConfig {
             connect_strategy: protocol::ConnectStrategy::Retry,
             auto_reconnect: true,
             cache_dir,
-            history_pool_size: None, // uses pool default (3)
+            history_pool_size: None, // uses pool default (1)
         }
     }
 }
@@ -109,23 +113,31 @@ impl RithmicConfig {
     /// and a plaintext password.
     ///
     /// Validates that user ID, password, and system name are non-empty
-    /// before constructing the protocol-level config.
+    /// before constructing the protocol-level config. The server URL is
+    /// resolved via the [`ServerResolver`] rather than being hardcoded.
     pub fn from_connection_config(
         connection_config: &crate::connection::config::RithmicConnectionConfig,
         password: &str,
+        server_resolver: &crate::connection::ServerResolver,
     ) -> Result<(Self, protocol::RithmicConnectionConfig), RithmicError> {
         if connection_config.user_id.trim().is_empty() {
-            return Err(RithmicError::Config("User ID is required".to_string()));
+            return Err(RithmicError::Config("User ID is required".to_owned()));
         }
         if password.trim().is_empty() {
-            return Err(RithmicError::Config("Password is required".to_string()));
+            return Err(RithmicError::Config("Password is required".to_owned()));
         }
         if connection_config.system_name.trim().is_empty() {
-            return Err(RithmicError::Config("System name is required".to_string()));
+            return Err(RithmicError::Config("System name is required".to_owned()));
         }
 
-        let env = protocol::RithmicEnv::Demo;
-        let server_url = connection_config.server.url().to_string();
+        let env = match connection_config.environment {
+            crate::connection::config::RithmicEnvironment::Demo => protocol::RithmicEnv::Demo,
+            crate::connection::config::RithmicEnvironment::Live => protocol::RithmicEnv::Live,
+            crate::connection::config::RithmicEnvironment::Test => protocol::RithmicEnv::Test,
+        };
+        let server_url = server_resolver
+            .resolve(connection_config.server)
+            .map_err(|e| RithmicError::Config(e.to_string()))?;
         let rithmic_config = protocol::RithmicConnectionConfig {
             env,
             user: connection_config.user_id.clone(),
@@ -133,11 +145,10 @@ impl RithmicConfig {
             system_name: connection_config.system_name.clone(),
             url: server_url.clone(),
             beta_url: server_url,
-            account_id: connection_config
-                .subscribed_tickers
-                .first()
-                .cloned()
-                .unwrap_or_default(),
+            // account_id is not used for market data connections
+            // (ticker + history plants). It would be needed for an
+            // order plant, which is not yet implemented.
+            account_id: String::new(),
             fcm_id: String::new(),
             ib_id: String::new(),
         };
@@ -165,7 +176,7 @@ pub fn build_rithmic_contribution(
     for ticker in subscribed_tickers {
         let key = DataKey {
             ticker: ticker.clone(),
-            schema: "trades".to_string(),
+            schema: "trades".to_owned(),
         };
         index.add_contribution(key, feed_id, BTreeSet::new(), true);
     }

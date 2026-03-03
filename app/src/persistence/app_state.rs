@@ -207,4 +207,139 @@ mod tests {
         assert!(manager.layouts.is_empty());
         assert!(manager.active_layout.is_none());
     }
+
+    // ── WindowSpec ──────────────────────────────────────────
+
+    #[test]
+    fn test_window_spec_default() {
+        let spec = WindowSpec::default();
+        assert_eq!(spec.width, 1200);
+        assert_eq!(spec.height, 800);
+        assert!(spec.x.is_none());
+        assert!(spec.y.is_none());
+    }
+
+    #[test]
+    fn test_window_spec_position_coords_with_position() {
+        let spec = WindowSpec {
+            x: Some(100),
+            y: Some(200),
+            width: 800,
+            height: 600,
+        };
+        let (x, y) = spec.position_coords();
+        assert!((x - 100.0).abs() < 0.01);
+        assert!((y - 200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_window_spec_position_coords_without_position() {
+        let spec = WindowSpec::default();
+        let (x, y) = spec.position_coords();
+        assert!((x - 0.0).abs() < 0.01);
+        assert!((y - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_window_spec_size_coords() {
+        let spec = WindowSpec {
+            x: None,
+            y: None,
+            width: 1920,
+            height: 1080,
+        };
+        let (w, h) = spec.size_coords();
+        assert!((w - 1920.0).abs() < 0.01);
+        assert!((h - 1080.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_window_spec_serialization_roundtrip() {
+        let spec = WindowSpec {
+            x: Some(50),
+            y: Some(75),
+            width: 1600,
+            height: 900,
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        let loaded: WindowSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.x, Some(50));
+        assert_eq!(loaded.y, Some(75));
+        assert_eq!(loaded.width, 1600);
+        assert_eq!(loaded.height, 900);
+    }
+
+    // ── DatabentoAppConfig ──────────────────────────────────
+
+    #[test]
+    fn test_databento_config_default() {
+        let config = DatabentoAppConfig::default();
+        assert!(config.cache_enabled);
+        assert_eq!(config.cache_max_days, 90);
+        assert!(!config.live_enabled);
+    }
+
+    #[test]
+    fn test_databento_config_serialization_roundtrip() {
+        let config = DatabentoAppConfig {
+            cache_enabled: false,
+            cache_max_days: 365,
+            live_enabled: true,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let loaded: DatabentoAppConfig = serde_json::from_str(&json).unwrap();
+        assert!(!loaded.cache_enabled);
+        assert_eq!(loaded.cache_max_days, 365);
+        assert!(loaded.live_enabled);
+    }
+
+    // ── AiPreferences ───────────────────────────────────────
+
+    #[test]
+    fn test_ai_preferences_default() {
+        let prefs = AiPreferences::default();
+        assert!(!prefs.model.is_empty());
+        assert!(prefs.temperature > 0.0 && prefs.temperature < 2.0);
+        assert!(prefs.max_tokens > 0);
+    }
+
+    #[test]
+    fn test_ai_preferences_serialization_roundtrip() {
+        let prefs = AiPreferences {
+            model: "test-model".to_string(),
+            temperature: 0.9,
+            max_tokens: 8192,
+        };
+        let json = serde_json::to_string(&prefs).unwrap();
+        let loaded: AiPreferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.model, "test-model");
+        assert!((loaded.temperature - 0.9).abs() < 0.01);
+        assert_eq!(loaded.max_tokens, 8192);
+    }
+
+    // ── AppState ────────────────────────────────────────────
+
+    #[test]
+    fn test_app_state_schema_version() {
+        let state = AppState::default();
+        assert_eq!(state.schema_version(), StateVersion::CURRENT.0);
+    }
+
+    #[test]
+    fn test_app_state_serialization_roundtrip() {
+        let state = AppState::default();
+        let json = serde_json::to_string(&state).unwrap();
+        let loaded: AppState = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.version, state.version);
+        assert_eq!(loaded.trade_fetch_enabled, state.trade_fetch_enabled);
+    }
+
+    #[test]
+    fn test_app_state_serde_default_fills_missing_fields() {
+        // Minimal JSON with only version — serde(default) should fill rest
+        let json = r#"{"version":1}"#;
+        let loaded: AppState = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded.version, StateVersion(1));
+        assert!(loaded.databento_config.cache_enabled);
+    }
 }

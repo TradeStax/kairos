@@ -53,9 +53,18 @@ pub struct DataEngine {
     connections: HashMap<FeedId, ConnectionProvider>,
 
     /// Optional progress callback invoked during multi-day fetches with
-    /// `(days_loaded, days_total)`. Set by the app layer before calling
-    /// `get_chart_data`, cleared after completion.
-    pub progress_callback: Option<Box<dyn Fn(usize, usize) + Send + Sync>>,
+    /// `(days_loaded_frac, days_total)`. The first argument is a float
+    /// that increments by sub-day fractions during paginated Rithmic
+    /// fetches, giving smooth intra-day progress.
+    ///
+    /// **Precision note**: The `f32` first argument loses integer precision
+    /// beyond ~16 million days (2^24). This is not a concern in practice
+    /// since download ranges are at most a few thousand days, but callers
+    /// should not rely on exact equality comparisons on the progress value.
+    ///
+    /// Use [`set_progress_callback`](Self::set_progress_callback) and
+    /// [`clear_progress_callback`](Self::clear_progress_callback) to manage.
+    pub(crate) progress_callback: Option<Arc<dyn Fn(f32, usize) + Send + Sync>>,
 }
 
 impl DataEngine {
@@ -161,8 +170,16 @@ impl DataEngine {
         date_range: &DateRange,
         provider: Option<ConnectionProvider>,
     ) -> Result<Vec<Trade>, crate::Error> {
-        let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start = date_range
+            .start
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is always valid")
+            .and_utc();
+        let end = date_range
+            .end
+            .and_hms_opt(23, 59, 59)
+            .expect("23:59:59 is always valid")
+            .and_utc();
 
         #[cfg(feature = "databento")]
         if provider != Some(ConnectionProvider::Rithmic)
@@ -267,7 +284,7 @@ impl DataEngine {
 
                 let done = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 if let Some(ref cb) = self.progress_callback {
-                    cb(done, days_total);
+                    cb(done as f32, days_total);
                 }
             }
 
@@ -278,6 +295,8 @@ impl DataEngine {
                 // Each task briefly locks the client to acquire a
                 // pool handle, then drops the lock. The pool
                 // semaphore bounds actual concurrency.
+                let progress_cb = self.progress_callback.clone();
+
                 let tasks: FuturesUnordered<_> = uncached_days
                     .iter()
                     .map(|day| {
@@ -286,6 +305,7 @@ impl DataEngine {
                         let symbol = symbol.clone();
                         let cache = self.cache.clone();
                         let completed = completed.clone();
+                        let progress_cb = progress_cb.clone();
                         let day = *day;
                         let is_today = day == today;
 
@@ -299,25 +319,61 @@ impl DataEngine {
                             let handle = pool.acquire().await.map_err(crate::Error::from)?;
                             drop(guard);
 
-                            let day_start =
-                                day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp() as i32;
+                            let day_start_ts = day
+                                .and_hms_opt(0, 0, 0)
+                                .expect("midnight is always valid")
+                                .and_utc()
+                                .timestamp();
+                            let day_start = i32::try_from(day_start_ts).unwrap_or(i32::MAX);
                             // For today's date, extend to now_utc to cover
                             // the UTC/ET offset (ET lags UTC by 4-5h, so
                             // trades after midnight UTC are still part of
                             // "today" in ET but would be missed with a
                             // strict end-of-day UTC cutoff).
                             let day_end = if is_today {
-                                chrono::Utc::now().timestamp() as i32
+                                let ts = chrono::Utc::now().timestamp();
+                                i32::try_from(ts).unwrap_or(i32::MAX)
                             } else {
-                                day.and_hms_opt(23, 59, 59)
-                                    .unwrap()
+                                let ts = day
+                                    .and_hms_opt(23, 59, 59)
+                                    .expect("23:59:59 is always valid")
                                     .and_utc()
-                                    .timestamp()
-                                    as i32
+                                    .timestamp();
+                                i32::try_from(ts).unwrap_or(i32::MAX)
                             };
 
+                            // Build per-page progress callback for smooth
+                            // sub-day reporting. Uses response count for
+                            // asymptotic progress within each day.
+                            let on_page: Option<Box<dyn Fn(usize, usize) + Send + Sync>> =
+                                progress_cb.as_ref().map(|cb| {
+                                    let cb = cb.clone();
+                                    let completed = completed.clone();
+                                    Box::new(move |_page: usize, responses: usize| {
+                                        let base = completed
+                                            .load(std::sync::atomic::Ordering::Relaxed)
+                                            as f32;
+                                        // Asymptotic: r/(r+50000) gives smooth
+                                        // progress that approaches but never
+                                        // reaches 1.0 before the day completes.
+                                        // 50K→0.50, 100K→0.67, 200K→0.80,
+                                        // 500K→0.91
+                                        let frac = (responses as f32
+                                            / (responses as f32 + 50_000.0))
+                                            .min(0.95);
+                                        cb(base + frac, days_total);
+                                    })
+                                        as Box<dyn Fn(usize, usize) + Send + Sync>
+                                });
+
                             let responses = handle
-                                .load_ticks(&product, "CME", day_start, day_end)
+                                .load_ticks_with_progress(
+                                    &product,
+                                    "CME",
+                                    day_start,
+                                    day_end,
+                                    on_page.as_deref(),
+                                )
                                 .await
                                 .map_err(crate::Error::from)?;
 
@@ -368,7 +424,7 @@ impl DataEngine {
                     match result {
                         Ok((day, trades, done)) => {
                             if let Some(ref cb) = self.progress_callback {
-                                cb(done, days_total);
+                                cb(done as f32, days_total);
                             }
                             day_results.push((day, trades));
                         }
@@ -382,7 +438,7 @@ impl DataEngine {
                 if !fetch_errors.is_empty() {
                     if day_results.is_empty() {
                         // No data at all — propagate
-                        return Err(fetch_errors.remove(0));
+                        return Err(fetch_errors.swap_remove(0));
                     }
                     // Some fetched days failed but we have cached data
                     // — proceed with what we have; live stream fills
@@ -400,7 +456,7 @@ impl DataEngine {
 
             // Report fetch complete
             if let Some(ref cb) = self.progress_callback {
-                cb(days_total, days_total);
+                cb(days_total as f32, days_total);
             }
 
             // Sort by date and flatten
@@ -443,8 +499,16 @@ impl DataEngine {
         ticker: &FuturesTicker,
         date_range: &DateRange,
     ) -> Result<Vec<Depth>, crate::Error> {
-        let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
+        let start = date_range
+            .start
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is always valid")
+            .and_utc();
+        let end = date_range
+            .end
+            .and_hms_opt(23, 59, 59)
+            .expect("23:59:59 is always valid")
+            .and_utc();
 
         #[cfg(feature = "databento")]
         if let Some(adapter) = &mut self.databento {
@@ -499,7 +563,13 @@ impl DataEngine {
 
     // ── Index ─────────────────────────────────────────────────────────
 
-    /// Returns a reference to the shared data index
+    /// Returns a reference to the engine's data index.
+    ///
+    /// **Note**: The app layer maintains a separate `std::sync::Mutex<DataIndex>`
+    /// for synchronous access in Iced's view/update cycle. The engine's
+    /// `tokio::sync::Mutex<DataIndex>` is used in async adapter operations.
+    /// These are kept in sync via `DataEvent::DataIndexUpdated` events emitted
+    /// after cache scans and downloads. Do not bypass this sync mechanism.
     pub fn data_index(&self) -> &Arc<Mutex<DataIndex>> {
         &self.data_index
     }
@@ -519,18 +589,17 @@ impl DataEngine {
         let adapter = self
             .databento
             .as_mut()
-            .ok_or_else(|| {
-                crate::Error::Config(
-                    "Databento adapter not connected".to_string(),
-                )
-            })?;
+            .ok_or_else(|| crate::Error::Config("Databento adapter not connected".to_string()))?;
 
-        let start =
-            date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let start = date_range
+            .start
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight is always valid")
+            .and_utc();
         let end = date_range
             .end
             .and_hms_opt(23, 59, 59)
-            .unwrap()
+            .expect("23:59:59 is always valid")
             .and_utc();
 
         let db_schema = schema.to_databento_schema();
@@ -619,7 +688,40 @@ impl DataEngine {
         self.cache.stats().await
     }
 
+    /// Returns a cloned reference to the internal CacheStore.
+    ///
+    /// Prefer using the specific DataEngine methods (e.g.,
+    /// [`list_cached_dates`], [`cache_stats`]) where possible.
+    /// This accessor exists for the cache-management UI that needs
+    /// full provider/symbol/schema enumeration.
+    pub fn cache_store(&self) -> Arc<CacheStore> {
+        self.cache.clone()
+    }
+
+    /// Lists all symbols found in the cache across all providers.
+    pub async fn list_cached_symbols(&self) -> Vec<(CacheProvider, String)> {
+        let mut result = Vec::new();
+        for provider in [CacheProvider::Databento, CacheProvider::Rithmic] {
+            for symbol in self.cache.list_symbols(provider).await {
+                result.push((provider, symbol));
+            }
+        }
+        result
+    }
+
     // ── Event access ───────────────────────────────────────────────
+
+    /// Set a progress callback for multi-day fetches.
+    ///
+    /// The callback receives `(days_loaded_frac, days_total)`.
+    pub fn set_progress_callback(&mut self, cb: Arc<dyn Fn(f32, usize) + Send + Sync>) {
+        self.progress_callback = Some(cb);
+    }
+
+    /// Clear the progress callback.
+    pub fn clear_progress_callback(&mut self) {
+        self.progress_callback = None;
+    }
 
     /// Get a clone of the event sender for external use
     pub fn event_sender(&self) -> mpsc::UnboundedSender<DataEvent> {
@@ -642,8 +744,16 @@ impl DataEngine {
 
         #[cfg(feature = "databento")]
         if let Some(adapter) = &mut self.databento {
-            let start = date_range.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
-            let end = date_range.end.and_hms_opt(23, 59, 59).unwrap().and_utc();
+            let start = date_range
+                .start
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight is always valid")
+                .and_utc();
+            let end = date_range
+                .end
+                .and_hms_opt(23, 59, 59)
+                .expect("23:59:59 is always valid")
+                .and_utc();
 
             let event_tx = self.event_tx.clone();
             let trades = adapter
@@ -655,6 +765,7 @@ impl DataEngine {
                             request_id,
                             current_day,
                             total_days,
+                            sub_day_fraction: 0.0,
                         });
                     },
                 )
@@ -689,11 +800,12 @@ impl DataEngine {
         #[cfg(feature = "rithmic")]
         if self.rithmic.is_some() {
             let event_tx = self.event_tx.clone();
-            self.progress_callback = Some(Box::new(move |current, total| {
+            self.progress_callback = Some(Arc::new(move |current: f32, total: usize| {
                 let _ = event_tx.send(DataEvent::DownloadProgress {
                     request_id,
-                    current_day: current,
+                    current_day: current.floor() as usize,
                     total_days: total,
+                    sub_day_fraction: current.fract(),
                 });
             }));
 
@@ -813,41 +925,198 @@ mod tests {
         Timestamp,
     };
 
+    fn es_ticker_info() -> FuturesTickerInfo {
+        FuturesTickerInfo::new(
+            FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex),
+            0.25,
+            1.0,
+            50.0,
+        )
+    }
+
     #[test]
     fn test_rebuild_chart_data() {
         let trades = vec![
             Trade::new(
                 Timestamp(1000),
-                crate::domain::Price::from_f32(100.0),
+                Price::from_f32(100.0),
                 Quantity(10.0),
                 Side::Buy,
             ),
             Trade::new(
                 Timestamp(61000),
-                crate::domain::Price::from_f32(101.0),
+                Price::from_f32(101.0),
                 Quantity(5.0),
                 Side::Sell,
             ),
         ];
 
-        let ticker_info = FuturesTickerInfo::new(
-            FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex),
-            0.25,
-            1.0,
-            50.0,
-        );
-
-        // DataEngine::rebuild_chart_data needs an engine instance
-        // Test the chart module function directly
         let result = crate::engine::chart::rebuild_chart_data(
             &trades,
             ChartBasis::Time(Timeframe::M1),
-            &ticker_info,
+            &es_ticker_info(),
         );
 
         assert!(result.is_ok());
         let chart_data = result.unwrap();
         assert_eq!(chart_data.trades.len(), 2);
         assert_eq!(chart_data.candles.len(), 2);
+
+        // Verify OHLCV values of first candle (single trade at 100.0)
+        let c0 = &chart_data.candles[0];
+        assert_eq!(c0.open.to_f32(), 100.0);
+        assert_eq!(c0.high.to_f32(), 100.0);
+        assert_eq!(c0.low.to_f32(), 100.0);
+        assert_eq!(c0.close.to_f32(), 100.0);
+        assert!((c0.buy_volume.value() - 10.0).abs() < 0.01);
+        assert!((c0.sell_volume.value()).abs() < 0.01);
+
+        // Verify second candle
+        let c1 = &chart_data.candles[1];
+        assert_eq!(c1.open.to_f32(), 101.0);
+        assert_eq!(c1.close.to_f32(), 101.0);
+        assert!((c1.sell_volume.value() - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn rebuild_chart_data_empty_trades() {
+        let result = crate::engine::chart::rebuild_chart_data(
+            &[],
+            ChartBasis::Time(Timeframe::M1),
+            &es_ticker_info(),
+        );
+        assert!(result.is_ok());
+        let chart_data = result.unwrap();
+        assert!(chart_data.trades.is_empty());
+        assert!(chart_data.candles.is_empty());
+    }
+
+    #[test]
+    fn rebuild_chart_data_tick_basis_with_ohlcv_check() {
+        let trades = vec![
+            Trade::new(
+                Timestamp(1000),
+                Price::from_f32(100.0),
+                Quantity(5.0),
+                Side::Buy,
+            ),
+            Trade::new(
+                Timestamp(2000),
+                Price::from_f32(102.0),
+                Quantity(3.0),
+                Side::Sell,
+            ),
+            Trade::new(
+                Timestamp(3000),
+                Price::from_f32(98.0),
+                Quantity(7.0),
+                Side::Sell,
+            ),
+            Trade::new(
+                Timestamp(4000),
+                Price::from_f32(101.0),
+                Quantity(2.0),
+                Side::Buy,
+            ),
+        ];
+
+        let result = crate::engine::chart::rebuild_chart_data(
+            &trades,
+            ChartBasis::Tick(2),
+            &es_ticker_info(),
+        );
+        assert!(result.is_ok());
+        let chart_data = result.unwrap();
+        assert_eq!(chart_data.candles.len(), 2);
+
+        // Candle 0: trades at 100.0, 102.0
+        let c0 = &chart_data.candles[0];
+        assert_eq!(c0.open.to_f32(), 100.0);
+        assert_eq!(c0.high.to_f32(), 102.0);
+        assert_eq!(c0.low.to_f32(), 100.0);
+        assert_eq!(c0.close.to_f32(), 102.0);
+        assert!((c0.buy_volume.value() - 5.0).abs() < 0.01);
+        assert!((c0.sell_volume.value() - 3.0).abs() < 0.01);
+
+        // Candle 1: trades at 98.0, 101.0
+        let c1 = &chart_data.candles[1];
+        assert_eq!(c1.open.to_f32(), 98.0);
+        assert_eq!(c1.high.to_f32(), 101.0);
+        assert_eq!(c1.low.to_f32(), 98.0);
+        assert_eq!(c1.close.to_f32(), 101.0);
+        assert!((c1.buy_volume.value() - 2.0).abs() < 0.01);
+        assert!((c1.sell_volume.value() - 7.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn aggregate_to_basis_time_groups_by_interval() {
+        let trades = vec![
+            Trade::new(
+                Timestamp(0),
+                Price::from_f32(50.0),
+                Quantity(1.0),
+                Side::Buy,
+            ),
+            Trade::new(
+                Timestamp(30_000),
+                Price::from_f32(52.0),
+                Quantity(2.0),
+                Side::Sell,
+            ),
+            Trade::new(
+                Timestamp(60_000),
+                Price::from_f32(51.0),
+                Quantity(3.0),
+                Side::Buy,
+            ),
+            Trade::new(
+                Timestamp(90_000),
+                Price::from_f32(53.0),
+                Quantity(4.0),
+                Side::Buy,
+            ),
+            Trade::new(
+                Timestamp(120_000),
+                Price::from_f32(54.0),
+                Quantity(5.0),
+                Side::Sell,
+            ),
+        ];
+
+        let tick_size = Price::from_f32(0.25);
+        let candles =
+            chart::aggregate_to_basis(&trades, ChartBasis::Time(Timeframe::M1), tick_size).unwrap();
+
+        // 0-59999 = minute 0, 60000-119999 = minute 1, 120000+ = minute 2
+        assert_eq!(candles.len(), 3);
+
+        // Minute 0: 50, 52 -> O=50, H=52, L=50, C=52
+        assert_eq!(candles[0].open.to_f32(), 50.0);
+        assert_eq!(candles[0].high.to_f32(), 52.0);
+        assert_eq!(candles[0].low.to_f32(), 50.0);
+        assert_eq!(candles[0].close.to_f32(), 52.0);
+    }
+
+    #[test]
+    fn single_trade_produces_single_candle_time_basis() {
+        let trades = vec![Trade::new(
+            Timestamp(5000),
+            Price::from_f32(4500.25),
+            Quantity(10.0),
+            Side::Buy,
+        )];
+        let result = crate::engine::chart::rebuild_chart_data(
+            &trades,
+            ChartBasis::Time(Timeframe::M1),
+            &es_ticker_info(),
+        );
+        assert!(result.is_ok());
+        let chart_data = result.unwrap();
+        assert_eq!(chart_data.candles.len(), 1);
+        let c = &chart_data.candles[0];
+        assert_eq!(c.open.to_f32(), 4500.25);
+        assert_eq!(c.high.to_f32(), 4500.25);
+        assert_eq!(c.low.to_f32(), 4500.25);
+        assert_eq!(c.close.to_f32(), 4500.25);
     }
 }

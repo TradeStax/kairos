@@ -25,10 +25,19 @@ pub(crate) const HEARTBEAT_SECS: u64 = 60;
 pub(crate) const PING_INTERVAL_SECS: u64 = 60;
 
 /// Timeout in seconds for WebSocket pong response.
+///
+/// Intentionally shorter than [`PING_INTERVAL_SECS`] so a timeout is
+/// always detected before the next ping fires — otherwise the next
+/// ping would reset the timer and a dead connection could go
+/// unnoticed indefinitely.
 pub(crate) const PING_TIMEOUT_SECS: u64 = 50;
 
 /// Connection attempt timeout in seconds.
-const CONNECT_TIMEOUT_SECS: u64 = 2;
+///
+/// Set to 10s to accommodate slow DNS resolution and TLS handshakes
+/// on congested networks. The previous 2s value caused spurious
+/// timeouts in production.
+const CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// Base backoff in milliseconds multiplied by the attempt number.
 const BACKOFF_MS_BASE: u64 = 500;
@@ -136,7 +145,7 @@ async fn connect_with_retry_single_url(
             Err(e) => warn!("connect_async to {} timed out: {:?}", url, e),
         }
 
-        let backoff_ms: u64 = BACKOFF_MS_BASE * attempt;
+        let backoff_ms: u64 = BACKOFF_MS_BASE.saturating_mul(attempt);
         let backoff_duration =
             Duration::from_millis(backoff_ms).min(Duration::from_secs(MAX_BACKOFF_SECS));
 
@@ -152,9 +161,13 @@ async fn connect_with_retry_single_url(
 /// Retries indefinitely, alternating between primary and beta URLs.
 /// Use when main server has issues. Exponential backoff capped at 60 seconds.
 ///
+/// The alternation pattern is:
+///   attempt 1 → primary, 2 → secondary, 3 → primary, 4 → secondary, ...
+/// (odd attempts use primary, even attempts use secondary).
+///
 /// # Arguments
 /// * `primary_url` - Primary WebSocket URL
-/// * `secondary_url` - Beta WebSocket URL (used after first failure)
+/// * `secondary_url` - Beta WebSocket URL (used on even-numbered attempts)
 ///
 /// # Returns
 /// WebSocketStream on success (never returns error as it retries indefinitely).
@@ -165,9 +178,8 @@ async fn connect_with_retry(
     let mut attempt: u64 = 1;
 
     loop {
-        let selected_url = if attempt == 1 {
-            primary_url
-        } else if attempt.is_multiple_of(2) {
+        // Odd attempts (1, 3, 5, …) → primary; even (2, 4, 6, …) → secondary
+        let selected_url = if attempt.is_multiple_of(2) {
             secondary_url
         } else {
             primary_url
@@ -186,7 +198,7 @@ async fn connect_with_retry(
             Err(e) => warn!("connect_async to {} timed out: {:?}", selected_url, e),
         }
 
-        let backoff_ms: u64 = BACKOFF_MS_BASE * attempt;
+        let backoff_ms: u64 = BACKOFF_MS_BASE.saturating_mul(attempt);
         let backoff_duration =
             Duration::from_millis(backoff_ms).min(Duration::from_secs(MAX_BACKOFF_SECS));
 

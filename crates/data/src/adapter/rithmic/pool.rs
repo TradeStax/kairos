@@ -64,6 +64,30 @@ impl PoolHandle {
         super::client::load_ticks_paginated(&self.handle, symbol, exchange, start_secs, end_secs)
             .await
     }
+
+    /// Load historical ticks with per-page progress reporting.
+    ///
+    /// Like [`load_ticks`](Self::load_ticks) but invokes `on_page`
+    /// after the initial load and after each pagination page with
+    /// `(page_number, total_responses_so_far)`.
+    pub async fn load_ticks_with_progress(
+        &self,
+        symbol: &str,
+        exchange: &str,
+        start_secs: i32,
+        end_secs: i32,
+        on_page: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+    ) -> Result<Vec<RithmicResponse>, RithmicError> {
+        super::client::load_ticks_paginated_with_progress(
+            &self.handle,
+            symbol,
+            exchange,
+            start_secs,
+            end_secs,
+            on_page,
+        )
+        .await
+    }
 }
 
 impl HistoryPlantPool {
@@ -97,7 +121,7 @@ impl HistoryPlantPool {
 
         if handles.is_empty() {
             return Err(last_error.unwrap_or_else(|| {
-                RithmicError::Connection("No history plants connected".to_string())
+                RithmicError::Connection("No history plants connected".to_owned())
             }));
         }
 
@@ -132,10 +156,21 @@ impl HistoryPlantPool {
             RithmicError::Auth(format!("History plant {} login failed: {}", index, e,))
         })?;
 
-        // Wait for any ForcedLogout + WebSocket Close frame to arrive and
-        // kill the plant task. Observed close frames arrive ~500-600ms after
-        // login; 1s provides comfortable margin.
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        // Wait for a potential ForcedLogout + WebSocket Close frame.
+        // Observed close frames arrive ~500-600ms after login.
+        // Instead of a flat 1s sleep, poll every 100ms for up to 2s,
+        // returning early as soon as the plant task finishes (indicating
+        // a force-logout) or the window elapses without issue.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if plant.connection_handle.is_finished() {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
 
         // Check if the plant task has exited (synchronous, non-racy).
         // When a ForcedLogout causes a Close frame, the plant's run loop
@@ -159,7 +194,7 @@ impl HistoryPlantPool {
     pub async fn acquire(&self) -> Result<PoolHandle, RithmicError> {
         let permit =
             self.semaphore.clone().acquire_owned().await.map_err(|_| {
-                RithmicError::Connection("History pool semaphore closed".to_string())
+                RithmicError::Connection("History pool semaphore closed".to_owned())
             })?;
 
         // Round-robin handle selection
@@ -170,6 +205,22 @@ impl HistoryPlantPool {
             handle,
             _permit: permit,
         })
+    }
+
+    /// Gracefully disconnects all plants in the pool.
+    ///
+    /// Sends a `Close` command to each plant handle. Plants that have
+    /// already exited will silently ignore the send failure.
+    pub async fn disconnect(&self) {
+        for handle in &self.handles {
+            handle.close().await;
+        }
+        // Close the semaphore so no new acquires succeed
+        self.semaphore.close();
+        log::info!(
+            "History pool: disconnect requested for {} plants",
+            self.handles.len()
+        );
     }
 
     /// Returns the number of connected plants in the pool

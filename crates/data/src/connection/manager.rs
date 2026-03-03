@@ -43,6 +43,11 @@ impl ConnectionManager {
         &self.connections
     }
 
+    /// Returns all connections as a mutable slice
+    pub fn connections_mut(&mut self) -> &mut [Connection] {
+        &mut self.connections
+    }
+
     /// Looks up a connection by feed ID
     #[must_use]
     pub fn get(&self, id: FeedId) -> Option<&Connection> {

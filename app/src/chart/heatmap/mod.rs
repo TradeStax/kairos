@@ -218,8 +218,8 @@ impl HeatmapChart {
 
         // Process depth snapshots if available
         if let Some(depth_snapshots) = &chart_data.depth_snapshots {
-            log::info!(
-                "Processing {} depth snapshots for heatmap...",
+            log::debug!(
+                "Processing {} depth snapshots for heatmap",
                 depth_snapshots.len()
             );
             let total = depth_snapshots.len();
@@ -231,8 +231,8 @@ impl HeatmapChart {
                 if (idx + 1) % 1000 == 0 || idx + 1 == total {
                     let elapsed = start_time.elapsed().as_secs_f32();
                     let rate = (idx + 1) as f32 / elapsed;
-                    log::info!(
-                        "  Processed {}/{} depth snapshots ({:.1}% - {:.0} snapshots/sec)",
+                    log::debug!(
+                        "Processed {}/{} depth snapshots ({:.1}% - {:.0}/sec)",
                         idx + 1,
                         total,
                         ((idx + 1) as f32 / total as f32) * 100.0,
@@ -242,21 +242,17 @@ impl HeatmapChart {
             }
 
             let total_time = start_time.elapsed();
-            log::info!(
+            log::debug!(
                 "Depth processing complete in {:.2}s",
                 total_time.as_secs_f32()
             );
         }
 
         // Process trades
-        log::info!(
-            "Processing {} trades for heatmap...",
-            chart_data.trades.len()
-        );
+        log::debug!("Processing {} trades for heatmap", chart_data.trades.len());
         for trade in &chart_data.trades {
             heatmap_data.add_trade(trade, basis, tick_size);
         }
-        log::info!("Trade processing complete");
 
         // Calculate initial price from best bid/ask or trades
         let base_price = if let Some(depth_snapshots) = &chart_data.depth_snapshots {

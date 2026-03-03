@@ -1,5 +1,5 @@
-use crate::modals::{self, pane::Modal};
 use super::super::{Action, Content, State};
+use crate::modals::{self, pane::Modal};
 
 impl State {
     pub(in super::super) fn open_indicator_manager(&mut self) {

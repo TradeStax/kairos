@@ -185,9 +185,6 @@ pub enum DataFeedsMessage {
     Close,
     // Status updates
     FeedStatusChanged(FeedId, ConnectionStatus),
-    // Preview
-    #[allow(dead_code)]
-    PreviewLoaded(FeedId, Result<PreviewData, String>),
 }
 
 /// Actions emitted by the modal to the parent
@@ -386,18 +383,24 @@ impl DataFeedsModal {
                     if provider == Some(ConnectionProvider::Databento)
                         && !self.edit_form.api_key.is_empty()
                     {
-                        actions.insert(0, Action::SaveApiKey {
-                            provider: crate::config::secrets::ApiProvider::Databento,
-                            key: self.edit_form.api_key.clone(),
-                        });
+                        actions.insert(
+                            0,
+                            Action::SaveApiKey {
+                                provider: crate::config::secrets::ApiProvider::Databento,
+                                key: self.edit_form.api_key.clone(),
+                            },
+                        );
                     }
                     if provider == Some(ConnectionProvider::Rithmic)
                         && !self.edit_form.password.is_empty()
                     {
-                        actions.insert(0, Action::SaveFeedPassword {
-                            feed_id: id,
-                            password: self.edit_form.password.clone(),
-                        });
+                        actions.insert(
+                            0,
+                            Action::SaveFeedPassword {
+                                feed_id: id,
+                                password: self.edit_form.password.clone(),
+                            },
+                        );
                     }
 
                     return actions;
@@ -433,20 +436,6 @@ impl DataFeedsModal {
             // ── Status updates ────────────────────────────────────────────
             DataFeedsMessage::FeedStatusChanged(id, status) => {
                 feed_manager.set_status(id, status);
-            }
-
-            // ── Preview ────────────────────────────────────────────────────
-            DataFeedsMessage::PreviewLoaded(feed_id, result) => {
-                self.preview_loading = false;
-                match result {
-                    Ok(data) => {
-                        self.preview_data = Some(data);
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to load preview for {}: {}", feed_id, e);
-                        self.preview_data = None;
-                    }
-                }
             }
 
             // ── Form field setters ────────────────────────────────────────
@@ -531,8 +520,7 @@ impl DataFeedsModal {
                 self.has_changes = true;
             }
             DataFeedsMessage::ToggleTickersExpanded => {
-                self.edit_form.tickers_dropdown_open =
-                    !self.edit_form.tickers_dropdown_open;
+                self.edit_form.tickers_dropdown_open = !self.edit_form.tickers_dropdown_open;
             }
             DataFeedsMessage::SystemNamesLoaded(server, result) => {
                 // Only apply if server still matches current form

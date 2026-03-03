@@ -4,7 +4,7 @@ use super::super::{DownloadMessage, Kairos, Message};
 use crate::components::display::toast::{Notification, Toast};
 use crate::screen::dashboard;
 
-/// Sentinel UUID representing the global data-management panel context
+/// Nil UUID representing the global data-management panel context
 /// (as opposed to a specific pane). Used as a `pane_id` in download
 /// messages when the operation originates from the sidebar data-management
 /// panel rather than an individual chart pane.
@@ -37,10 +37,7 @@ impl Kairos {
             async move {
                 let mut eng = engine.lock().await;
                 let cached = eng
-                    .list_cached_dates(
-                        &symbol,
-                        data::cache::CacheSchema::Trades,
-                    )
+                    .list_cached_dates(&symbol, data::cache::CacheSchema::Trades)
                     .await;
                 let cached_in_range: Vec<_> = cached
                     .into_iter()
@@ -48,10 +45,7 @@ impl Kairos {
                     .collect();
 
                 // Query real USD cost from Databento API
-                let cost = match eng
-                    .estimate_cost(&symbol, schema, &date_range)
-                    .await
-                {
+                let cost = match eng.estimate_cost(&symbol, schema, &date_range).await {
                     Ok(c) => Some(c),
                     Err(e) => {
                         log::warn!("Cost estimation failed: {}", e);
@@ -59,18 +53,9 @@ impl Kairos {
                     }
                 };
 
-                Ok((
-                    date_range.num_days() as usize,
-                    cached_in_range,
-                    cost,
-                ))
+                Ok((date_range.num_days() as usize, cached_in_range, cost))
             },
-            move |result| {
-                Message::Download(DownloadMessage::DataCostEstimated {
-                    pane_id,
-                    result,
-                })
-            },
+            move |result| Message::Download(DownloadMessage::DataCostEstimated { pane_id, result }),
         )
     }
 
@@ -92,11 +77,7 @@ impl Kairos {
                         cost,
                     );
                 } else {
-                    log::info!(
-                        "Cost estimated: {}/{} days cached",
-                        cached_days,
-                        total_days,
-                    );
+                    log::info!("Cost estimated: {}/{} days cached", cached_days, total_days,);
                 }
 
                 if pane_id == GLOBAL_PANE_ID {
@@ -167,8 +148,9 @@ impl Kairos {
         pane_id: uuid::Uuid,
         current: usize,
         total: usize,
+        sub_day_fraction: f32,
     ) -> Task<Message> {
-        log::info!(
+        log::trace!(
             "Download progress for pane {}: {}/{}",
             pane_id,
             current,
@@ -181,6 +163,7 @@ impl Kairos {
                     crate::modals::download::DownloadProgress::Downloading {
                         current_day: current,
                         total_days: total,
+                        sub_day_fraction,
                     },
                 );
             }
@@ -189,6 +172,7 @@ impl Kairos {
                 crate::modals::download::DownloadProgress::Downloading {
                     current_day: current,
                     total_days: total,
+                    sub_day_fraction,
                 },
             );
         } else {
@@ -202,6 +186,7 @@ impl Kairos {
                     pane_id,
                     current,
                     total,
+                    sub_day_fraction,
                 }),
             });
         }
@@ -245,21 +230,9 @@ impl Kairos {
                         Message::DataIndexRebuilt,
                     )
                 } else {
-                    // Fallback: Databento-specific scan
-                    let cache_root =
-                        crate::infra::platform::data_path(Some("cache/databento"));
-                    let scan_feed_id = {
-                        let fm =
-                            data::lock_or_recover(&self.connections.connection_manager);
-                        fm.connected_id_for_provider(data::ConnectionProvider::Databento)
-                            .unwrap_or(Kairos::REGISTRY_SENTINEL_FEED)
-                    };
-                    Task::perform(
-                        async move {
-                            data::scan_databento_cache(&cache_root, scan_feed_id).await
-                        },
-                        Message::DataIndexRebuilt,
-                    )
+                    // No engine available — skip scan (data will appear
+                    // when a feed connects and triggers a cache scan)
+                    Task::none()
                 };
 
                 if pane_id == GLOBAL_PANE_ID {
@@ -337,19 +310,24 @@ impl Kairos {
         {
             match action {
                 crate::modals::download::api_key_modal::Action::Saved { provider, key } => {
-                    if let Err(e) = self.secrets.set_api_key(provider, &key) {
-                        log::warn!("Failed to save API key: {}", e);
-                        self.ui.push_notification(Toast::error(format!(
-                            "Failed to save API key: {}",
-                            e
-                        )));
-                        return Task::none();
-                    }
-                    log::info!("API key saved for {:?}", provider);
+                    // Save API key off the UI thread (keyring may block)
+                    let secrets = self.secrets.clone();
                     self.modals.api_key_setup_modal = None;
                     self.modals.historical_download_modal =
                         Some(crate::modals::download::HistoricalDownloadModal::new());
-                    return Task::done(Message::ReinitializeService(provider));
+                    return Task::perform(
+                        async move {
+                            secrets
+                                .set_api_key(provider, &key)
+                                .map_err(|e| e.to_string())
+                        },
+                        move |result| {
+                            if let Err(e) = result {
+                                log::warn!("Failed to save API key: {}", e);
+                            }
+                            Message::ReinitializeService(provider)
+                        },
+                    );
                 }
                 crate::modals::download::api_key_modal::Action::Closed => {
                     self.modals.api_key_setup_modal = None;
@@ -381,46 +359,27 @@ impl Kairos {
                         async move {
                             let mut eng = engine.lock().await;
                             let cached = eng
-                                .list_cached_dates(
-                                    &symbol,
-                                    data::cache::CacheSchema::Trades,
-                                )
+                                .list_cached_dates(&symbol, data::cache::CacheSchema::Trades)
                                 .await;
                             let cached_in_range: Vec<_> = cached
                                 .into_iter()
                                 .filter(|d| date_range.contains(*d))
                                 .collect();
 
-                            let cost = match eng
-                                .estimate_cost(
-                                    &symbol,
-                                    schema,
-                                    &date_range,
-                                )
-                                .await
-                            {
+                            let cost = match eng.estimate_cost(&symbol, schema, &date_range).await {
                                 Ok(c) => Some(c),
                                 Err(e) => {
-                                    log::warn!(
-                                        "Cost estimation failed: {}",
-                                        e
-                                    );
+                                    log::warn!("Cost estimation failed: {}", e);
                                     None
                                 }
                             };
 
-                            Ok((
-                                date_range.num_days() as usize,
-                                cached_in_range,
-                                cost,
-                            ))
+                            Ok((date_range.num_days() as usize, cached_in_range, cost))
                         },
                         move |result| {
-                            Message::Download(
-                                DownloadMessage::HistoricalDownloadCostEstimated {
-                                    result,
-                                },
-                            )
+                            Message::Download(DownloadMessage::HistoricalDownloadCostEstimated {
+                                result,
+                            })
                         },
                     );
                 }
@@ -440,8 +399,7 @@ impl Kairos {
                     return Task::perform(
                         async move {
                             let mut eng = engine.lock().await;
-                            ensure_databento_adapter(&mut eng, api_key)
-                                .await?;
+                            ensure_databento_adapter(&mut eng, api_key).await?;
                             eng.download_to_cache(&ticker, schema, &date_range)
                                 .await
                                 .map_err(|e| e.to_string())
@@ -515,28 +473,8 @@ impl Kairos {
                 data::lock_or_recover(&self.persistence.downloaded_tickers)
                     .register(ticker, date_range);
 
-                // Add downloaded range to DataIndex immediately so
-                // tickers appear before the async cache scan completes
-                {
-                    let mut dates = std::collections::BTreeSet::new();
-                    for d in date_range.dates() {
-                        dates.insert(d);
-                    }
-                    let key = data::DataKey {
-                        ticker: ticker.to_string(),
-                        schema: "trades".to_string(),
-                    };
-                    data::lock_or_recover(&self.persistence.data_index).add_contribution(
-                        key,
-                        Kairos::REGISTRY_SENTINEL_FEED,
-                        dates,
-                        false,
-                    );
-                }
-
-                self.rebuild_ticker_data();
-
-                // Create the dataset feed
+                // Create the dataset feed and auto-connect it so tickers
+                // appear via the standard connect flow (DataIndex seeding).
                 if let Some(modal) = &self.modals.historical_download_modal {
                     let name = modal.auto_name();
                     let schema_idx = modal.selected_schema_idx();
@@ -552,7 +490,7 @@ impl Kairos {
                         file_size_bytes: None,
                     };
                     let feed = data::Connection::new_historical_databento(name, info);
-                    let _feed_id = feed.id;
+                    let new_feed_id = feed.id;
 
                     let dm_arc = self.connections.connection_manager.clone();
                     let mut feed_manager = data::lock_or_recover(&dm_arc);
@@ -563,7 +501,12 @@ impl Kairos {
                     self.modals.historical_download_modal = None;
                     self.modals.historical_download_id = None;
 
-                    return self.collect_and_persist_state();
+                    return Task::batch([
+                        self.collect_and_persist_state(),
+                        Task::done(Message::DataFeeds(
+                            crate::modals::data_feeds::DataFeedsMessage::ConnectFeed(new_feed_id),
+                        )),
+                    ]);
                 }
             }
             Err(e) => {
@@ -589,9 +532,7 @@ async fn ensure_databento_adapter(
     api_key: Option<String>,
 ) -> Result<(), String> {
     if !engine.has_databento() {
-        let key = api_key.ok_or_else(|| {
-            "Databento API key not configured".to_string()
-        })?;
+        let key = api_key.ok_or_else(|| "Databento API key not configured".to_string())?;
         let config = data::DatabentoConfig::with_api_key(key);
         engine
             .connect_databento(config)

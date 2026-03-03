@@ -78,19 +78,14 @@ impl Kairos {
 
                 // Auto-open manager and select running backtest
                 self.modals.backtest.show_backtest_manager = true;
-                self.modals
-                    .backtest
-                    .backtest_manager
-                    .select(
-                        run_id,
-                        &self.modals.backtest.backtest_history,
-                        self.ui.timezone,
-                    );
+                self.modals.backtest.backtest_manager.select(
+                    run_id,
+                    &self.modals.backtest.backtest_history,
+                    self.ui.timezone,
+                );
 
-                let strategy_registry =
-                    self.modals.backtest.strategy_registry.clone();
-                let backtest_sender =
-                    super::super::core::globals::get_backtest_sender();
+                let strategy_registry = self.modals.backtest.strategy_registry.clone();
+                let backtest_sender = super::super::core::globals::get_backtest_sender();
 
                 Task::perform(
                     async move {
@@ -169,14 +164,11 @@ impl Kairos {
                 );
                 // Auto-open manager and select the completed backtest
                 self.modals.backtest.show_backtest_manager = true;
-                self.modals
-                    .backtest
-                    .backtest_manager
-                    .select(
-                        run_id,
-                        &self.modals.backtest.backtest_history,
-                        self.ui.timezone,
-                    );
+                self.modals.backtest.backtest_manager.select(
+                    run_id,
+                    &self.modals.backtest.backtest_history,
+                    self.ui.timezone,
+                );
                 Task::none()
             }
 
@@ -214,15 +206,11 @@ impl Kairos {
             }
 
             BacktestMessage::ManagerInteraction(manager_msg) => {
-                let action = self
-                    .modals
-                    .backtest
-                    .backtest_manager
-                    .update(
-                        manager_msg,
-                        &self.modals.backtest.backtest_history,
-                        self.ui.timezone,
-                    );
+                let action = self.modals.backtest.backtest_manager.update(
+                    manager_msg,
+                    &self.modals.backtest.backtest_history,
+                    self.ui.timezone,
+                );
                 match action {
                     ManagerAction::None => Task::none(),
                     ManagerAction::OpenLaunchModal => {
@@ -250,13 +238,8 @@ impl Kairos {
 
     /// Export a backtest's trade list to CSV via a native
     /// save dialog.
-    fn export_backtest_csv(
-        &self,
-        backtest_id: uuid::Uuid,
-    ) -> Task<Message> {
-        let Some(entry) =
-            self.modals.backtest.backtest_history.get(backtest_id)
-        else {
+    fn export_backtest_csv(&self, backtest_id: uuid::Uuid) -> Task<Message> {
+        let Some(entry) = self.modals.backtest.backtest_history.get(backtest_id) else {
             return Task::none();
         };
         let Some(result) = &entry.result else {
@@ -275,12 +258,8 @@ impl Kairos {
             } else {
                 "Short"
             };
-            let entry_ts = tz.format_replay_tooltip(
-                t.entry_time.0 as i64,
-            );
-            let exit_ts = tz.format_replay_tooltip(
-                t.exit_time.0 as i64,
-            );
+            let entry_ts = tz.format_replay_tooltip(t.entry_time.0 as i64);
+            let exit_ts = tz.format_replay_tooltip(t.exit_time.0 as i64);
             csv.push_str(&format!(
                 "{},{},{},{},{:.2},{},{},{},{}\n",
                 i + 1,

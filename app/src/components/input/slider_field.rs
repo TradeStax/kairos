@@ -108,6 +108,24 @@ where
     }
 }
 
+/// A row combining a label, a slider widget, and an optional value display.
+///
+/// Used by feature-gated heatmap/ladder settings panels.
+#[cfg(feature = "heatmap")]
+pub fn classic_slider_row<'a, Message: Clone + 'a>(
+    label: impl Into<Element<'a, Message>>,
+    slider_widget: Element<'a, Message>,
+    value_label: Option<impl Into<Element<'a, Message>>>,
+) -> Element<'a, Message> {
+    let mut r = row![label.into(), slider_widget]
+        .spacing(tokens::spacing::SM)
+        .align_y(iced::Alignment::Center);
+    if let Some(val) = value_label {
+        r = r.push(val.into());
+    }
+    r.into()
+}
+
 pub fn labeled_slider<'a, T, Message: Clone + 'static>(
     label: impl text::IntoFragment<'a>,
     range: std::ops::RangeInclusive<T>,

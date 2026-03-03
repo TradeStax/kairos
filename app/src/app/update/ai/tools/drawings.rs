@@ -518,10 +518,7 @@ fn price_to_units(price: f64) -> i64 {
 /// Convert a time string to milliseconds (SerializablePoint uses ms).
 /// Accepts ISO 8601, epoch seconds, or epoch milliseconds.
 /// Naive timestamps are interpreted in the user's timezone.
-fn time_to_ms(
-    s: &str,
-    tz: crate::config::UserTimezone,
-) -> Option<u64> {
+fn time_to_ms(s: &str, tz: crate::config::UserTimezone) -> Option<u64> {
     // Try ISO 8601 first
     if let Some(ms) = parse_iso_to_millis(s, tz) {
         return Some(ms);

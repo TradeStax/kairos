@@ -43,7 +43,7 @@ use bar::{draw_bid_ask, draw_delta, draw_delta_and_total, draw_delta_pct, draw_v
 const MIN_ROW_PX: f32 = 4.0;
 
 /// Font size for price labels.
-const LABEL_FONT_SIZE: f32 = 10.0;
+const LABEL_FONT_SIZE: f32 = crate::style::tokens::text::TINY;
 
 /// Compute the dynamic grouping quantum for automatic mode.
 fn compute_dynamic_quantum(state: &ViewState, factor: i64, tick_units: i64) -> i64 {

@@ -121,8 +121,7 @@ impl Kairos {
         let layout_id = id.unwrap_or(active_layout.unique);
 
         if let Some(dashboard) = self.persistence.layout_manager.mut_dashboard(layout_id) {
-            let (main_task, event) =
-                dashboard.update(msg, &main_window, self.ui.timezone);
+            let (main_task, event) = dashboard.update(msg, &main_window, self.ui.timezone);
 
             let additional_task = match event {
                 Some(dashboard::Event::LoadChart {

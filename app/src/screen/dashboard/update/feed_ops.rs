@@ -82,6 +82,8 @@ impl Dashboard {
     pub fn invalidate_all_panes(&mut self, main_window: window::Id) {
         self.iter_all_panes_mut(main_window)
             .for_each(|(_, _, state)| {
+                // TickAction is safe to discard here — bulk invalidation is
+                // a visual refresh, not a data event, so no actions need routing.
                 let _ = state.invalidate(Instant::now());
             });
     }
@@ -90,7 +92,9 @@ impl Dashboard {
         // Tick all panes for canvas invalidation and animations
         self.iter_all_panes_mut(main_window)
             .for_each(|(_window_id, _pane, state)| {
-                // Just invalidate charts for rendering updates
+                // TickAction discarded: periodic tick is purely for cache
+                // invalidation; any meaningful actions are handled by
+                // explicit PaneEvent messages.
                 let _ = state.invalidate(now);
             });
 

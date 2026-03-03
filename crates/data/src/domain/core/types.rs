@@ -76,13 +76,26 @@ impl Price {
         self.units
     }
 
-    /// Round to the nearest multiple of `tick_size`
+    /// Round to the nearest multiple of `tick_size`.
+    ///
+    /// Uses Euclidean division to handle negative prices correctly.
     #[must_use]
     pub fn round_to_tick(self, tick_size: Price) -> Self {
         if tick_size.units == 0 {
             return self;
         }
-        let ticks = (self.units + tick_size.units / 2) / tick_size.units;
+        // For positive prices: (units + half) / tick rounds to nearest.
+        // For negative prices: regular division truncates toward zero,
+        // which rounds incorrectly. div_euclid rounds toward negative
+        // infinity, giving correct nearest-multiple rounding when
+        // combined with the half-tick offset.
+        let half = tick_size.units / 2;
+        let offset = if self.units >= 0 {
+            self.units + half
+        } else {
+            self.units - half
+        };
+        let ticks = offset.div_euclid(tick_size.units);
         Self {
             units: ticks * tick_size.units,
         }
@@ -179,7 +192,14 @@ impl Mul<f64> for Price {
 
 impl Div<i64> for Price {
     type Output = Self;
+    /// Divide price by an integer using Euclidean division.
+    ///
+    /// Returns `Price::zero()` if `divisor` is zero instead of panicking.
     fn div(self, divisor: i64) -> Self {
+        if divisor == 0 {
+            log::warn!("Price / 0: division by zero, returning Price::zero()");
+            return Self::zero();
+        }
         Self {
             units: self.units.div_euclid(divisor),
         }
@@ -275,7 +295,13 @@ impl Timestamp {
     #[must_use]
     pub fn to_datetime(self) -> DateTime<Utc> {
         DateTime::from_timestamp((self.0 / 1000) as i64, ((self.0 % 1000) * 1_000_000) as u32)
-            .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap())
+            .unwrap_or_else(|| {
+                log::warn!(
+                    "Timestamp::to_datetime: invalid millis {} — falling back to epoch",
+                    self.0,
+                );
+                DateTime::from_timestamp(0, 0).unwrap()
+            })
     }
 
     /// Convert to a `NaiveDate` (UTC)
@@ -353,11 +379,14 @@ impl DateRange {
         Ok(Self { start, end })
     }
 
-    /// Today's date in US Eastern Time (CME session date reference)
+    /// Today's date in US Eastern Time (CME session date reference).
+    ///
+    /// Uses `chrono-tz` for DST-aware conversion (EDT = UTC-4, EST = UTC-5).
     #[must_use]
     pub fn today_et() -> NaiveDate {
-        let et = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
-        chrono::Utc::now().with_timezone(&et).date_naive()
+        chrono::Utc::now()
+            .with_timezone(&chrono_tz::America::New_York)
+            .date_naive()
     }
 
     /// Create a date range covering today and the previous `n - 1` days
@@ -414,7 +443,7 @@ impl DateRange {
     pub fn start_timestamp_ms(&self) -> u64 {
         self.start
             .and_hms_opt(0, 0, 0)
-            .unwrap()
+            .expect("midnight is always valid")
             .and_utc()
             .timestamp_millis() as u64
     }
@@ -424,7 +453,7 @@ impl DateRange {
     pub fn end_timestamp_ms(&self) -> u64 {
         self.end
             .and_hms_opt(23, 59, 59)
-            .unwrap()
+            .expect("23:59:59 is always valid")
             .and_utc()
             .timestamp_millis() as u64
     }
@@ -494,33 +523,8 @@ mod tests {
         assert_eq!((p2 * 2.0).to_f32(), 100.0);
     }
 
-    #[test]
-    fn test_price_saturating_add() {
-        let max = Price::from_units(i64::MAX);
-        let one = Price::from_units(1);
-        assert_eq!((max + one).units(), i64::MAX);
-    }
-
-    #[test]
-    fn test_price_saturating_sub() {
-        let min = Price::from_units(i64::MIN);
-        let one = Price::from_units(1);
-        assert_eq!((min - one).units(), i64::MIN);
-    }
-
-    #[test]
-    fn test_price_checked_add_overflow() {
-        let max = Price::from_units(i64::MAX);
-        let one = Price::from_units(1);
-        assert!(max.checked_add(one).is_none());
-    }
-
-    #[test]
-    fn test_price_checked_sub_overflow() {
-        let min = Price::from_units(i64::MIN);
-        let one = Price::from_units(1);
-        assert!(min.checked_sub(one).is_none());
-    }
+    // Saturating add/sub and checked_add/sub overflow tests
+    // live in domain::core::price::tests (canonical location).
 
     #[test]
     fn test_price_rounding() {

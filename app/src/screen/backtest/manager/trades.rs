@@ -66,14 +66,8 @@ pub fn view_trades<'a>(
         .first()
         .and_then(|first| {
             trades.last().map(|last| {
-                let first_day = timezone
-                    .date_components(
-                        (first.entry_time.0 / 1000) as i64,
-                    );
-                let last_day = timezone
-                    .date_components(
-                        (last.exit_time.0 / 1000) as i64,
-                    );
+                let first_day = timezone.date_components((first.entry_time.0 / 1000) as i64);
+                let last_day = timezone.date_components((last.exit_time.0 / 1000) as i64);
                 first_day != last_day
             })
         })
@@ -102,16 +96,8 @@ pub fn view_trades<'a>(
             Color::TRANSPARENT
         };
 
-        let entry_str = format_timestamp(
-            trade.entry_time.0,
-            is_multi_day,
-            timezone,
-        );
-        let exit_str = format_timestamp(
-            trade.exit_time.0,
-            is_multi_day,
-            timezone,
-        );
+        let entry_str = format_timestamp(trade.entry_time.0, is_multi_day, timezone);
+        let exit_str = format_timestamp(trade.exit_time.0, is_multi_day, timezone);
         let side_str = if trade.side.is_buy() { "Long" } else { "Short" };
         let entry_price = format!("{:.2}", trade.entry_price.to_f64());
         let exit_price = format!("{:.2}", trade.exit_price.to_f64());
@@ -415,20 +401,13 @@ fn mono_cell_fixed(value: impl Into<String>, width: f32) -> Element<'static, Man
 
 // ── Timestamp formatting ────────────────────────────────────────────
 
-fn format_timestamp(
-    ms: u64,
-    multi_day: bool,
-    tz: UserTimezone,
-) -> String {
-    let Some(dt_utc) =
-        chrono::DateTime::from_timestamp_millis(ms as i64)
-    else {
+fn format_timestamp(ms: u64, multi_day: bool, tz: UserTimezone) -> String {
+    let Some(dt_utc) = chrono::DateTime::from_timestamp_millis(ms as i64) else {
         return "?".to_string();
     };
     match tz {
         UserTimezone::Local => {
-            let dt =
-                dt_utc.with_timezone(&chrono::Local);
+            let dt = dt_utc.with_timezone(&chrono::Local);
             if multi_day {
                 dt.format("%m/%d %H:%M:%S").to_string()
             } else {
@@ -437,9 +416,7 @@ fn format_timestamp(
         }
         UserTimezone::Utc => {
             if multi_day {
-                dt_utc
-                    .format("%m/%d %H:%M:%S")
-                    .to_string()
+                dt_utc.format("%m/%d %H:%M:%S").to_string()
             } else {
                 dt_utc.format("%H:%M:%S").to_string()
             }

@@ -18,6 +18,12 @@ use super::FootprintStudy;
 impl FootprintStudy {
     // ── Typed accessors ─────────────────────────────────────────────
 
+    // NOTE: The `_ =>` wildcards in the config accessor methods below are
+    // intentional. These match on `&str` values from `get_choice()` (user-facing
+    // config strings), not on Rust enums. The wildcard serves as the default for
+    // unrecognized or missing values, which is the correct behavior for
+    // string-to-enum parsing from serialized config.
+
     /// Parse the render mode from config ("Box" or "Profile").
     pub(super) fn mode(&self) -> FootprintRenderMode {
         match self.config.get_choice("mode", "Profile") {
@@ -143,7 +149,12 @@ impl FootprintStudy {
                     let range_low = (low / quantum) * quantum;
                     let range_high = (high / quantum) * quantum;
 
-                    let mut levels = Vec::new();
+                    let expected_levels = if quantum > 0 {
+                        ((range_high - range_low) / quantum + 1) as usize
+                    } else {
+                        0
+                    };
+                    let mut levels = Vec::with_capacity(expected_levels);
                     let mut price = range_low;
                     while price <= range_high {
                         let &(buy, sell) = map.get(&price).unwrap_or(&(0.0, 0.0));

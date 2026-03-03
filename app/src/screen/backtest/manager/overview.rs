@@ -3,14 +3,10 @@
 //! Shows KPI metrics cards, equity curve canvas, drawdown chart,
 //! monthly returns grid, and P&L histogram.
 
-use super::charts::{
-    DrawdownChart, EquityChart, HistogramChart, ReturnsGrid,
-};
+use super::charts::{DrawdownChart, EquityChart, HistogramChart, ReturnsGrid};
 use super::computed::ComputedAnalytics;
 use super::{BacktestManager, ManagerMessage};
-use crate::app::backtest_history::{
-    BacktestHistory, BacktestStatus,
-};
+use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
 use crate::config::UserTimezone;
 use crate::style::{palette, tokens};
 use iced::widget::{canvas, center, column, container, row, rule, scrollable, text};

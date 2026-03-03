@@ -2,9 +2,8 @@
 
 use super::super::ManagerMessage;
 use super::{
-    ChartHoverState, draw_crosshair_lines, draw_snap_dot,
-    draw_tooltip_box, format_date, grid_lines,
-    handle_cursor_event, position_tooltip, tooltip_size,
+    ChartHoverState, draw_crosshair_lines, draw_snap_dot, draw_tooltip_box, format_date,
+    grid_lines, handle_cursor_event, position_tooltip, tooltip_size,
 };
 use crate::config::UserTimezone;
 use iced::mouse;

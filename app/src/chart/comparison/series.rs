@@ -11,7 +11,7 @@ use iced::widget::{button, column, container, row, text};
 use iced::{Element, Length};
 use palette::Hsva;
 
-use super::{Action, old_format_to_ticker_info};
+use super::Action;
 
 const MAX_LABEL_CHARS: usize = 24;
 
@@ -85,7 +85,7 @@ impl TickerSeriesEditor {
 
         for s in series {
             let applied = s.color;
-            let futures_info = old_format_to_ticker_info(&s.ticker_info);
+            let futures_info = s.ticker_info;
             let is_open = self.show_config_for.is_some_and(|t| t == futures_info);
 
             let header = button(

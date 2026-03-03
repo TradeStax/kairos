@@ -261,12 +261,7 @@ impl Kairos {
             let existing = dash
                 .panes
                 .iter()
-                .find(|(_, s)| {
-                    matches!(
-                        s.content,
-                        pane::Content::AiAssistant(_)
-                    )
-                })
+                .find(|(_, s)| matches!(s.content, pane::Content::AiAssistant(_)))
                 .map(|(_, s)| s.unique_id());
 
             match existing {
@@ -323,11 +318,7 @@ impl Kairos {
             "[Selected chart region]\n{}\n\n[User question]\n{}",
             context, question
         );
-        self.handle_ai_request(
-            ai_pane_id,
-            enriched_question,
-            Some(question),
-        )
+        self.handle_ai_request(ai_pane_id, enriched_question, Some(question))
     }
 
     /// Kick off an AI completion request for a pane.
@@ -384,10 +375,7 @@ impl Kairos {
             };
 
             let (model, conversation_id, api_history) =
-                match state.ai_start_streaming(
-                    &user_message,
-                    display_text.as_deref(),
-                ) {
+                match state.ai_start_streaming(&user_message, display_text.as_deref()) {
                     Some(info) => info,
                     None => return Task::none(),
                 };
@@ -461,11 +449,8 @@ impl Kairos {
 
         // Build initial API messages
         let prompt = build_system_prompt(user_tz);
-        let initial_messages = streaming::build_api_messages(
-            &prompt,
-            &api_history,
-            &chart_snapshot,
-        );
+        let initial_messages =
+            streaming::build_api_messages(&prompt, &api_history, &chart_snapshot);
 
         let ai_sender = globals::get_ai_sender();
 

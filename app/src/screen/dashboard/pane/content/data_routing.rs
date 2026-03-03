@@ -54,20 +54,4 @@ impl Content {
             _ => {}
         }
     }
-
-    /// Clear chart/panel objects while keeping the content kind and settings.
-    /// Used when a feed disconnects to unload data without losing the pane layout.
-    #[allow(dead_code)]
-    pub(crate) fn clear_chart(&mut self) {
-        match self {
-            #[cfg(feature = "heatmap")]
-            Content::Heatmap { chart, .. } => *chart = None,
-            Content::Candlestick { chart, .. } => **chart = None,
-            #[cfg(feature = "heatmap")]
-            Content::Ladder(panel) => *panel = None,
-            Content::Comparison(chart) => *chart = None,
-            Content::Profile { chart, .. } => **chart = None,
-            Content::Starter | Content::AiAssistant(_) => {}
-        }
-    }
 }

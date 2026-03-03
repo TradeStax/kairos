@@ -397,7 +397,7 @@ pub trait AppError: std::error::Error {
 | `RTY.c.0` | RTY | 0.1 | 1 | 50 | E-mini Russell 2000 |
 | `ZN.c.0` | ZN | 1/64 (0.015625) | 1 | 1000 | 10-Year T-Note |
 | `ZB.c.0` | ZB | 1/32 (0.03125) | 1 | 1000 | 30-Year T-Bond |
-| `ZT.c.0` | ZT | 1/128 (0.0078125) | 1 | 2000 | 2-Year T-Note |
+| `HG.c.0` | HG | 0.0005 | 1 | 25000 | Copper |
 | `ZF.c.0` | ZF | 1/128 (0.0078125) | 1 | 1000 | 5-Year T-Note |
 | `GC.c.0` | GC | 0.10 | 1 | 100 | Gold |
 | `SI.c.0` | SI | 0.005 | 1 | 5000 | Silver |

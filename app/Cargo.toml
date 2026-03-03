@@ -6,7 +6,6 @@ license = "GPL-3.0-or-later"
 description = "A native desktop charting platform for futures markets"
 categories = ["finance", "visualization", "gui"]
 edition.workspace = true
-repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
@@ -18,9 +17,9 @@ iced = { version = "0.14.0", default-features = false, features = [
     "advanced",
     "unconditional-rendering",
     "crisp",
+    # Linux display server support (unused on Windows, kept for future cross-platform builds)
     "x11",
     "wayland",
-    "markdown",
 ] }
 iced_core.workspace = true
 iced_futures.workspace = true
@@ -39,8 +38,8 @@ base64 = "0.22"
 dirs-next = "2.0.0"
 keyring = "3"
 open = "5.3.2"
-fern = "0.7.1"
-tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs"] }
+fern = { version = "0.7.1", features = ["colored"] }
+tokio = { workspace = true }
 futures = "0.3"
 rfd = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
@@ -55,4 +54,3 @@ winresource = "0.1"
 [features]
 debug = ["iced/hot"]
 heatmap = ["data/heatmap"]
-options = []

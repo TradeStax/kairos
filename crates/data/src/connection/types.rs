@@ -270,7 +270,8 @@ impl Connection {
         }
     }
 
-    /// Creates a new historical Databento connection for a downloaded dataset
+    /// Creates a new historical Databento connection for a downloaded dataset.
+    /// Auto-connect is enabled so tickers appear on startup.
     #[must_use]
     pub fn new_historical_databento(name: impl Into<String>, info: HistoricalDatasetInfo) -> Self {
         Self {
@@ -282,7 +283,7 @@ impl Connection {
             enabled: true,
             status: ConnectionStatus::Disconnected,
             priority: 100,
-            auto_connect: false,
+            auto_connect: true,
         }
     }
 

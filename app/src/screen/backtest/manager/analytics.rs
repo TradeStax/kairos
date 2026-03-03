@@ -3,16 +3,13 @@
 //! Five sections: prop firm simulation, Monte Carlo, risk & position
 //! sizing, P&L distribution + MAE/MFE scatter, and P&L by hour.
 
-use super::charts::{
-    BarChart, HistogramChart, MonteCarloChart,
-    PropFirmEquityChart, ScatterChart,
-};
+use super::charts::{BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart, ScatterChart};
 use super::computed::{ComputedAnalytics, PropFirmStatus};
 use super::{BacktestManager, ManagerMessage};
 use crate::app::backtest_history::BacktestHistory;
-use crate::config::UserTimezone;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::{AZERET_MONO, Icon};
+use crate::config::UserTimezone;
 use crate::style::{palette, tokens};
 use iced::widget::{button, canvas, column, container, row, rule, scrollable, text};
 use iced::{Background, Color, Element, Length};

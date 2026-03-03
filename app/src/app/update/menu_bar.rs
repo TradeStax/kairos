@@ -531,13 +531,9 @@ impl Kairos {
                             .persistence
                             .layout_manager
                             .ensure_unique_name(&name, new_id);
-                        self.persistence
-                            .layout_manager
-                            .layouts
-                            .last_mut()
-                            .unwrap()
-                            .id
-                            .name = unique_name;
+                        if let Some(layout) = self.persistence.layout_manager.layouts.last_mut() {
+                            layout.id.name = unique_name;
+                        }
                     }
                 }
             }

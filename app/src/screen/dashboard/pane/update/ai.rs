@@ -171,11 +171,10 @@ impl State {
                 state.last_cursor_position = p;
             }
             AiAssistantEvent::MessageRightClicked(idx) => {
-                self.context_menu =
-                    Some(super::super::context_menu::ContextMenuKind::AiMessage {
-                        position: state.last_cursor_position,
-                        message_index: idx,
-                    });
+                self.context_menu = Some(super::super::context_menu::ContextMenuKind::AiMessage {
+                    position: state.last_cursor_position,
+                    message_index: idx,
+                });
             }
             AiAssistantEvent::ToggleThinking(idx) => {
                 if !state.expanded_thinking.remove(&idx) {

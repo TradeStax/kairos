@@ -12,8 +12,8 @@
 //! at `MAX_OUTPUT_LEVELS` to bound renderer draw calls.
 
 use crate::config::{
-    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab,
-    ParameterValue, StudyConfig, Visibility,
+    DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
+    StudyConfig, Visibility,
 };
 use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
 use crate::error::StudyError;
@@ -237,15 +237,11 @@ impl Study for ImbalanceStudy {
     }
 
     fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
-        let threshold =
-            self.config.get_float("threshold", DEFAULT_THRESHOLD) as f32;
-        let buy_color =
-            self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
-        let sell_color =
-            self.config.get_color("sell_color", DEFAULT_SELL_COLOR);
+        let threshold = self.config.get_float("threshold", DEFAULT_THRESHOLD) as f32;
+        let buy_color = self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
+        let sell_color = self.config.get_color("sell_color", DEFAULT_SELL_COLOR);
         let ignore_zeros = self.config.get_bool("ignore_zeros", true);
-        let hit_decay =
-            self.config.get_float("hit_decay", DEFAULT_HIT_DECAY) as f32;
+        let hit_decay = self.config.get_float("hit_decay", DEFAULT_HIT_DECAY) as f32;
 
         if input.candles.is_empty() || input.tick_size.units() <= 0 {
             self.output = StudyOutput::Empty;
@@ -293,16 +289,11 @@ impl Study for ImbalanceStudy {
                 let Some(imb) = imb else { continue };
 
                 let (price, is_buy) = match imb {
-                    ImbalanceType::Buy { .. } => {
-                        (profile[i + 1].price, true)
-                    }
-                    ImbalanceType::Sell { .. } => {
-                        (profile[i].price, false)
-                    }
+                    ImbalanceType::Buy { .. } => (profile[i + 1].price, true),
+                    ImbalanceType::Sell { .. } => (profile[i].price, false),
                 };
 
-                let base_opacity =
-                    if is_buy { buy_color.a } else { sell_color.a };
+                let base_opacity = if is_buy { buy_color.a } else { sell_color.a };
 
                 // Count subsequent candles whose range covers this price,
                 // stopping early once enough hits guarantee invisibility.
@@ -316,14 +307,12 @@ impl Study for ImbalanceStudy {
                     }
                 }
 
-                let opacity =
-                    base_opacity * hit_decay.powi(hits as i32);
+                let opacity = base_opacity * hit_decay.powi(hits as i32);
                 if opacity < MIN_OPACITY {
                     continue;
                 }
 
-                let color =
-                    if is_buy { buy_color } else { sell_color };
+                let color = if is_buy { buy_color } else { sell_color };
 
                 levels.push(PriceLevel {
                     price,
@@ -467,10 +456,7 @@ mod tests {
             StudyOutput::Empty => {
                 // Acceptable if volumes don't meet threshold
             }
-            other => panic!(
-                "Expected Levels or Empty, got {:?}",
-                other
-            ),
+            other => panic!("Expected Levels or Empty, got {:?}", other),
         }
     }
 
@@ -494,30 +480,20 @@ mod tests {
     #[test]
     fn test_hit_counting_and_opacity_decay() {
         let mut study = ImbalanceStudy::new();
-        study.config.set(
-            String::from("threshold"),
-            ParameterValue::Float(2.0),
-        );
-        study.config.set(
-            String::from("hit_decay"),
-            ParameterValue::Float(0.5),
-        );
+        study
+            .config
+            .set(String::from("threshold"), ParameterValue::Float(2.0));
+        study
+            .config
+            .set(String::from("hit_decay"), ParameterValue::Float(0.5));
 
         // Candle 0: strong buy imbalance around 101
         // Candles 1-3: price passes through 101, each counts as hit
         let candles = vec![
-            make_candle(
-                1000, 100.0, 102.0, 100.0, 101.0, 500.0, 5.0,
-            ),
-            make_candle(
-                2000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0,
-            ),
-            make_candle(
-                3000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0,
-            ),
-            make_candle(
-                4000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0,
-            ),
+            make_candle(1000, 100.0, 102.0, 100.0, 101.0, 500.0, 5.0),
+            make_candle(2000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0),
+            make_candle(3000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0),
+            make_candle(4000, 100.0, 102.0, 100.0, 101.0, 50.0, 50.0),
         ];
 
         let input = StudyInput {
@@ -531,14 +507,8 @@ mod tests {
         study.compute(&input).unwrap();
 
         if let StudyOutput::Levels(levels) = &study.output {
-            let from_first: Vec<_> = levels
-                .iter()
-                .filter(|l| l.start_x == Some(1000))
-                .collect();
-            let from_last: Vec<_> = levels
-                .iter()
-                .filter(|l| l.start_x == Some(4000))
-                .collect();
+            let from_first: Vec<_> = levels.iter().filter(|l| l.start_x == Some(1000)).collect();
+            let from_last: Vec<_> = levels.iter().filter(|l| l.start_x == Some(4000)).collect();
 
             for level in &from_first {
                 assert!(
@@ -561,18 +531,14 @@ mod tests {
     #[test]
     fn test_levels_disappear_after_many_hits() {
         let mut study = ImbalanceStudy::new();
-        study.config.set(
-            String::from("threshold"),
-            ParameterValue::Float(2.0),
-        );
-        study.config.set(
-            String::from("hit_decay"),
-            ParameterValue::Float(0.1),
-        );
+        study
+            .config
+            .set(String::from("threshold"), ParameterValue::Float(2.0));
+        study
+            .config
+            .set(String::from("hit_decay"), ParameterValue::Float(0.1));
 
-        let mut candles = vec![make_candle(
-            1000, 100.0, 102.0, 100.0, 101.0, 500.0, 5.0,
-        )];
+        let mut candles = vec![make_candle(1000, 100.0, 102.0, 100.0, 101.0, 500.0, 5.0)];
         for i in 1..10 {
             candles.push(make_candle(
                 1000 + i * 1000,
@@ -598,14 +564,8 @@ mod tests {
         if let StudyOutput::Levels(levels) = &study.output {
             // decay=0.1: max_visible_hits(0.6, 0.1) = 2
             // Candle 0 has 9 subsequent hits → well past limit
-            let from_first: Vec<_> = levels
-                .iter()
-                .filter(|l| l.start_x == Some(1000))
-                .collect();
-            assert!(
-                from_first.is_empty(),
-                "Heavily-hit levels should be pruned"
-            );
+            let from_first: Vec<_> = levels.iter().filter(|l| l.start_x == Some(1000)).collect();
+            assert!(from_first.is_empty(), "Heavily-hit levels should be pruned");
         }
     }
 
@@ -613,29 +573,17 @@ mod tests {
     fn test_output_capped() {
         let mut study = ImbalanceStudy::new();
         // Very low threshold to maximize imbalance detections
-        study.config.set(
-            String::from("threshold"),
-            ParameterValue::Float(1.1),
-        );
+        study
+            .config
+            .set(String::from("threshold"), ParameterValue::Float(1.1));
         // No decay so nothing gets pruned
-        study.config.set(
-            String::from("hit_decay"),
-            ParameterValue::Float(1.0),
-        );
+        study
+            .config
+            .set(String::from("hit_decay"), ParameterValue::Float(1.0));
 
         // Generate many candles with imbalances
         let candles: Vec<Candle> = (0..5000)
-            .map(|i| {
-                make_candle(
-                    i * 60_000,
-                    100.0,
-                    110.0,
-                    90.0,
-                    105.0,
-                    800.0,
-                    10.0,
-                )
-            })
+            .map(|i| make_candle(i * 60_000, 100.0, 110.0, 90.0, 105.0, 800.0, 10.0))
             .collect();
 
         let input = StudyInput {

@@ -42,23 +42,23 @@ impl RithmicServer {
         RithmicServer::Singapore,
     ];
 
-    /// Returns the WebSocket URL for this server
+    /// Returns a snake_case key for API and env-var lookups.
     #[must_use]
-    pub fn url(&self) -> &'static str {
+    pub fn key(&self) -> &'static str {
         match self {
-            RithmicServer::Chicago => "wss://rprotocol.rithmic.com:443",
-            RithmicServer::NewYork => "wss://rprotocol-nyc.rithmic.com:443",
-            RithmicServer::Sydney => "wss://rprotocol-au.rithmic.com:443",
-            RithmicServer::SaoPaolo => "wss://rprotocol-br.rithmic.com:443",
-            RithmicServer::Colo75 => "wss://rprotocol-colo75.rithmic.com:443",
-            RithmicServer::Frankfurt => "wss://rprotocol-de.rithmic.com:443",
-            RithmicServer::HongKong => "wss://rprotocol-hk.rithmic.com:443",
-            RithmicServer::Ireland => "wss://rprotocol-ie.rithmic.com:443",
-            RithmicServer::Mumbai => "wss://rprotocol-in.rithmic.com:443",
-            RithmicServer::Seoul => "wss://rprotocol-kr.rithmic.com:443",
-            RithmicServer::CapeTown => "wss://rprotocol-za.rithmic.com:443",
-            RithmicServer::Tokyo => "wss://rprotocol-jp.rithmic.com:443",
-            RithmicServer::Singapore => "wss://rprotocol-sg.rithmic.com:443",
+            RithmicServer::Chicago => "chicago",
+            RithmicServer::NewYork => "new_york",
+            RithmicServer::Sydney => "sydney",
+            RithmicServer::SaoPaolo => "sao_paolo",
+            RithmicServer::Colo75 => "colo75",
+            RithmicServer::Frankfurt => "frankfurt",
+            RithmicServer::HongKong => "hong_kong",
+            RithmicServer::Ireland => "ireland",
+            RithmicServer::Mumbai => "mumbai",
+            RithmicServer::Seoul => "seoul",
+            RithmicServer::CapeTown => "cape_town",
+            RithmicServer::Tokyo => "tokyo",
+            RithmicServer::Singapore => "singapore",
         }
     }
 
@@ -82,10 +82,10 @@ impl RithmicServer {
         }
     }
 
-    /// Resolves a server from its WebSocket URL
+    /// Resolves a server from its snake_case key.
     #[must_use]
-    pub fn from_url(url: &str) -> Option<RithmicServer> {
-        RithmicServer::ALL.iter().find(|s| s.url() == url).copied()
+    pub fn from_key(key: &str) -> Option<RithmicServer> {
+        RithmicServer::ALL.iter().find(|s| s.key() == key).copied()
     }
 }
 

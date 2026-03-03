@@ -128,12 +128,8 @@ pub fn draw_overlay_drawings(
     }
 
     // VBP overlays in chart coordinates
-    let has_vbp_overlay = drawings
-        .pending()
-        .is_some_and(|p| p.tool.is_vbp())
-        || drawings
-            .clone_preview()
-            .is_some_and(|c| c.tool.is_vbp());
+    let has_vbp_overlay = drawings.pending().is_some_and(|p| p.tool.is_vbp())
+        || drawings.clone_preview().is_some_and(|c| c.tool.is_vbp());
     if has_vbp_overlay {
         let center = iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         frame.translate(center);
@@ -386,13 +382,13 @@ pub(super) fn draw_rect_with_fill(
     frame.stroke(&stroke_path, stroke);
 }
 
-/// Draw a text label at a given position (11px, default alignment).
+/// Draw a text label at a given position (small text, default alignment).
 pub(super) fn draw_label(frame: &mut Frame, text: &str, position: Point, color: Color) {
     let label = Text {
         content: text.to_string(),
         position,
         color,
-        size: iced::Pixels(11.0),
+        size: iced::Pixels(crate::style::tokens::text::SMALL),
         ..Default::default()
     };
     frame.fill_text(label);
@@ -411,7 +407,7 @@ fn draw_label_aligned(
         content: text.to_string(),
         position,
         color,
-        size: iced::Pixels(11.0),
+        size: iced::Pixels(crate::style::tokens::text::SMALL),
         align_x: h_align.into(),
         align_y: alignment::Vertical::Bottom,
         ..Default::default()
@@ -443,7 +439,7 @@ const LABEL_Y_OFFSET: f32 = tokens::label::Y_OFFSET;
 /// X padding from chart edges for labels.
 const LABEL_X_PADDING: f32 = tokens::label::X_PADDING;
 /// Y padding from top of chart for vertical line labels.
-const LABEL_TOP_PADDING: f32 = 8.0;
+const LABEL_TOP_PADDING: f32 = crate::style::tokens::spacing::MD;
 
 /// Draw user-provided label on a line-type drawing.
 ///

@@ -78,7 +78,15 @@ impl Kairos {
         window::collect_window_specs(popout_keys, Message::PersistState)
     }
 
-    pub fn save_state_to_disk(&mut self, windows: &HashMap<window::Id, WindowSpec>) {
+    /// Build a serializable snapshot of the current application state.
+    ///
+    /// This updates popout window specs from the provided map, then
+    /// clones all relevant state into an [`AppState`] suitable for
+    /// serialization. No I/O is performed.
+    fn prepare_state_snapshot(
+        &mut self,
+        windows: &HashMap<window::Id, WindowSpec>,
+    ) -> crate::persistence::AppState {
         if let Some(dashboard) = self.active_dashboard_mut() {
             dashboard
                 .popout
@@ -95,7 +103,6 @@ impl Kairos {
             .find(|(id, _)| **id == self.main_window.id)
             .map(|(_, spec)| spec.clone());
 
-        // Serialize full pane trees for each layout
         let active_layout_name = self
             .persistence
             .layout_manager
@@ -139,8 +146,39 @@ impl Kairos {
             data::lock_or_recover(&self.connections.connection_manager).clone(),
         );
         state.ai_preferences = self.ui.ai_preferences.clone();
+        state
+    }
 
-        // Save state using the persistence module
+    /// Persist state to disk asynchronously via [`Task::perform`].
+    ///
+    /// Use this for periodic saves so the UI thread is not blocked by
+    /// filesystem I/O.
+    pub fn save_state_to_disk_async(
+        &mut self,
+        windows: &HashMap<window::Id, WindowSpec>,
+    ) -> Task<Message> {
+        let state = self.prepare_state_snapshot(windows);
+        let state_dir = crate::infra::platform::data_path(None);
+        Task::perform(
+            async move {
+                if let Err(e) =
+                    crate::persistence::save_state(&state, state_dir.as_path(), "app-state.json")
+                {
+                    log::error!("Failed to save application state: {}", e);
+                } else {
+                    log::info!("Application state persisted successfully");
+                }
+            },
+            |()| Message::Noop,
+        )
+    }
+
+    /// Persist state to disk synchronously (blocking).
+    ///
+    /// Only use this during application shutdown where the event loop
+    /// is about to exit and async tasks cannot complete.
+    pub fn save_state_to_disk(&mut self, windows: &HashMap<window::Id, WindowSpec>) {
+        let state = self.prepare_state_snapshot(windows);
         let state_dir = crate::infra::platform::data_path(None);
         if let Err(e) =
             crate::persistence::save_state(&state, state_dir.as_path(), "app-state.json")

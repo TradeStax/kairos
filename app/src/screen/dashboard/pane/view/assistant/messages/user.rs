@@ -4,7 +4,10 @@ use crate::components::primitives::{body, separator::flex_space};
 use crate::screen::dashboard::pane::types::{AiAssistantEvent, Event, Message};
 use crate::style::{self, tokens};
 use iced::widget::pane_grid;
-use iced::{Element, widget::{button, container, mouse_area}};
+use iced::{
+    Element,
+    widget::{button, container, mouse_area},
+};
 
 pub fn view_user_bubble<'a>(
     content: &'a str,

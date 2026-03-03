@@ -16,8 +16,8 @@
 //!
 //! ## Event Sources
 //! Background events (Rithmic streaming, Replay, AI streaming, Download progress, Backtest)
-//! are staged through `OnceLock<Arc<Mutex<Vec<T>>>>` buffers in `core/globals.rs` and
-//! drained by polling subscriptions in `core/subscriptions.rs`. See those modules for details.
+//! flow through `EventChannel<T>` (unbounded mpsc) pairs in `core/globals.rs` and
+//! are drained by subscription streams in `core/subscriptions.rs`. See those modules for details.
 
 pub(crate) mod backtest;
 pub(crate) use backtest::history as backtest_history;
@@ -55,10 +55,6 @@ pub struct Kairos {
 }
 
 impl Kairos {
-    /// Sentinel UUID used to attribute DataIndex entries from the persisted registry
-    /// (no real feed ID, represents locally cached data).
-    pub(crate) const REGISTRY_SENTINEL_FEED: uuid::Uuid = uuid::Uuid::nil();
-
     pub fn new() -> (Self, Task<Message>) {
         // Load saved state (no I/O beyond disk reads for config, no repo init)
         let saved_state_temp = crate::persistence::load_saved_state_without_registry();
@@ -68,12 +64,8 @@ impl Kairos {
             saved_state_temp.downloaded_tickers.clone(),
         ));
 
-        // Create the shared DataIndex and seed from persisted registry
+        // Create the shared DataIndex (populated later when feeds connect)
         let data_index = std::sync::Arc::new(std::sync::Mutex::new(data::DataIndex::new()));
-        Self::seed_data_index_from_registry(
-            &data::lock_or_recover(&downloaded_tickers),
-            &data_index,
-        );
 
         // Re-create layout manager with the shared Arc (no service yet — services load async)
         let layout_manager = if saved_state_temp.layout_manager.layouts.is_empty() {
