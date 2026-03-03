@@ -31,7 +31,6 @@ impl ReplayManager {
             container(form).padding(tokens::spacing::LG),
         ])
         .width(Length::Fixed(280.0))
-        .height(Length::Fixed(340.0))
         .style(style::dashboard_modal);
 
         if let Some(popup) = self.active_popup {
