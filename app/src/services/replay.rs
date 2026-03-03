@@ -119,7 +119,7 @@ impl Default for ReplayEngineConfig {
             buffer_window_ms: 60000,
             emit_interval_ms: 100,
             max_trades_per_emit: 1000,
-            load_depth: true,
+            load_depth: cfg!(feature = "heatmap"),
             pre_aggregate: true,
             event_buffer_size: 1000,
             detailed_progress: true,
