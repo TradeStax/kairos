@@ -21,6 +21,23 @@ impl Kairos {
                 let mut cm = data::lock_or_recover(&cm_arc);
                 cm.set_status(feed_id, data::ConnectionStatus::Connected);
                 self.sync_feed_snapshots(&cm);
+
+                // Refresh replay streams if the sidebar is open
+                if self
+                    .ui
+                    .sidebar
+                    .is_menu_active(crate::config::sidebar::Menu::Replay)
+                {
+                    let ticker_infos: std::collections::HashMap<String, data::FuturesTickerInfo> =
+                        self.persistence
+                            .tickers_info
+                            .iter()
+                            .map(|(t, i)| (t.to_string(), *i))
+                            .collect();
+                    self.modals
+                        .replay_manager
+                        .refresh_streams(&cm, &ticker_infos);
+                }
                 Task::none()
             }
             data::DataEvent::Disconnected { feed_id, reason } => {
@@ -29,6 +46,23 @@ impl Kairos {
                 let mut cm = data::lock_or_recover(&cm_arc);
                 cm.set_status(feed_id, data::ConnectionStatus::Disconnected);
                 self.sync_feed_snapshots(&cm);
+
+                // Refresh replay streams if the sidebar is open
+                if self
+                    .ui
+                    .sidebar
+                    .is_menu_active(crate::config::sidebar::Menu::Replay)
+                {
+                    let ticker_infos: std::collections::HashMap<String, data::FuturesTickerInfo> =
+                        self.persistence
+                            .tickers_info
+                            .iter()
+                            .map(|(t, i)| (t.to_string(), *i))
+                            .collect();
+                    self.modals
+                        .replay_manager
+                        .refresh_streams(&cm, &ticker_infos);
+                }
                 Task::none()
             }
             data::DataEvent::ConnectionLost { feed_id: _ } => {
@@ -146,8 +180,7 @@ impl Kairos {
                 // Merge updated index into our shared DataIndex, then
                 // strip contributions from disconnected feeds.
                 let active_feeds = {
-                    let cm =
-                        data::lock_or_recover(&self.connections.connection_manager);
+                    let cm = data::lock_or_recover(&self.connections.connection_manager);
                     cm.active_feed_ids()
                 };
                 let mut idx = data::lock_or_recover(&self.persistence.data_index);

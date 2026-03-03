@@ -39,21 +39,33 @@ fn data_event_monitor() -> impl futures::stream::Stream<Item = Message> {
 }
 
 /// Replay engine event monitor.
-/// Blocks on recv() until an event arrives — zero CPU when idle.
+/// Polls for the receiver until it becomes available (replay engine may
+/// initialize after the subscription starts). The stream only ends
+/// when the channel is actually closed (all senders dropped).
 fn replay_event_monitor() -> impl futures::stream::Stream<Item = Message> {
-    let receiver = super::globals::take_replay_receiver();
-    futures::stream::unfold(receiver, |maybe_rx| async move {
-        match maybe_rx {
-            Some(mut rx) => rx
-                .recv()
-                .await
-                .map(|event| (Message::ReplayEvent(event), Some(rx))),
-            None => {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                None
+    futures::stream::unfold(
+        None::<tokio::sync::mpsc::UnboundedReceiver<crate::services::ReplayEvent>>,
+        |maybe_rx| async move {
+            let mut rx = match maybe_rx {
+                Some(rx) => rx,
+                None => loop {
+                    if let Some(rx) = super::globals::take_replay_receiver() {
+                        log::info!("Replay event monitor: receiver acquired");
+                        break rx;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                },
+            };
+
+            match rx.recv().await {
+                Some(event) => Some((Message::ReplayEvent(event), Some(rx))),
+                None => {
+                    log::warn!("Replay event channel closed");
+                    None
+                }
             }
-        }
-    })
+        },
+    )
 }
 
 /// Backtest progress event monitor.

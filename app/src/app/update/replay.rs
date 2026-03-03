@@ -23,6 +23,14 @@ impl Kairos {
                 return self.replay_engine_action(|engine| Box::pin(engine.pause()));
             }
             replay::Message::EndReplay => {
+                // Capture ticker before clearing state for Rithmic resume
+                let replay_ticker = self
+                    .modals
+                    .replay_manager
+                    .selected_stream
+                    .as_ref()
+                    .map(|s| s.ticker_info.ticker);
+
                 // Stop replay, restore chart data, hide controller
                 self.modals.replay_manager.data_loaded = false;
                 self.modals.replay_manager.progress = 0.0;
@@ -33,7 +41,22 @@ impl Kairos {
 
                 self.exit_replay_on_all_panes();
 
-                return self.replay_engine_action(|engine| Box::pin(engine.stop()));
+                // Clear engine data (calls stop() internally, then frees data)
+                let clear_task = self.replay_engine_action(|engine| {
+                    Box::pin(async move {
+                        engine.clear().await;
+                        Ok(())
+                    })
+                });
+
+                // Resume Rithmic feed if it was paused
+                let resume_task = if let Some(ticker) = replay_ticker {
+                    self.resume_rithmic_feed(ticker)
+                } else {
+                    Task::none()
+                };
+
+                return Task::batch([clear_task, resume_task]);
             }
             replay::Message::CloseController => {
                 // Hide controller but keep replay playing
@@ -105,7 +128,7 @@ impl Kairos {
                 self.modals.replay_manager.playback_status = status;
             }
             crate::services::ReplayEvent::DataLoaded {
-                ticker: _,
+                ticker,
                 trade_count,
                 depth_count,
                 time_range,
@@ -123,8 +146,13 @@ impl Kairos {
                 // Enter replay mode on matching panes
                 self.enter_replay_on_matching_panes();
 
+                // Pause Rithmic feed to avoid wasting bandwidth during replay
+                let pause_task = self.pause_rithmic_feed(ticker);
+
                 // Spawn task to compute volume histogram
-                return self.compute_volume_histogram();
+                let histogram_task = self.compute_volume_histogram();
+
+                return Task::batch([pause_task, histogram_task]);
             }
             crate::services::ReplayEvent::LoadingProgress { progress, message } => {
                 self.modals.replay_manager.loading_progress = Some((progress, message));
@@ -204,7 +232,6 @@ impl Kairos {
 
         let ticker_info = stream.ticker_info;
         let date_range = stream.date_range;
-        let replay_sender = super::super::core::globals::get_replay_sender();
 
         // Compute the user-specified start timestamp from date + time fields
         let start_timestamp = self.compute_replay_start_timestamp();
@@ -216,16 +243,6 @@ impl Kairos {
         Task::perform(
             async move {
                 let mut guard = engine.lock().await;
-
-                // Take the event_rx and bridge to the global channel sender
-                if let Some(rx) = guard.take_event_rx() {
-                    tokio::spawn(async move {
-                        let mut rx = rx;
-                        while let Some(event) = rx.recv().await {
-                            let _ = replay_sender.send(event);
-                        }
-                    });
-                }
 
                 // Load data, seek to user-specified start, then play
                 guard.load_data(ticker_info, date_range).await?;
@@ -239,8 +256,10 @@ impl Kairos {
                 Ok::<(), String>(())
             },
             |result| match result {
-                Ok(()) => Message::ReplayEvent(crate::services::ReplayEvent::PlaybackStarted),
-                Err(e) => Message::ReplayEvent(crate::services::ReplayEvent::Error(e)),
+                Ok(()) => Message::Tick(std::time::Instant::now()),
+                // Errors are already emitted by the engine via the global
+                // channel; avoid duplicate error events.
+                Err(_) => Message::Tick(std::time::Instant::now()),
             },
         )
     }
@@ -342,5 +361,39 @@ impl Kairos {
         let timestamp = start + ((end - start) as f32 * progress) as u64;
 
         self.replay_engine_action(move |engine| Box::pin(engine.seek(timestamp)))
+    }
+
+    /// Pause Rithmic real-time feed for a ticker during replay.
+    fn pause_rithmic_feed(&self, ticker: data::FuturesTicker) -> Task<Message> {
+        let Some(client) = self.services.rithmic_client.clone() else {
+            return Task::none();
+        };
+        let symbol = ticker.as_str().to_owned();
+        Task::perform(
+            async move {
+                let mut guard = client.lock().await;
+                if let Err(e) = guard.unsubscribe(&symbol, "CME").await {
+                    log::warn!("Failed to pause Rithmic feed for {}: {}", symbol, e);
+                }
+            },
+            |_| Message::Tick(std::time::Instant::now()),
+        )
+    }
+
+    /// Resume Rithmic real-time feed for a ticker after replay ends.
+    fn resume_rithmic_feed(&self, ticker: data::FuturesTicker) -> Task<Message> {
+        let Some(client) = self.services.rithmic_client.clone() else {
+            return Task::none();
+        };
+        let symbol = ticker.as_str().to_owned();
+        Task::perform(
+            async move {
+                let mut guard = client.lock().await;
+                if let Err(e) = guard.subscribe(&symbol, "CME").await {
+                    log::warn!("Failed to resume Rithmic feed for {}: {}", symbol, e);
+                }
+            },
+            |_| Message::Tick(std::time::Instant::now()),
+        )
     }
 }

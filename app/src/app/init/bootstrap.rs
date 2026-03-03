@@ -97,9 +97,17 @@ impl Kairos {
 
                 // Wire up the trade provider for the backtest engine
                 self.modals.backtest.backtest_trade_provider = Some(std::sync::Arc::new(
-                    crate::services::trade_provider::EngineTradeProvider::new(init.engine),
+                    crate::services::trade_provider::EngineTradeProvider::new(init.engine.clone()),
                 )
                     as std::sync::Arc<dyn backtest::TradeProvider>);
+
+                // Create ReplayEngine, sending events directly to the global
+                // replay channel so the subscription stream picks them up.
+                let replay_sender = crate::app::core::globals::get_replay_sender().clone();
+                let replay_engine =
+                    crate::services::ReplayEngine::with_default_config(init.engine, replay_sender);
+                self.services.replay_engine =
+                    Some(std::sync::Arc::new(tokio::sync::Mutex::new(replay_engine)));
 
                 log::info!("DataEngine ready — services wired up");
             }

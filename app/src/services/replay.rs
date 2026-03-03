@@ -142,11 +142,8 @@ pub struct ReplayEngine {
     /// Data engine for fetching trades/depth
     engine: Arc<tokio::sync::Mutex<data::engine::DataEngine>>,
 
-    /// Event sender channel (bounded to prevent memory growth)
-    event_tx: mpsc::Sender<ReplayEvent>,
-
-    /// Event receiver channel (private; use take_event_rx())
-    event_rx: Option<mpsc::Receiver<ReplayEvent>>,
+    /// Event sender channel (unbounded, shared with global subscription)
+    event_tx: mpsc::UnboundedSender<ReplayEvent>,
 
     /// Background playback task handle
     playback_handle: Option<tokio::task::JoinHandle<()>>,
@@ -157,23 +154,24 @@ impl ReplayEngine {
     pub fn new(
         config: ReplayEngineConfig,
         engine: Arc<tokio::sync::Mutex<data::engine::DataEngine>>,
+        event_tx: mpsc::UnboundedSender<ReplayEvent>,
     ) -> Self {
-        let (event_tx, event_rx) = mpsc::channel(1024);
-
         Self {
             config,
             state: Arc::new(RwLock::new(ReplayState::new())),
             data: Arc::new(RwLock::new(None)),
             engine,
             event_tx,
-            event_rx: Some(event_rx),
             playback_handle: None,
         }
     }
 
     /// Create with default configuration
-    pub fn with_default_config(engine: Arc<tokio::sync::Mutex<data::engine::DataEngine>>) -> Self {
-        Self::new(ReplayEngineConfig::default(), engine)
+    pub fn with_default_config(
+        engine: Arc<tokio::sync::Mutex<data::engine::DataEngine>>,
+        event_tx: mpsc::UnboundedSender<ReplayEvent>,
+    ) -> Self {
+        Self::new(ReplayEngineConfig::default(), engine, event_tx)
     }
 
     /// Load data for replay
@@ -335,7 +333,7 @@ impl ReplayEngine {
                 data.cache_candles(name.to_string(), candles);
 
                 if self.config.detailed_progress
-                    && let Err(e) = self.event_tx.try_send(ReplayEvent::LoadingProgress {
+                    && let Err(e) = self.event_tx.send(ReplayEvent::LoadingProgress {
                         progress: 0.9,
                         message: format!("Aggregated {} candles", name),
                     })
@@ -532,7 +530,7 @@ impl ReplayEngine {
                     let depth = replay_data.depth_at(new_position);
 
                     if (!trades.is_empty() || depth.is_some())
-                        && let Err(e) = event_tx.try_send(ReplayEvent::MarketData {
+                        && let Err(e) = event_tx.send(ReplayEvent::MarketData {
                             timestamp: new_position,
                             trades,
                             depth: depth.cloned(),
@@ -547,7 +545,7 @@ impl ReplayEngine {
                     state.progress()
                 };
 
-                if let Err(e) = event_tx.try_send(ReplayEvent::PositionUpdate {
+                if let Err(e) = event_tx.send(ReplayEvent::PositionUpdate {
                     timestamp: new_position,
                     progress,
                 }) {
@@ -561,11 +559,11 @@ impl ReplayEngine {
                     }
 
                     if let Err(e) =
-                        event_tx.try_send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped))
+                        event_tx.send(ReplayEvent::StatusChanged(PlaybackStatus::Stopped))
                     {
                         log::warn!("Dropped replay event: {}", e);
                     }
-                    if let Err(e) = event_tx.try_send(ReplayEvent::PlaybackComplete) {
+                    if let Err(e) = event_tx.send(ReplayEvent::PlaybackComplete) {
                         log::warn!("Dropped replay event: {}", e);
                     }
                     break;
@@ -574,14 +572,9 @@ impl ReplayEngine {
         }));
     }
 
-    /// Take the event receiver (can only be called once)
-    pub fn take_event_rx(&mut self) -> Option<mpsc::Receiver<ReplayEvent>> {
-        self.event_rx.take()
-    }
-
-    /// Emit an event (non-blocking, drops if full)
+    /// Emit an event to the global replay channel
     fn emit_event(&self, event: ReplayEvent) {
-        if let Err(e) = self.event_tx.try_send(event) {
+        if let Err(e) = self.event_tx.send(event) {
             log::error!("Failed to emit replay event: {}", e);
         }
     }

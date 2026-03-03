@@ -31,6 +31,7 @@ impl ReplayManager {
             container(form).padding(tokens::spacing::LG),
         ])
         .width(Length::Fixed(280.0))
+        .height(Length::Fixed(340.0))
         .style(style::dashboard_modal);
 
         if let Some(popup) = self.active_popup {
@@ -65,13 +66,10 @@ impl ReplayManager {
                     ..Padding::ZERO
                 });
 
-            stack![
-                container(base).height(Length::Fixed(340.0)),
-                mouse_area(positioned).on_press(Message::ClosePopups),
-            ]
-            .width(280.0)
-            .height(340.0)
-            .into()
+            stack![base, mouse_area(positioned).on_press(Message::ClosePopups),]
+                .width(280.0)
+                .height(340.0)
+                .into()
         } else {
             base.into()
         }
