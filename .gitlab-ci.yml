@@ -2,7 +2,7 @@
 #
 # Push pipeline:  fmt, clippy, audit → test-lib, test-doc
 # MR pipeline:    fmt, clippy, audit → test-lib, test-doc → [build: manual]
-# Tag pipeline:   fmt, clippy, audit → test-lib, test-doc → build (5 jobs)
+# Tag pipeline:   fmt, clippy, audit → test-lib, test-doc → build (4 jobs)
 #                 → collect-checksums → create-release
 
 stages:
@@ -49,26 +49,37 @@ variables:
     - cargo --version
 
 # ── Cache templates ──────────────────────────────────────────────────────────
+# Cache cargo registry/git only (dependency downloads). The target/ directory
+# is too large for SaaS runner distributed cache and the upload/download cost
+# exceeds compilation savings. Each platform template uses an explicit key
+# prefix since CI_RUNNER_OS is not a standard GitLab CI variable.
 
-.cache-dev: &cache-dev
+.cache-linux: &cache-linux
   cache:
-    key: "${CI_RUNNER_OS}-dev-${CI_COMMIT_REF_SLUG}"
+    key: "linux-${CI_COMMIT_REF_SLUG}"
     fallback_keys:
-      - "${CI_RUNNER_OS}-dev-main"
+      - "linux-main"
     paths:
       - .cargo/registry/
       - .cargo/git/
-      - target/
 
-.cache-release: &cache-release
+.cache-windows: &cache-windows
   cache:
-    key: "${CI_RUNNER_OS}-release-${CI_COMMIT_REF_SLUG}"
+    key: "windows-${CI_COMMIT_REF_SLUG}"
     fallback_keys:
-      - "${CI_RUNNER_OS}-release-main"
+      - "windows-main"
     paths:
       - .cargo/registry/
       - .cargo/git/
-      - target/
+
+.cache-macos: &cache-macos
+  cache:
+    key: "macos-${CI_COMMIT_REF_SLUG}"
+    fallback_keys:
+      - "macos-main"
+    paths:
+      - .cargo/registry/
+      - .cargo/git/
 
 # ─── Stage: check ────────────────────────────────────────────────────────────
 
@@ -76,7 +87,7 @@ variables:
 # fmt:
 #   stage: check
 #   image: rust:latest
-#   <<: *cache-dev
+#   <<: *cache-linux
 #   script:
 #     - rustup component add rustfmt
 #     - cargo fmt --check
@@ -84,7 +95,7 @@ variables:
 # clippy:
 #   stage: check
 #   image: rust:latest
-#   <<: *cache-dev
+#   <<: *cache-linux
 #   before_script:
 #     - *linux-deps
 #     - rustup component add clippy
@@ -105,7 +116,7 @@ variables:
 # test-lib:
 #   stage: test
 #   image: rust:latest
-#   <<: *cache-dev
+#   <<: *cache-linux
 #   needs: ["clippy"]
 #   before_script:
 #     - *linux-deps
@@ -115,7 +126,7 @@ variables:
 # test-doc:
 #   stage: test
 #   image: rust:latest
-#   <<: *cache-dev
+#   <<: *cache-linux
 #   needs: ["clippy"]
 #   before_script:
 #     - *linux-deps
@@ -126,7 +137,6 @@ variables:
 
 .build-base:
   stage: build
-  <<: *cache-release
   artifacts:
     paths:
       - target/release/kairos-*
@@ -137,6 +147,7 @@ variables:
 build-linux-x86_64:
   extends: .build-base
   image: rust:latest
+  <<: *cache-linux
   before_script:
     - *linux-deps
   script:
@@ -149,6 +160,7 @@ build-linux-x86_64:
 build-linux-aarch64:
   extends: .build-base
   image: rust:latest
+  <<: *cache-linux
   before_script:
     - *linux-deps
     - apt-get install -y -qq gcc-aarch64-linux-gnu
@@ -165,6 +177,7 @@ build-windows-x86_64:
   extends:
     - .build-base
     - .install-rust-windows
+  <<: *cache-windows
   tags: [saas-windows-medium-amd64]
   script:
     - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
@@ -174,13 +187,13 @@ build-windows-x86_64:
     - when: manual
       allow_failure: true
 
-
 # ── macOS build ──────────────────────────────────────────────────────────────
 
 build-macos-universal:
   extends:
     - .build-base
     - .install-rust-macos
+  <<: *cache-macos
   tags: [saas-macos-medium-m1]
   image: macos-15-xcode-16
   script:
