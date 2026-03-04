@@ -48,3 +48,7 @@ pub const MAE_BAND: Color = Color::from_rgba(0.8, 0.2, 0.2, 0.08);
 pub const MFE_BAND: Color = Color::from_rgba(0.2, 0.7, 0.3, 0.08);
 pub const STRATEGY_OVERLAY: Color = Color::from_rgba(0.4, 0.6, 1.0, 0.15);
 pub const STRATEGY_OVERLAY_LINE: Color = Color::from_rgba(0.4, 0.6, 1.0, 0.5);
+
+// Prop firm Monte Carlo paths
+pub const PROP_FIRM_MC_PASS_PATH: Color = Color::from_rgba(0.3, 0.8, 0.3, 0.12);
+pub const PROP_FIRM_MC_FAIL_PATH: Color = Color::from_rgba(0.8, 0.2, 0.2, 0.12);

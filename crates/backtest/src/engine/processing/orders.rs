@@ -168,13 +168,16 @@ impl Engine {
                 bracket.entry.label,
             );
 
-            // Propagate stop loss to the new position
+            // Propagate stop loss and take profit to the new position
             if let Some(pos) = self
                 .portfolio
                 .positions_mut()
                 .get_mut(&bracket.entry.instrument)
             {
                 pos.set_stop_loss(bracket.stop_loss);
+                if let Some(tp) = bracket.take_profit {
+                    pos.set_take_profit(tp);
+                }
             }
 
             if let Some(mut record) = record {

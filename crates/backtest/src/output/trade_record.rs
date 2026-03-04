@@ -23,6 +23,8 @@ pub enum ExitReason {
     TrailingStop,
     /// Position flattened at the end of a trading session.
     SessionClose,
+    /// Strategy-defined time-based exit (e.g. ORB time exit).
+    TimeExit,
     /// Strategy issued an explicit close signal.
     Manual,
     /// Portfolio-level maximum drawdown limit breached.
@@ -44,6 +46,7 @@ impl std::fmt::Display for ExitReason {
             Self::TakeProfit => write!(f, "Take Profit"),
             Self::TrailingStop => write!(f, "Trailing Stop"),
             Self::SessionClose => write!(f, "Session Close"),
+            Self::TimeExit => write!(f, "Time Exit"),
             Self::Manual => write!(f, "Manual"),
             Self::MaxDrawdown => write!(f, "Max Drawdown"),
             Self::EndOfData => write!(f, "End of Data"),

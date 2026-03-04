@@ -195,6 +195,21 @@ impl OrderBook {
         })
     }
 
+    /// Find the take-profit limit price for a bracket entry order
+    /// by searching its child orders.
+    #[must_use]
+    pub fn bracket_take_profit(&self, parent_id: OrderId) -> Option<Price> {
+        self.orders.values().find_map(|o| {
+            if o.parent_id == Some(parent_id)
+                && let OrderType::Limit { price } = o.order_type
+                && o.label.as_deref() == Some("Bracket TP")
+            {
+                return Some(price);
+            }
+            None
+        })
+    }
+
     /// Cancel an order. If it has an OCO partner, that partner is
     /// cancelled too.
     pub fn cancel(&mut self, id: OrderId, timestamp: Timestamp) {

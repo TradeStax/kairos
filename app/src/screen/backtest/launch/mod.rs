@@ -312,10 +312,11 @@ impl BacktestLaunchModal {
             .map(|(sym, name, _, _, _)| (*sym, *name))
             .collect();
 
-        // Build ConnectionSnapshot list from enabled connections
+        // Build ConnectionSnapshot list from currently connected feeds
         let connections: Vec<ConnectionSnapshot> = connection_manager
             .enabled_connections()
             .into_iter()
+            .filter(|conn| !matches!(conn.status, data::ConnectionStatus::Disconnected))
             .map(|conn| {
                 let calendar_mode = match conn.provider {
                     data::ConnectionProvider::Databento => CalendarMode::CachedOnly,
@@ -416,7 +417,7 @@ impl BacktestLaunchModal {
             selected_ticker,
             calendar_mode,
             calendar,
-            selected_timeframe: Timeframe::M30,
+            selected_timeframe: Timeframe::M1,
             initial_capital_str: "100000".to_string(),
             commission_str: "2.50".to_string(),
             slippage_mode: SlippageMode::None,

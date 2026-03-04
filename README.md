@@ -105,27 +105,6 @@ The app connects to Rithmic's ticker, market data, and PnL plants for real-time 
 
 ---
 
-## Supported Instruments
-
-All instruments are CME Globex futures. Front-month contracts are resolved automatically.
-
-| Symbol | Product | Tick Size | Point Value |
-|--------|---------|-----------|-------------|
-| ES | E-mini S&P 500 | 0.25 | $50 |
-| NQ | E-mini Nasdaq-100 | 0.25 | $20 |
-| YM | E-mini Dow | 1.00 | $5 |
-| RTY | E-mini Russell 2000 | 0.10 | $50 |
-| CL | Crude Oil | 0.01 | $1,000 |
-| GC | Gold | 0.10 | $100 |
-| SI | Silver | 0.005 | $5,000 |
-| HG | Copper | 0.0005 | $25,000 |
-| NG | Natural Gas | 0.001 | $10,000 |
-| ZN | 10-Year T-Note | 1/64 | $1,000 |
-| ZB | 30-Year T-Bond | 1/32 | $1,000 |
-| ZF | 5-Year T-Note | 1/128 | $1,000 |
-
----
-
 ## Chart Types
 
 | Type | Description |

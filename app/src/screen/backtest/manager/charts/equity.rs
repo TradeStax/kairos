@@ -297,8 +297,8 @@ struct EquityChartParams {
 pub struct PropFirmEquityChart<'a> {
     pub equity_curve: &'a [f64],
     pub account_size: f64,
-    pub profit_target_pct: f64,
-    pub max_drawdown_pct: f64,
+    pub profit_target: f64,
+    pub max_trailing_dd: f64,
     pub breach_trade_idx: Option<usize>,
     pub cache: &'a canvas::Cache,
 }
@@ -356,6 +356,20 @@ impl<'a> canvas::Program<ManagerMessage> for PropFirmEquityChart<'a> {
 }
 
 impl<'a> PropFirmEquityChart<'a> {
+    /// Compute trailing DD limit at each equity curve point.
+    fn trailing_dd_curve(&self) -> Vec<f64> {
+        let mut peak = self.equity_curve[0];
+        self.equity_curve
+            .iter()
+            .map(|&eq| {
+                if eq > peak {
+                    peak = eq;
+                }
+                peak - self.max_trailing_dd
+            })
+            .collect()
+    }
+
     fn chart_params(&self, bounds: Rectangle) -> PropFirmParams {
         let pad = 24.0_f32;
         let right_pad = 64.0_f32;
@@ -363,15 +377,17 @@ impl<'a> PropFirmEquityChart<'a> {
         let h = bounds.height;
         let n = self.equity_curve.len();
 
-        let target_eq = self.account_size * (1.0 + self.profit_target_pct / 100.0);
-        let dd_limit_eq = self.account_size * (1.0 - self.max_drawdown_pct / 100.0);
+        let target_eq = self.account_size + self.profit_target;
+        let trailing_dd = self.trailing_dd_curve();
+
+        let dd_floor = trailing_dd.iter().copied().fold(f64::INFINITY, f64::min);
 
         let data_min = self
             .equity_curve
             .iter()
             .copied()
             .fold(f64::INFINITY, f64::min)
-            .min(dd_limit_eq);
+            .min(dd_floor);
         let data_max = self
             .equity_curve
             .iter()
@@ -393,7 +409,7 @@ impl<'a> PropFirmEquityChart<'a> {
             pad_max,
             pad_range,
             target_eq,
-            dd_limit_eq,
+            trailing_dd,
         }
     }
 
@@ -413,6 +429,7 @@ impl<'a> PropFirmEquityChart<'a> {
 
         grid_lines(frame, bounds, p.pad, 3);
 
+        // Static reference lines: target and start
         self.draw_ref_line(
             frame,
             &p,
@@ -423,18 +440,45 @@ impl<'a> PropFirmEquityChart<'a> {
         self.draw_ref_line(
             frame,
             &p,
-            p.dd_limit_eq,
-            tokens::backtest::PROP_FIRM_LIMIT,
-            "DD Limit",
-        );
-        self.draw_ref_line(
-            frame,
-            &p,
             self.account_size,
             Color::from_rgba(1.0, 1.0, 1.0, 0.2),
             "Start",
         );
 
+        // Dynamic trailing DD limit line
+        if p.trailing_dd.len() >= 2 {
+            let dd_path = Path::new(|b| {
+                let first_y = Self::eq_to_y(&p, p.trailing_dd[0]);
+                b.move_to(Point::new(Self::idx_to_x(&p, 0), first_y));
+                for (i, &dd_eq) in p.trailing_dd.iter().enumerate().skip(1) {
+                    b.line_to(Point::new(Self::idx_to_x(&p, i), Self::eq_to_y(&p, dd_eq)));
+                }
+            });
+            frame.stroke(
+                &dd_path,
+                Stroke {
+                    style: tokens::backtest::PROP_FIRM_LIMIT.into(),
+                    width: 1.0,
+                    ..Default::default()
+                },
+            );
+
+            // Label at the end
+            let last_idx = p.trailing_dd.len() - 1;
+            let last_y = Self::eq_to_y(&p, p.trailing_dd[last_idx]);
+            if last_y >= p.pad && last_y <= p.h - p.pad {
+                let label = Text {
+                    content: "DD Limit".to_string(),
+                    position: Point::new(p.w - p.right_pad + 4.0, last_y - 5.0),
+                    color: tokens::backtest::PROP_FIRM_LIMIT,
+                    size: iced::Pixels(9.0),
+                    ..Default::default()
+                };
+                frame.fill_text(label);
+            }
+        }
+
+        // Equity line
         let path = Path::new(|b| {
             let first_y = Self::eq_to_y(&p, self.equity_curve[0]);
             b.move_to(Point::new(Self::idx_to_x(&p, 0), first_y));
@@ -451,6 +495,7 @@ impl<'a> PropFirmEquityChart<'a> {
             },
         );
 
+        // Breach marker
         if let Some(idx) = self.breach_trade_idx {
             let curve_idx = (idx + 1).min(p.n - 1);
             let bx = Self::idx_to_x(&p, curve_idx);
@@ -535,11 +580,13 @@ impl<'a> PropFirmEquityChart<'a> {
                 peak = eq;
             }
         }
-        let dd_pct = if peak > 0.0 {
-            (peak - snap_eq) / self.account_size * 100.0
+        let trailing_dd = peak - snap_eq;
+        let dd_pct = if self.account_size > 0.0 {
+            trailing_dd / self.account_size * 100.0
         } else {
             0.0
         };
+        let dd_remaining = self.max_trailing_dd - trailing_dd;
 
         let pnl = snap_eq - self.account_size;
         let trade_label = if snap_idx == 0 {
@@ -556,7 +603,8 @@ impl<'a> PropFirmEquityChart<'a> {
                 if pnl >= 0.0 { "+" } else { "" },
                 format_currency(pnl)
             ),
-            format!("DD: {:.1}%", dd_pct),
+            format!("DD: {} ({:.1}%)", format_currency(trailing_dd), dd_pct),
+            format!("DD Room: {}", format_currency(dd_remaining)),
         ];
         let (tw, th) = tooltip_size(&lines);
         let pos = position_tooltip(cursor, tw, th, bounds.size());
@@ -573,5 +621,5 @@ struct PropFirmParams {
     pad_max: f64,
     pad_range: f64,
     target_eq: f64,
-    dd_limit_eq: f64,
+    trailing_dd: Vec<f64>,
 }

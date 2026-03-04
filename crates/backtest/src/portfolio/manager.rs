@@ -235,7 +235,7 @@ impl Portfolio {
                         entry_price: pos.avg_entry_price,
                         exit_price: fill_price,
                         initial_stop_loss: pos.initial_stop_loss.unwrap_or(pos.avg_entry_price),
-                        initial_take_profit: None,
+                        initial_take_profit: pos.initial_take_profit,
                         pnl_ticks,
                         pnl_gross_usd: pnl_gross,
                         commission_usd: total_commission,

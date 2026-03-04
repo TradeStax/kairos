@@ -60,6 +60,11 @@ pub struct Position {
     /// Used to compute the risk-reward ratio (R:R) on the resulting
     /// [`TradeRecord`](crate::output::trade_record::TradeRecord).
     pub initial_stop_loss: Option<Price>,
+    /// Take-profit price set by the strategy at entry time.
+    ///
+    /// Used to record the initial TP on the resulting
+    /// [`TradeRecord`](crate::output::trade_record::TradeRecord).
+    pub initial_take_profit: Option<Price>,
 }
 
 impl Position {
@@ -89,6 +94,7 @@ impl Position {
             opened_at: timestamp,
             label,
             initial_stop_loss: None,
+            initial_take_profit: None,
         }
     }
 
@@ -228,6 +234,11 @@ impl Position {
     /// Set the initial stop-loss price for R:R calculation.
     pub fn set_stop_loss(&mut self, price: Price) {
         self.initial_stop_loss = Some(price);
+    }
+
+    /// Set the initial take-profit price for trade recording.
+    pub fn set_take_profit(&mut self, price: Price) {
+        self.initial_take_profit = Some(price);
     }
 }
 

@@ -81,14 +81,14 @@ impl BacktestConfig {
     /// Creates a reasonable default configuration for the ES
     /// front-month contract.
     ///
-    /// Defaults: 30-minute candles, $100k capital, no slippage,
+    /// Defaults: 1-minute candles, $100k capital, no slippage,
     /// $2.50/side commission, ET standard timezone, RTH 09:30-16:00.
     #[must_use]
     pub fn default_es(strategy_id: impl Into<String>) -> Self {
         Self {
             ticker: FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex),
             date_range: DateRange::default(),
-            timeframe: Timeframe::M30,
+            timeframe: Timeframe::M1,
             initial_capital_usd: 100_000.0,
             risk: RiskConfig::default(),
             slippage: SlippageModel::None,

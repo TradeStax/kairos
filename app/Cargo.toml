@@ -1,6 +1,6 @@
 [package]
 name = "kairos"
-version = "0.9.1"
+version = "0.9.2"
 readme = "../README.md"
 license = "GPL-3.0-or-later"
 description = "A native desktop charting platform for futures markets"

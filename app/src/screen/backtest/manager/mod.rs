@@ -70,7 +70,8 @@ pub enum ManagerMessage {
     ChangeTab(ManagerTab),
     SortTrades(TradeListSortColumn),
     SelectTrade(Option<usize>),
-    SelectPropFirm(Option<usize>),
+    SelectPropFirm(usize),
+    ClosePropFirmDetail,
     NewBacktest,
     DeleteBacktest(uuid::Uuid),
     ExportCsv,
@@ -109,6 +110,24 @@ impl TradeDetailView {
     }
 }
 
+// ── Prop Firm Detail View ───────────────────────────────────────────
+
+pub struct PropFirmDetailView {
+    pub account_index: usize,
+    pub equity_chart_cache: canvas::Cache,
+    pub mc_chart_cache: canvas::Cache,
+}
+
+impl PropFirmDetailView {
+    pub fn new(account_index: usize) -> Self {
+        Self {
+            account_index,
+            equity_chart_cache: canvas::Cache::new(),
+            mc_chart_cache: canvas::Cache::new(),
+        }
+    }
+}
+
 // ── State ───────────────────────────────────────────────────────────
 
 pub struct BacktestManager {
@@ -119,8 +138,8 @@ pub struct BacktestManager {
     pub sort_ascending: bool,
     pub sorted_indices: Vec<usize>,
     pub selected_trade: Option<usize>,
-    // Prop firm detail
-    pub selected_prop_firm: Option<usize>,
+    // Prop firm detail (full-page)
+    pub prop_firm_detail: Option<PropFirmDetailView>,
     // Computed analytics (cached)
     pub analytics: Option<computed::ComputedAnalytics>,
     // Canvas caches
@@ -131,7 +150,6 @@ pub struct BacktestManager {
     pub scatter_cache: canvas::Cache,
     pub bar_chart_cache: canvas::Cache,
     pub returns_cache: canvas::Cache,
-    pub prop_firm_chart_cache: canvas::Cache,
     // Trade detail
     pub trade_detail: Option<TradeDetailView>,
 }
@@ -145,7 +163,7 @@ impl BacktestManager {
             sort_ascending: true,
             sorted_indices: Vec::new(),
             selected_trade: None,
-            selected_prop_firm: None,
+            prop_firm_detail: None,
             analytics: None,
             equity_cache: canvas::Cache::new(),
             drawdown_cache: canvas::Cache::new(),
@@ -154,7 +172,6 @@ impl BacktestManager {
             scatter_cache: canvas::Cache::new(),
             bar_chart_cache: canvas::Cache::new(),
             returns_cache: canvas::Cache::new(),
-            prop_firm_chart_cache: canvas::Cache::new(),
             trade_detail: None,
         }
     }
@@ -176,7 +193,7 @@ impl BacktestManager {
                 self.selected_id = Some(id);
                 self.active_tab = ManagerTab::Overview;
                 self.selected_trade = None;
-                self.selected_prop_firm = None;
+                self.prop_firm_detail = None;
                 self.trade_detail = None;
 
                 if let Some(entry) = history.get(id) {
@@ -229,8 +246,11 @@ impl BacktestManager {
                 ManagerAction::None
             }
             ManagerMessage::SelectPropFirm(idx) => {
-                self.selected_prop_firm = idx;
-                self.prop_firm_chart_cache.clear();
+                self.prop_firm_detail = Some(PropFirmDetailView::new(idx));
+                ManagerAction::None
+            }
+            ManagerMessage::ClosePropFirmDetail => {
+                self.prop_firm_detail = None;
                 ManagerAction::None
             }
             ManagerMessage::NewBacktest => ManagerAction::OpenLaunchModal,
@@ -309,7 +329,10 @@ impl BacktestManager {
         self.scatter_cache.clear();
         self.bar_chart_cache.clear();
         self.returns_cache.clear();
-        self.prop_firm_chart_cache.clear();
+        if let Some(ref detail) = self.prop_firm_detail {
+            detail.equity_chart_cache.clear();
+            detail.mc_chart_cache.clear();
+        }
     }
 
     /// Whether the currently selected backtest is completed with

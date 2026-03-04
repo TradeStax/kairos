@@ -6,6 +6,51 @@
 use crate::config::UserTimezone;
 use std::sync::Arc;
 
+// ── Account Specifications ──────────────────────────────────────────
+
+/// Prop firm account specification with dollar-based limits.
+#[derive(Debug, Clone)]
+pub struct AccountSpec {
+    pub name: &'static str,
+    pub size: f64,
+    pub profit_target: f64,
+    pub max_trailing_dd: f64,
+    pub daily_loss_limit: f64,
+}
+
+pub const PROP_FIRM_ACCOUNTS: &[AccountSpec] = &[
+    AccountSpec {
+        name: "50K Eval",
+        size: 50_000.0,
+        profit_target: 3_000.0,
+        max_trailing_dd: 2_500.0,
+        daily_loss_limit: 1_000.0,
+    },
+    AccountSpec {
+        name: "100K Eval",
+        size: 100_000.0,
+        profit_target: 6_000.0,
+        max_trailing_dd: 3_000.0,
+        daily_loss_limit: 2_000.0,
+    },
+    AccountSpec {
+        name: "150K Eval",
+        size: 150_000.0,
+        profit_target: 9_000.0,
+        max_trailing_dd: 4_500.0,
+        daily_loss_limit: 2_250.0,
+    },
+    AccountSpec {
+        name: "250K Funded",
+        size: 250_000.0,
+        profit_target: 15_000.0,
+        max_trailing_dd: 6_250.0,
+        daily_loss_limit: 3_000.0,
+    },
+];
+
+// ── Status ──────────────────────────────────────────────────────────
+
 /// Three-state status for prop firm simulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropFirmStatus {
@@ -14,26 +59,44 @@ pub enum PropFirmStatus {
     Active,
 }
 
+// ── Monte Carlo Types ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct PropFirmMonteCarloResult {
+    pub num_iterations: usize,
+    #[allow(dead_code)]
+    pub pass_count: usize,
+    pub pass_rate: f64,
+    pub avg_trades_to_pass: Option<f64>,
+    pub avg_trades_to_fail: Option<f64>,
+    pub median_final_pnl: f64,
+    pub p5_final_pnl: f64,
+    pub p95_final_pnl: f64,
+    pub sample_paths: Vec<McPropFirmPath>,
+}
+
+#[derive(Debug, Clone)]
+pub struct McPropFirmPath {
+    pub equity_curve: Vec<f64>,
+    pub passed: bool,
+    pub completion_idx: Option<usize>,
+}
+
+// ── Prop Firm Result ────────────────────────────────────────────────
+
 /// Prop firm simulation result for a single account configuration.
 pub struct PropFirmResult {
-    pub account_name: &'static str,
-    pub account_size: f64,
-    pub profit_target_pct: f64,
-    pub max_drawdown_pct: f64,
-    pub daily_loss_limit_pct: f64,
+    pub account: AccountSpec,
     pub status: PropFirmStatus,
-    #[allow(dead_code)]
-    pub hit_profit_target: bool,
     pub hit_drawdown_limit: bool,
     pub hit_daily_limit: bool,
-    #[allow(dead_code)]
-    pub peak_equity: f64,
-    pub worst_drawdown_pct: f64,
-    pub worst_daily_loss_pct: f64,
+    pub worst_drawdown: f64,
+    pub worst_daily_loss: f64,
     pub final_pnl: f64,
     pub progress_pct: f64,
     pub equity_curve: Vec<f64>,
     pub breach_trade_idx: Option<usize>,
+    pub monte_carlo: PropFirmMonteCarloResult,
 }
 
 /// Pre-computed analytics for the management modal.
@@ -462,83 +525,48 @@ impl ComputedAnalytics {
         initial_capital: f64,
         tz: UserTimezone,
     ) -> Vec<PropFirmResult> {
-        struct AccountSpec {
-            name: &'static str,
-            size: f64,
-            profit_target_pct: f64,
-            max_drawdown_pct: f64,
-            daily_loss_limit_pct: f64,
-        }
-
-        let accounts = [
-            AccountSpec {
-                name: "50K Eval",
-                size: 50_000.0,
-                profit_target_pct: 8.0,
-                max_drawdown_pct: 10.0,
-                daily_loss_limit_pct: 4.0,
-            },
-            AccountSpec {
-                name: "100K Eval",
-                size: 100_000.0,
-                profit_target_pct: 8.0,
-                max_drawdown_pct: 10.0,
-                daily_loss_limit_pct: 5.0,
-            },
-            AccountSpec {
-                name: "150K Eval",
-                size: 150_000.0,
-                profit_target_pct: 8.0,
-                max_drawdown_pct: 12.0,
-                daily_loss_limit_pct: 5.0,
-            },
-            AccountSpec {
-                name: "250K Funded",
-                size: 250_000.0,
-                profit_target_pct: 6.0,
-                max_drawdown_pct: 5.0,
-                daily_loss_limit_pct: 2.0,
-            },
-        ];
+        let empty_mc = PropFirmMonteCarloResult {
+            num_iterations: 0,
+            pass_count: 0,
+            pass_rate: 0.0,
+            avg_trades_to_pass: None,
+            avg_trades_to_fail: None,
+            median_final_pnl: 0.0,
+            p5_final_pnl: 0.0,
+            p95_final_pnl: 0.0,
+            sample_paths: vec![],
+        };
 
         if initial_capital <= 0.0 || trades.is_empty() {
-            return accounts
+            return PROP_FIRM_ACCOUNTS
                 .iter()
                 .map(|a| PropFirmResult {
-                    account_name: a.name,
-                    account_size: a.size,
-                    profit_target_pct: a.profit_target_pct,
-                    max_drawdown_pct: a.max_drawdown_pct,
-                    daily_loss_limit_pct: a.daily_loss_limit_pct,
+                    account: a.clone(),
                     status: PropFirmStatus::Active,
-                    hit_profit_target: false,
                     hit_drawdown_limit: false,
                     hit_daily_limit: false,
-                    peak_equity: a.size,
-                    worst_drawdown_pct: 0.0,
-                    worst_daily_loss_pct: 0.0,
+                    worst_drawdown: 0.0,
+                    worst_daily_loss: 0.0,
                     final_pnl: 0.0,
                     progress_pct: 0.0,
                     equity_curve: vec![a.size],
                     breach_trade_idx: None,
+                    monte_carlo: empty_mc.clone(),
                 })
                 .collect();
         }
 
         let scale_factor = |acct_size: f64| acct_size / initial_capital;
 
-        accounts
+        PROP_FIRM_ACCOUNTS
             .iter()
             .map(|acct| {
                 let scale = scale_factor(acct.size);
-                let target_pnl = acct.size * acct.profit_target_pct / 100.0;
-                let dd_limit_pnl = acct.size * acct.max_drawdown_pct / 100.0;
-                let daily_limit_pnl = acct.size * acct.daily_loss_limit_pct / 100.0;
 
                 let mut equity = acct.size;
                 let mut peak = acct.size;
-                let mut worst_dd_pct = 0.0_f64;
-                let mut worst_daily_loss_pct = 0.0_f64;
+                let mut worst_dd = 0.0_f64;
+                let mut worst_daily_loss = 0.0_f64;
                 let mut hit_profit_target = false;
                 let mut hit_drawdown_limit = false;
                 let mut hit_daily_limit = false;
@@ -546,7 +574,6 @@ impl ComputedAnalytics {
                 let mut equity_curve = Vec::with_capacity(trades.len() + 1);
                 equity_curve.push(acct.size);
 
-                // Track daily P&L
                 let mut current_day: Option<(i32, u32, u32)> = None;
                 let mut daily_pnl = 0.0_f64;
 
@@ -554,19 +581,16 @@ impl ComputedAnalytics {
                     let trade_day = tz.date_components((trade.exit_time.0 / 1000) as i64);
                     let scaled_pnl = trade.pnl_net_usd * scale;
 
-                    // New day: check daily loss limit
                     if trade_day != current_day && current_day.is_some() {
-                        let daily_loss_pct = if daily_pnl < 0.0 {
-                            daily_pnl.abs() / acct.size * 100.0
-                        } else {
-                            0.0
-                        };
-                        worst_daily_loss_pct = worst_daily_loss_pct.max(daily_loss_pct);
-                        if daily_pnl.abs() >= daily_limit_pnl && daily_pnl < 0.0 {
-                            if breach_trade_idx.is_none() {
-                                breach_trade_idx = Some(i);
+                        if daily_pnl < 0.0 {
+                            let loss = daily_pnl.abs();
+                            worst_daily_loss = worst_daily_loss.max(loss);
+                            if loss >= acct.daily_loss_limit {
+                                if breach_trade_idx.is_none() {
+                                    breach_trade_idx = Some(i);
+                                }
+                                hit_daily_limit = true;
                             }
-                            hit_daily_limit = true;
                         }
                         daily_pnl = 0.0;
                     }
@@ -581,29 +605,24 @@ impl ComputedAnalytics {
                     }
 
                     let dd = peak - equity;
-                    let dd_pct = if peak > 0.0 {
-                        dd / acct.size * 100.0
-                    } else {
-                        0.0
-                    };
-                    worst_dd_pct = worst_dd_pct.max(dd_pct);
+                    worst_dd = worst_dd.max(dd);
 
-                    if dd >= dd_limit_pnl {
+                    if dd >= acct.max_trailing_dd {
                         if breach_trade_idx.is_none() {
                             breach_trade_idx = Some(i);
                         }
                         hit_drawdown_limit = true;
                     }
-                    if equity - acct.size >= target_pnl {
+                    if equity - acct.size >= acct.profit_target {
                         hit_profit_target = true;
                     }
                 }
 
                 // Final day check
                 if daily_pnl < 0.0 {
-                    let daily_loss_pct = daily_pnl.abs() / acct.size * 100.0;
-                    worst_daily_loss_pct = worst_daily_loss_pct.max(daily_loss_pct);
-                    if daily_pnl.abs() >= daily_limit_pnl {
+                    let loss = daily_pnl.abs();
+                    worst_daily_loss = worst_daily_loss.max(loss);
+                    if loss >= acct.daily_loss_limit {
                         if breach_trade_idx.is_none() {
                             breach_trade_idx = Some(trades.len().saturating_sub(1));
                         }
@@ -621,31 +640,170 @@ impl ComputedAnalytics {
                     PropFirmStatus::Active
                 };
 
-                let progress_pct = if target_pnl > 0.0 {
-                    (final_pnl / target_pnl * 100.0).clamp(0.0, 999.0)
+                let progress_pct = if acct.profit_target > 0.0 {
+                    (final_pnl / acct.profit_target * 100.0).clamp(0.0, 999.0)
                 } else {
                     0.0
                 };
 
+                let monte_carlo =
+                    Self::compute_prop_firm_monte_carlo(trades, acct, initial_capital);
+
                 PropFirmResult {
-                    account_name: acct.name,
-                    account_size: acct.size,
-                    profit_target_pct: acct.profit_target_pct,
-                    max_drawdown_pct: acct.max_drawdown_pct,
-                    daily_loss_limit_pct: acct.daily_loss_limit_pct,
+                    account: acct.clone(),
                     status,
-                    hit_profit_target,
                     hit_drawdown_limit,
                     hit_daily_limit,
-                    peak_equity: peak,
-                    worst_drawdown_pct: worst_dd_pct,
-                    worst_daily_loss_pct,
+                    worst_drawdown: worst_dd,
+                    worst_daily_loss,
                     final_pnl,
                     progress_pct,
                     equity_curve,
                     breach_trade_idx,
+                    monte_carlo,
                 }
             })
             .collect()
+    }
+
+    fn compute_prop_firm_monte_carlo(
+        trades: &[backtest::TradeRecord],
+        acct: &AccountSpec,
+        initial_capital: f64,
+    ) -> PropFirmMonteCarloResult {
+        const NUM_ITERATIONS: usize = 1_000;
+        const SAMPLE_PATHS: usize = 50;
+
+        if trades.is_empty() || initial_capital <= 0.0 {
+            return PropFirmMonteCarloResult {
+                num_iterations: 0,
+                pass_count: 0,
+                pass_rate: 0.0,
+                avg_trades_to_pass: None,
+                avg_trades_to_fail: None,
+                median_final_pnl: 0.0,
+                p5_final_pnl: 0.0,
+                p95_final_pnl: 0.0,
+                sample_paths: vec![],
+            };
+        }
+
+        let scale = acct.size / initial_capital;
+        let pnls: Vec<f64> = trades.iter().map(|t| t.pnl_net_usd * scale).collect();
+        let n = pnls.len();
+
+        // LCG PRNG (same pattern as existing MC)
+        let mut seed: u64 = 12345;
+        let mut next_rand = move || -> usize {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as usize
+        };
+
+        let mut pass_count = 0usize;
+        let mut total_trades_to_pass = 0usize;
+        let mut total_trades_to_fail = 0usize;
+        let mut pass_trade_count = 0usize;
+        let mut fail_trade_count = 0usize;
+        let mut final_pnls = Vec::with_capacity(NUM_ITERATIONS);
+        let mut sample_paths = Vec::with_capacity(SAMPLE_PATHS);
+
+        for iter in 0..NUM_ITERATIONS {
+            // Fisher-Yates shuffle
+            let mut indices: Vec<usize> = (0..n).collect();
+            for i in (1..n).rev() {
+                let j = next_rand() % (i + 1);
+                indices.swap(i, j);
+            }
+
+            let mut equity = acct.size;
+            let mut peak = acct.size;
+            let mut passed = false;
+            let mut failed = false;
+            let mut completion_idx: Option<usize> = None;
+            let store_path = iter < SAMPLE_PATHS;
+            let mut path_equity = if store_path {
+                Vec::with_capacity(n + 1)
+            } else {
+                Vec::new()
+            };
+            if store_path {
+                path_equity.push(acct.size);
+            }
+
+            for (step, &idx) in indices.iter().enumerate() {
+                equity += pnls[idx];
+                if store_path {
+                    path_equity.push(equity);
+                }
+
+                if equity > peak {
+                    peak = equity;
+                }
+
+                let dd = peak - equity;
+
+                if !passed && !failed {
+                    if equity - acct.size >= acct.profit_target {
+                        passed = true;
+                        completion_idx = Some(step);
+                    } else if dd >= acct.max_trailing_dd {
+                        failed = true;
+                        completion_idx = Some(step);
+                    }
+                }
+            }
+
+            if passed {
+                pass_count += 1;
+                if let Some(idx) = completion_idx {
+                    total_trades_to_pass += idx + 1;
+                    pass_trade_count += 1;
+                }
+            } else if failed && let Some(idx) = completion_idx {
+                total_trades_to_fail += idx + 1;
+                fail_trade_count += 1;
+            }
+
+            final_pnls.push(equity - acct.size);
+
+            if store_path {
+                // Truncate path at completion for visual clarity
+                if let Some(ci) = completion_idx {
+                    path_equity.truncate(ci + 2); // +1 for start, +1 inclusive
+                }
+                sample_paths.push(McPropFirmPath {
+                    equity_curve: path_equity,
+                    passed,
+                    completion_idx,
+                });
+            }
+        }
+
+        final_pnls.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let len = final_pnls.len();
+        let p5_idx = ((len as f64 * 0.05) as usize).min(len - 1);
+        let p95_idx = ((len as f64 * 0.95) as usize).min(len - 1);
+
+        PropFirmMonteCarloResult {
+            num_iterations: NUM_ITERATIONS,
+            pass_count,
+            pass_rate: pass_count as f64 / NUM_ITERATIONS as f64,
+            avg_trades_to_pass: if pass_trade_count > 0 {
+                Some(total_trades_to_pass as f64 / pass_trade_count as f64)
+            } else {
+                None
+            },
+            avg_trades_to_fail: if fail_trade_count > 0 {
+                Some(total_trades_to_fail as f64 / fail_trade_count as f64)
+            } else {
+                None
+            },
+            median_final_pnl: final_pnls[len / 2],
+            p5_final_pnl: final_pnls[p5_idx],
+            p95_final_pnl: final_pnls[p95_idx],
+            sample_paths,
+        }
     }
 }

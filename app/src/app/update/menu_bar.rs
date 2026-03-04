@@ -595,16 +595,14 @@ impl Kairos {
             }
             Action::OpenBacktest => {
                 return Task::done(crate::app::Message::Backtest(
-                    crate::app::messages::BacktestMessage::OpenLaunchModal,
+                    crate::app::messages::BacktestMessage::OpenLaunchModal { strategy_id: None },
                 ));
             }
             Action::OpenBacktestStrategy(id) => {
-                self.modals
-                    .backtest
-                    .backtest_launch_modal
-                    .pre_select_strategy(&id);
                 return Task::done(crate::app::Message::Backtest(
-                    crate::app::messages::BacktestMessage::OpenLaunchModal,
+                    crate::app::messages::BacktestMessage::OpenLaunchModal {
+                        strategy_id: Some(id),
+                    },
                 ));
             }
             Action::OpenBacktestManager => {

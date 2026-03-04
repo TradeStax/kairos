@@ -3,9 +3,12 @@
 //! Five sections: prop firm simulation, Monte Carlo, risk & position
 //! sizing, P&L distribution + MAE/MFE scatter, and P&L by hour.
 
-use super::charts::{BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart, ScatterChart};
-use super::computed::{ComputedAnalytics, PropFirmStatus};
-use super::{BacktestManager, ManagerMessage};
+use super::charts::{
+    BarChart, HistogramChart, MonteCarloChart, PropFirmEquityChart, PropFirmMonteCarloChart,
+    ScatterChart,
+};
+use super::computed::{ComputedAnalytics, PropFirmResult, PropFirmStatus};
+use super::{BacktestManager, ManagerMessage, PropFirmDetailView};
 use crate::app::backtest_history::BacktestHistory;
 use crate::components::primitives::icon_button::icon_button;
 use crate::components::primitives::icons::{AZERET_MONO, Icon};
@@ -36,26 +39,23 @@ pub fn view<'a>(
         return empty_state("Select a completed backtest");
     };
 
+    // ── Full-page prop firm detail view ─────────────────────────
+    if let Some(ref detail) = manager.prop_firm_detail
+        && let Some(pf) = analytics.prop_firm_results.get(detail.account_index)
+    {
+        return prop_firm_detail_page(pf, detail);
+    }
+
     // ── Section 1: Prop Firm Simulation ────────────────────────
     let prop_firm_section = {
         let header = section_header("PROP FIRM SIMULATION");
 
         let mut cards_row = row![].spacing(tokens::spacing::SM);
         for (i, pf) in analytics.prop_firm_results.iter().enumerate() {
-            let selected = manager.selected_prop_firm == Some(i);
-            cards_row = cards_row.push(prop_firm_card(pf, i, selected));
+            cards_row = cards_row.push(prop_firm_card(pf, i));
         }
 
-        let mut section = column![header, cards_row].spacing(tokens::spacing::SM);
-
-        if let Some(pf) = manager
-            .selected_prop_firm
-            .and_then(|i| analytics.prop_firm_results.get(i))
-        {
-            section = section.push(prop_firm_detail_view(pf, &manager.prop_firm_chart_cache));
-        }
-
-        section
+        column![header, cards_row].spacing(tokens::spacing::SM)
     };
 
     // ── Section 2: Monte Carlo Simulation ──────────────────────
@@ -175,12 +175,8 @@ fn section_header(title: &str) -> Element<'static, ManagerMessage> {
 
 // ── Prop Firm Card ─────────────────────────────────────────────────
 
-fn prop_firm_card(
-    pf: &super::computed::PropFirmResult,
-    idx: usize,
-    selected: bool,
-) -> Element<'static, ManagerMessage> {
-    let name = text(pf.account_name.to_string()).size(tokens::text::LABEL);
+fn prop_firm_card(pf: &PropFirmResult, idx: usize) -> Element<'static, ManagerMessage> {
+    let name = text(pf.account.name.to_string()).size(tokens::text::LABEL);
 
     let (badge_text, badge_style): (&str, fn(&iced::Theme) -> iced::widget::text::Style) =
         match pf.status {
@@ -192,6 +188,17 @@ fn prop_firm_card(
         .size(tokens::text::SMALL)
         .style(badge_style);
 
+    // MC pass rate badge
+    let pass_rate_pct = pf.monte_carlo.pass_rate * 100.0;
+    let pr_style: fn(&iced::Theme) -> iced::widget::text::Style = if pass_rate_pct >= 50.0 {
+        palette::success_text
+    } else {
+        palette::error_text
+    };
+    let pass_rate_label = text(format!("MC: {:.0}%", pass_rate_pct))
+        .size(tokens::text::SMALL)
+        .style(pr_style);
+
     let pnl_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.final_pnl >= 0.0 {
         palette::success_text
     } else {
@@ -199,34 +206,25 @@ fn prop_firm_card(
     };
     let pnl_row = kv_row("P&L", &format_pnl(pf.final_pnl), Some(pnl_style));
 
+    let dd_pct = if pf.account.size > 0.0 {
+        pf.worst_drawdown / pf.account.size * 100.0
+    } else {
+        0.0
+    };
     let dd_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.hit_drawdown_limit {
         palette::error_text
     } else {
         palette::neutral_text
     };
-    let dd_row = kv_row(
-        "Worst DD",
-        &format!("{:.1}%", pf.worst_drawdown_pct),
-        Some(dd_style),
-    );
+    let dd_row = kv_row("Worst DD", &format!("{:.1}%", dd_pct), Some(dd_style));
 
-    let daily_style: fn(&iced::Theme) -> iced::widget::text::Style = if pf.hit_daily_limit {
-        palette::warning_text
-    } else {
-        palette::neutral_text
-    };
-    let daily_row = kv_row(
-        "Daily Loss",
-        &format!("{:.1}%", pf.worst_daily_loss_pct),
-        Some(daily_style),
-    );
-
-    // Progress bar toward profit target
     let progress_pct = pf.progress_pct;
     let progress_bar = progress_bar_widget(progress_pct);
 
+    let badge_row = row![badge, pass_rate_label].spacing(tokens::spacing::SM);
+
     let card_content =
-        column![name, badge, pnl_row, dd_row, daily_row, progress_bar].spacing(tokens::spacing::XS);
+        column![name, badge_row, pnl_row, dd_row, progress_bar].spacing(tokens::spacing::XS);
 
     let style_fn = move |theme: &iced::Theme, status: button::Status| {
         let p = theme.extended_palette();
@@ -234,11 +232,6 @@ fn prop_firm_card(
             button::Status::Hovered => 0.08,
             button::Status::Pressed => 0.10,
             _ => 0.04,
-        };
-        let border_color = if selected {
-            Color::from_rgba(0.3, 0.6, 1.0, 0.5)
-        } else {
-            Color::TRANSPARENT
         };
         button::Style {
             background: Some(Background::Color(Color {
@@ -248,8 +241,7 @@ fn prop_firm_card(
             text_color: p.background.base.text,
             border: iced::Border {
                 radius: tokens::radius::MD.into(),
-                width: if selected { 1.0 } else { 0.0 },
-                color: border_color,
+                ..Default::default()
             },
             ..Default::default()
         }
@@ -262,7 +254,7 @@ fn prop_firm_card(
     )
     .width(Length::FillPortion(1))
     .padding(0)
-    .on_press(ManagerMessage::SelectPropFirm(Some(idx)))
+    .on_press(ManagerMessage::SelectPropFirm(idx))
     .style(style_fn)
     .into()
 }
@@ -310,59 +302,58 @@ fn progress_bar_widget(pct: f64) -> Element<'static, ManagerMessage> {
         .into()
 }
 
-// ── Prop Firm Detail View ─────────────────────────────────────────
+// ── Full-Page Prop Firm Detail ────────────────────────────────────
 
-fn prop_firm_detail_view<'a>(
-    pf: &'a super::computed::PropFirmResult,
-    chart_cache: &'a canvas::Cache,
+fn prop_firm_detail_page<'a>(
+    pf: &'a PropFirmResult,
+    detail: &'a PropFirmDetailView,
 ) -> Element<'a, ManagerMessage> {
-    // ── Left: metrics column ────────────────────────────────
-    let collapse_btn = icon_button(Icon::ChevronUp)
+    let acct = &pf.account;
+
+    // ── Header ───────────────────────────────────────────────
+    let back_btn = icon_button(Icon::Return)
         .size(tokens::text::BODY)
-        .tooltip("Collapse")
-        .on_press(ManagerMessage::SelectPropFirm(None))
+        .tooltip("Back")
+        .on_press(ManagerMessage::ClosePropFirmDetail)
         .style(crate::style::button::secondary);
 
-    let title_row = row![
-        text(format!("{} Detail", pf.account_name)).size(tokens::text::LABEL),
+    let (status_text, status_style): (&str, fn(&iced::Theme) -> iced::widget::text::Style) =
+        match pf.status {
+            PropFirmStatus::Passed => ("PASSED", palette::success_text),
+            PropFirmStatus::Failed => ("FAILED", palette::error_text),
+            PropFirmStatus::Active => ("ACTIVE", palette::info_text),
+        };
+
+    let header_row = row![
+        back_btn,
+        text(format!("{} Detail", acct.name)).size(tokens::text::LABEL),
         iced::widget::Space::new().width(Length::Fill),
-        collapse_btn,
+        text(status_text.to_string())
+            .size(tokens::text::LABEL)
+            .style(status_style),
     ]
+    .spacing(tokens::spacing::SM)
     .align_y(iced::Alignment::Center);
 
-    let target_dollar = pf.account_size * pf.profit_target_pct / 100.0;
-    let dd_limit_dollar = pf.account_size * pf.max_drawdown_pct / 100.0;
-    let daily_limit_dollar = pf.account_size * pf.daily_loss_limit_pct / 100.0;
+    // ── Deterministic Result Section ─────────────────────────
+    let det_header = section_header("DETERMINISTIC RESULT");
 
-    let metrics = column![
-        kv_row_mono("Account Size", &format_dollar(pf.account_size), None,),
-        kv_row_mono(
-            "Profit Target",
-            &format!(
-                "{}% ({})",
-                pf.profit_target_pct,
-                format_dollar(target_dollar)
-            ),
-            None,
-        ),
-        kv_row_mono(
-            "DD Limit",
-            &format!(
-                "{}% ({})",
-                pf.max_drawdown_pct,
-                format_dollar(dd_limit_dollar)
-            ),
-            None,
-        ),
-        kv_row_mono(
-            "Daily Limit",
-            &format!(
-                "{}% ({})",
-                pf.daily_loss_limit_pct,
-                format_dollar(daily_limit_dollar)
-            ),
-            None,
-        ),
+    let dd_pct = if acct.size > 0.0 {
+        pf.worst_drawdown / acct.size * 100.0
+    } else {
+        0.0
+    };
+    let daily_pct = if acct.size > 0.0 {
+        pf.worst_daily_loss / acct.size * 100.0
+    } else {
+        0.0
+    };
+
+    let det_metrics = column![
+        kv_row_mono("Account Size", &format_dollar(acct.size), None,),
+        kv_row_mono("Profit Target", &format_dollar(acct.profit_target), None,),
+        kv_row_mono("DD Limit", &format_dollar(acct.max_trailing_dd), None,),
+        kv_row_mono("Daily Limit", &format_dollar(acct.daily_loss_limit), None,),
         rule::horizontal(1),
         kv_row_mono(
             "Final P&L",
@@ -375,7 +366,7 @@ fn prop_firm_detail_view<'a>(
         ),
         kv_row_mono(
             "Worst DD",
-            &format!("{:.2}%", pf.worst_drawdown_pct),
+            &format!("{} ({:.1}%)", format_dollar(pf.worst_drawdown), dd_pct),
             Some(if pf.hit_drawdown_limit {
                 palette::error_text
             } else {
@@ -384,7 +375,7 @@ fn prop_firm_detail_view<'a>(
         ),
         kv_row_mono(
             "Worst Daily",
-            &format!("{:.2}%", pf.worst_daily_loss_pct),
+            &format!("{} ({:.1}%)", format_dollar(pf.worst_daily_loss), daily_pct),
             Some(if pf.hit_daily_limit {
                 palette::warning_text
             } else {
@@ -395,31 +386,107 @@ fn prop_firm_detail_view<'a>(
     ]
     .spacing(tokens::spacing::XS);
 
-    let left_col =
-        container(column![metrics].spacing(tokens::spacing::SM)).width(Length::Fixed(240.0));
+    let det_left = container(det_metrics).width(Length::Fixed(260.0));
 
-    // ── Right: equity curve chart ───────────────────────────
-    let chart = canvas(PropFirmEquityChart {
+    let det_chart = canvas(PropFirmEquityChart {
         equity_curve: &pf.equity_curve,
-        account_size: pf.account_size,
-        profit_target_pct: pf.profit_target_pct,
-        max_drawdown_pct: pf.max_drawdown_pct,
+        account_size: acct.size,
+        profit_target: acct.profit_target,
+        max_trailing_dd: acct.max_trailing_dd,
         breach_trade_idx: pf.breach_trade_idx,
-        cache: chart_cache,
+        cache: &detail.equity_chart_cache,
     })
     .width(Length::Fill)
-    .height(Length::Fixed(200.0));
+    .height(Length::Fixed(220.0));
 
-    let right_col = container(chart)
+    let det_right = container(det_chart)
         .width(Length::Fill)
-        .height(Length::Fixed(200.0));
+        .height(Length::Fixed(220.0));
 
-    let body = row![left_col, right_col].spacing(tokens::spacing::MD);
+    let det_body = row![det_left, det_right].spacing(tokens::spacing::MD);
 
-    container(column![title_row, body].spacing(tokens::spacing::SM))
+    let det_section = container(column![det_header, det_body].spacing(tokens::spacing::SM))
         .padding(tokens::spacing::MD)
         .width(Length::Fill)
-        .style(card_background)
+        .style(card_background);
+
+    // ── Monte Carlo Section ──────────────────────────────────
+    let mc = &pf.monte_carlo;
+    let mc_header = section_header(&format!(
+        "MONTE CARLO SIMULATION ({} iterations)",
+        mc.num_iterations
+    ));
+
+    let mc_metrics = column![
+        kv_row_mono(
+            "Pass Rate",
+            &format!("{:.1}%", mc.pass_rate * 100.0),
+            Some(if mc.pass_rate >= 0.5 {
+                palette::success_text
+            } else {
+                palette::error_text
+            }),
+        ),
+        kv_row_mono(
+            "Avg to Pass",
+            &mc.avg_trades_to_pass
+                .map(|v| format!("{:.0} trades", v))
+                .unwrap_or_else(|| "N/A".to_string()),
+            None,
+        ),
+        kv_row_mono(
+            "Avg to Fail",
+            &mc.avg_trades_to_fail
+                .map(|v| format!("{:.0} trades", v))
+                .unwrap_or_else(|| "N/A".to_string()),
+            None,
+        ),
+        rule::horizontal(1),
+        kv_row_mono(
+            "Median P&L",
+            &format_pnl(mc.median_final_pnl),
+            Some(if mc.median_final_pnl >= 0.0 {
+                palette::success_text
+            } else {
+                palette::error_text
+            }),
+        ),
+        kv_row_mono("P5 P&L", &format_pnl(mc.p5_final_pnl), None,),
+        kv_row_mono("P95 P&L", &format_pnl(mc.p95_final_pnl), None,),
+    ]
+    .spacing(tokens::spacing::XS);
+
+    let mc_left = container(mc_metrics).width(Length::Fixed(260.0));
+
+    let mc_chart = canvas(PropFirmMonteCarloChart {
+        paths: &mc.sample_paths,
+        account_size: acct.size,
+        profit_target: acct.profit_target,
+        dd_limit: acct.max_trailing_dd,
+        cache: &detail.mc_chart_cache,
+    })
+    .width(Length::Fill)
+    .height(Length::Fixed(220.0));
+
+    let mc_right = container(mc_chart)
+        .width(Length::Fill)
+        .height(Length::Fixed(220.0));
+
+    let mc_body = row![mc_left, mc_right].spacing(tokens::spacing::MD);
+
+    let mc_section = container(column![mc_header, mc_body].spacing(tokens::spacing::SM))
+        .padding(tokens::spacing::MD)
+        .width(Length::Fill)
+        .style(card_background);
+
+    // ── Assemble ─────────────────────────────────────────────
+    let content = column![header_row, rule::horizontal(1), det_section, mc_section,]
+        .spacing(tokens::spacing::LG)
+        .padding(tokens::spacing::MD);
+
+    scrollable(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
         .into()
 }
 

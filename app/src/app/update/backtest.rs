@@ -11,7 +11,7 @@ use super::super::{Kairos, Message};
 impl Kairos {
     pub(crate) fn handle_backtest_message(&mut self, msg: BacktestMessage) -> Task<Message> {
         match msg {
-            BacktestMessage::OpenLaunchModal => {
+            BacktestMessage::OpenLaunchModal { strategy_id } => {
                 log::info!("Opening backtest launch modal");
                 let cm = data::lock_or_recover(&self.connections.connection_manager);
                 let idx = data::lock_or_recover(&self.persistence.data_index);
@@ -21,6 +21,12 @@ impl Kairos {
                         &cm,
                         &idx,
                     );
+                if let Some(id) = strategy_id {
+                    self.modals
+                        .backtest
+                        .backtest_launch_modal
+                        .pre_select_strategy(&id);
+                }
                 self.modals.backtest.show_backtest_modal = true;
                 Task::none()
             }
@@ -278,7 +284,9 @@ impl Kairos {
                     ManagerAction::None => Task::none(),
                     ManagerAction::OpenLaunchModal => {
                         self.modals.backtest.show_backtest_manager = false;
-                        Task::done(Message::Backtest(BacktestMessage::OpenLaunchModal))
+                        Task::done(Message::Backtest(BacktestMessage::OpenLaunchModal {
+                            strategy_id: None,
+                        }))
                     }
                     ManagerAction::DeleteBacktest(id) => {
                         self.modals.backtest.backtest_history.remove(id);

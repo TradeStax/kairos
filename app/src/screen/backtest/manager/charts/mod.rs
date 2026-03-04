@@ -13,6 +13,7 @@ pub mod drawdown;
 pub mod equity;
 pub mod histogram;
 pub mod monte_carlo;
+pub mod prop_firm_mc;
 pub mod returns_grid;
 pub mod scatter;
 
@@ -21,6 +22,7 @@ pub use drawdown::DrawdownChart;
 pub use equity::{EquityChart, PropFirmEquityChart};
 pub use histogram::HistogramChart;
 pub use monte_carlo::MonteCarloChart;
+pub use prop_firm_mc::PropFirmMonteCarloChart;
 pub use returns_grid::ReturnsGrid;
 pub use scatter::ScatterChart;
 

@@ -11,7 +11,7 @@ use crate::window;
 #[derive(Debug, Clone)]
 pub enum BacktestMessage {
     /// Open the backtest launch modal/sidebar panel.
-    OpenLaunchModal,
+    OpenLaunchModal { strategy_id: Option<String> },
     /// Open the backtest manager modal.
     OpenManager,
     /// User interaction with the launch modal.

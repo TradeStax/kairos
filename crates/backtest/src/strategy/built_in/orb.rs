@@ -53,6 +53,10 @@ pub struct OrbStrategy {
     or_start_ms: u64,
     /// Number of trades taken in the current session.
     trades_taken: usize,
+    /// Previous session close price (for gap detection).
+    prev_close: Option<Price>,
+    /// Previous session OR range (for gap detection).
+    prev_or_range: Option<Price>,
 }
 
 /// Builds the parameter definitions for this strategy.
@@ -167,6 +171,8 @@ impl OrbStrategy {
             or_low: None,
             or_start_ms: 0,
             trades_taken: 0,
+            prev_close: None,
+            prev_or_range: None,
         }
     }
 
@@ -190,6 +196,10 @@ impl OrbStrategy {
         self.config.get_int("time_exit_hhmm", 1500) as u32
     }
 
+    fn gap_skip(&self) -> bool {
+        self.config.get_bool("gap_skip", true)
+    }
+
     /// Checks if it is past the configured time exit and flattens
     /// any open position. Returns `Some(orders)` if time exit was
     /// triggered, `None` otherwise.
@@ -201,7 +211,7 @@ impl OrbStrategy {
         if ctx.primary_position().is_some() {
             Some(vec![OrderRequest::Flatten {
                 instrument: ctx.primary_instrument,
-                reason: ExitReason::SessionClose,
+                reason: ExitReason::TimeExit,
             }])
         } else {
             Some(vec![])
@@ -220,18 +230,18 @@ impl OrbStrategy {
         or_low: Price,
     ) -> Vec<OrderRequest> {
         let tick_size = ctx.tick_size();
-        let or_range = or_high - or_low;
-        let tp_offset = Price::from_f64(or_range.to_f64() * self.tp_multiple());
 
         let (sl, tp) = match side {
             OrderSide::Buy => {
                 let sl = or_low - tick_size;
-                let tp = entry_price + tp_offset;
+                let risk = entry_price - sl;
+                let tp = entry_price + Price::from_f64(risk.to_f64() * self.tp_multiple());
                 (sl, tp)
             }
             OrderSide::Sell => {
                 let sl = or_high + tick_size;
-                let tp = entry_price - tp_offset;
+                let risk = sl - entry_price;
+                let tp = entry_price - Price::from_f64(risk.to_f64() * self.tp_multiple());
                 (sl, tp)
             }
         };
@@ -301,6 +311,19 @@ impl Strategy for OrbStrategy {
         self.or_low = Some(ctx.trade.price);
         self.or_start_ms = ctx.trade.time.0;
         self.trades_taken = 0;
+
+        // Gap skip: if gap > previous OR range, skip session
+        if self.gap_skip()
+            && let Some(prev_close) = self.prev_close
+            && let Some(prev_range) = self.prev_or_range
+            && prev_range.units() > 0
+        {
+            let gap = (ctx.trade.price.units() - prev_close.units()).unsigned_abs();
+            if gap > prev_range.units() as u64 {
+                self.state = OrbState::Done;
+            }
+        }
+
         vec![]
     }
 
@@ -425,6 +448,12 @@ impl Strategy for OrbStrategy {
     }
 
     fn on_session_close(&mut self, ctx: &StrategyContext) -> Vec<OrderRequest> {
+        // Store previous session data for gap detection
+        self.prev_close = Some(ctx.trade.price);
+        if let (Some(h), Some(l)) = (self.or_high, self.or_low) {
+            self.prev_or_range = Some(h - l);
+        }
+
         self.state = OrbState::Done;
         if ctx.primary_position().is_some() {
             return vec![OrderRequest::Flatten {
@@ -478,6 +507,8 @@ impl Strategy for OrbStrategy {
         self.or_low = None;
         self.or_start_ms = 0;
         self.trades_taken = 0;
+        self.prev_close = None;
+        self.prev_or_range = None;
     }
 
     fn clone_strategy(&self) -> Box<dyn Strategy> {
@@ -489,6 +520,8 @@ impl Strategy for OrbStrategy {
             or_low: self.or_low,
             or_start_ms: self.or_start_ms,
             trades_taken: self.trades_taken,
+            prev_close: self.prev_close,
+            prev_or_range: self.prev_or_range,
         })
     }
 }

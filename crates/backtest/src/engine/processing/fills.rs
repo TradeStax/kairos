@@ -103,12 +103,18 @@ impl Engine {
         );
 
         // If this fill opened a new position from a bracket entry,
-        // propagate the stop loss to the position.
-        if trade_record.is_none()
-            && let Some(sl_price) = self.order_book.bracket_stop_loss(order_id)
-            && let Some(pos) = self.portfolio.positions_mut().get_mut(&instrument)
-        {
-            pos.set_stop_loss(sl_price);
+        // propagate the stop loss and take profit to the position.
+        if trade_record.is_none() {
+            if let Some(sl_price) = self.order_book.bracket_stop_loss(order_id)
+                && let Some(pos) = self.portfolio.positions_mut().get_mut(&instrument)
+            {
+                pos.set_stop_loss(sl_price);
+            }
+            if let Some(tp_price) = self.order_book.bracket_take_profit(order_id)
+                && let Some(pos) = self.portfolio.positions_mut().get_mut(&instrument)
+            {
+                pos.set_take_profit(tp_price);
+            }
         }
 
         // Record completed round-trip trade with snapshot

@@ -23,12 +23,12 @@ pub fn map_last_trade(msg: &RithmicMessage) -> Option<Trade> {
             let price = lt.trade_price?;
             let size = lt.trade_size? as f64;
 
-            // Rithmic TransactionType names the PASSIVE side of the book:
-            //   Buy  (1) = bid was resting side → seller aggressed → Sell
-            //   Sell (2) = ask was resting side → buyer aggressed → Buy
+            // Rithmic aggressor field names the AGGRESSOR side:
+            //   Buy  (1) = buyer aggressed → Buy
+            //   Sell (2) = seller aggressed → Sell
             let side = match lt.aggressor {
-                Some(1) => Side::Sell,
-                Some(2) => Side::Buy,
+                Some(1) => Side::Buy,
+                Some(2) => Side::Sell,
                 other => {
                     log::debug!(
                         "Unknown Rithmic aggressor value: {:?}, defaulting to Sell",
@@ -219,13 +219,13 @@ mod tests {
 
     #[test]
     fn map_last_trade_buy_side() {
-        // aggressor=2 means ask was resting -> buyer aggressed -> Buy
+        // aggressor=1 means buyer aggressed -> Buy
         let msg = make_last_trade(
             Some(1700000000),
             Some(500000),
             Some(5200.25),
             Some(3),
-            Some(2),
+            Some(1),
         );
         let trade = map_last_trade(&msg).unwrap();
         assert_eq!(trade.side, Side::Buy);
@@ -237,8 +237,8 @@ mod tests {
 
     #[test]
     fn map_last_trade_sell_side() {
-        // aggressor=1 means bid was resting -> seller aggressed -> Sell
-        let msg = make_last_trade(Some(1700000000), Some(0), Some(5200.0), Some(10), Some(1));
+        // aggressor=2 means seller aggressed -> Sell
+        let msg = make_last_trade(Some(1700000000), Some(0), Some(5200.0), Some(10), Some(2));
         let trade = map_last_trade(&msg).unwrap();
         assert_eq!(trade.side, Side::Sell);
     }
