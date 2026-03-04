@@ -70,10 +70,9 @@ Success "Assets verified"
 
 Step "Compiling release binary"
 
-rustup target add $Target 2>$null
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-    # Non-fatal: target may already be installed
-}
+$ErrorActionPreference = "Continue"
+rustup target add $Target 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
 
 $CargoArgs = @("build", "--release", "--target=$Target")
 if ($Features) {
