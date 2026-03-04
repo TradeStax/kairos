@@ -4,7 +4,7 @@ Unified data infrastructure for the Kairos charting platform.
 
 | | |
 |---|---|
-| Version | `0.2.0` |
+| Version | `0.9.0` |
 | License | GPL-3.0-or-later |
 | Edition | 2024 |
 | Depends on | |

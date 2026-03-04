@@ -1,6 +1,6 @@
 //! Icon button with optional tooltip.
 
-use iced::widget::{button, container, text, tooltip};
+use iced::widget::{button, center, container, text, tooltip};
 use iced::{Alignment, Element, Length, Padding, Theme};
 
 use super::{ICONS_FONT, Icon};
@@ -103,24 +103,20 @@ impl<'a, Message> IconButtonBuilder<'a, Message> {
         let icon_text = if self.icon.uses_default_font() {
             text(char::from(self.icon).to_string())
                 .size(iced::Pixels(self.size))
-                .line_height(1.0)
-                .width(self.size)
-                .height(self.size)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
         } else {
             text(char::from(self.icon).to_string())
                 .font(ICONS_FONT)
                 .size(iced::Pixels(self.size))
-                .line_height(1.0)
-                .width(self.size)
-                .height(self.size)
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
         };
 
+        let icon_content = center(icon_text).width(self.size).height(self.size);
+
         let is_active = self.is_active;
-        let mut btn = button(icon_text).padding(self.padding);
+        let mut btn = button(icon_content).padding(self.padding);
 
         if let Some(style_fn) = self.style_fn {
             btn = btn.style(move |theme, status| style_fn(theme, status));

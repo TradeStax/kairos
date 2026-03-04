@@ -150,10 +150,7 @@ pub(super) fn append_loading_badge<'a>(
             data::LoadingStatus::Ready | data::LoadingStatus::Idle
         )
     {
-        if state.feed_id.is_some()
-            && state.ticker_info.is_some()
-            && state.content.initialized()
-        {
+        if state.feed_id.is_some() && state.ticker_info.is_some() && state.content.initialized() {
             row = row.push(crate::components::display::status_dot::status_badge_themed(
                 |theme| {
                     let p = theme.extended_palette();

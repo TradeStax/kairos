@@ -5,7 +5,12 @@
 //! cache is refreshed (if stale) and a [`StrategyContext`] is built
 //! by borrowing from the cached data and current engine state.
 
+use std::collections::BTreeMap;
+
 use crate::engine::kernel::Engine;
+use crate::output::snapshot::TradeSnapshot;
+use crate::output::trade_record::TradeRecord;
+use crate::strategy::Strategy;
 use crate::strategy::context::StrategyContext;
 use kairos_data::{FuturesTicker, Trade};
 
@@ -93,5 +98,74 @@ impl Engine {
             instruments: &self.instruments,
             primary_instrument: primary,
         }
+    }
+
+    /// Builds a [`TradeSnapshot`] for a completed trade record.
+    ///
+    /// Captures ALL session candles from the cache (full session) and
+    /// records the entry/exit candle indices into the full array.
+    pub(crate) fn build_trade_snapshot(
+        &self,
+        record: &TradeRecord,
+        trade: &Trade,
+        strategy: &dyn Strategy,
+    ) -> TradeSnapshot {
+        let primary = self.config.ticker;
+        let tf = self.config.timeframe;
+        let candles = self
+            .cached_candles
+            .get(&(primary, tf))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
+        // Binary search for entry and exit candle indices
+        let entry_ts = record.entry_time.0;
+        let exit_ts = record.exit_time.0;
+
+        let entry_idx = candles
+            .binary_search_by(|c| c.time.0.cmp(&entry_ts))
+            .unwrap_or_else(|i| i.saturating_sub(1));
+        let exit_idx = candles
+            .binary_search_by(|c| c.time.0.cmp(&exit_ts))
+            .unwrap_or_else(|i| i.min(candles.len().saturating_sub(1)));
+
+        // Full session candles — no windowing
+        let window = candles.to_vec();
+
+        let entry_in_window = if !window.is_empty() {
+            Some(entry_idx.min(window.len() - 1))
+        } else {
+            None
+        };
+        let exit_in_window = if !window.is_empty() {
+            Some(exit_idx.min(window.len() - 1))
+        } else {
+            None
+        };
+
+        // Collect strategy context
+        self.rebuild_context_cache_for_snapshot(primary);
+        let ctx = self.build_context(primary, trade);
+        let context: BTreeMap<String, _> = strategy.trade_context(&ctx).into_iter().collect();
+
+        TradeSnapshot {
+            candles: window,
+            entry_candle_idx: entry_in_window,
+            exit_candle_idx: exit_in_window,
+            context,
+        }
+    }
+
+    /// Ensures context cache is fresh for snapshot building without
+    /// requiring `&mut self`.
+    ///
+    /// Since `build_trade_snapshot` takes `&self`, we can't call
+    /// `rebuild_context_cache` (which takes `&mut self`). The caller
+    /// is responsible for ensuring the cache is up-to-date before
+    /// calling `build_trade_snapshot`.
+    fn rebuild_context_cache_for_snapshot(&self, _primary: FuturesTicker) {
+        // No-op: caller must ensure cache is rebuilt before calling
+        // build_trade_snapshot. This exists as a documentation
+        // marker.
     }
 }

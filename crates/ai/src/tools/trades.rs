@@ -225,8 +225,7 @@ pub fn exec_get_volume_profile(
     let (start_ms, end_ms) = parse_time_range(args, tz);
     let tick_mult = tick_multiplier(snap.tick_size);
 
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
-        std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
 
     let filtered_trades: Vec<&data::Trade> = snap
         .trades
@@ -302,10 +301,8 @@ pub fn exec_get_volume_profile(
         .unwrap_or(0);
 
     let va_target = total_volume * 0.682;
-    let mut sorted_by_vol: Vec<(i64, f64)> =
-        levels.iter().map(|(k, (b, s))| (*k, b + s)).collect();
-    sorted_by_vol
-        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut sorted_by_vol: Vec<(i64, f64)> = levels.iter().map(|(k, (b, s))| (*k, b + s)).collect();
+    sorted_by_vol.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut va_volume = 0.0;
     let mut va_prices: Vec<i64> = Vec::new();
@@ -358,9 +355,7 @@ pub fn exec_get_volume_profile(
 
     ToolExecResult {
         content_json: result.to_string(),
-        display_summary: format!(
-            "POC {poc_price:.2} | VAH {vah_price:.2} VAL {val_price:.2}"
-        ),
+        display_summary: format!("POC {poc_price:.2} | VAH {vah_price:.2} VAL {val_price:.2}"),
         is_error: false,
     }
 }
@@ -383,8 +378,7 @@ pub fn exec_get_delta_profile(
     }
 
     let tick_mult = tick_multiplier(snap.tick_size);
-    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> =
-        std::collections::BTreeMap::new();
+    let mut levels: std::collections::BTreeMap<i64, (f64, f64)> = std::collections::BTreeMap::new();
 
     for trade in &snap.trades {
         if let Some(s) = start_ms
@@ -505,9 +499,7 @@ pub fn exec_get_aggregated_trades(
             continue;
         }
         let bucket_key = (trade.time.0 / bucket_ms) * bucket_ms;
-        let entry = buckets
-            .entry(bucket_key)
-            .or_insert((0.0, 0.0, 0, 0.0, 0.0));
+        let entry = buckets.entry(bucket_key).or_insert((0.0, 0.0, 0, 0.0, 0.0));
         let qty = trade.quantity.0;
         let price = trade.price.to_f64();
         if trade.is_buy() {

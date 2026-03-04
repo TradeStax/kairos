@@ -83,9 +83,7 @@ impl AiConversation {
         let text = std::mem::take(&mut self.streaming_buffer);
         if !text.is_empty() {
             self.messages
-                .push(DisplayMessage::new(ChatMessageKind::AssistantText {
-                    text,
-                }));
+                .push(DisplayMessage::new(ChatMessageKind::AssistantText { text }));
             committed = true;
         }
         committed

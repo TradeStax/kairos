@@ -9,6 +9,7 @@
 
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::{OrderSide, OrderType, TimeInForce};
+use crate::output::snapshot::ContextValue;
 use crate::output::trade_record::ExitReason;
 use crate::strategy::Strategy;
 use crate::strategy::context::StrategyContext;
@@ -443,6 +444,32 @@ impl Strategy for MomentumBreakoutStrategy {
             }];
         }
         vec![]
+    }
+
+    fn trade_context(&self, ctx: &StrategyContext) -> Vec<(String, ContextValue)> {
+        let mut values = Vec::new();
+        // Find the primary candle set by scanning for the primary
+        // instrument's longest candle vec (the primary timeframe).
+        let candles: &[Candle] = ctx
+            .candles
+            .iter()
+            .filter(|((inst, _), _)| *inst == ctx.primary_instrument)
+            .max_by_key(|(_, v)| v.len())
+            .map(|(_, v)| v.as_slice())
+            .unwrap_or(&[]);
+        if let Some((ch, cl)) = donchian(candles, self.entry_periods()) {
+            values.push(("channel_high".into(), ContextValue::Float(ch)));
+            values.push(("channel_low".into(), ContextValue::Float(cl)));
+        }
+        if let Some(h) = self.trailing_exit_high {
+            values.push(("trailing_exit_high".into(), ContextValue::Float(h)));
+        }
+        if let Some(l) = self.trailing_exit_low {
+            values.push(("trailing_exit_low".into(), ContextValue::Float(l)));
+        }
+        let atr = compute_atr(candles, self.atr_period());
+        values.push(("atr".into(), ContextValue::Float(atr)));
+        values
     }
 
     fn reset(&mut self) {

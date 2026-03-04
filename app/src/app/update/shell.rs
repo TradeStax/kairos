@@ -27,6 +27,7 @@ impl Kairos {
         match event {
             window::Event::CloseRequested(window) => {
                 let main_window = self.main_window.id;
+
                 let Some(dashboard) = self.active_dashboard_mut() else {
                     return window::close(window);
                 };

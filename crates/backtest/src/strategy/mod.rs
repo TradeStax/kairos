@@ -32,6 +32,7 @@ pub use study_bank::StudyBank;
 
 use crate::order::request::OrderRequest;
 use crate::order::types::OrderId;
+use crate::output::snapshot::ContextValue;
 use crate::strategy::context::StrategyContext as StrategyCtx;
 use crate::strategy::metadata::StrategyMetadata;
 use kairos_data::{Candle, FuturesTicker, Price, Timeframe};
@@ -290,6 +291,19 @@ pub trait Strategy: Send + Sync {
     /// Returns additional order requests in response to the event
     /// (e.g. adjusting stops after a partial fill).
     fn on_order_event(&mut self, _event: OrderEvent, _ctx: &StrategyCtx) -> Vec<OrderRequest> {
+        vec![]
+    }
+
+    /// Returns strategy-specific context at the time of a trade
+    /// close.
+    ///
+    /// Override this to expose internal state (e.g. opening range
+    /// levels, VWAP values, channel bounds) that will be stored on
+    /// the [`TradeRecord`](crate::TradeRecord) for post-hoc
+    /// analysis.
+    ///
+    /// The default implementation returns an empty vec (no context).
+    fn trade_context(&self, _ctx: &StrategyCtx) -> Vec<(String, ContextValue)> {
         vec![]
     }
 

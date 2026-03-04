@@ -14,9 +14,11 @@
 pub mod metrics;
 pub mod progress;
 pub mod result;
+pub mod snapshot;
 pub mod trade_record;
 
 pub use metrics::PerformanceMetrics;
 pub use progress::BacktestProgressEvent;
 pub use result::BacktestResult;
+pub use snapshot::{ContextValue, TradeSnapshot};
 pub use trade_record::{ExitReason, TradeRecord};

@@ -4,10 +4,10 @@ Technical studies and indicators for Kairos charts.
 
 | | |
 |---|---|
-| Version | `0.1.0` |
+| Version | `0.9.0` |
 | License | GPL-3.0-or-later |
 | Edition | 2024 |
-| Depends on | `kairos-data` 0.2.0 |
+| Depends on | `kairos-data` 0.9.0 |
 
 ## Overview
 

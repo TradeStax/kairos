@@ -220,6 +220,7 @@ mod tests {
             label: None,
             instrument: None,
             duration_ms: Some(1000),
+            snapshot: None,
         }
     }
 

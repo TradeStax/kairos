@@ -495,10 +495,7 @@ pub fn tool_definitions() -> Vec<Value> {
 // ── Helpers ──────────────────────────────────────────────────
 
 /// Push a drawing action through the event sender.
-fn push_drawing_action<Tz: TimezoneResolver>(
-    ctx: &ToolContext<'_, Tz>,
-    action: DrawingAction,
-) {
+fn push_drawing_action<Tz: TimezoneResolver>(ctx: &ToolContext<'_, Tz>, action: DrawingAction) {
     let _ = ctx.sender.send(AiStreamEvent::DrawingAction {
         conversation_id: ctx.conversation_id,
         action: Box::new(action),
@@ -529,20 +526,12 @@ fn time_to_ms(s: &str, tz: impl TimezoneResolver) -> Option<u64> {
 }
 
 /// Get tick size from the snapshot, falling back to 0.0.
-fn snap_tick_size<Tz: TimezoneResolver>(
-    ctx: &ToolContext<'_, Tz>,
-) -> f32 {
-    ctx.snapshot
-        .as_ref()
-        .map(|s| s.tick_size)
-        .unwrap_or(0.0)
+fn snap_tick_size<Tz: TimezoneResolver>(ctx: &ToolContext<'_, Tz>) -> f32 {
+    ctx.snapshot.as_ref().map(|s| s.tick_size).unwrap_or(0.0)
 }
 
 /// Build a base `DrawingSpec` with the tick size pre-filled.
-fn base_spec<Tz: TimezoneResolver>(
-    ctx: &ToolContext<'_, Tz>,
-    tool_name: &str,
-) -> DrawingSpec {
+fn base_spec<Tz: TimezoneResolver>(ctx: &ToolContext<'_, Tz>, tool_name: &str) -> DrawingSpec {
     DrawingSpec {
         tool_name: tool_name.to_string(),
         tick_size: snap_tick_size(ctx),
@@ -616,7 +605,7 @@ fn exec_add_horizontal_line<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -680,7 +669,7 @@ fn exec_add_vertical_line<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -760,7 +749,7 @@ fn exec_add_text_annotation<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -813,7 +802,7 @@ fn exec_add_price_level<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -881,7 +870,7 @@ fn exec_add_price_label<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -983,15 +972,12 @@ fn exec_two_point_line<Tz: TimezoneResolver>(
     spec.color = Some(parse_color_name(color_name));
     spec.line_style = Some(style_name.to_string());
 
-    let desc = format!(
-        "{} {:.2} \u{2192} {:.2}",
-        tool_label, from_price, to_price
-    );
+    let desc = format!("{} {:.2} \u{2192} {:.2}", tool_label, from_price, to_price);
 
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -1006,10 +992,7 @@ fn exec_two_point_line<Tz: TimezoneResolver>(
     }
 }
 
-fn exec_add_line<Tz: TimezoneResolver>(
-    args: &Value,
-    ctx: &ToolContext<'_, Tz>,
-) -> ToolExecResult {
+fn exec_add_line<Tz: TimezoneResolver>(args: &Value, ctx: &ToolContext<'_, Tz>) -> ToolExecResult {
     exec_two_point_line(args, ctx, "Line", "Line")
 }
 
@@ -1066,8 +1049,7 @@ fn exec_add_rectangle<Tz: TimezoneResolver>(
     };
 
     let color_name = args["color"].as_str().unwrap_or("blue");
-    let opacity =
-        args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
+    let opacity = args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
     let label = args["label"].as_str().map(String::from);
     let color = parse_color_name(color_name);
 
@@ -1112,14 +1094,12 @@ fn exec_add_rectangle<Tz: TimezoneResolver>(
     let desc = label
         .as_deref()
         .map(|l| format!("Rect: {}", l))
-        .unwrap_or_else(|| {
-            format!("Rect {:.2}-{:.2}", price_low, price_high)
-        });
+        .unwrap_or_else(|| format!("Rect {:.2}-{:.2}", price_low, price_high));
 
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -1180,8 +1160,7 @@ fn exec_add_ellipse<Tz: TimezoneResolver>(
     };
 
     let color_name = args["color"].as_str().unwrap_or("blue");
-    let opacity =
-        args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
+    let opacity = args["opacity"].as_f64().unwrap_or(0.15).clamp(0.0, 1.0) as f32;
     let color = parse_color_name(color_name);
 
     let Some(start_ms) = time_to_ms(time_start, ctx.timezone) else {
@@ -1224,7 +1203,7 @@ fn exec_add_ellipse<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -1239,10 +1218,7 @@ fn exec_add_ellipse<Tz: TimezoneResolver>(
     }
 }
 
-fn exec_add_arrow<Tz: TimezoneResolver>(
-    args: &Value,
-    ctx: &ToolContext<'_, Tz>,
-) -> ToolExecResult {
+fn exec_add_arrow<Tz: TimezoneResolver>(args: &Value, ctx: &ToolContext<'_, Tz>) -> ToolExecResult {
     let Some(from_price) = args["from_price"].as_f64() else {
         return ToolExecResult {
             content_json: json!({
@@ -1323,15 +1299,12 @@ fn exec_add_arrow<Tz: TimezoneResolver>(
     spec.to_time_millis = Some(to_ms);
     spec.color = Some(color);
 
-    let desc = format!(
-        "Arrow {:.2} \u{2192} {:.2}",
-        from_price, to_price
-    );
+    let desc = format!("Arrow {:.2} \u{2192} {:.2}", from_price, to_price);
 
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -1434,7 +1407,7 @@ fn exec_add_fib_retracement<Tz: TimezoneResolver>(
     push_drawing_action(
         ctx,
         DrawingAction::Add {
-            spec,
+            spec: Box::new(spec),
             description: desc.clone(),
         },
     );
@@ -1470,10 +1443,7 @@ fn exec_remove_drawing<Tz: TimezoneResolver>(
         ctx,
         DrawingAction::Remove {
             id: drawing_id.to_string(),
-            description: format!(
-                "Remove drawing {}",
-                &drawing_id[..8.min(drawing_id.len())]
-            ),
+            description: format!("Remove drawing {}", &drawing_id[..8.min(drawing_id.len())]),
         },
     );
 
@@ -1483,17 +1453,12 @@ fn exec_remove_drawing<Tz: TimezoneResolver>(
             "drawing_id": drawing_id,
         })
         .to_string(),
-        display_summary: format!(
-            "Removed {}",
-            &drawing_id[..8.min(drawing_id.len())]
-        ),
+        display_summary: format!("Removed {}", &drawing_id[..8.min(drawing_id.len())]),
         is_error: false,
     }
 }
 
-fn exec_remove_all_drawings<Tz: TimezoneResolver>(
-    ctx: &ToolContext<'_, Tz>,
-) -> ToolExecResult {
+fn exec_remove_all_drawings<Tz: TimezoneResolver>(ctx: &ToolContext<'_, Tz>) -> ToolExecResult {
     push_drawing_action(
         ctx,
         DrawingAction::RemoveAll {

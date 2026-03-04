@@ -4,8 +4,8 @@ use crate::components::display::toast::Toast;
 use crate::config::UserTimezone;
 use crate::modals::pane::Modal;
 use crate::screen::dashboard::pane::config::{LinkGroup, Settings};
-use data::FuturesTickerInfo;
 use ai::ApiMessage;
+use data::FuturesTickerInfo;
 use data::{ChartData, LoadingStatus};
 
 // Re-export AI types from ai module so external code can use either path.

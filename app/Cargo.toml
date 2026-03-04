@@ -1,6 +1,6 @@
 [package]
 name = "kairos"
-version = "0.8.6"
+version = "0.9.0"
 readme = "../README.md"
 license = "GPL-3.0-or-later"
 description = "A native desktop charting platform for futures markets"
@@ -44,10 +44,10 @@ futures = "0.3"
 rfd = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
-data = { version = "0.2.0", path = "../crates/data", package = "kairos-data" }
-study = { version = "0.1.0", path = "../crates/study", package = "kairos-study" }
-backtest = { version = "0.1.0", path = "../crates/backtest", package = "kairos-backtest" }
-ai = { version = "0.1.0", path = "../crates/ai", package = "kairos-ai" }
+data = { version = "0.9.0", path = "../crates/data", package = "kairos-data" }
+study = { version = "0.9.0", path = "../crates/study", package = "kairos-study" }
+backtest = { version = "0.9.0", path = "../crates/backtest", package = "kairos-backtest" }
+ai = { version = "0.9.0", path = "../crates/ai", package = "kairos-ai" }
 
 [build-dependencies]
 winresource = "0.1"

@@ -66,7 +66,7 @@ pub enum AiStreamEvent {
 #[derive(Debug, Clone)]
 pub enum DrawingAction {
     Add {
-        spec: DrawingSpec,
+        spec: Box<DrawingSpec>,
         description: String,
     },
     Remove {

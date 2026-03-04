@@ -90,11 +90,7 @@ impl Kairos {
     ) -> Task<Message> {
         use crate::chart::drawing::Drawing;
 
-        log::debug!(
-            "AI drawing action: {:?} (conv {})",
-            action,
-            conversation_id,
-        );
+        log::debug!("AI drawing action: {:?} (conv {})", action, conversation_id,);
 
         let dash = match self.active_dashboard_mut() {
             Some(d) => d,
@@ -443,8 +439,7 @@ impl Kairos {
 
         // Build initial API messages
         let prompt = ai::build_system_prompt(user_tz);
-        let initial_messages =
-            ai::build_api_messages(&prompt, &api_history, &chart_snapshot);
+        let initial_messages = ai::build_api_messages(&prompt, &api_history, &chart_snapshot);
 
         let ai_sender = globals::get_ai_sender();
 

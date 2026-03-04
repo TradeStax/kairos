@@ -247,6 +247,7 @@ impl Portfolio {
                         label: pos.label.clone(),
                         instrument: Some(instrument),
                         duration_ms: Some(timestamp.0.saturating_sub(pos.opened_at.0)),
+                        snapshot: None,
                     })
                 } else {
                     None

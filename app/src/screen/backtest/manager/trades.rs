@@ -143,20 +143,18 @@ pub fn view_trades<'a>(
         ]
         .spacing(1);
 
-        let row_widget = container(
-            button(row_content)
-                .on_press(ManagerMessage::SelectTrade(Some(sorted_idx)))
-                .padding([tokens::spacing::XS, tokens::spacing::SM])
-                .width(Length::Fill)
-                .style(|theme: &iced::Theme, status| {
-                    style::button::transparent(theme, status, false)
-                }),
-        )
-        .style(move |_theme: &iced::Theme| container::Style {
-            background: Some(Background::Color(row_bg)),
-            ..Default::default()
-        })
-        .width(Length::Fill);
+        let row_btn = button(row_content)
+            .on_press(ManagerMessage::SelectTrade(Some(sorted_idx)))
+            .padding([tokens::spacing::XS, tokens::spacing::SM])
+            .width(Length::Fill)
+            .style(|theme: &iced::Theme, status| style::button::transparent(theme, status, false));
+
+        let row_widget = container(row_btn)
+            .style(move |_theme: &iced::Theme| container::Style {
+                background: Some(Background::Color(row_bg)),
+                ..Default::default()
+            })
+            .width(Length::Fill);
 
         trade_rows.push(row_widget.into());
     }
@@ -401,7 +399,7 @@ fn mono_cell_fixed(value: impl Into<String>, width: f32) -> Element<'static, Man
 
 // ── Timestamp formatting ────────────────────────────────────────────
 
-fn format_timestamp(ms: u64, multi_day: bool, tz: UserTimezone) -> String {
+pub fn format_timestamp(ms: u64, multi_day: bool, tz: UserTimezone) -> String {
     let Some(dt_utc) = chrono::DateTime::from_timestamp_millis(ms as i64) else {
         return "?".to_string();
     };

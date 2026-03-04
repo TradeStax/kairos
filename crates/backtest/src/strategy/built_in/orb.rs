@@ -10,6 +10,7 @@
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::OrderSide;
 use crate::order::types::OrderType;
+use crate::output::snapshot::ContextValue;
 use crate::output::trade_record::ExitReason;
 use crate::strategy::Strategy;
 use crate::strategy::context::{SessionState, StrategyContext};
@@ -432,6 +433,21 @@ impl Strategy for OrbStrategy {
             }];
         }
         vec![]
+    }
+
+    fn trade_context(&self, _ctx: &StrategyContext) -> Vec<(String, ContextValue)> {
+        let mut ctx = Vec::new();
+        if let Some(h) = self.or_high {
+            ctx.push(("or_high".into(), ContextValue::Price(h)));
+        }
+        if let Some(l) = self.or_low {
+            ctx.push(("or_low".into(), ContextValue::Price(l)));
+        }
+        ctx.push((
+            "or_minutes".into(),
+            ContextValue::Integer(self.or_minutes() as i64),
+        ));
+        ctx
     }
 
     fn reset(&mut self) {

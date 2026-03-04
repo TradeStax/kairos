@@ -11,6 +11,7 @@
 use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::OrderSide;
 use crate::order::types::OrderType;
+use crate::output::snapshot::ContextValue;
 use crate::output::trade_record::ExitReason;
 use crate::strategy::Strategy;
 use crate::strategy::context::{SessionState, StrategyContext};
@@ -480,6 +481,25 @@ impl Strategy for VwapReversionStrategy {
             }];
         }
         vec![]
+    }
+
+    fn trade_context(&self, _ctx: &StrategyContext) -> Vec<(String, ContextValue)> {
+        let bands = self.deviation_bands();
+        vec![
+            ("vwap".into(), ContextValue::Float(self.vwap_state.vwap)),
+            (
+                "upper_band".into(),
+                ContextValue::Float(self.vwap_state.upper_band(bands)),
+            ),
+            (
+                "lower_band".into(),
+                ContextValue::Float(self.vwap_state.lower_band(bands)),
+            ),
+            (
+                "std_dev".into(),
+                ContextValue::Float(self.vwap_state.std_dev()),
+            ),
+        ]
     }
 
     fn reset(&mut self) {

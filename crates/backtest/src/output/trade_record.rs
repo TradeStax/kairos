@@ -5,6 +5,7 @@
 //! and ticks, risk parameters, and trade excursion data (MAE/MFE).
 //! The [`ExitReason`] enum describes why the position was closed.
 
+use super::snapshot::TradeSnapshot;
 use kairos_data::{FuturesTicker, Price, Side, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -115,4 +116,8 @@ pub struct TradeRecord {
     /// Trade duration in milliseconds (`exit_time - entry_time`).
     #[serde(default)]
     pub duration_ms: Option<u64>,
+    /// Snapshot of surrounding candle data and strategy context at
+    /// trade close. `None` for older backtest results.
+    #[serde(default)]
+    pub snapshot: Option<TradeSnapshot>,
 }

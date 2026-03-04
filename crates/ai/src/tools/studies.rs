@@ -327,9 +327,7 @@ pub fn exec_get_profile_data(snap: &ChartSnapshot, args: &Value) -> ToolExecResu
                 vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
             });
             sorted.truncate(max_levels);
-            sorted.sort_by(|a, b| {
-                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
             let levels: Vec<Value> = sorted
                 .iter()
@@ -359,9 +357,7 @@ pub fn exec_get_profile_data(snap: &ChartSnapshot, args: &Value) -> ToolExecResu
     let total_profiles = profiles.len();
     ToolExecResult {
         content_json: json!({ "profiles": profiles }).to_string(),
-        display_summary: format!(
-            "{total_profiles} profile(s), {max_levels} levels"
-        ),
+        display_summary: format!("{total_profiles} profile(s), {max_levels} levels"),
         is_error: false,
     }
 }

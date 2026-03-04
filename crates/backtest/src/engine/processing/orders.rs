@@ -9,6 +9,7 @@ use crate::order::request::{BracketOrder, NewOrder, OrderRequest};
 use crate::order::types::OrderType;
 use crate::output::progress::BacktestProgressEvent;
 use crate::output::trade_record::ExitReason;
+use crate::strategy::Strategy;
 use kairos_data::{FuturesTicker, Trade};
 use uuid::Uuid;
 
@@ -25,14 +26,15 @@ impl Engine {
         trade: &Trade,
         _run_id: Uuid,
         _sender: Option<&'static tokio::sync::mpsc::UnboundedSender<BacktestProgressEvent>>,
+        strategy: &dyn Strategy,
     ) {
         for request in requests {
             match request {
                 OrderRequest::Submit(new_order) => {
-                    self.submit_order(new_order, trade);
+                    self.submit_order(new_order, trade, strategy);
                 }
                 OrderRequest::SubmitBracket(bracket) => {
-                    self.submit_bracket(bracket, trade);
+                    self.submit_bracket(bracket, trade, strategy);
                 }
                 OrderRequest::Cancel { order_id } => {
                     self.order_book.cancel(order_id, trade.time);
@@ -50,7 +52,7 @@ impl Engine {
                         .modify(order_id, new_price, new_quantity, trade.time);
                 }
                 OrderRequest::Flatten { instrument, reason } => {
-                    self.flatten_position(instrument, reason, trade);
+                    self.flatten_position(instrument, reason, trade, strategy);
                 }
                 OrderRequest::Noop => {}
             }
@@ -63,7 +65,12 @@ impl Engine {
     /// simulator. Limit/stop orders are added to the book and
     /// checked against future trades. A margin check is performed
     /// before submission (unless `reduce_only` is set).
-    pub(crate) fn submit_order(&mut self, new_order: NewOrder, trade: &Trade) {
+    pub(crate) fn submit_order(
+        &mut self,
+        new_order: NewOrder,
+        trade: &Trade,
+        strategy: &dyn Strategy,
+    ) {
         // Margin check for non-reduce-only orders
         if !new_order.reduce_only
             && !self
@@ -102,7 +109,8 @@ impl Engine {
                 new_order.label,
             );
 
-            if let Some(record) = record {
+            if let Some(mut record) = record {
+                record.snapshot = Some(self.build_trade_snapshot(&record, trade, strategy));
                 self.equity_curve
                     .record(trade.time, self.portfolio.cash(), 0.0);
                 self.completed_trades.push(record);
@@ -116,7 +124,12 @@ impl Engine {
     /// the entry is a market order, it fills immediately, the
     /// bracket children are activated, and the stop loss is set on
     /// the resulting position.
-    pub(crate) fn submit_bracket(&mut self, bracket: BracketOrder, trade: &Trade) {
+    pub(crate) fn submit_bracket(
+        &mut self,
+        bracket: BracketOrder,
+        trade: &Trade,
+        strategy: &dyn Strategy,
+    ) {
         if !self
             .portfolio
             .check_margin(&bracket.entry.instrument, bracket.entry.quantity)
@@ -164,7 +177,8 @@ impl Engine {
                 pos.set_stop_loss(bracket.stop_loss);
             }
 
-            if let Some(record) = record {
+            if let Some(mut record) = record {
+                record.snapshot = Some(self.build_trade_snapshot(&record, trade, strategy));
                 self.equity_curve
                     .record(trade.time, self.portfolio.cash(), 0.0);
                 self.completed_trades.push(record);
@@ -183,6 +197,7 @@ impl Engine {
         instrument: FuturesTicker,
         reason: ExitReason,
         trade: &Trade,
+        strategy: &dyn Strategy,
     ) {
         self.order_book.cancel_all(Some(instrument), trade.time);
 
@@ -212,7 +227,8 @@ impl Engine {
             Some(reason),
             None,
         );
-        if let Some(record) = record {
+        if let Some(mut record) = record {
+            record.snapshot = Some(self.build_trade_snapshot(&record, trade, strategy));
             self.equity_curve
                 .record(trade.time, self.portfolio.cash(), 0.0);
             self.completed_trades.push(record);
@@ -223,7 +239,8 @@ impl Engine {
     ///
     /// Used at end-of-data to ensure no positions remain open.
     /// Adds a warning to the result if any positions were
-    /// force-closed.
+    /// force-closed. Snapshots are attached with candle data but
+    /// empty strategy context (forced exit, not strategy-driven).
     pub(crate) fn close_all_positions(&mut self, reason: ExitReason) {
         let instruments: Vec<FuturesTicker> = self.portfolio.positions().keys().copied().collect();
 

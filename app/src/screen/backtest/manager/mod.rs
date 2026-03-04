@@ -9,6 +9,7 @@ pub mod charts;
 pub mod computed;
 pub mod overview;
 pub mod sidebar;
+pub mod trade_detail;
 pub mod trades;
 
 use crate::app::backtest_history::{BacktestHistory, BacktestStatus};
@@ -74,6 +75,10 @@ pub enum ManagerMessage {
     DeleteBacktest(uuid::Uuid),
     ExportCsv,
     Close,
+    // Trade detail (also triggered internally from SelectTrade double-click)
+    #[allow(dead_code)]
+    ViewTradeDetail(usize),
+    CloseTradeDetail,
 }
 
 // ── Actions ─────────────────────────────────────────────────────────
@@ -84,6 +89,22 @@ pub enum ManagerAction {
     DeleteBacktest(uuid::Uuid),
     ExportCsv(uuid::Uuid),
     Close,
+}
+
+// ── Trade detail view state ─────────────────────────────────────────
+
+pub struct TradeDetailView {
+    pub trade_index: usize,
+    pub chart_cache: canvas::Cache,
+}
+
+impl TradeDetailView {
+    pub fn new(trade_index: usize) -> Self {
+        Self {
+            trade_index,
+            chart_cache: canvas::Cache::new(),
+        }
+    }
 }
 
 // ── State ───────────────────────────────────────────────────────────
@@ -109,6 +130,8 @@ pub struct BacktestManager {
     pub bar_chart_cache: canvas::Cache,
     pub returns_cache: canvas::Cache,
     pub prop_firm_chart_cache: canvas::Cache,
+    // Trade detail
+    pub trade_detail: Option<TradeDetailView>,
 }
 
 impl BacktestManager {
@@ -130,6 +153,7 @@ impl BacktestManager {
             bar_chart_cache: canvas::Cache::new(),
             returns_cache: canvas::Cache::new(),
             prop_firm_chart_cache: canvas::Cache::new(),
+            trade_detail: None,
         }
     }
 
@@ -151,6 +175,7 @@ impl BacktestManager {
                 self.active_tab = ManagerTab::Overview;
                 self.selected_trade = None;
                 self.selected_prop_firm = None;
+                self.trade_detail = None;
 
                 if let Some(entry) = history.get(id) {
                     if entry.status == BacktestStatus::Completed {
@@ -189,6 +214,14 @@ impl BacktestManager {
                 ManagerAction::None
             }
             ManagerMessage::SelectTrade(idx) => {
+                // Click-to-select, click-again-to-open pattern:
+                // if the same trade is already selected, open detail view
+                if let Some(i) = idx
+                    && self.selected_trade == Some(i)
+                {
+                    self.trade_detail = Some(TradeDetailView::new(i));
+                    return ManagerAction::None;
+                }
                 self.selected_trade = idx;
                 self.equity_cache.clear();
                 ManagerAction::None
@@ -208,6 +241,15 @@ impl BacktestManager {
                 }
             }
             ManagerMessage::Close => ManagerAction::Close,
+            // Trade detail messages
+            ManagerMessage::ViewTradeDetail(idx) => {
+                self.trade_detail = Some(TradeDetailView::new(idx));
+                ManagerAction::None
+            }
+            ManagerMessage::CloseTradeDetail => {
+                self.trade_detail = None;
+                ManagerAction::None
+            }
         }
     }
 
@@ -336,10 +378,20 @@ impl BacktestManager {
         // Tab bar
         let tab_bar = self.view_tab_bar();
 
-        // Tab content
+        // Tab content — trade detail replaces trades table when active
         let tab_content = match self.active_tab {
             ManagerTab::Overview => overview::view_overview(self, history, timezone),
-            ManagerTab::Trades => trades::view(self, history, timezone),
+            ManagerTab::Trades => {
+                if let Some(ref detail) = self.trade_detail {
+                    if let Some(ref result) = entry.result {
+                        trade_detail::view(detail, result, &result.config, timezone)
+                    } else {
+                        trades::view(self, history, timezone)
+                    }
+                } else {
+                    trades::view(self, history, timezone)
+                }
+            }
             ManagerTab::Analytics => analytics::view(self, history, timezone),
         };
 

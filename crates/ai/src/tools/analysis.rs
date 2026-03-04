@@ -425,10 +425,7 @@ pub fn exec_identify_levels(snap: &ChartSnapshot, args: &Value) -> ToolExecResul
             "method": method,
         })
         .to_string(),
-        display_summary: format!(
-            "{} levels identified ({method})",
-            levels.len()
-        ),
+        display_summary: format!("{} levels identified ({method})", levels.len()),
         is_error: false,
     }
 }

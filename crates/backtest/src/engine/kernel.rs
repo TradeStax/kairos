@@ -440,7 +440,7 @@ impl Engine {
                         let ctx = self.build_context(primary, trade);
                         strategy.on_session_open(&ctx)
                     };
-                    self.process_order_requests(requests, trade, run_id, sender);
+                    self.process_order_requests(requests, trade, run_id, sender, &*strategy);
                 }
             }
             SessionEvent::Close { .. } => {
@@ -450,7 +450,7 @@ impl Engine {
                         let ctx = self.build_context(primary, trade);
                         strategy.on_session_close(&ctx)
                     };
-                    self.process_order_requests(requests, trade, run_id, sender);
+                    self.process_order_requests(requests, trade, run_id, sender, &*strategy);
                 }
                 self.order_book.expire_day_orders(trade.time);
             }
@@ -495,7 +495,7 @@ impl Engine {
                     let ctx = self.build_context(primary, trade);
                     strategy.on_candle(key.instrument, key.timeframe, candle, &ctx)
                 };
-                self.process_order_requests(requests, trade, run_id, sender);
+                self.process_order_requests(requests, trade, run_id, sender, &*strategy);
             }
         }
     }
@@ -575,7 +575,7 @@ impl Engine {
             let ctx = self.build_context(primary, trade);
             strategy.on_tick(&ctx)
         };
-        self.process_order_requests(requests, trade, run_id, sender);
+        self.process_order_requests(requests, trade, run_id, sender, &*strategy);
 
         // Periodic equity sampling
         self.tick_count += 1;

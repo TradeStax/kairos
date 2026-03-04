@@ -4,7 +4,7 @@ Event-driven backtesting engine for futures trading strategies.
 
 | | |
 |---|---|
-| Version | `0.1.0` |
+| Version | `0.9.0` |
 | License | GPL-3.0-or-later |
 | Edition | 2024 |
 | Depends on | `kairos-data`, `kairos-study` |

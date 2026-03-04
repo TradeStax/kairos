@@ -85,6 +85,7 @@ pub use feed::provider::TradeProvider;
 pub use output::metrics::PerformanceMetrics;
 pub use output::progress::BacktestProgressEvent;
 pub use output::result::BacktestResult;
+pub use output::snapshot::{ContextValue, TradeSnapshot};
 pub use output::trade_record::{ExitReason, TradeRecord};
 
 // ─── Portfolio ──────────────────────────────────────────────────

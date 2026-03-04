@@ -37,3 +37,14 @@ pub const TABLE_ROW_HOVER: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.05);
 pub const CROSSHAIR_LINE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.25);
 pub const HOVER_HIGHLIGHT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.12);
 pub const SNAP_DOT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.9);
+
+// Trade detail chart tokens
+pub const ENTRY_MARKER: Color = Color::from_rgba(0.2, 0.7, 0.9, 0.9);
+pub const EXIT_MARKER_WIN: Color = Color::from_rgba(0.3, 0.8, 0.3, 0.9);
+pub const EXIT_MARKER_LOSS: Color = Color::from_rgba(0.8, 0.3, 0.3, 0.9);
+pub const STOP_LOSS_LINE: Color = Color::from_rgba(0.8, 0.2, 0.2, 0.6);
+pub const TAKE_PROFIT_LINE: Color = Color::from_rgba(0.2, 0.7, 0.3, 0.6);
+pub const MAE_BAND: Color = Color::from_rgba(0.8, 0.2, 0.2, 0.08);
+pub const MFE_BAND: Color = Color::from_rgba(0.2, 0.7, 0.3, 0.08);
+pub const STRATEGY_OVERLAY: Color = Color::from_rgba(0.4, 0.6, 1.0, 0.15);
+pub const STRATEGY_OVERLAY_LINE: Color = Color::from_rgba(0.4, 0.6, 1.0, 0.5);

@@ -111,8 +111,9 @@ impl Engine {
             pos.set_stop_loss(sl_price);
         }
 
-        // Record completed round-trip trade
-        if let Some(record) = trade_record {
+        // Record completed round-trip trade with snapshot
+        if let Some(mut record) = trade_record {
+            record.snapshot = Some(self.build_trade_snapshot(&record, trade, &*strategy));
             if let Some(s) = sender {
                 let _ = s.send(BacktestProgressEvent::TradeCompleted {
                     run_id,
@@ -136,6 +137,6 @@ impl Engine {
             };
             strategy.on_order_event(event, &ctx)
         };
-        self.process_order_requests(requests, trade, run_id, sender);
+        self.process_order_requests(requests, trade, run_id, sender, strategy);
     }
 }
