@@ -31,6 +31,23 @@ variables:
     libx11-dev libxrandr-dev libxcursor-dev libxi-dev libvulkan-dev
     libfontconfig1-dev libfreetype6-dev
 
+# ── Rust install templates (for hosted SaaS runners) ───────────────────────
+
+.install-rust-windows:
+  before_script:
+    - Invoke-WebRequest -Uri https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+    - ./rustup-init.exe -y --default-toolchain stable
+    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - rustc --version
+    - cargo --version
+
+.install-rust-macos:
+  before_script:
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    - source "$HOME/.cargo/env"
+    - rustc --version
+    - cargo --version
+
 # ── Cache templates ──────────────────────────────────────────────────────────
 
 .cache-dev: &cache-dev
@@ -145,40 +162,45 @@ build-linux-aarch64:
 # ── Windows builds ───────────────────────────────────────────────────────────
 
 build-windows-x86_64:
-  extends: .build-base
-  tags: [windows]
+  extends:
+    - .build-base
+    - .install-rust-windows
+  tags: [saas-windows-medium-amd64]
   script:
-    - bash scripts/build-windows.sh --arch x86_64 --features "$FEATURES"
+    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1 -Arch x86_64 -Features "$env:FEATURES"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
     - when: manual
       allow_failure: true
 
 build-windows-aarch64:
-  extends: .build-base
-  tags: [windows]
+  extends:
+    - .build-base
+    - .install-rust-windows
+  tags: [saas-windows-medium-amd64]
   script:
-    - bash scripts/build-windows.sh --arch aarch64 --features "$FEATURES"
+    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1 -Arch aarch64 -Features "$env:FEATURES"
+  allow_failure: true
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
     - when: manual
       allow_failure: true
 
 # ── macOS build ──────────────────────────────────────────────────────────────
 
 build-macos-universal:
-  extends: .build-base
-  tags: [macos]
+  extends:
+    - .build-base
+    - .install-rust-macos
+  tags: [saas-macos-medium-m1]
+  image: macos-15-xcode-16
   script:
+    - source "$HOME/.cargo/env"
     - bash scripts/build-macos.sh --arch universal --features "$FEATURES"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
     - when: manual
       allow_failure: true
 
