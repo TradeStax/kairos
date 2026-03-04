@@ -174,19 +174,6 @@ build-windows-x86_64:
     - when: manual
       allow_failure: true
 
-build-windows-aarch64:
-  extends:
-    - .build-base
-    - .install-rust-windows
-  tags: [saas-windows-medium-amd64]
-  script:
-    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
-    - powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1 -Arch aarch64 -Features "$env:FEATURES"
-  allow_failure: true
-  rules:
-    - if: $CI_COMMIT_TAG =~ /^v/
-    - when: manual
-      allow_failure: true
 
 # ── macOS build ──────────────────────────────────────────────────────────────
 
@@ -215,9 +202,6 @@ collect-checksums:
     - job: build-linux-aarch64
       artifacts: true
     - job: build-windows-x86_64
-      artifacts: true
-      optional: true
-    - job: build-windows-aarch64
       artifacts: true
       optional: true
     - job: build-macos-universal
@@ -283,7 +267,6 @@ create-release:
       | Platform | Architecture | File |
       |----------|-------------|------|
       | Windows  | x86_64      | [kairos-${TAG#v}-x86_64-pc-windows-msvc.zip](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-x86_64-pc-windows-msvc.zip) |
-      | Windows  | aarch64     | [kairos-${TAG#v}-aarch64-pc-windows-msvc.zip](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-aarch64-pc-windows-msvc.zip) |
       | macOS    | Universal   | [kairos-${TAG#v}-universal-apple-darwin.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-universal-apple-darwin.tar.gz) |
       | Linux    | x86_64      | [kairos-${TAG#v}-x86_64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-x86_64-unknown-linux-gnu.tar.gz) |
       | Linux    | aarch64     | [kairos-${TAG#v}-aarch64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-aarch64-unknown-linux-gnu.tar.gz) |
@@ -294,9 +277,6 @@ create-release:
         - name: "kairos-${TAG#v}-x86_64-pc-windows-msvc.zip"
           url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-x86_64-pc-windows-msvc.zip"
           filepath: "/kairos-${TAG#v}-x86_64-pc-windows-msvc.zip"
-        - name: "kairos-${TAG#v}-aarch64-pc-windows-msvc.zip"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-aarch64-pc-windows-msvc.zip"
-          filepath: "/kairos-${TAG#v}-aarch64-pc-windows-msvc.zip"
         - name: "kairos-${TAG#v}-universal-apple-darwin.tar.gz"
           url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${TAG#v}/kairos-${TAG#v}-universal-apple-darwin.tar.gz"
           filepath: "/kairos-${TAG#v}-universal-apple-darwin.tar.gz"
