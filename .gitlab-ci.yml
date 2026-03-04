@@ -83,55 +83,53 @@ variables:
 
 # ─── Stage: check ────────────────────────────────────────────────────────────
 
-# TODO: Re-enable check jobs once builds are working
-# fmt:
-#   stage: check
-#   image: rust:latest
-#   <<: *cache-linux
-#   script:
-#     - rustup component add rustfmt
-#     - cargo fmt --check
-#
-# clippy:
-#   stage: check
-#   image: rust:latest
-#   <<: *cache-linux
-#   before_script:
-#     - *linux-deps
-#     - rustup component add clippy
-#   script:
-#     - cargo clippy --workspace --features "$FEATURES" -- -D warnings
-#
-# audit:
-#   stage: check
-#   image: rust:latest
-#   script:
-#     - cargo install cargo-audit --locked
-#     - cargo audit
-#   allow_failure: true
+fmt:
+  stage: check
+  image: rust:latest
+  <<: *cache-linux
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --check
+
+clippy:
+  stage: check
+  image: rust:latest
+  <<: *cache-linux
+  before_script:
+    - *linux-deps
+    - rustup component add clippy
+  script:
+    - cargo clippy --workspace --features "$FEATURES" -- -D warnings
+
+audit:
+  stage: check
+  image: rust:latest
+  script:
+    - cargo install cargo-audit --locked
+    - cargo audit
+  allow_failure: true
 
 # ─── Stage: test ─────────────────────────────────────────────────────────────
 
-# TODO: Re-enable test jobs once builds are working
-# test-lib:
-#   stage: test
-#   image: rust:latest
-#   <<: *cache-linux
-#   needs: ["clippy"]
-#   before_script:
-#     - *linux-deps
-#   script:
-#     - cargo test --workspace --features "$FEATURES" --no-fail-fast
-#
-# test-doc:
-#   stage: test
-#   image: rust:latest
-#   <<: *cache-linux
-#   needs: ["clippy"]
-#   before_script:
-#     - *linux-deps
-#   script:
-#     - cargo test --workspace --features "$FEATURES" --doc --no-fail-fast
+test-lib:
+  stage: test
+  image: rust:latest
+  <<: *cache-linux
+  needs: ["clippy"]
+  before_script:
+    - *linux-deps
+  script:
+    - cargo test --workspace --features "$FEATURES" --no-fail-fast
+
+test-doc:
+  stage: test
+  image: rust:latest
+  <<: *cache-linux
+  needs: ["clippy"]
+  before_script:
+    - *linux-deps
+  script:
+    - cargo test --workspace --features "$FEATURES" --doc --no-fail-fast
 
 # ─── Stage: build ────────────────────────────────────────────────────────────
 
