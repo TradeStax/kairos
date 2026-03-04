@@ -82,6 +82,7 @@ pub use feed::provider::TradeProvider;
 
 // ─── Output ─────────────────────────────────────────────────────
 
+pub use output::export::BacktestExport;
 pub use output::metrics::PerformanceMetrics;
 pub use output::progress::BacktestProgressEvent;
 pub use output::result::BacktestResult;

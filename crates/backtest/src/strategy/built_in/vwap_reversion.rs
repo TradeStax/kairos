@@ -499,6 +499,26 @@ impl Strategy for VwapReversionStrategy {
                 "std_dev".into(),
                 ContextValue::Float(self.vwap_state.std_dev()),
             ),
+            (
+                "deviation_bands".into(),
+                ContextValue::Float(self.deviation_bands()),
+            ),
+            (
+                "total_volume".into(),
+                ContextValue::Float(self.vwap_state.total_volume),
+            ),
+            (
+                "trades_taken".into(),
+                ContextValue::Integer(self.trades_taken as i64),
+            ),
+            (
+                "fixed_stop_ticks".into(),
+                ContextValue::Integer(self.fixed_stop_ticks()),
+            ),
+            (
+                "exit_at_vwap".into(),
+                ContextValue::Bool(self.exit_at_vwap()),
+            ),
         ]
     }
 

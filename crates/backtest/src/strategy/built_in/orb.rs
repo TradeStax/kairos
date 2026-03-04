@@ -435,19 +435,47 @@ impl Strategy for OrbStrategy {
         vec![]
     }
 
-    fn trade_context(&self, _ctx: &StrategyContext) -> Vec<(String, ContextValue)> {
-        let mut ctx = Vec::new();
+    fn trade_context(&self, ctx: &StrategyContext) -> Vec<(String, ContextValue)> {
+        let mut out = Vec::new();
         if let Some(h) = self.or_high {
-            ctx.push(("or_high".into(), ContextValue::Price(h)));
+            out.push(("or_high".into(), ContextValue::Price(h)));
         }
         if let Some(l) = self.or_low {
-            ctx.push(("or_low".into(), ContextValue::Price(l)));
+            out.push(("or_low".into(), ContextValue::Price(l)));
         }
-        ctx.push((
+        out.push((
             "or_minutes".into(),
             ContextValue::Integer(self.or_minutes() as i64),
         ));
-        ctx
+        out.push((
+            "tp_multiple".into(),
+            ContextValue::Float(self.tp_multiple()),
+        ));
+        if let (Some(h), Some(l)) = (self.or_high, self.or_low) {
+            let tick_size_units = ctx.tick_size().units();
+            let range_ticks = (h.units() - l.units()) / tick_size_units;
+            out.push((
+                "or_range_ticks".into(),
+                ContextValue::Integer(range_ticks),
+            ));
+        }
+        out.push((
+            "state".into(),
+            ContextValue::Text(format!("{:?}", self.state)),
+        ));
+        out.push((
+            "trades_taken".into(),
+            ContextValue::Integer(self.trades_taken as i64),
+        ));
+        out.push((
+            "wick_filter".into(),
+            ContextValue::Bool(self.wick_filter()),
+        ));
+        out.push((
+            "time_exit".into(),
+            ContextValue::Integer(self.time_exit_hhmm() as i64),
+        ));
+        out
     }
 
     fn reset(&mut self) {

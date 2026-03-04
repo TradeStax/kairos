@@ -118,6 +118,46 @@ impl BacktestHistory {
     pub fn remove(&mut self, id: Uuid) {
         self.entries.retain(|e| e.id != id);
     }
+
+    /// Insert a previously persisted backtest into the in-memory
+    /// history, skipping duplicates.
+    pub fn add_persisted(
+        &mut self,
+        id: Uuid,
+        strategy_name: String,
+        ticker: String,
+        config: ::backtest::BacktestConfig,
+        started_at_ms: u64,
+        result: Arc<::backtest::BacktestResult>,
+    ) {
+        // Skip duplicates
+        if self.get(id).is_some() {
+            return;
+        }
+        self.entries.push(BacktestHistoryEntry {
+            id,
+            status: BacktestStatus::Completed,
+            strategy_name,
+            ticker,
+            config,
+            started_at_ms,
+            progress: 1.0,
+            progress_message: String::new(),
+            live_trades: Vec::new(),
+            live_equity: Vec::new(),
+            initial_capital: result.config.initial_capital_usd,
+            result: Some(result),
+            error: None,
+        });
+    }
+
+    /// Number of completed entries in the history.
+    pub fn completed_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| e.status == BacktestStatus::Completed)
+            .count()
+    }
 }
 
 fn system_time_ms() -> u64 {

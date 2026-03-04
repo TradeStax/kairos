@@ -17,35 +17,50 @@
 ## Features
 
 - **Candlestick & footprint charts** — OHLC with order-flow footprint overlay, 18 built-in technical studies, and a configurable side panel for volume profile
-- **Depth heatmap** — Real-time order book depth visualization with trade markers and volume profile
+- **Depth heatmap** *(preview)* — Real-time order book depth visualization with trade markers and volume profile
 - **Comparison charts** — Multi-series overlay for spread, ratio, or relative performance analysis
 - **Volume profile charts** — Session and composite volume-at-price with POC, value area, and peak/valley detection
-- **Depth ladder** — Live depth-of-market ladder with chase tracking, trade aggregation, and grouped price levels
+- **Depth ladder** *(preview)* — Live depth-of-market ladder with chase tracking, trade aggregation, and grouped price levels
 - **19 drawing tools** — Lines, Fibonacci, channels, shapes, annotations, position calculators, and AI context selection
 - **Real-time and historical data** — CME Globex via Databento (historical) and Rithmic (live streaming)
 - **Multi-window layouts** — Popout panes, saved/restored layouts, and link groups for synchronized tickers
 - **Replay** — Replay historical sessions with play/pause, speed control, and seek
-- **AI assistant** — Conversational AI pane with 25+ tools for market data, studies, drawings, and analysis
-- **Backtesting** — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
+- **AI assistant** *(preview)* — Conversational AI pane with 25+ tools for market data, studies, drawings, and analysis
+- **Backtesting** *(preview)* — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
 
 ---
 
-## Getting Started
+## Downloads
 
-### Prerequisites
+Pre-built binaries are available for each release:
 
-- **Rust** (edition 2024) — install via [rustup](https://rustup.rs/)
-- **Databento API key** — required for historical data ([databento.com](https://databento.com))
-- **Rithmic credentials** — optional, for real-time streaming (configured through the app UI)
+| Platform | Architecture | Download |
+|----------|-------------|----------|
+| Windows  | x86_64      | [kairos-0.9.0-x86_64-pc-windows-msvc.zip](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-x86_64-pc-windows-msvc.zip) |
+| macOS    | Universal   | [kairos-0.9.0-universal-apple-darwin.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-universal-apple-darwin.tar.gz) |
+| Linux    | x86_64      | [kairos-0.9.0-x86_64-unknown-linux-gnu.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-x86_64-unknown-linux-gnu.tar.gz) |
+| Linux    | aarch64     | [kairos-0.9.0-aarch64-unknown-linux-gnu.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-aarch64-unknown-linux-gnu.tar.gz) |
 
-### Build & Run
+**Checksums**: [SHA256SUMS.txt](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/SHA256SUMS.txt)
+
+### System Requirements
+
+- Windows x86_64, macOS (Universal), or Linux (x86_64 / aarch64)
+- [Databento](https://databento.com) API key for historical data
+- Rithmic credentials for live data (optional, configured through the app)
+
+---
+
+## Building from Source
+
+Requires [Rust](https://rustup.rs/) (edition 2024).
 
 ```bash
 cargo build --release
 cargo run --release
 ```
 
-### Tests
+### Testing
 
 ```bash
 cargo test                           # All tests

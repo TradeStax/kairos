@@ -33,6 +33,15 @@ pub enum BacktestMessage {
     Failed { run_id: uuid::Uuid, error: String },
     /// CSV export completed (or was cancelled).
     CsvExported(Option<Result<std::path::PathBuf, String>>),
+    /// JSON export completed (or was cancelled).
+    JsonExported(Option<Result<std::path::PathBuf, String>>),
+    /// Persisted backtest results loaded from disk at startup.
+    PersistedResultsLoaded(
+        Vec<(
+            crate::app::backtest::persistence::BacktestIndexEntry,
+            std::sync::Arc<backtest::BacktestResult>,
+        )>,
+    ),
 }
 
 #[derive(Debug, Clone)]

@@ -1,3 +1,4 @@
+use crate::app::backtest::persistence;
 use crate::app::messages::BacktestMessage;
 use crate::components::display::toast::Toast;
 use crate::screen::backtest::launch::Action as BacktestLaunchAction;
@@ -153,10 +154,11 @@ impl Kairos {
                     .backtest
                     .backtest_launch_modal
                     .set_running(false);
+                let result_arc = Arc::new(*result.clone());
                 self.modals
                     .backtest
                     .backtest_history
-                    .mark_completed(run_id, Arc::new(*result.clone()));
+                    .mark_completed(run_id, result_arc.clone());
                 log::info!(
                     "Backtest complete: {} trades, net PnL ${:.2}",
                     result.trades.len(),
@@ -169,7 +171,33 @@ impl Kairos {
                     &self.modals.backtest.backtest_history,
                     self.ui.timezone,
                 );
-                Task::none()
+
+                // Auto-save to disk
+                let name = result.strategy_name.clone();
+                let ticker = result.config.ticker.as_str().to_string();
+                let started_at = result.run_started_at_ms;
+                let persist_result = result_arc;
+                Task::perform(
+                    async move {
+                        persistence::save_backtest_result(
+                            &persist_result,
+                            &name,
+                            &ticker,
+                            started_at,
+                        )
+                        .await
+                    },
+                    |outcome| match outcome {
+                        Ok(path) => {
+                            log::info!("Backtest persisted to {}", path.display());
+                            Message::Noop
+                        }
+                        Err(e) => {
+                            log::error!("Failed to persist backtest: {e}");
+                            Message::Noop
+                        }
+                    },
+                )
             }
 
             BacktestMessage::Failed { run_id, error } => {
@@ -205,6 +233,41 @@ impl Kairos {
                 Task::none()
             }
 
+            BacktestMessage::JsonExported(outcome) => {
+                match outcome {
+                    Some(Ok(path)) => {
+                        self.ui.push_notification(Toast::success(format!(
+                            "JSON exported to {}",
+                            path.display()
+                        )));
+                    }
+                    Some(Err(e)) => {
+                        self.ui
+                            .push_notification(Toast::error(format!("JSON export failed: {e}")));
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
+
+            BacktestMessage::PersistedResultsLoaded(results) => {
+                let count = results.len();
+                for (entry, result) in results {
+                    self.modals.backtest.backtest_history.add_persisted(
+                        entry.id,
+                        entry.strategy_name,
+                        entry.ticker,
+                        result.config.clone(),
+                        entry.started_at_ms,
+                        result,
+                    );
+                }
+                if count > 0 {
+                    log::info!("Loaded {count} persisted backtests into history");
+                }
+                Task::none()
+            }
+
             BacktestMessage::ManagerInteraction(manager_msg) => {
                 let action = self.modals.backtest.backtest_manager.update(
                     manager_msg,
@@ -224,9 +287,14 @@ impl Kairos {
                             self.modals.backtest.backtest_manager.selected_id = None;
                             self.modals.backtest.backtest_manager.analytics = None;
                         }
-                        Task::none()
+                        // Also delete from disk
+                        Task::perform(
+                            async move { persistence::delete_backtest_result(id).await },
+                            |_| Message::Noop,
+                        )
                     }
                     ManagerAction::ExportCsv(id) => self.export_backtest_csv(id),
+                    ManagerAction::ExportJson(id) => self.export_backtest_json(id),
                     ManagerAction::Close => {
                         self.modals.backtest.show_backtest_manager = false;
                         Task::none()
@@ -248,8 +316,8 @@ impl Kairos {
 
         let tz = self.ui.timezone;
         let mut csv = String::from(
-            "Trade,Entry Time,Exit Time,Side,P&L ($),\
-             P&L (ticks),MAE (ticks),MFE (ticks),\
+            "Trade,Entry Time,Exit Time,Side,Entry $,Exit $,\
+             P&L ($),P&L (ticks),MAE (ticks),MFE (ticks),\
              Exit Reason\n",
         );
         for (i, t) in result.trades.iter().enumerate() {
@@ -261,11 +329,13 @@ impl Kairos {
             let entry_ts = tz.format_replay_tooltip(t.entry_time.0 as i64);
             let exit_ts = tz.format_replay_tooltip(t.exit_time.0 as i64);
             csv.push_str(&format!(
-                "{},{},{},{},{:.2},{},{},{},{}\n",
+                "{},{},{},{},{},{},{:.2},{},{},{},{}\n",
                 i + 1,
                 entry_ts,
                 exit_ts,
                 side,
+                t.entry_price.to_f64(),
+                t.exit_price.to_f64(),
                 t.pnl_net_usd,
                 t.pnl_ticks,
                 t.mae_ticks,
@@ -298,6 +368,56 @@ impl Kairos {
                 }
             },
             |outcome| Message::Backtest(BacktestMessage::CsvExported(outcome)),
+        )
+    }
+
+    /// Export a backtest as a full JSON document via a native
+    /// save dialog.
+    fn export_backtest_json(&self, backtest_id: uuid::Uuid) -> Task<Message> {
+        let Some(entry) = self.modals.backtest.backtest_history.get(backtest_id) else {
+            return Task::none();
+        };
+        let Some(result) = &entry.result else {
+            return Task::none();
+        };
+
+        let export = backtest::BacktestExport::from_result(result);
+        let json = match serde_json::to_string_pretty(&export) {
+            Ok(j) => j,
+            Err(e) => {
+                log::error!("Failed to serialize JSON export: {e}");
+                return Task::none();
+            }
+        };
+
+        let default_name = format!(
+            "backtest_{}_{}.json",
+            entry.strategy_name.replace(' ', "_"),
+            entry.ticker,
+        );
+
+        Task::perform(
+            async move {
+                let handle = rfd::AsyncFileDialog::new()
+                    .set_title("Export Backtest JSON")
+                    .set_file_name(&default_name)
+                    .add_filter("JSON Files", &["json"])
+                    .save_file()
+                    .await;
+
+                let path = handle?.path().to_path_buf();
+                match tokio::fs::write(&path, json).await {
+                    Ok(()) => {
+                        log::info!("JSON exported to {}", path.display());
+                        Some(Ok(path))
+                    }
+                    Err(e) => {
+                        log::error!("Failed to write JSON: {e}");
+                        Some(Err(e.to_string()))
+                    }
+                }
+            },
+            |outcome| Message::Backtest(BacktestMessage::JsonExported(outcome)),
         )
     }
 }

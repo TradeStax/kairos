@@ -469,6 +469,37 @@ impl Strategy for MomentumBreakoutStrategy {
         }
         let atr = compute_atr(candles, self.atr_period());
         values.push(("atr".into(), ContextValue::Float(atr)));
+        values.push((
+            "entry_periods".into(),
+            ContextValue::Integer(self.entry_periods() as i64),
+        ));
+        values.push((
+            "exit_periods".into(),
+            ContextValue::Integer(self.exit_periods() as i64),
+        ));
+        values.push((
+            "atr_period".into(),
+            ContextValue::Integer(self.atr_period() as i64),
+        ));
+        values.push((
+            "atr_stop_multiplier".into(),
+            ContextValue::Float(self.atr_stop_multiplier()),
+        ));
+        values.push((
+            "open_side".into(),
+            ContextValue::Text(
+                match self.open_side {
+                    Some(Side::Buy) => "Long",
+                    Some(Side::Sell) => "Short",
+                    _ => "None",
+                }
+                .to_string(),
+            ),
+        ));
+        values.push((
+            "trades_taken".into(),
+            ContextValue::Integer(self.trades_taken as i64),
+        ));
         values
     }
 

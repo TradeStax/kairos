@@ -12,6 +12,7 @@ kairos-study = { version = "0.9.0", path = "../study" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+serde_json.workspace = true
 log.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }

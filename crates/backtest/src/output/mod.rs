@@ -11,6 +11,7 @@
 //! - [`BacktestProgressEvent`] — streaming events emitted during a running
 //!   backtest for live progress tracking.
 
+pub mod export;
 pub mod metrics;
 pub mod progress;
 pub mod result;

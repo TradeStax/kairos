@@ -74,6 +74,7 @@ pub enum ManagerMessage {
     NewBacktest,
     DeleteBacktest(uuid::Uuid),
     ExportCsv,
+    ExportJson,
     Close,
     // Trade detail (also triggered internally from SelectTrade double-click)
     #[allow(dead_code)]
@@ -88,6 +89,7 @@ pub enum ManagerAction {
     OpenLaunchModal,
     DeleteBacktest(uuid::Uuid),
     ExportCsv(uuid::Uuid),
+    ExportJson(uuid::Uuid),
     Close,
 }
 
@@ -236,6 +238,13 @@ impl BacktestManager {
             ManagerMessage::ExportCsv => {
                 if let Some(id) = self.selected_id {
                     ManagerAction::ExportCsv(id)
+                } else {
+                    ManagerAction::None
+                }
+            }
+            ManagerMessage::ExportJson => {
+                if let Some(id) = self.selected_id {
+                    ManagerAction::ExportJson(id)
                 } else {
                     ManagerAction::None
                 }
@@ -443,15 +452,21 @@ impl BacktestManager {
             .on_press(ManagerMessage::DeleteBacktest(id))
             .style(style::button::danger);
 
-        let export_btn = button(text("Export CSV").size(tokens::text::BODY))
+        let export_csv_btn = button(text("Export CSV").size(tokens::text::BODY))
             .padding(footer_padding)
             .on_press(ManagerMessage::ExportCsv)
+            .style(style::button::secondary);
+
+        let export_json_btn = button(text("Export JSON").size(tokens::text::BODY))
+            .padding(footer_padding)
+            .on_press(ManagerMessage::ExportJson)
             .style(style::button::secondary);
 
         let footer_row = row![
             iced::widget::Space::new().width(Length::Fill),
             delete_btn,
-            export_btn,
+            export_csv_btn,
+            export_json_btn,
         ]
         .spacing(tokens::spacing::SM)
         .padding(tokens::spacing::LG)

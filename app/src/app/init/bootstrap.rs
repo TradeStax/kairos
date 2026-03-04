@@ -173,7 +173,17 @@ impl Kairos {
             self.sync_feed_snapshots(&connection_manager);
         }
 
-        let mut all_tasks = vec![load_layout];
+        // Load persisted backtests from disk
+        let load_backtests_task = Task::perform(
+            async { crate::app::backtest::persistence::load_all_backtest_results().await },
+            |results| {
+                Message::Backtest(crate::app::messages::BacktestMessage::PersistedResultsLoaded(
+                    results.unwrap_or_default(),
+                ))
+            },
+        );
+
+        let mut all_tasks = vec![load_layout, load_backtests_task];
         all_tasks.append(&mut scan_tasks);
         Task::batch(all_tasks)
     }
