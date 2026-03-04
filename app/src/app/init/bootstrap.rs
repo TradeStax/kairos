@@ -177,9 +177,11 @@ impl Kairos {
         let load_backtests_task = Task::perform(
             async { crate::app::backtest::persistence::load_all_backtest_results().await },
             |results| {
-                Message::Backtest(crate::app::messages::BacktestMessage::PersistedResultsLoaded(
-                    results.unwrap_or_default(),
-                ))
+                Message::Backtest(
+                    crate::app::messages::BacktestMessage::PersistedResultsLoaded(
+                        results.unwrap_or_default(),
+                    ),
+                )
             },
         );
 

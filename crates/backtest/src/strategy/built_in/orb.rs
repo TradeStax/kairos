@@ -454,10 +454,7 @@ impl Strategy for OrbStrategy {
         if let (Some(h), Some(l)) = (self.or_high, self.or_low) {
             let tick_size_units = ctx.tick_size().units();
             let range_ticks = (h.units() - l.units()) / tick_size_units;
-            out.push((
-                "or_range_ticks".into(),
-                ContextValue::Integer(range_ticks),
-            ));
+            out.push(("or_range_ticks".into(), ContextValue::Integer(range_ticks)));
         }
         out.push((
             "state".into(),
@@ -467,10 +464,7 @@ impl Strategy for OrbStrategy {
             "trades_taken".into(),
             ContextValue::Integer(self.trades_taken as i64),
         ));
-        out.push((
-            "wick_filter".into(),
-            ContextValue::Bool(self.wick_filter()),
-        ));
+        out.push(("wick_filter".into(), ContextValue::Bool(self.wick_filter())));
         out.push((
             "time_exit".into(),
             ContextValue::Integer(self.time_exit_hhmm() as i64),

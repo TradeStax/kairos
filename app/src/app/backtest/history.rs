@@ -152,6 +152,7 @@ impl BacktestHistory {
     }
 
     /// Number of completed entries in the history.
+    #[allow(dead_code)]
     pub fn completed_count(&self) -> usize {
         self.entries
             .iter()

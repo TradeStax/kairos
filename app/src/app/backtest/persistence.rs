@@ -55,8 +55,8 @@ pub async fn save_backtest_result(
     let tmp_path = dir.join(format!("{}.tmp", result.id));
 
     // Serialize result
-    let json = serde_json::to_string(result)
-        .map_err(|e| format!("Failed to serialize backtest: {e}"))?;
+    let json =
+        serde_json::to_string(result).map_err(|e| format!("Failed to serialize backtest: {e}"))?;
 
     // Atomic write: tmp + rename
     tokio::fs::write(&tmp_path, json.as_bytes())
@@ -79,11 +79,7 @@ pub async fn save_backtest_result(
     };
     update_index(&dir, entry).await?;
 
-    log::info!(
-        "Backtest {} saved to {}",
-        result.id,
-        path.display()
-    );
+    log::info!("Backtest {} saved to {}", result.id, path.display());
     Ok(path)
 }
 
@@ -92,11 +88,7 @@ pub async fn save_backtest_result(
 /// Tries the index first; falls back to scanning the directory
 /// if the index is missing or corrupt.
 pub async fn load_all_backtest_results()
-    -> Result<
-        Vec<(BacktestIndexEntry, Arc<backtest::BacktestResult>)>,
-        String,
-    >
-{
+-> Result<Vec<(BacktestIndexEntry, Arc<backtest::BacktestResult>)>, String> {
     let dir = backtests_dir();
     if !dir.exists() {
         return Ok(Vec::new());
@@ -107,36 +99,24 @@ pub async fn load_all_backtest_results()
 
     for entry in &index.entries {
         let path = dir.join(&entry.file_name);
-        match tokio::fs::read_to_string(&path).await {
-            Ok(json) => {
-                match serde_json::from_str::<backtest::BacktestResult>(
-                    &json,
-                ) {
-                    Ok(result) => {
-                        results
-                            .push((entry.clone(), Arc::new(result)));
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to deserialize {}: {e}",
-                            entry.file_name
-                        );
-                    }
-                }
+        let data = match tokio::fs::read_to_string(&path).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::warn!("Failed to read {}: {e}", entry.file_name);
+                continue;
+            }
+        };
+        match serde_json::from_str::<backtest::BacktestResult>(&data) {
+            Ok(result) => {
+                results.push((entry.clone(), Arc::new(result)));
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to read {}: {e}",
-                    entry.file_name
-                );
+                log::warn!("Failed to deserialize {}: {e}", entry.file_name);
             }
         }
     }
 
-    log::info!(
-        "Loaded {} persisted backtests from disk",
-        results.len()
-    );
+    log::info!("Loaded {} persisted backtests from disk", results.len());
     Ok(results)
 }
 
@@ -148,28 +128,18 @@ pub async fn delete_backtest_result(id: Uuid) -> Result<(), String> {
     if path.exists() {
         tokio::fs::remove_file(&path)
             .await
-            .map_err(|e| {
-                format!("Failed to delete {}: {e}", path.display())
-            })?;
+            .map_err(|e| format!("Failed to delete {}: {e}", path.display()))?;
     }
 
     // Update index: remove the entry
     let index_path = dir.join("index.json");
-    if index_path.exists() {
-        if let Ok(data) =
-            tokio::fs::read_to_string(&index_path).await
-        {
-            if let Ok(mut index) =
-                serde_json::from_str::<BacktestIndex>(&data)
-            {
-                index.entries.retain(|e| e.id != id);
-                if let Ok(json) =
-                    serde_json::to_string_pretty(&index)
-                {
-                    let _ =
-                        tokio::fs::write(&index_path, json).await;
-                }
-            }
+    if index_path.exists()
+        && let Ok(data) = tokio::fs::read_to_string(&index_path).await
+        && let Ok(mut index) = serde_json::from_str::<BacktestIndex>(&data)
+    {
+        index.entries.retain(|e| e.id != id);
+        if let Ok(json) = serde_json::to_string_pretty(&index) {
+            let _ = tokio::fs::write(&index_path, json).await;
         }
     }
 
@@ -178,20 +148,14 @@ pub async fn delete_backtest_result(id: Uuid) -> Result<(), String> {
 }
 
 /// Append an entry to the index file.
-async fn update_index(
-    dir: &std::path::Path,
-    entry: BacktestIndexEntry,
-) -> Result<(), String> {
+async fn update_index(dir: &std::path::Path, entry: BacktestIndexEntry) -> Result<(), String> {
     let index_path = dir.join("index.json");
     let mut index = if index_path.exists() {
         match tokio::fs::read_to_string(&index_path).await {
-            Ok(data) => {
-                serde_json::from_str::<BacktestIndex>(&data)
-                    .unwrap_or(BacktestIndex {
-                        version: 1,
-                        entries: Vec::new(),
-                    })
-            }
+            Ok(data) => serde_json::from_str::<BacktestIndex>(&data).unwrap_or(BacktestIndex {
+                version: 1,
+                entries: Vec::new(),
+            }),
             Err(_) => BacktestIndex {
                 version: 1,
                 entries: Vec::new(),
@@ -205,9 +169,7 @@ async fn update_index(
     };
 
     // Replace existing entry or append
-    if let Some(pos) =
-        index.entries.iter().position(|e| e.id == entry.id)
-    {
+    if let Some(pos) = index.entries.iter().position(|e| e.id == entry.id) {
         index.entries[pos] = entry;
     } else {
         index.entries.push(entry);
@@ -222,25 +184,17 @@ async fn update_index(
 }
 
 /// Load the index, or rebuild it by scanning for .json files.
-async fn load_or_rebuild_index(
-    dir: &std::path::Path,
-) -> Result<BacktestIndex, String> {
+async fn load_or_rebuild_index(dir: &std::path::Path) -> Result<BacktestIndex, String> {
     let index_path = dir.join("index.json");
 
     // Try loading existing index
     if index_path.exists() {
-        if let Ok(data) =
-            tokio::fs::read_to_string(&index_path).await
+        if let Ok(data) = tokio::fs::read_to_string(&index_path).await
+            && let Ok(index) = serde_json::from_str::<BacktestIndex>(&data)
         {
-            if let Ok(index) =
-                serde_json::from_str::<BacktestIndex>(&data)
-            {
-                return Ok(index);
-            }
+            return Ok(index);
         }
-        log::warn!(
-            "Index file corrupt, rebuilding from directory scan"
-        );
+        log::warn!("Index file corrupt, rebuilding from directory scan");
     }
 
     // Rebuild by scanning
@@ -257,33 +211,23 @@ async fn load_or_rebuild_index(
             .unwrap_or_default()
             .to_string();
 
-        if !file_name.ends_with(".json")
-            || file_name == "index.json"
-        {
+        if !file_name.ends_with(".json") || file_name == "index.json" {
             continue;
         }
 
-        if let Ok(data) = tokio::fs::read_to_string(&path).await {
-            if let Ok(result) =
-                serde_json::from_str::<backtest::BacktestResult>(
-                    &data,
-                )
-            {
-                entries.push(BacktestIndexEntry {
-                    id: result.id,
-                    strategy_name: result.strategy_name.clone(),
-                    ticker: result
-                        .config
-                        .ticker
-                        .as_str()
-                        .to_string(),
-                    started_at_ms: result.run_started_at_ms,
-                    net_pnl_usd: result.metrics.net_pnl_usd,
-                    total_trades: result.metrics.total_trades,
-                    win_rate: result.metrics.win_rate,
-                    file_name,
-                });
-            }
+        if let Ok(data) = tokio::fs::read_to_string(&path).await
+            && let Ok(result) = serde_json::from_str::<backtest::BacktestResult>(&data)
+        {
+            entries.push(BacktestIndexEntry {
+                id: result.id,
+                strategy_name: result.strategy_name.clone(),
+                ticker: result.config.ticker.as_str().to_string(),
+                started_at_ms: result.run_started_at_ms,
+                net_pnl_usd: result.metrics.net_pnl_usd,
+                total_trades: result.metrics.total_trades,
+                win_rate: result.metrics.win_rate,
+                file_name,
+            });
         }
     }
 

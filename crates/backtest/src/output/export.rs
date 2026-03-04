@@ -100,10 +100,8 @@ impl BacktestExport {
 
         // Serialize config and metrics as generic JSON values so
         // the export captures every field without a parallel struct.
-        let config =
-            serde_json::to_value(&result.config).unwrap_or_default();
-        let metrics =
-            serde_json::to_value(&result.metrics).unwrap_or_default();
+        let config = serde_json::to_value(&result.config).unwrap_or_default();
+        let metrics = serde_json::to_value(&result.metrics).unwrap_or_default();
 
         let equity_curve = result
             .equity_curve
@@ -145,9 +143,7 @@ impl BacktestExport {
 }
 
 /// Convert a single [`TradeRecord`] to an [`ExportTrade`].
-fn export_trade(
-    t: &crate::output::trade_record::TradeRecord,
-) -> ExportTrade {
+fn export_trade(t: &crate::output::trade_record::TradeRecord) -> ExportTrade {
     let side = if t.side == kairos_data::Side::Buy {
         "Long"
     } else {
@@ -273,8 +269,7 @@ mod tests {
 
     #[test]
     fn test_context_value_to_json_price() {
-        let cv =
-            ContextValue::Price(kairos_data::Price::from_f64(5025.75));
+        let cv = ContextValue::Price(kairos_data::Price::from_f64(5025.75));
         let json = context_value_to_json(&cv);
         let val = json.as_f64().unwrap();
         assert!((val - 5025.75).abs() < 1e-6);
@@ -282,9 +277,7 @@ mod tests {
 
     #[test]
     fn test_context_value_to_json_timestamp() {
-        let cv = ContextValue::Timestamp(kairos_data::Timestamp(
-            1_736_933_400_000,
-        ));
+        let cv = ContextValue::Timestamp(kairos_data::Timestamp(1_736_933_400_000));
         let json = context_value_to_json(&cv);
         let s = json.as_str().unwrap();
         assert!(s.starts_with("2025-01-15T09:30:00"));
