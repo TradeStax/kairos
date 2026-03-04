@@ -42,7 +42,8 @@ switch ($Arch) {
 }
 
 $ExeName     = "kairos.exe"
-$ArchiveName = "kairos-$Version-$Target.zip"
+$Tag         = if ($env:CI_COMMIT_TAG) { $env:CI_COMMIT_TAG } else { "v$Version" }
+$ArchiveName = "kairos-$Tag-$Target.zip"
 
 Step "Building Kairos v$Version for $Target"
 

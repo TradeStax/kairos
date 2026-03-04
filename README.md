@@ -32,16 +32,7 @@
 
 ## Downloads
 
-Pre-built binaries are available for each release:
-
-| Platform | Architecture | Download |
-|----------|-------------|----------|
-| Windows  | x86_64      | [kairos-0.9.0-x86_64-pc-windows-msvc.zip](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-x86_64-pc-windows-msvc.zip) |
-| macOS    | Universal   | [kairos-0.9.0-universal-apple-darwin.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-universal-apple-darwin.tar.gz) |
-| Linux    | x86_64      | [kairos-0.9.0-x86_64-unknown-linux-gnu.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-x86_64-unknown-linux-gnu.tar.gz) |
-| Linux    | aarch64     | [kairos-0.9.0-aarch64-unknown-linux-gnu.tar.gz](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/kairos-0.9.0-aarch64-unknown-linux-gnu.tar.gz) |
-
-**Checksums**: [SHA256SUMS.txt](https://gitlab.com/api/v4/projects/77621610/packages/generic/kairos/0.9.0/SHA256SUMS.txt)
+Pre-built binaries for Windows, macOS (Universal), and Linux are available on the [latest release](https://gitlab.com/kreotic/kairos/-/releases/permalink/latest) page.
 
 ### System Requirements
 
@@ -71,14 +62,6 @@ cargo clippy                         # Lint
 cargo fmt --check                    # Format check
 ```
 
-### Environment Variables
-
-| Variable | Description |
-|---|---|
-| `DATABENTO_API_KEY` | Databento API key for historical futures data |
-| `KAIROS_DATA_PATH` | Override data directory (default: platform data dir / kairos) |
-| `RUST_LOG` | Log level (e.g. `kairos_data=debug`) |
-
 ---
 
 ## Data Providers
@@ -105,125 +88,33 @@ The app connects to Rithmic's ticker, market data, and PnL plants for real-time 
 
 ---
 
-## Chart Types
-
-| Type | Description |
-|------|-------------|
-| **Candlestick** | OHLC candlesticks with optional footprint overlay, studies, and side panel volume profile |
-| **Heatmap** | Order book depth heatmap with trade bubbles, volume profile, and configurable color mapping |
-| **Comparison** | Multi-series overlay for spread analysis, ratio comparison, or relative performance |
-| **Volume Profile** | Session and composite volume-at-price with POC, value area, and peak/valley detection |
-| **Ladder** | Live depth-of-market with grouped price levels, chase tracking, and trade aggregation |
-
----
-
-## Technical Studies
-
-18 built-in studies organized by category. All studies are configurable and support multiple placement modes (overlay, panel, background, candle replace, side panel).
-
-### Volume
-
-| Study | Description |
-|-------|-------------|
-| Volume | Total volume per candle |
-| Volume Delta | Buy minus sell volume per candle |
-| Cumulative Volume Delta | Running cumulative sum of buy/sell delta |
-| On Balance Volume | Cumulative volume weighted by price direction |
-
-### Order Flow
-
-| Study | Description |
-|-------|-------------|
-| Footprint | Per-candle bid/ask volume at each price level |
-| Volume by Price | Horizontal volume distribution across price levels |
-| Imbalance | Highlights price levels with significant buy/sell imbalance |
-| Big Trades | Aggregated institutional-scale trade markers |
-| Speed of Tape | Trade activity rate per time bucket as mini-candlesticks |
-| Level Analyzer | Auto-detects key price levels and monitors real-time interaction |
-
-### Trend
-
-| Study | Description |
-|-------|-------------|
-| SMA | Simple Moving Average |
-| EMA | Exponential Moving Average |
-| VWAP | Volume Weighted Average Price with optional standard deviation bands |
-
-### Momentum
-
-| Study | Description |
-|-------|-------------|
-| RSI | Relative Strength Index — overbought/oversold oscillator |
-| MACD | Moving Average Convergence Divergence with signal line and histogram |
-| Stochastic | Stochastic Oscillator with %K and %D lines |
-
-### Volatility
-
-| Study | Description |
-|-------|-------------|
-| ATR | Average True Range (Wilder's smoothing) |
-| Bollinger Bands | SMA with configurable standard deviation bands |
-
----
-
-## Drawing Tools
-
-19 drawing tools across 7 categories.
-
-| Category | Tools |
-|----------|-------|
-| **Lines** | Line, Ray, Extended Line, Horizontal Line, Vertical Line |
-| **Fibonacci** | Fibonacci Retracement, Fibonacci Extension |
-| **Channels** | Parallel Channel |
-| **Shapes** | Rectangle, Ellipse |
-| **Annotations** | Text Label, Price Label, Arrow |
-| **Trading** | Buy Calculator, Sell Calculator |
-| **Analysis** | Volume Profile, Delta Profile, AI Context |
-
-Position calculators show entry, target, and stop with automatic risk/reward computation. Volume and delta profile drawings compute volume distribution for any user-selected time range. AI context selections send the selected region to the AI assistant for analysis.
-
----
-
 ## Backtesting
 
-Event-driven backtesting engine with tick-level simulation.
-
-### Built-in Strategies
-
-| Strategy | Description |
-|----------|-------------|
-| **Opening Range Breakout** | Trades breakouts above/below the first N minutes of the RTH session. Configurable OR period, R-multiple targets, and wick filter. |
-| **VWAP Reversion** | Mean-reversion entries when price deviates beyond N standard deviations from session VWAP. Optional slope filter to avoid trending markets. |
-| **Momentum Breakout** | Donchian channel breakouts with ATR-based stops and trailing exit via shorter-period channel. |
+Event-driven backtesting engine with tick-level simulation, 30+ performance metrics, walk-forward optimization, and Monte Carlo analysis.
 
 Custom strategies implement the `Strategy` trait with access to candles, studies, and a full order management API.
 
-### Engine Capabilities
+### Results & Analytics
 
-- **Event-driven simulation** — processes every trade tick for realistic fill modeling
-- **Multi-timeframe aggregation** — access multiple candle timeframes within a single strategy
-- **Session-aware clock** — RTH/ETH session tracking with configurable session times
-- **Fill simulation** — standard and depth-based fill models with configurable latency and slippage
-- **Order types** — market, limit, stop, stop-limit, bracket orders, and cancel/modify
-- **Portfolio tracking** — real-time P&L, margin, VWAP position cost, MAE/MFE per trade
+<p align="center">
+  <img src=".gitlab/backtest_overview.png" alt="Backtest Overview — equity curve, drawdown, monthly returns, P&L distribution" width="900" />
+</p>
+<p align="center"><em>Overview — equity curve, drawdown, monthly returns grid, and P&L distribution</em></p>
 
-### Performance Metrics
+<p align="center">
+  <img src=".gitlab/backtest_analytics.png" alt="Backtest Analytics — Monte Carlo, risk metrics, MAE vs MFE, performance by hour" width="900" />
+</p>
+<p align="center"><em>Analytics — 3D Monte Carlo surface, risk & expectancy metrics, MAE vs MFE scatter, performance by hour</em></p>
 
-30+ metrics computed automatically after each backtest:
+<p align="center">
+  <img src=".gitlab/backtest_analytics_propfirm.png" alt="Backtest Analytics — prop firm evaluation, Monte Carlo paths" width="900" />
+</p>
+<p align="center"><em>Prop firm evaluation detail with Monte Carlo simulation paths</em></p>
 
-- **P&L** — net/gross P&L (USD and ticks), total commissions, return %
-- **Win/Loss** — win rate, profit factor, average win/loss, best/worst trade, expectancy
-- **Streaks** — largest win streak, largest loss streak
-- **Risk** — max drawdown (USD and %), Sharpe ratio, Sortino ratio, Calmar ratio
-- **Excursion** — average MAE/MFE in ticks for stop/target optimization
-- **Benchmark** — buy-and-hold return, strategy alpha
-- **Duration** — average trade duration, total trading days
-
-### Analysis
-
-- **Monte Carlo simulation** — randomized trade resampling for confidence intervals on drawdown and returns
-- **Walk-forward optimization** — rolling in-sample/out-of-sample parameter grid search
-- **Bootstrap confidence intervals** — statistical significance testing on strategy performance
+<p align="center">
+  <img src=".gitlab/backtest_trades_detail.png" alt="Backtest Trade Detail — individual trade on chart with entry/exit markers" width="900" />
+</p>
+<p align="center"><em>Trade detail — individual trade on chart with entry/exit markers, opening range highlight, and stats</em></p>
 
 ---
 
@@ -243,12 +134,11 @@ The assistant receives a snapshot of the active chart's data and studies, enabli
 
 ## Replay
 
-Replay historical trading sessions with full chart reconstruction:
+Replay historical trading sessions with full chart reconstruction — play/pause, adjustable speed, and seek to any point. All studies and drawings update in real-time.
 
-- Play, pause, and adjust playback speed
-- Seek to any point in the session
-- All studies and drawings update in real-time during replay
-- Useful for session review, pattern study, and strategy development
+<p align="center">
+  <img src=".gitlab/chart_replay.gif" alt="Chart replay with play/pause, speed control, and seek bar" width="900" />
+</p>
 
 ---
 

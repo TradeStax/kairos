@@ -41,6 +41,14 @@ detect_version() {
     grep '^version = ' "$cargo_toml" | head -1 | sed 's/version = "\(.*\)"/\1/'
 }
 
+detect_tag() {
+    if [[ -n "${CI_COMMIT_TAG:-}" ]]; then
+        echo "$CI_COMMIT_TAG"
+    else
+        echo "v$(detect_version)"
+    fi
+}
+
 # ── Repository root ──────────────────────────────────────────────────────────
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

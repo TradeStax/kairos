@@ -45,7 +45,8 @@ case "$ARCH" in
 esac
 
 VERSION="$(detect_version)"
-ARCHIVE_NAME="kairos-${VERSION}-${TARGET}.tar.gz"
+TAG="$(detect_tag)"
+ARCHIVE_NAME="kairos-${TAG}-${TARGET}.tar.gz"
 
 step "Building Kairos v${VERSION} for ${TARGET}"
 

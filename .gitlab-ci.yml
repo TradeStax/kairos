@@ -245,11 +245,7 @@ create-release:
     - apk add --no-cache curl
   script:
     - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      echo "Creating release for ${CI_COMMIT_TAG} (version ${VERSION})"
-
-      # Export VERSION for the release: block (dotenv artifact)
-      echo "VERSION=${VERSION}" > release.env
+      echo "Creating release for ${CI_COMMIT_TAG}"
 
       # Upload assets to Generic Package Registry
       for file in target/release/kairos-*.zip target/release/kairos-*.tar.gz target/release/SHA256SUMS.txt; do
@@ -258,7 +254,7 @@ create-release:
         echo "Uploading ${filename}..."
         curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
              --upload-file "$file" \
-             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/${filename}"
+             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/${filename}"
       done
 
       # Upload individual checksum files
@@ -268,11 +264,8 @@ create-release:
         echo "Uploading ${filename}..."
         curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
              --upload-file "$file" \
-             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/${filename}"
+             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/${filename}"
       done
-  artifacts:
-    reports:
-      dotenv: release.env
   release:
     tag_name: "${CI_COMMIT_TAG}"
     name: "Kairos ${CI_COMMIT_TAG}"
@@ -281,28 +274,28 @@ create-release:
 
       | Platform | Architecture | File |
       |----------|-------------|------|
-      | Windows  | x86_64      | [kairos-${VERSION}-x86_64-pc-windows-msvc.zip](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-x86_64-pc-windows-msvc.zip) |
-      | macOS    | Universal   | [kairos-${VERSION}-universal-apple-darwin.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-universal-apple-darwin.tar.gz) |
-      | Linux    | x86_64      | [kairos-${VERSION}-x86_64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-x86_64-unknown-linux-gnu.tar.gz) |
-      | Linux    | aarch64     | [kairos-${VERSION}-aarch64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-aarch64-unknown-linux-gnu.tar.gz) |
+      | Windows  | x86_64      | [kairos-${CI_COMMIT_TAG}-x86_64-pc-windows-msvc.zip](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-x86_64-pc-windows-msvc.zip) |
+      | macOS    | Universal   | [kairos-${CI_COMMIT_TAG}-universal-apple-darwin.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-universal-apple-darwin.tar.gz) |
+      | Linux    | x86_64      | [kairos-${CI_COMMIT_TAG}-x86_64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-x86_64-unknown-linux-gnu.tar.gz) |
+      | Linux    | aarch64     | [kairos-${CI_COMMIT_TAG}-aarch64-unknown-linux-gnu.tar.gz](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-aarch64-unknown-linux-gnu.tar.gz) |
 
-      **Checksums**: [SHA256SUMS.txt](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/SHA256SUMS.txt)
+      **Checksums**: [SHA256SUMS.txt](${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/SHA256SUMS.txt)
     assets:
       links:
-        - name: "kairos-${VERSION}-x86_64-pc-windows-msvc.zip"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-x86_64-pc-windows-msvc.zip"
-          filepath: "/kairos-${VERSION}-x86_64-pc-windows-msvc.zip"
-        - name: "kairos-${VERSION}-universal-apple-darwin.tar.gz"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-universal-apple-darwin.tar.gz"
-          filepath: "/kairos-${VERSION}-universal-apple-darwin.tar.gz"
-        - name: "kairos-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          filepath: "/kairos-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-        - name: "kairos-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/kairos-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
-          filepath: "/kairos-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
-        - name: "SHA256SUMS.txt"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${VERSION}/SHA256SUMS.txt"
+        - name: "Windows (x86_64)"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-x86_64-pc-windows-msvc.zip"
+          filepath: "/kairos-${CI_COMMIT_TAG}-x86_64-pc-windows-msvc.zip"
+        - name: "macOS (Universal)"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-universal-apple-darwin.tar.gz"
+          filepath: "/kairos-${CI_COMMIT_TAG}-universal-apple-darwin.tar.gz"
+        - name: "Linux (x86_64)"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-x86_64-unknown-linux-gnu.tar.gz"
+          filepath: "/kairos-${CI_COMMIT_TAG}-x86_64-unknown-linux-gnu.tar.gz"
+        - name: "Linux (ARM64)"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/kairos-${CI_COMMIT_TAG}-aarch64-unknown-linux-gnu.tar.gz"
+          filepath: "/kairos-${CI_COMMIT_TAG}-aarch64-unknown-linux-gnu.tar.gz"
+        - name: "SHA256 Checksums"
+          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kairos/${CI_COMMIT_TAG}/SHA256SUMS.txt"
           filepath: "/SHA256SUMS.txt"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
