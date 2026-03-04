@@ -66,6 +66,10 @@ cargo fmt --check                    # Format check
 
 ## Data Providers
 
+<p align="center">
+  <img src=".gitlab/connections_management.png" alt="Manage Connections — Databento and Rithmic feed configuration" width="900" />
+</p>
+
 ### Databento — Historical Data
 
 [Databento](https://databento.com) provides historical trade and MBO data for CME Globex futures.
