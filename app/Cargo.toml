@@ -49,6 +49,9 @@ study = { version = "0.9.0", path = "../crates/study", package = "kairos-study" 
 backtest = { version = "0.9.0", path = "../crates/backtest", package = "kairos-backtest" }
 ai = { version = "0.9.0", path = "../crates/ai", package = "kairos-ai" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { workspace = true }
+
 [build-dependencies]
 winresource = "0.1"
 

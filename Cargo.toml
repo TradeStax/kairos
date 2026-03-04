@@ -22,3 +22,6 @@ enum-map = "2.7.3"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 tokio = { version = "1.43", features = ["sync", "macros", "rt", "rt-multi-thread", "time", "fs", "net"] }
 iced_anim = { version = "0.3", features = ["derive"] }
+
+# Force vendored OpenSSL for cross-compilation (databento pulls in native-tls → openssl-sys)
+openssl = { version = "0.10", features = ["vendored"] }
