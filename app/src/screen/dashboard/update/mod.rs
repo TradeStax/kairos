@@ -593,7 +593,7 @@ impl Dashboard {
                         for (_, state) in self.panes.iter_mut() {
                             if state
                                 .ticker_info
-                                .map_or(false, |ti| ti.ticker == event_ticker)
+                                .is_some_and(|ti| ti.ticker == event_ticker)
                             {
                                 state.content.update_live_depth(&depth, &[]);
                             }
@@ -602,7 +602,7 @@ impl Dashboard {
                             for (_, state) in popout_panes.iter_mut() {
                                 if state
                                     .ticker_info
-                                    .map_or(false, |ti| ti.ticker == event_ticker)
+                                    .is_some_and(|ti| ti.ticker == event_ticker)
                                 {
                                     state.content.update_live_depth(&depth, &[]);
                                 }

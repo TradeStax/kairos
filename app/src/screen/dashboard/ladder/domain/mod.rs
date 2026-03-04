@@ -10,10 +10,9 @@
 //!
 //! All logic uses Price units (i64) for precision.
 
+#[allow(dead_code)]
 pub mod chase_tracker;
+#[allow(dead_code)]
 pub mod depth_grouping;
+#[allow(dead_code)]
 pub mod trade_aggregator;
-
-pub use chase_tracker::ChaseTracker;
-pub use depth_grouping::{DepthSide, GroupedDepth, LadderTrade, group_depth_by_tick};
-pub use trade_aggregator::{AggregationMode, StackedBarMetrics, TradeAggregator};

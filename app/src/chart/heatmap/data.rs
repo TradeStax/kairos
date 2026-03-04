@@ -141,11 +141,13 @@ impl HeatmapData {
             let runs = self.depth_by_price.entry(price_units).or_default();
             // Coalesce with the last run if qty and side match and times are
             // adjacent
-            if let Some(last) = runs.last_mut() {
-                if last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time {
-                    last.until_time = new_until;
-                    continue;
-                }
+            if let Some(last) = runs.last_mut()
+                && last.is_bid
+                && last.qty == qty_f32
+                && last.until_time >= bucket_time
+            {
+                last.until_time = new_until;
+                continue;
             }
             runs.push(DepthRun {
                 start_time: bucket_time,
@@ -162,11 +164,13 @@ impl HeatmapData {
             let runs = self.depth_by_price.entry(price_units).or_default();
             // Coalesce with the last run if qty and side match and times are
             // adjacent
-            if let Some(last) = runs.last_mut() {
-                if !last.is_bid && last.qty == qty_f32 && last.until_time >= bucket_time {
-                    last.until_time = new_until;
-                    continue;
-                }
+            if let Some(last) = runs.last_mut()
+                && !last.is_bid
+                && last.qty == qty_f32
+                && last.until_time >= bucket_time
+            {
+                last.until_time = new_until;
+                continue;
             }
             runs.push(DepthRun {
                 start_time: bucket_time,

@@ -178,24 +178,22 @@ impl canvas::Program<Message> for HeatmapChart {
                     HeatmapStudy::VolumeProfile(profile) => profile,
                 })
                 .next()
-            {
-                if let Some((time_range, first_tick, last_tick, step_units, num_ticks)) =
+                && let Some((time_range, first_tick, last_tick, step_units, num_ticks)) =
                     volume_profile_params(&region, profile_kind, chart, self.basis)
-                {
-                    self.get_or_compute_volume_profile(
-                        time_range, first_tick, last_tick, step_units, num_ticks,
+            {
+                self.get_or_compute_volume_profile(
+                    time_range, first_tick, last_tick, step_units, num_ticks,
+                );
+                let cache = self.volume_profile_cache.borrow();
+                if let Some((_, ref profile)) = *cache {
+                    render_volume_profile(
+                        frame,
+                        &region,
+                        palette,
+                        chart,
+                        profile,
+                        (bounds.width / chart.scaling) * 0.1,
                     );
-                    let cache = self.volume_profile_cache.borrow();
-                    if let Some((_, ref profile)) = *cache {
-                        render_volume_profile(
-                            frame,
-                            &region,
-                            palette,
-                            chart,
-                            profile,
-                            (bounds.width / chart.scaling) * 0.1,
-                        );
-                    }
                 }
             }
 

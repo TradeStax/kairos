@@ -188,6 +188,7 @@ pub struct HeatmapChart {
     drawings: DrawingManager,
 
     /// Cached qty_scales to avoid recomputation when viewport hasn't changed
+    #[allow(clippy::type_complexity)]
     qty_scale_cache: Cell<Option<(u64, u64, i64, i64, QtyScale)>>,
 
     /// Cached volume profile to avoid recomputation in draw closure
@@ -542,10 +543,13 @@ impl HeatmapChart {
     ) -> QtyScale {
         let key = (earliest, latest, highest.units(), lowest.units());
 
-        if let Some((ce, cl, ch, clo, cached)) = self.qty_scale_cache.get() {
-            if ce == key.0 && cl == key.1 && ch == key.2 && clo == key.3 {
-                return cached;
-            }
+        if let Some((ce, cl, ch, clo, cached)) = self.qty_scale_cache.get()
+            && ce == key.0
+            && cl == key.1
+            && ch == key.2
+            && clo == key.3
+        {
+            return cached;
         }
 
         let max_trade_qty = self.heatmap_data.max_trade_qty_in_range(earliest, latest);
@@ -592,7 +596,7 @@ impl HeatmapChart {
             .volume_profile_cache
             .borrow()
             .as_ref()
-            .map_or(true, |(cached_key, _)| *cached_key != key);
+            .is_none_or(|(cached_key, _)| *cached_key != key);
 
         if needs_recompute {
             let profile = self

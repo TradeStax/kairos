@@ -20,6 +20,7 @@ use data::ViewConfig;
 use std::time::Instant;
 
 #[derive(Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum Content {
     #[default]
     Starter,

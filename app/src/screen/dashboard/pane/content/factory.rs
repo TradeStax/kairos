@@ -35,7 +35,7 @@ impl Content {
                     });
                 Content::Ladder(Some(crate::screen::dashboard::ladder::Ladder::new(
                     panel_config,
-                    _ticker_info.into(),
+                    _ticker_info,
                     _ticker_info.tick_size,
                 )))
             }

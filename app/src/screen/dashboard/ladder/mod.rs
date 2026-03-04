@@ -209,7 +209,7 @@ impl Ladder {
         // Insert trades (convert domain trades to internal format)
         let step = self.tick_size;
         for trade in trades {
-            let ex_price = Price::from(trade.price);
+            let ex_price = trade.price;
             let is_sell = trade.side == data::Side::Sell;
             self.trades.insert_trade(
                 trade.time.to_millis(),
