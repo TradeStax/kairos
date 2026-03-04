@@ -95,6 +95,7 @@ pub enum DownloadMessage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum WindowMessage {
     TitleBarHover(bool),
     Drag(crate::window::Id),
@@ -144,6 +145,7 @@ pub enum Message {
     Backtest(BacktestMessage),
     MenuBar(menu_bar::Message),
     // Window control messages (custom title bar)
+    #[allow(dead_code)]
     Window(WindowMessage),
     DataEngineReady(Result<super::init::services::DataEngineInit, String>),
     CacheManagement(modals::cache_management::CacheManagementMessage),

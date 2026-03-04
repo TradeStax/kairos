@@ -14,6 +14,7 @@ use crate::components::chrome::title_bar;
 
 use super::super::{Kairos, Message};
 
+#[allow(dead_code)]
 fn map_title_bar_action(action: title_bar::Action) -> Message {
     use super::super::WindowMessage;
     match action {
@@ -33,7 +34,7 @@ impl Kairos {
                 .into();
         };
         let sidebar_pos = self.ui.sidebar.position();
-        let window_title = self.title(id);
+        let _window_title = self.title(id);
 
         let tickers_info = &self.persistence.tickers_info;
         let ticker_ranges = &self.persistence.ticker_ranges;

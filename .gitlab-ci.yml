@@ -37,7 +37,7 @@ variables:
   before_script:
     - Invoke-WebRequest -Uri https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
     - ./rustup-init.exe -y --default-toolchain stable
-    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
     - rustc --version
     - cargo --version
 
@@ -167,7 +167,7 @@ build-windows-x86_64:
     - .install-rust-windows
   tags: [saas-windows-medium-amd64]
   script:
-    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
     - powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1 -Arch x86_64 -Features "$env:FEATURES"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
@@ -180,7 +180,7 @@ build-windows-aarch64:
     - .install-rust-windows
   tags: [saas-windows-medium-amd64]
   script:
-    - $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
     - powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1 -Arch aarch64 -Features "$env:FEATURES"
   allow_failure: true
   rules:

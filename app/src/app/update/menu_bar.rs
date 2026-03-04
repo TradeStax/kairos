@@ -25,6 +25,7 @@ const MENU_MIN_WIDTH: f32 = 160.0;
 const MENU_ITEM_HEIGHT: f32 = tokens::text::BODY + tokens::spacing::XS * 2.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Menu {
     File,
     Edit,
@@ -41,6 +42,7 @@ pub struct PaneInfo {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Message {
     Open(Menu),
     Close,
@@ -62,6 +64,7 @@ pub enum Message {
     OpenBacktestManager,
 }
 
+#[allow(dead_code)]
 pub enum Action {
     None,
     CloseWindow,
@@ -194,6 +197,7 @@ impl MenuBar {
         Action::None
     }
 
+    #[allow(dead_code)]
     pub fn view(&self) -> Element<'_, Message> {
         let file_is_open = self.open_menu.as_ref() == Some(&Menu::File);
         let edit_is_open = self.open_menu.as_ref() == Some(&Menu::Edit);

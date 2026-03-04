@@ -7,6 +7,7 @@ use iced::{Alignment, Element, Length, mouse, padding};
 
 /// Messages produced by the title bar. The caller maps these to their
 /// own message type via the `map` parameter.
+#[allow(dead_code)]
 pub enum Action {
     Drag(window::Id),
     Minimize(window::Id),
@@ -15,6 +16,7 @@ pub enum Action {
     Hover(bool),
 }
 
+#[allow(dead_code)]
 pub fn view_title_bar<'a, Message: 'a + Clone>(
     window_id: window::Id,
     title: String,

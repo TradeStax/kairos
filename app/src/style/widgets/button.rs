@@ -267,6 +267,7 @@ pub fn tab_inactive(theme: &Theme, status: Status) -> Style {
 
 // ── Menus & Lists ─────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn menu_bar_item(theme: &Theme, status: Status, is_open: bool) -> Style {
     let palette = theme.extended_palette();
 
@@ -453,6 +454,7 @@ pub fn chat_bubble_user(theme: &Theme, status: Status) -> Style {
 
 // ── Window Controls ───────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn window_control(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 
@@ -471,6 +473,7 @@ pub fn window_control(theme: &Theme, status: Status) -> Style {
     }
 }
 
+#[allow(dead_code)]
 pub fn window_close(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 

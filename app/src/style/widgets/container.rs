@@ -37,6 +37,7 @@ fn shadow_color(palette: &ExtendedPalette, dark_alpha: f32, light_alpha: f32) ->
 
 // ── Window Title Bar ──────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn window_title_bar(theme: &Theme, hovered: bool) -> Style {
     let palette = theme.extended_palette();
 
@@ -55,6 +56,7 @@ pub fn window_title_bar(theme: &Theme, hovered: bool) -> Style {
 
 // ── Menu Bar ──────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn menu_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
