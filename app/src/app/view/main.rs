@@ -27,6 +27,7 @@ fn map_title_bar_action(action: title_bar::Action) -> Message {
 }
 
 impl Kairos {
+    #[allow(unused_variables)]
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
         let Some(dashboard) = self.active_dashboard() else {
             return container(text("No active layout"))
@@ -34,7 +35,7 @@ impl Kairos {
                 .into();
         };
         let sidebar_pos = self.ui.sidebar.position();
-        let _window_title = self.title(id);
+        let window_title = self.title(id);
 
         let tickers_info = &self.persistence.tickers_info;
         let ticker_ranges = &self.persistence.ticker_ranges;
