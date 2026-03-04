@@ -25,9 +25,7 @@ impl Content {
         }
     }
 
-    pub fn heatmap_studies(
-        &self,
-    ) -> Option<Vec<data::domain::chart::heatmap::heatmap::HeatmapStudy>> {
+    pub fn heatmap_studies(&self) -> Option<Vec<data::domain::chart::heatmap::HeatmapStudy>> {
         match &self {
             Content::Heatmap { studies, .. } => Some(studies.clone()),
             _ => None,
@@ -36,7 +34,7 @@ impl Content {
 
     pub fn update_heatmap_studies(
         &mut self,
-        studies: Vec<data::domain::chart::heatmap::heatmap::HeatmapStudy>,
+        studies: Vec<data::domain::chart::heatmap::HeatmapStudy>,
     ) {
         if let Content::Heatmap {
             chart,
@@ -49,9 +47,9 @@ impl Content {
                 c.studies = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart::heatmap::heatmap::HeatmapStudy::VolumeProfile(
-                            kind,
-                        ) => crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind),
+                        data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
+                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
+                        }
                     })
                     .collect();
             }

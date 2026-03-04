@@ -79,7 +79,7 @@ impl Dashboard {
                             // Extract studies from heatmap content if present
                             #[cfg(feature = "heatmap")]
                             let studies_cfg: Option<
-                                Vec<data::domain::chart::heatmap::heatmap::HeatmapStudy>,
+                                Vec<data::domain::chart::heatmap::HeatmapStudy>,
                             > = match &state.content {
                                 pane::Content::Heatmap { studies, .. } => Some(studies.clone()),
                                 _ => None,

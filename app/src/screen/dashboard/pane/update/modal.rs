@@ -176,9 +176,7 @@ impl State {
                         .iter()
                         .map(|s| match s {
                             crate::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
-                                data::domain::chart::heatmap::heatmap::HeatmapStudy::VolumeProfile(
-                                    *kind,
-                                )
+                                data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
                             }
                         })
                         .collect();

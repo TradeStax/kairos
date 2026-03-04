@@ -20,7 +20,7 @@ use iced::widget::canvas::{self, Event, Geometry};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 // Re-export HeatmapStudy and ProfileKind from data module
-pub use data::domain::chart::heatmap::heatmap::{HeatmapStudy, ProfileKind};
+pub use data::domain::chart::heatmap::{HeatmapStudy, ProfileKind};
 
 /// Base font size in pixels for chart labels, scaled by 1/chart.scaling.
 const CHART_LABEL_BASE_PX: f32 = 9.0;

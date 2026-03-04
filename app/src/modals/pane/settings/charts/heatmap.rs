@@ -7,7 +7,7 @@ use crate::style::tokens;
 
 use crate::screen::dashboard::pane::config::{HeatmapConfig, VisualConfig};
 use data::ChartBasis;
-use data::domain::chart::heatmap::heatmap::{CoalesceKind, HeatmapStudy};
+use data::domain::chart::heatmap::{CoalesceKind, HeatmapStudy};
 use data::util::format_with_commas;
 
 use iced::{

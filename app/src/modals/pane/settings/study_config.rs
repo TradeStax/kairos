@@ -5,7 +5,7 @@ use crate::{
 };
 use data::ChartBasis;
 #[cfg(feature = "heatmap")]
-use data::domain::chart::heatmap::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
+use data::domain::chart::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
 use iced::{
     Element, padding,
     widget::{button, checkbox, column, container, row, slider, space, text},

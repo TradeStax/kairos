@@ -89,9 +89,9 @@ impl State {
                 let chart_studies: Vec<crate::chart::heatmap::HeatmapStudy> = studies
                     .iter()
                     .map(|s| match s {
-                        data::domain::chart::heatmap::heatmap::HeatmapStudy::VolumeProfile(
-                            kind,
-                        ) => crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind),
+                        data::domain::chart::heatmap::HeatmapStudy::VolumeProfile(kind) => {
+                            crate::chart::heatmap::HeatmapStudy::VolumeProfile(*kind)
+                        }
                     })
                     .collect();
                 let mut new_chart = HeatmapChart::from_chart_data(

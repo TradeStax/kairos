@@ -28,7 +28,7 @@ pub enum Content {
         chart: Option<HeatmapChart>,
         indicators: Vec<HeatmapIndicator>,
         layout: ViewConfig,
-        studies: Vec<data::domain::chart::heatmap::heatmap::HeatmapStudy>,
+        studies: Vec<data::domain::chart::heatmap::HeatmapStudy>,
     },
     Candlestick {
         chart: Box<Option<KlineChart>>,
