@@ -32,7 +32,6 @@ pub struct DataManagementPanel {
 #[derive(Debug, Clone)]
 pub enum DataManagementMessage {
     TickerSelected(usize),
-    SchemaSelected(usize),
     Calendar(CalendarMessage),
     ShowDownloadConfirm,
     ConfirmDownload,
@@ -79,11 +78,6 @@ impl DataManagementPanel {
         match message {
             DataManagementMessage::TickerSelected(idx) => {
                 self.selected_ticker_idx = idx;
-                self.cache_status = None;
-                return self.trigger_viewing_month_cache_check();
-            }
-            DataManagementMessage::SchemaSelected(idx) => {
-                self.selected_schema_idx = idx;
                 self.cache_status = None;
                 return self.trigger_viewing_month_cache_check();
             }
@@ -204,11 +198,6 @@ impl DataManagementPanel {
             DataManagementMessage::TickerSelected,
         );
 
-        let schema_section = views::schema_dropdown(
-            self.selected_schema_idx,
-            DataManagementMessage::SchemaSelected,
-        );
-
         let calendar_section = column![
             text("Date Range").size(tokens::text::LABEL),
             row![
@@ -256,12 +245,8 @@ impl DataManagementPanel {
         })
         .style(style::button::primary);
 
-        let mut content_items: Vec<Element<'_, DataManagementMessage>> = vec![
-            ticker_section,
-            schema_section,
-            calendar_section.into(),
-            cache_summary,
-        ];
+        let mut content_items: Vec<Element<'_, DataManagementMessage>> =
+            vec![ticker_section, calendar_section.into(), cache_summary];
 
         if let Some(progress) = progress_section {
             content_items.push(progress);

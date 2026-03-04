@@ -276,28 +276,14 @@ impl DataFeedsModal {
 
     fn view_edit_form<'a>(&'a self, feed: &'a Connection) -> Element<'a, DataFeedsMessage> {
         // Name + Type on the same row (3/4 name, 1/4 type)
-        let type_col: Element<'_, DataFeedsMessage> = if self.is_creating {
-            column![
-                components::primitives::body("Type"),
-                pick_list(
-                    ConnectionProvider::ALL,
-                    self.edit_form.provider,
-                    DataFeedsMessage::SetProvider,
-                )
-                .text_size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::FillPortion(1))
-            .into()
-        } else {
-            column![
-                components::primitives::body("Type"),
-                text_input("", feed.provider.display_name()).size(tokens::text::LABEL),
-            ]
-            .spacing(tokens::spacing::XS)
-            .width(Length::FillPortion(1))
-            .into()
-        };
+        // Provider type is read-only — set at creation time via AddRithmic/AddDatabento
+        let type_col: Element<'_, DataFeedsMessage> = column![
+            components::primitives::body("Type"),
+            text_input("", feed.provider.display_name()).size(tokens::text::LABEL),
+        ]
+        .spacing(tokens::spacing::XS)
+        .width(Length::FillPortion(1))
+        .into();
 
         let name_type_row = row![
             column![
@@ -413,8 +399,7 @@ impl DataFeedsModal {
     }
 
     fn view_databento_fields(&self) -> Element<'_, DataFeedsMessage> {
-        let has_saved_key = crate::infra::secrets::SecretsManager::new()
-            .has_api_key(crate::config::secrets::ApiProvider::Databento);
+        let has_saved_key = self.edit_form.has_saved_api_key;
         let key_placeholder = if has_saved_key {
             "API key saved (leave blank to keep)"
         } else {
@@ -455,7 +440,27 @@ impl DataFeedsModal {
         .into()
     }
 
-    fn view_rithmic_fields(&self, feed_id: data::FeedId) -> Element<'_, DataFeedsMessage> {
+    fn view_rithmic_fields(&self, _feed_id: data::FeedId) -> Element<'_, DataFeedsMessage> {
+        // Environment picker
+        let env_options: Vec<String> = data::RithmicEnvironment::ALL
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
+        let selected_env = Some(self.edit_form.environment.to_string());
+        let environment_field = column![
+            components::primitives::body("Environment"),
+            pick_list(env_options, selected_env, |selected| {
+                let env = data::RithmicEnvironment::ALL
+                    .iter()
+                    .find(|e| e.to_string() == selected)
+                    .copied()
+                    .unwrap_or(data::RithmicEnvironment::Demo);
+                DataFeedsMessage::SetEnvironment(env)
+            })
+            .text_size(tokens::text::BODY),
+        ]
+        .spacing(tokens::spacing::XS);
+
         // Server dropdown
         let server_options: Vec<String> =
             RithmicServer::ALL.iter().map(|s| s.to_string()).collect();
@@ -522,8 +527,7 @@ impl DataFeedsModal {
         .spacing(tokens::spacing::XS);
 
         let password_field = {
-            let has_saved = crate::infra::secrets::SecretsManager::new()
-                .has_feed_password(&feed_id.to_string());
+            let has_saved = self.edit_form.has_saved_password;
             let placeholder = if has_saved {
                 "Password saved (leave blank to keep)"
             } else {
@@ -617,6 +621,7 @@ impl DataFeedsModal {
 
         column![
             components::primitives::title("Rithmic Settings"),
+            environment_field,
             server_system_row,
             user_id,
             password_field,

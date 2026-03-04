@@ -36,6 +36,7 @@ impl Kairos {
         Task::perform(
             async move {
                 let mut eng = engine.lock().await;
+                // Only Trades schema is supported for downloads
                 let cached = eng
                     .list_cached_dates(&symbol, data::cache::CacheSchema::Trades)
                     .await;
@@ -358,6 +359,7 @@ impl Kairos {
                     return Task::perform(
                         async move {
                             let mut eng = engine.lock().await;
+                            // Only Trades schema is supported for downloads
                             let cached = eng
                                 .list_cached_dates(&symbol, data::cache::CacheSchema::Trades)
                                 .await;
@@ -478,7 +480,7 @@ impl Kairos {
                 if let Some(modal) = &self.modals.historical_download_modal {
                     let name = modal.auto_name();
                     let schema_idx = modal.selected_schema_idx();
-                    let (_, schema_name, _) = crate::modals::download::SCHEMAS[schema_idx];
+                    let (_, schema_name) = crate::modals::download::SCHEMAS[schema_idx];
                     let ticker_idx = modal.selected_ticker_idx();
                     let (ticker_sym, _) = crate::modals::download::FUTURES_PRODUCTS[ticker_idx];
 

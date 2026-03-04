@@ -30,7 +30,6 @@ pub struct HistoricalDownloadModal {
 #[derive(Debug, Clone)]
 pub enum HistoricalDownloadMessage {
     TickerSelected(usize),
-    SchemaSelected(usize),
     Calendar(CalendarMessage),
     ShowConfirm,
     ConfirmDownload,
@@ -68,11 +67,6 @@ impl HistoricalDownloadModal {
         match message {
             HistoricalDownloadMessage::TickerSelected(idx) => {
                 self.selected_ticker_idx = idx;
-                self.cache_status = None;
-                return self.trigger_viewing_month_check();
-            }
-            HistoricalDownloadMessage::SchemaSelected(idx) => {
-                self.selected_schema_idx = idx;
                 self.cache_status = None;
                 return self.trigger_viewing_month_check();
             }
@@ -166,7 +160,7 @@ impl HistoricalDownloadModal {
     pub fn auto_name(&self) -> String {
         let (sym, _) = super::FUTURES_PRODUCTS[self.selected_ticker_idx];
         let short_sym = sym.split('.').next().unwrap_or(sym);
-        let (_, schema_name, _) = super::SCHEMAS[self.selected_schema_idx];
+        let (_, schema_name) = super::SCHEMAS[self.selected_schema_idx];
         let start_fmt = self.calendar.start_date.format("%b%d").to_string();
         let end_fmt = self.calendar.end_date.format("%b%d").to_string();
         format!("{} {} {}-{}", short_sym, schema_name, start_fmt, end_fmt)
@@ -184,16 +178,9 @@ impl HistoricalDownloadModal {
         let header = ModalHeaderBuilder::new("Download Historical Data")
             .on_close(HistoricalDownloadMessage::Close);
 
-        let source_label = text("Source: Databento").size(tokens::text::BODY);
-
         let ticker_section = views::ticker_dropdown(
             self.selected_ticker_idx,
             HistoricalDownloadMessage::TickerSelected,
-        );
-
-        let schema_section = views::schema_dropdown(
-            self.selected_schema_idx,
-            HistoricalDownloadMessage::SchemaSelected,
         );
 
         let calendar_section = column![
@@ -252,13 +239,8 @@ impl HistoricalDownloadModal {
         ]
         .spacing(tokens::spacing::MD);
 
-        let mut content_items: Vec<Element<'_, HistoricalDownloadMessage>> = vec![
-            source_label.into(),
-            ticker_section,
-            schema_section,
-            calendar_section.into(),
-            cache_line,
-        ];
+        let mut content_items: Vec<Element<'_, HistoricalDownloadMessage>> =
+            vec![ticker_section, calendar_section.into(), cache_line];
 
         if let Some(progress) = progress_section {
             content_items.push(progress);

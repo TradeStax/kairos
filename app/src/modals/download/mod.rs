@@ -28,15 +28,9 @@ pub const FUTURES_PRODUCTS: &[(&str, &str)] = &[
     ("HG.c.0", "Copper"),
 ];
 
-/// Schemas with display names and cost rating
-pub const SCHEMAS: &[(data::DownloadSchema, &str, u8)] = &[
-    (data::DownloadSchema::Trades, "Trades", 2),
-    (data::DownloadSchema::Mbp10, "MBP-10 (10 Levels)", 3),
-    (data::DownloadSchema::Mbp1, "MBP-1 (Top of Book)", 2),
-    (data::DownloadSchema::Ohlcv1M, "OHLCV-1M", 1),
-    (data::DownloadSchema::Tbbo, "TBBO (Top BBO)", 2),
-    (data::DownloadSchema::Mbo, "MBO (VERY EXPENSIVE)", 10),
-];
+/// Schemas with display names.
+/// Only Trades is currently supported in the download pipeline.
+pub const SCHEMAS: &[(data::DownloadSchema, &str)] = &[(data::DownloadSchema::Trades, "Trades")];
 
 /// Cache coverage status for a date range
 #[derive(Debug, Clone, PartialEq)]
@@ -86,11 +80,6 @@ impl DownloadConfig {
         format!("{} - {}", sym, name)
     }
 
-    pub fn schema_display(idx: usize) -> String {
-        let (_, name, rating) = SCHEMAS[idx];
-        format!("{} (Cost: {}/10)", name, rating)
-    }
-
     pub fn ticker_options() -> Vec<String> {
         FUTURES_PRODUCTS
             .iter()
@@ -98,24 +87,10 @@ impl DownloadConfig {
             .collect()
     }
 
-    pub fn schema_options() -> Vec<String> {
-        SCHEMAS
-            .iter()
-            .map(|(_, name, rating)| format!("{} (Cost: {}/10)", name, rating))
-            .collect()
-    }
-
     pub fn find_ticker_idx(selected: &str) -> usize {
         FUTURES_PRODUCTS
             .iter()
             .position(|(sym, n)| format!("{} - {}", sym, n) == selected)
-            .unwrap_or(0)
-    }
-
-    pub fn find_schema_idx(selected: &str) -> usize {
-        SCHEMAS
-            .iter()
-            .position(|(_, n, r)| format!("{} (Cost: {}/10)", n, r) == selected)
             .unwrap_or(0)
     }
 }

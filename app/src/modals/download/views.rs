@@ -31,25 +31,6 @@ pub fn ticker_dropdown<'a, Message: Clone + 'a>(
     .into()
 }
 
-/// Schema dropdown with label
-pub fn schema_dropdown<'a, Message: Clone + 'a>(
-    selected_idx: usize,
-    on_select: impl Fn(usize) -> Message + 'a,
-) -> Element<'a, Message> {
-    let schema_options = DownloadConfig::schema_options();
-    let selected = DownloadConfig::schema_display(selected_idx);
-
-    column![
-        text("Schema").size(tokens::text::LABEL),
-        pick_list(schema_options, Some(selected), move |selected: String| {
-            on_select(DownloadConfig::find_schema_idx(&selected))
-        })
-        .width(Length::Fill),
-    ]
-    .spacing(tokens::spacing::XS)
-    .into()
-}
-
 /// Cache status display line
 pub fn cache_status_display<'a, Message: 'a>(
     progress: &DownloadProgress,
@@ -81,7 +62,7 @@ pub fn cache_status_display<'a, Message: 'a>(
         let cost_suffix = match status.estimated_cost_usd {
             Some(cost) if cost < 0.01 => " \u{2014} Est. cost: <$0.01".to_string(),
             Some(cost) => format!(" \u{2014} Est. cost: ${:.2}", cost),
-            None => String::new(),
+            None => " \u{2014} Cost estimation unavailable".to_string(),
         };
 
         let display = format!("{}{}", cache_line, cost_suffix);
@@ -191,7 +172,7 @@ pub fn download_confirm_overlay<'a, Message: Clone + 'a>(
     on_confirm: Message,
 ) -> Element<'a, Message> {
     let (symbol, name) = super::FUTURES_PRODUCTS[ticker_idx];
-    let (_, schema_name, _) = super::SCHEMAS[schema_idx];
+    let (_, schema_name) = super::SCHEMAS[schema_idx];
     let total_days = (end_date - start_date).num_days().max(0) + 1;
     let cached_days = cache_status
         .map(|s| s.cached_days.min(total_days as usize))

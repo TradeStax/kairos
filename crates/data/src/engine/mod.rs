@@ -756,7 +756,7 @@ impl DataEngine {
                 .and_utc();
 
             let event_tx = self.event_tx.clone();
-            let trades = adapter
+            adapter
                 .get_trades_with_progress(
                     ticker.as_str(),
                     (start, end),
@@ -791,7 +791,7 @@ impl DataEngine {
                 days_cached,
             });
 
-            return Ok(trades.len());
+            return Ok(days_cached);
         }
 
         // Rithmic download path: wire progress callback to emit
@@ -809,7 +809,7 @@ impl DataEngine {
                 });
             }));
 
-            let trades = self.get_trades(ticker, date_range, None).await?;
+            self.get_trades(ticker, date_range, None).await?;
             self.progress_callback = None;
 
             // Re-scan cache to update index
@@ -817,12 +817,13 @@ impl DataEngine {
             self.data_index.lock().await.merge(index.clone());
             let _ = self.event_tx.send(DataEvent::DataIndexUpdated(index));
 
+            let days_cached = date_range.num_days() as usize;
             let _ = self.event_tx.send(DataEvent::DownloadComplete {
                 request_id,
-                days_cached: date_range.num_days() as usize,
+                days_cached,
             });
 
-            return Ok(trades.len());
+            return Ok(days_cached);
         }
 
         Err(crate::Error::Config(

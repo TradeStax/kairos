@@ -128,6 +128,13 @@ impl Kairos {
             self.modals
                 .data_feeds_modal
                 .sync_snapshot(&connection_manager);
+            // Cache credential status for the view
+            let has_api_key = self
+                .secrets
+                .has_api_key(crate::config::secrets::ApiProvider::Databento);
+            self.modals
+                .data_feeds_modal
+                .set_credential_status(has_api_key, false);
         }
 
         // Trigger initial estimation when opening DataFeeds menu

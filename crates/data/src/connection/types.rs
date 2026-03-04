@@ -238,7 +238,12 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Creates a new Databento connection with default configuration
+    /// Creates a new Databento connection with default configuration.
+    ///
+    /// **Note:** This creates a `Realtime` kind, which is misleading since
+    /// Databento is historical-only. Prefer [`new_historical_databento`] for
+    /// production use. This constructor exists primarily for tests.
+    #[cfg(test)]
     #[must_use]
     pub fn new_databento(name: impl Into<String>) -> Self {
         Self {

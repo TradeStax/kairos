@@ -14,6 +14,25 @@ impl Kairos {
 
         let actions = self.modals.data_feeds_modal.update(msg, &mut feed_manager);
 
+        // Cache credential status so views avoid SecretsManager I/O
+        let has_api_key = self
+            .secrets
+            .has_api_key(crate::config::secrets::ApiProvider::Databento);
+        let has_password = self
+            .modals
+            .data_feeds_modal
+            .selected_feed_id()
+            .and_then(|id| {
+                feed_manager
+                    .get(id)
+                    .filter(|f| f.provider == data::ConnectionProvider::Rithmic)
+                    .map(|_| self.secrets.has_feed_password(&id.to_string()))
+            })
+            .unwrap_or(false);
+        self.modals
+            .data_feeds_modal
+            .set_credential_status(has_api_key, has_password);
+
         if actions.is_empty() {
             // Sync snapshot after any update
             self.modals.data_feeds_modal.sync_snapshot(&feed_manager);

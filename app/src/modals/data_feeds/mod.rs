@@ -12,8 +12,7 @@ pub use preview::PreviewData;
 
 use data::{
     self, Connection, ConnectionConfig, ConnectionManager, ConnectionProvider, ConnectionStatus,
-    DatabentoConnectionConfig, FeedId, HistoricalDatasetInfo, RithmicConnectionConfig,
-    RithmicEnvironment, RithmicServer,
+    FeedId, HistoricalDatasetInfo, RithmicEnvironment, RithmicServer,
 };
 
 // ── DataFeedsModal ───────────────────────────────────────────────────────
@@ -69,6 +68,9 @@ pub(super) struct EditForm {
     pub(super) available_tickers: Vec<String>,
     // General
     pub(super) auto_connect: bool,
+    // Cached credential status (avoid SecretsManager I/O in view)
+    pub(super) has_saved_api_key: bool,
+    pub(super) has_saved_password: bool,
 }
 
 impl Default for EditForm {
@@ -93,6 +95,8 @@ impl Default for EditForm {
             available_system_names: Vec::new(),
             available_tickers: Vec::new(),
             auto_connect: false,
+            has_saved_api_key: false,
+            has_saved_password: false,
         }
     }
 }
@@ -158,7 +162,6 @@ pub enum DataFeedsMessage {
     AddRithmic,
     AddDatabento,
     // Right panel - form
-    SetProvider(ConnectionProvider),
     SetName(String),
     SaveFeed,
     CancelEdit,
@@ -167,6 +170,7 @@ pub enum DataFeedsMessage {
     SetCacheEnabled(bool),
     SetCacheMaxDays(String),
     // Rithmic fields
+    SetEnvironment(RithmicEnvironment),
     SetServer(RithmicServer),
     SetSystemName(String),
     SetUserId(String),
@@ -225,6 +229,17 @@ impl DataFeedsModal {
 
     pub fn sync_snapshot(&mut self, manager: &ConnectionManager) {
         self.feeds_snapshot = manager.clone();
+    }
+
+    /// Returns the currently selected feed ID, if any.
+    pub fn selected_feed_id(&self) -> Option<FeedId> {
+        self.selected_feed
+    }
+
+    /// Cache credential status so views don't need SecretsManager I/O.
+    pub fn set_credential_status(&mut self, has_api_key: bool, has_password: bool) {
+        self.edit_form.has_saved_api_key = has_api_key;
+        self.edit_form.has_saved_password = has_password;
     }
 
     pub fn update(
@@ -316,54 +331,6 @@ impl DataFeedsModal {
             }
 
             // ── Right panel: form ──────────────────────────────────────────
-            DataFeedsMessage::SetProvider(provider) => {
-                if self.is_creating {
-                    self.edit_form.provider = Some(provider);
-                    self.edit_form.name = "New Connection".to_string();
-                    match provider {
-                        ConnectionProvider::Databento => {
-                            self.edit_form.api_key = String::new();
-                            self.edit_form.cache_enabled = true;
-                            self.edit_form.cache_max_days = "90".to_string();
-                            self.edit_form.priority = "10".to_string();
-                        }
-                        ConnectionProvider::Rithmic => {
-                            self.edit_form.environment = RithmicEnvironment::Demo;
-                            self.edit_form.server = RithmicServer::Chicago;
-                            self.edit_form.system_name = String::new();
-                            self.edit_form.user_id = String::new();
-                            self.edit_form.password = String::new();
-                            self.edit_form.auto_reconnect = true;
-                            self.edit_form.subscribed_tickers = Vec::new();
-                            self.edit_form.backfill_days = 1;
-                            self.edit_form.available_system_names = Vec::new();
-                            self.edit_form.available_tickers = Vec::new();
-                            self.edit_form.system_names_loading = true;
-                            self.edit_form.priority = "5".to_string();
-                            return vec![Action::ProbeSystemNames(RithmicServer::Chicago)];
-                        }
-                    }
-                    if let Some(id) = self.selected_feed
-                        && let Some(feed) = feed_manager.get_mut(id)
-                    {
-                        feed.provider = provider;
-                        feed.name = "New Connection".to_string();
-                        feed.config = match provider {
-                            ConnectionProvider::Databento => {
-                                ConnectionConfig::Databento(DatabentoConnectionConfig::default())
-                            }
-                            ConnectionProvider::Rithmic => {
-                                ConnectionConfig::Rithmic(RithmicConnectionConfig::default())
-                            }
-                        };
-                        feed.priority = match provider {
-                            ConnectionProvider::Databento => 10,
-                            ConnectionProvider::Rithmic => 5,
-                        };
-                    }
-                    self.has_changes = true;
-                }
-            }
             DataFeedsMessage::SaveFeed => {
                 if let Some(id) = self.selected_feed {
                     let provider = self.edit_form.provider;
@@ -463,6 +430,10 @@ impl DataFeedsModal {
             }
             DataFeedsMessage::SetCacheMaxDays(v) => {
                 self.edit_form.cache_max_days = v;
+                self.has_changes = true;
+            }
+            DataFeedsMessage::SetEnvironment(env) => {
+                self.edit_form.environment = env;
                 self.has_changes = true;
             }
             DataFeedsMessage::SetServer(server) => {
@@ -575,7 +546,7 @@ impl DataFeedsModal {
                     .unwrap_or(cfg.cache_max_days);
             }
             ConnectionConfig::Rithmic(cfg) => {
-                cfg.environment = RithmicEnvironment::Demo;
+                cfg.environment = self.edit_form.environment;
                 cfg.server = self.edit_form.server;
                 cfg.system_name = self.edit_form.system_name.clone();
                 cfg.user_id = self.edit_form.user_id.clone();
