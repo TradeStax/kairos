@@ -12,9 +12,11 @@ cargo test                           # All tests
 cargo test --package kairos-data
 cargo test --package kairos-study
 cargo test --package kairos-backtest
-cargo clippy                         # Lint
+cargo clippy --features heatmap -- -D warnings  # Lint (match CI)
 cargo fmt --check                    # Format check
 ```
+
+**Important**: CI runs clippy with `--features heatmap -- -D warnings`. Always lint with features enabled locally to catch feature-gated issues before pushing.
 
 ## Environment Variables
 
@@ -27,10 +29,10 @@ Rithmic credentials are managed via `keyring` (OS credential store), configured 
 
 ## Architecture
 
-Three workspace crates + one app (Rust edition 2024):
+Four workspace crates + one app (Rust edition 2024, all v0.9.0):
 
 ```
-app/src/                     # Application layer — kairos v0.8.6 (Iced GUI)
+app/src/                     # Application layer — kairos v0.9.0 (Iced GUI)
 ├── main.rs                  # Entry point, daemon setup
 ├── app/                     # Kairos struct, Elm architecture orchestration
 │   ├── mod.rs               # Kairos struct, new(), re-exports
@@ -54,11 +56,9 @@ app/src/                     # Application layer — kairos v0.8.6 (Iced GUI)
 │   ├── update/              # Message handlers
 │   │   ├── mod.rs           # Kairos::update() dispatch
 │   │   ├── ai/              # AI assistant handlers
-│   │   │   ├── mod.rs       # AI message dispatch
-│   │   │   ├── streaming.rs # AI stream handling
+│   │   │   ├── mod.rs       # AI message dispatch, drawing bridge orchestration
 │   │   │   ├── snapshot.rs  # Chart context snapshots for AI
-│   │   │   ├── system_prompt.rs # System prompt construction
-│   │   │   └── tools/       # AI tool implementations (market_data, studies, drawings, trades, analysis)
+│   │   │   └── drawing_bridge.rs # Converts ai::DrawingSpec → SerializableDrawing
 │   │   ├── backtest.rs      # Backtest run/progress/completion
 │   │   ├── chart.rs         # Chart data loading
 │   │   ├── data_events.rs   # DataEvent processing
@@ -90,7 +90,8 @@ app/src/                     # Application layer — kairos v0.8.6 (Iced GUI)
 │   └── backtest/            # Backtest screens
 │       ├── launch/          # Launch modal: catalog view, settings view
 │       └── manager/         # Results manager: overview, analytics, trades, computed metrics
-│                            #   Charts: equity, drawdown, histogram, bar, scatter, monte_carlo, returns_grid
+│           ├── charts/      # Equity, drawdown, histogram, bar, scatter, monte_carlo, returns_grid
+│           └── trade_detail/ # Trade detail view: chart (candlestick + markers), sections, strategy_context
 ├── chart/                   # Chart engine
 │   ├── core/                # Chart trait (definition.rs), ViewState, Caches, Interaction (pan/zoom/drawing/ruler)
 │   ├── candlestick/         # KlineChart — OHLC + footprint rendering
@@ -128,18 +129,24 @@ app/src/                     # Application layer — kairos v0.8.6 (Iced GUI)
 ├── config/                  # App config: Theme, UserTimezone, Sidebar, ScaleFactor, secrets (ApiProvider, ApiKeyStatus)
 ├── infra/                   # Infrastructure: logger (async file rotation), platform (data_path), secrets (OS keyring)
 ├── drawing/                 # Drawing entity types (DrawingTool, SerializableDrawing)
-├── services/                # ReplayEngine, ReplayEvent
+├── services/                # ReplayEngine, ReplayEvent, TradeProvider
 └── window.rs                # Multi-window management, WindowSpec, popout support
 
-crates/data/                 # Data layer — kairos-data v0.2.0 (domain types + adapters)
+crates/ai/                   # AI layer — kairos-ai v0.9.0 (GUI-independent AI logic)
+├── client/                  # streaming.rs (OpenRouter agentic), config.rs (models)
+├── domain/                  # messages.rs, snapshot.rs, conversation.rs
+├── tools/                   # 14 tools: market_data, trades, studies, analysis, drawing
+├── event.rs                 # AiStreamEvent, DrawingAction, DrawingSpec
+└── prompt.rs                # build_system_prompt(), TimezoneResolver trait
+
+crates/data/                 # Data layer — kairos-data v0.9.0 (domain types + adapters)
 ├── domain/                  # Pure value objects and entities — no I/O
 │   ├── core/                # Price (i64, 10^-8), PriceStep, PriceExt, FeedId, Timestamp, Volume, Side, SerializableColor
 │   ├── instrument/          # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
 │   ├── market/              # Trade, Candle, Depth (BTreeMap<i64, f32>)
 │   ├── chart/               # ChartConfig, ChartData, ChartBasis, ChartType, ViewConfig, Autoscale, LoadingStatus, KlineDataPoint, HeatmapIndicator
 │   ├── data/                # DataIndex, DownloadedTickersRegistry
-│   ├── replay/              # ReplayState, PlaybackStatus
-│   └── assistant.rs         # Assistant metadata
+│   └── replay/              # ReplayState, PlaybackStatus
 ├── adapter/                 # Exchange adapters (feature-gated)
 │   ├── databento/           # CME Globex historical — Databento API (client, decoder, mapper, symbology, fetcher)
 │   └── rithmic/             # CME Globex real-time — R|Protocol WebSockets (client, plants, protocol, streaming, pool)
@@ -152,7 +159,7 @@ crates/data/                 # Data layer — kairos-data v0.2.0 (domain types +
 ├── error.rs                 # Error enum (Fetch, Config, Cache, Symbol, Connection, Validation, NoData, Aggregation, Io) with AppError trait
 └── util/                    # Formatting, time, math, serde, logging helpers
 
-crates/study/                # Study layer — kairos-study v0.1.0 (technical analysis library, pure computation)
+crates/study/                # Study layer — kairos-study v0.9.0 (technical analysis library, pure computation)
 ├── core/                    # Study trait (14 methods, Send+Sync), StudyInput, StudyCategory, StudyPlacement
 ├── config/                  # ParameterDef, ParameterKind, ParameterValue, StudyConfig, DisplayFormat, Visibility
 ├── output/                  # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Footprint, Markers, Composite, Empty
@@ -170,7 +177,7 @@ crates/study/                # Study layer — kairos-study v0.1.0 (technical an
 ├── error.rs                 # StudyError with AppError impl
 └── util/                    # candle helpers (source_value, candle_key), math (mean, variance, std_dev)
 
-crates/backtest/             # Backtest layer — kairos-backtest v0.1.0 (event-driven strategy simulation)
+crates/backtest/             # Backtest layer — kairos-backtest v0.9.0 (event-driven strategy simulation)
 ├── config/                  # BacktestConfig, InstrumentSpec, RiskConfig, MarginConfig, SlippageModel
 ├── engine/                  # Engine kernel (simulation loop), BacktestRunner, StrategyContext, EngineClock, SessionClock
 ├── feed/                    # TradeProvider trait, DataFeed (multi-stream merge), CandleAggregator, MultiTimeframeAggregator
@@ -179,7 +186,7 @@ crates/backtest/             # Backtest layer — kairos-backtest v0.1.0 (event-
 ├── portfolio/               # Portfolio (cash, positions, margin), Position (VWAP, MAE/MFE), EquityCurve, accounting
 ├── strategy/                # Strategy trait, StrategyContext, StudyBank, StrategyRegistry
 │   └── built_in/            # ORB, VWAP Reversion, Momentum Breakout
-├── output/                  # BacktestResult, PerformanceMetrics, TradeRecord, ExitReason, BacktestProgressEvent
+├── output/                  # BacktestResult, PerformanceMetrics, TradeRecord, TradeSnapshot, ExitReason, BacktestProgressEvent
 ├── analysis/                # t-test, bootstrap CI, Monte Carlo simulation
 └── optimization/            # WalkForwardOptimizer, ParameterGrid, ObjectiveFunction
 ```
@@ -240,6 +247,14 @@ pub struct Kairos {
 - `heatmap` — Enables depth-based heatmap chart, ladder panel, and `Depth` variants in `DataEvent`/`StreamKind`
 - `options` — Enables options-related UI (currently placeholder)
 - `debug` — Enables Iced hot-reloading
+
+## CI/CD
+
+GitLab CI (`.gitlab-ci.yml`) — push/MR/tag pipelines:
+- **check**: `fmt`, `clippy --features heatmap -- -D warnings`, `audit`
+- **test**: `test --features heatmap`, `test --doc --features heatmap`
+- **build**: Linux (x86_64, aarch64), Windows (x86_64, aarch64), macOS (universal) — tag-triggered or manual
+- **release**: Package checksums + GitLab release with download links
 
 ## Supported Instruments
 
