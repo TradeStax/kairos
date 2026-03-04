@@ -89,7 +89,6 @@ _STAGING_DIR=""
 create_staging() {
     _STAGING_DIR="$(mktemp -d)"
     trap 'rm -rf "$_STAGING_DIR"' EXIT
-    echo "$_STAGING_DIR"
 }
 
 # ── Prerequisite check ───────────────────────────────────────────────────────

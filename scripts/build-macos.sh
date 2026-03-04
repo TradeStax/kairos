@@ -105,7 +105,8 @@ fi
 # ── Package ───────────────────────────────────────────────────────────────────
 
 step "Creating archive: $ARCHIVE_NAME"
-STAGING="$(create_staging)"
+create_staging
+STAGING="$_STAGING_DIR"
 
 cp "$FINAL_BIN" "$STAGING/${BIN_NAME}"
 cp -r "${REPO_ROOT}/assets" "$STAGING/assets"

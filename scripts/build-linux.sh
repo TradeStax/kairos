@@ -88,7 +88,8 @@ success "Binary built: $BINARY"
 # ── Package ───────────────────────────────────────────────────────────────────
 
 step "Creating archive: $ARCHIVE_NAME"
-STAGING="$(create_staging)"
+create_staging
+STAGING="$_STAGING_DIR"
 
 mkdir -p "$STAGING/bin"
 cp "$BINARY" "$STAGING/bin/${BIN_NAME}"

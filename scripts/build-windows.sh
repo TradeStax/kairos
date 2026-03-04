@@ -79,7 +79,8 @@ success "Binary built: $BINARY"
 # ── Package ───────────────────────────────────────────────────────────────────
 
 step "Creating archive: $ARCHIVE_NAME"
-STAGING="$(create_staging)"
+create_staging
+STAGING="$_STAGING_DIR"
 
 cp "$BINARY" "$STAGING/${EXE_NAME}"
 cp -r "${REPO_ROOT}/assets" "$STAGING/assets"
