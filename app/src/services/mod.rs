@@ -5,5 +5,7 @@
 pub mod error;
 pub mod replay;
 pub mod trade_provider;
+pub mod updater;
+pub mod updater_install;
 
 pub use replay::{ReplayEngine, ReplayEngineConfig, ReplayEvent, VolumeBucket};

@@ -61,6 +61,14 @@ impl Toast {
         }
     }
 
+    pub fn info(body: impl Into<String>) -> Self {
+        Self {
+            title: "Info".to_string(),
+            body: body.into(),
+            status: Status::Primary,
+        }
+    }
+
     pub fn error(body: impl Into<String>) -> Self {
         Self {
             title: "Error".to_string(),

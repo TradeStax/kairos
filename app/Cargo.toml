@@ -1,6 +1,6 @@
 [package]
 name = "kairos"
-version = "0.9.8"
+version = "0.9.9"
 readme = "../README.md"
 license = "GPL-3.0-or-later"
 description = "A native desktop charting platform for futures markets"
@@ -43,6 +43,11 @@ tokio = { workspace = true }
 futures = "0.3"
 rfd = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+semver = "1"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+tar = "0.4"
 
 data = { version = "0.9.0", path = "../crates/data", package = "kairos-data" }
 study = { version = "0.9.0", path = "../crates/study", package = "kairos-study" }

@@ -8,6 +8,7 @@ pub(crate) mod menu_bar;
 mod preferences;
 mod replay;
 mod shell;
+mod updater;
 
 use iced::Task;
 
@@ -246,6 +247,9 @@ impl Kairos {
             }
             Message::AiStreamComplete => {
                 return self.handle_ai_stream_complete();
+            }
+            Message::Update(msg) => {
+                return self.handle_update_message(msg);
             }
             Message::PersistState(windows) => {
                 return self.save_state_to_disk_async(&windows);

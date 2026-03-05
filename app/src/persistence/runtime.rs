@@ -31,6 +31,7 @@ pub struct SavedState {
     pub downloaded_tickers: data::DownloadedTickersRegistry,
     pub data_feeds: data::ConnectionManager,
     pub ai_preferences: AiPreferences,
+    pub auto_update: crate::persistence::AutoUpdatePreferences,
 }
 
 impl SavedState {
@@ -75,6 +76,7 @@ impl SavedState {
             downloaded_tickers: (*data::lock_or_recover(&downloaded_tickers)).clone(),
             data_feeds: data::ConnectionManager::default(),
             ai_preferences: AiPreferences::default(),
+            auto_update: crate::persistence::AutoUpdatePreferences::default(),
         }
     }
 }

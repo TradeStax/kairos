@@ -396,6 +396,19 @@ impl Kairos {
             content
         };
 
+        // Overlay update modal when visible
+        let content: Element<'_, Message> = if self.modals.update_state.show_modal {
+            let modal_content = crate::modals::update::view_update_modal(&self.modals.update_state)
+                .map(Message::Update);
+            crate::modals::main_dialog_modal(
+                content,
+                modal_content,
+                Message::Update(super::super::messages::UpdateMessage::Dismiss),
+            )
+        } else {
+            content
+        };
+
         toast::Manager::new(
             content,
             &self.ui.notifications,

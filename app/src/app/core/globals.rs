@@ -148,3 +148,17 @@ pub(crate) fn get_ai_sender() -> &'static tokio::sync::mpsc::UnboundedSender<AiS
 pub(crate) fn take_ai_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<AiStreamEvent>> {
     AI_CHANNEL.take_receiver()
 }
+
+// ── Auto-update ─────────────────────────────────────────────────────────────
+
+static UPDATE_CHANNEL: EventChannel<crate::services::updater::UpdateEvent> = EventChannel::new();
+
+pub(crate) fn get_update_sender()
+-> &'static tokio::sync::mpsc::UnboundedSender<crate::services::updater::UpdateEvent> {
+    UPDATE_CHANNEL.sender()
+}
+
+pub(crate) fn take_update_receiver()
+-> Option<tokio::sync::mpsc::UnboundedReceiver<crate::services::updater::UpdateEvent>> {
+    UPDATE_CHANNEL.take_receiver()
+}

@@ -1,5 +1,27 @@
 //! Modal overlay state: all transient UI panels and dialogs, plus the backtest subsystem.
 
+/// Auto-update UI state.
+#[derive(Default)]
+pub(crate) struct UpdateState {
+    pub status: UpdateStatus,
+    pub update_info: Option<crate::services::updater::UpdateInfo>,
+    pub download_progress: Option<(u64, u64)>,
+    pub downloaded_archive: Option<std::path::PathBuf>,
+    pub show_modal: bool,
+}
+
+#[derive(Default, PartialEq)]
+pub(crate) enum UpdateStatus {
+    #[default]
+    Idle,
+    Checking,
+    Available,
+    Downloading,
+    ReadyToInstall,
+    Installing,
+    Failed(String),
+}
+
 /// Backtest feature state (grouped here because backtest is sidebar/modal-scoped,
 /// not a top-level application concern).
 pub(crate) struct BacktestState {
@@ -23,4 +45,5 @@ pub(crate) struct ModalState {
     pub(crate) replay_manager: crate::modals::replay::ReplayManager,
     pub(crate) cache_management: crate::modals::cache_management::CacheManagementModal,
     pub(crate) backtest: BacktestState,
+    pub(crate) update_state: UpdateState,
 }

@@ -75,7 +75,10 @@ impl Kairos {
     pub(crate) fn handle_go_back(&mut self) {
         let main_window = self.main_window.id;
 
-        if self.ui.confirm_dialog.is_some() {
+        if self.modals.update_state.show_modal {
+            // 0. Update modal (highest priority — blocks UI when critical)
+            self.modals.update_state.show_modal = false;
+        } else if self.ui.confirm_dialog.is_some() {
             // 1. Confirm dialog
             self.ui.confirm_dialog = None;
         } else if self.menu_bar.show_save_dialog {

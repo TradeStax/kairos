@@ -114,6 +114,31 @@ pub enum WindowMessage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum UpdateMessage {
+    /// User triggered manual check (from menu)
+    CheckForUpdates,
+    /// Background check result arrived
+    CheckComplete(Result<Option<crate::services::updater::UpdateInfo>, String>),
+    /// Show the update details modal
+    ShowUpdateModal,
+    /// User clicked "Download & Install"
+    StartDownload,
+    /// Streaming download progress
+    DownloadProgress { downloaded: u64, total: u64 },
+    /// Download + verification complete
+    DownloadComplete(Result<std::path::PathBuf, String>),
+    /// User wants to install now (extract + restart)
+    InstallAndRestart,
+    /// User chose "Remind me later"
+    RemindLater,
+    /// User chose "Skip this version"
+    SkipVersion(String),
+    /// Dismiss the update notification/modal
+    Dismiss,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Sidebar(dashboard::sidebar::Message),
     Dashboard {
@@ -164,6 +189,8 @@ pub enum Message {
     /// Used by intermediate save paths (feed updates, downloads) that collect
     /// window positions asynchronously before writing.
     PersistState(HashMap<window::Id, WindowSpec>),
+    /// Auto-update system messages.
+    Update(UpdateMessage),
     /// No-op message used as completion signal for fire-and-forget async tasks
     /// (e.g. background disk persistence).
     Noop,

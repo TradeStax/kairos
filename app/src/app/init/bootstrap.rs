@@ -110,6 +110,9 @@ impl Kairos {
                     Some(std::sync::Arc::new(tokio::sync::Mutex::new(replay_engine)));
 
                 log::info!("DataEngine ready — services wired up");
+
+                // Clean up .bak files from a successful previous update
+                crate::services::updater_install::cleanup_after_successful_launch();
             }
             Err(e) => {
                 log::error!("DataEngine initialization failed: {}", e);

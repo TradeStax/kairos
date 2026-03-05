@@ -13,4 +13,6 @@ pub(crate) struct PersistenceState {
     /// Keys are ticker strings (e.g. "NQ.c.0"), values are formatted ranges.
     pub(crate) ticker_ranges: std::collections::HashMap<String, String>,
     pub(crate) tickers_info: FxHashMap<FuturesTicker, FuturesTickerInfo>,
+    /// Auto-update preferences (check interval, skipped versions, etc.)
+    pub(crate) auto_update_prefs: crate::persistence::AutoUpdatePreferences,
 }

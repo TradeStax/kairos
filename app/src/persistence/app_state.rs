@@ -64,6 +64,27 @@ impl Default for DatabentoAppConfig {
     }
 }
 
+/// Auto-update preferences (persisted)
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoUpdatePreferences {
+    pub auto_check_enabled: bool,
+    pub check_interval_hours: u32,
+    pub last_check_epoch: Option<i64>,
+    pub skipped_versions: Vec<String>,
+}
+
+impl Default for AutoUpdatePreferences {
+    fn default() -> Self {
+        Self {
+            auto_check_enabled: true,
+            check_interval_hours: 24,
+            last_check_epoch: None,
+            skipped_versions: vec![],
+        }
+    }
+}
+
 /// AI assistant preferences (persisted)
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiPreferences {
@@ -130,6 +151,10 @@ pub struct AppState {
     /// AI assistant preferences
     #[serde(default)]
     pub ai_preferences: AiPreferences,
+
+    /// Auto-update preferences
+    #[serde(default)]
+    pub auto_update: AutoUpdatePreferences,
 }
 
 impl Default for AppState {
@@ -148,6 +173,7 @@ impl Default for AppState {
             downloaded_tickers: DownloadedTickersRegistry::default(),
             data_feeds: ConnectionManager::default(),
             ai_preferences: AiPreferences::default(),
+            auto_update: AutoUpdatePreferences::default(),
         }
     }
 }
@@ -179,6 +205,7 @@ impl AppState {
             downloaded_tickers,
             data_feeds,
             ai_preferences: AiPreferences::default(),
+            auto_update: AutoUpdatePreferences::default(),
         }
     }
 

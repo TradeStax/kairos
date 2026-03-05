@@ -8,6 +8,7 @@ pub mod pane;
 pub mod preferences;
 pub mod replay;
 pub mod theme;
+pub mod update;
 
 use iced::widget::{center, container, mouse_area, opaque, stack};
 use iced::{Alignment, Color, Element, Length, padding};

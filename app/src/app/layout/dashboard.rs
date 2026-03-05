@@ -146,6 +146,7 @@ impl Kairos {
             data::lock_or_recover(&self.connections.connection_manager).clone(),
         );
         state.ai_preferences = self.ui.ai_preferences.clone();
+        state.auto_update = self.persistence.auto_update_prefs.clone();
         state
     }
 

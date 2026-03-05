@@ -108,6 +108,56 @@ fn ai_stream_monitor() -> impl futures::stream::Stream<Item = Message> {
     })
 }
 
+/// Auto-update event monitor.
+/// Blocks on recv() until an event arrives — zero CPU when idle.
+fn update_event_monitor() -> impl futures::stream::Stream<Item = Message> {
+    futures::stream::unfold(
+        None::<tokio::sync::mpsc::UnboundedReceiver<crate::services::updater::UpdateEvent>>,
+        |maybe_rx| async move {
+            let mut rx = match maybe_rx {
+                Some(rx) => rx,
+                None => loop {
+                    if let Some(rx) = super::globals::take_update_receiver() {
+                        log::info!("Update event monitor: receiver acquired");
+                        break rx;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                },
+            };
+            match rx.recv().await {
+                Some(event) => {
+                    let msg = match event {
+                        crate::services::updater::UpdateEvent::DownloadProgress {
+                            downloaded,
+                            total,
+                        } => Message::Update(
+                            super::super::messages::UpdateMessage::DownloadProgress {
+                                downloaded,
+                                total,
+                            },
+                        ),
+                        crate::services::updater::UpdateEvent::DownloadComplete(result) => {
+                            Message::Update(
+                                super::super::messages::UpdateMessage::DownloadComplete(result),
+                            )
+                        }
+                        crate::services::updater::UpdateEvent::CheckComplete(result) => {
+                            Message::Update(super::super::messages::UpdateMessage::CheckComplete(
+                                result.map(Some),
+                            ))
+                        }
+                    };
+                    Some((msg, Some(rx)))
+                }
+                None => {
+                    log::warn!("Update event channel closed");
+                    None
+                }
+            }
+        },
+    )
+}
+
 /// Replay drag tracking subscription
 /// Only active during drag operations on the floating replay panel
 fn replay_drag_subscription() -> Subscription<Message> {
@@ -144,6 +194,9 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
 
     // AI assistant stream event subscription
     let ai_poll = Subscription::run(ai_stream_monitor);
+
+    // Auto-update event subscription
+    let update_poll = Subscription::run(update_event_monitor);
 
     let hotkeys = keyboard::listen().filter_map(|event| {
         let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
@@ -209,6 +262,7 @@ pub fn build_subscription(replay_is_dragging: bool) -> Subscription<Message> {
         replay_poll,
         backtest_poll,
         ai_poll,
+        update_poll,
         hotkeys,
     ];
 

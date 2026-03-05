@@ -41,6 +41,7 @@ use iced::{Subscription, Task};
 use rustc_hash::FxHashMap;
 
 pub(super) const APP_NAME: &str = "Kairos";
+pub(super) const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct Kairos {
     pub(crate) main_window: window::Window,
@@ -92,6 +93,7 @@ impl Kairos {
             downloaded_tickers: saved_state_temp.downloaded_tickers,
             data_feeds: saved_state_temp.data_feeds,
             ai_preferences: saved_state_temp.ai_preferences,
+            auto_update: saved_state_temp.auto_update,
         };
 
         let (main_window_id, open_main_window) = {
@@ -142,6 +144,7 @@ impl Kairos {
                 data_index: data_index.clone(),
                 ticker_ranges,
                 tickers_info,
+                auto_update_prefs: saved_state.auto_update.clone(),
             },
             modals: state::ModalState {
                 theme_editor: ThemeEditor::new(saved_state.custom_theme),
@@ -162,6 +165,7 @@ impl Kairos {
                     backtest_manager: crate::screen::backtest::manager::BacktestManager::new(),
                     show_backtest_manager: false,
                 },
+                update_state: state::modals::UpdateState::default(),
             },
             secrets: SecretsManager::new(),
         };
@@ -178,14 +182,38 @@ impl Kairos {
         );
 
         let open_window = open_main_window.discard();
-        (state, Task::batch([open_window, init_services]))
+
+        // Schedule a delayed update check on startup
+        let startup_check = if saved_state.auto_update.auto_check_enabled {
+            let should_check = saved_state.auto_update.last_check_epoch.is_none_or(|last| {
+                let elapsed_hours = (chrono::Utc::now().timestamp() - last) / 3600;
+                elapsed_hours >= saved_state.auto_update.check_interval_hours as i64
+            });
+            if should_check {
+                Task::perform(
+                    async {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    },
+                    |_| Message::Update(messages::UpdateMessage::CheckForUpdates),
+                )
+            } else {
+                Task::none()
+            }
+        } else {
+            Task::none()
+        };
+
+        (
+            state,
+            Task::batch([open_window, init_services, startup_check]),
+        )
     }
 
     pub fn title(&self, _window: window::Id) -> String {
         if let Some(id) = self.persistence.layout_manager.active_layout_id() {
-            format!("{} [{}]", APP_NAME, id.name)
+            format!("{} v{} [{}]", APP_NAME, APP_VERSION, id.name)
         } else {
-            APP_NAME.to_string()
+            format!("{} v{}", APP_NAME, APP_VERSION)
         }
     }
 

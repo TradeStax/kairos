@@ -17,6 +17,10 @@ use app::Kairos;
 use std::borrow::Cow;
 
 fn main() {
+    // Apply staged update if one was downloaded in a previous session.
+    // Runs before logger/GUI: swaps binary + assets on disk.
+    services::updater_install::check_and_apply_staged_update();
+
     if let Err(e) = infra::logger::setup(cfg!(debug_assertions)) {
         // Logger failed to initialize (e.g., OS refused to create logging thread).
         // Fall through — the app can still run without logging.

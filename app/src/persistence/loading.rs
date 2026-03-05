@@ -31,6 +31,7 @@ pub fn load_saved_state_without_registry() -> SavedState {
                 downloaded_tickers: state.downloaded_tickers,
                 data_feeds: state.data_feeds,
                 ai_preferences: state.ai_preferences,
+                auto_update: state.auto_update,
             }
         }
         Err(e) => {

@@ -26,7 +26,9 @@ pub mod loading;
 pub mod persistence;
 pub mod runtime;
 
-pub use app_state::{AiPreferences, AppState, DatabentoAppConfig, WindowSpec};
+pub use app_state::{
+    AiPreferences, AppState, AutoUpdatePreferences, DatabentoAppConfig, WindowSpec,
+};
 pub use layout::{Axis, Dashboard, Layout, LayoutManager, Layouts, Pane};
 pub use loading::load_saved_state_without_registry;
 pub use persistence::{PersistenceError, StateVersion, load_state, save_state};

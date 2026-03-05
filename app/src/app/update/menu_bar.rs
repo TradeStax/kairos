@@ -62,6 +62,7 @@ pub enum Message {
     OpenBacktest,
     OpenBacktestStrategy(String),
     OpenBacktestManager,
+    CheckForUpdates,
 }
 
 #[allow(dead_code)]
@@ -76,6 +77,7 @@ pub enum Action {
     OpenBacktest,
     OpenBacktestStrategy(String),
     OpenBacktestManager,
+    CheckForUpdates,
 }
 
 pub struct MenuBar {
@@ -193,6 +195,10 @@ impl MenuBar {
                 self.open_menu = None;
                 return Action::OpenBacktestManager;
             }
+            Message::CheckForUpdates => {
+                self.open_menu = None;
+                return Action::CheckForUpdates;
+            }
         }
         Action::None
     }
@@ -278,12 +284,25 @@ impl MenuBar {
                 ))
                 .on_enter(Message::HideSubmenu);
 
+                let check_updates = mouse_area(menu_item(
+                    "Check for Updates",
+                    Some(Message::CheckForUpdates),
+                ))
+                .on_enter(Message::HideSubmenu);
+
                 let quit_item = mouse_area(menu_item("Quit", Some(Message::Quit)))
                     .on_enter(Message::HideSubmenu);
 
                 let panel = menu_panel(
-                    column![backtest_item, manager_item, rule::horizontal(1), quit_item,]
-                        .width(MENU_MIN_WIDTH),
+                    column![
+                        backtest_item,
+                        manager_item,
+                        rule::horizontal(1),
+                        check_updates,
+                        rule::horizontal(1),
+                        quit_item,
+                    ]
+                    .width(MENU_MIN_WIDTH),
                 );
 
                 let submenu = if self.show_submenu && !strategies.is_empty() {
@@ -608,6 +627,11 @@ impl Kairos {
             Action::OpenBacktestManager => {
                 return Task::done(crate::app::Message::Backtest(
                     crate::app::messages::BacktestMessage::OpenManager,
+                ));
+            }
+            Action::CheckForUpdates => {
+                return Task::done(crate::app::Message::Update(
+                    crate::app::messages::UpdateMessage::CheckForUpdates,
                 ));
             }
             Action::None => {}
