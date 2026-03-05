@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use super::config::RithmicServer;
 
 /// Default URL for the server configuration API.
-const DEFAULT_SERVER_API_URL: &str = "https://kairos.org";
+const DEFAULT_SERVER_API_URL: &str = "https://karios.org";
 
 /// Resolves [`RithmicServer`] variants to WebSocket URLs at runtime.
 #[derive(Debug, Clone)]
