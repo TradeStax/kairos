@@ -126,6 +126,29 @@ impl SecretsManager {
         Ok(())
     }
 
+    /// Delete the API key for a provider from all storage backends.
+    pub fn delete_api_key(&self, provider: ApiProvider) {
+        // Try keyring
+        if let Ok(entry) = keyring::Entry::new(provider.keyring_service(), provider.keyring_user())
+            && let Err(e) = entry.delete_credential()
+        {
+            log::debug!("Keyring delete for {}: {}", provider.display_name(), e);
+        }
+
+        // Try file-based storage
+        if let Some(path) = Self::secrets_file_path(provider)
+            && path.exists()
+            && let Err(e) = std::fs::remove_file(&path)
+        {
+            log::warn!("Failed to delete key file {:?}: {}", path, e);
+        }
+
+        log::info!(
+            "Deleted {} API key from all stores",
+            provider.display_name()
+        );
+    }
+
     /// Check if an API key is configured (from any source)
     pub fn has_api_key(&self, provider: ApiProvider) -> bool {
         self.get_api_key(provider).is_available()

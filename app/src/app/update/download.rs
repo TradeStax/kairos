@@ -49,6 +49,10 @@ impl Kairos {
                 let cost = match eng.estimate_cost(&symbol, schema, &date_range).await {
                     Ok(c) => Some(c),
                     Err(e) => {
+                        let err_str = e.to_string();
+                        if is_auth_error(&err_str) {
+                            return Err(err_str);
+                        }
                         log::warn!("Cost estimation failed: {}", e);
                         None
                     }
@@ -102,6 +106,9 @@ impl Kairos {
                 }
             }
             Err(e) => {
+                if is_auth_error(&e) {
+                    return self.handle_auth_failure();
+                }
                 log::error!("Failed to estimate cost: {}", e);
                 self.ui
                     .push_notification(Toast::error(format!("Estimation failed: {}", e)));
@@ -294,6 +301,9 @@ impl Kairos {
                 }
             }
             Err(e) => {
+                if is_auth_error(&e) {
+                    return self.handle_auth_failure();
+                }
                 log::error!("Failed to download data: {}", e);
                 self.ui
                     .push_notification(Toast::error(format!("Download failed: {}", e)));
@@ -371,6 +381,10 @@ impl Kairos {
                             let cost = match eng.estimate_cost(&symbol, schema, &date_range).await {
                                 Ok(c) => Some(c),
                                 Err(e) => {
+                                    let err_str = e.to_string();
+                                    if is_auth_error(&err_str) {
+                                        return Err(err_str);
+                                    }
                                     log::warn!("Cost estimation failed: {}", e);
                                     None
                                 }
@@ -427,7 +441,7 @@ impl Kairos {
     pub(crate) fn handle_historical_download_cost_estimated(
         &mut self,
         result: Result<(usize, Vec<chrono::NaiveDate>, Option<f64>), String>,
-    ) {
+    ) -> Task<Message> {
         if let Some(modal) = &mut self.modals.historical_download_modal {
             match result {
                 Ok((total_days, cached_dates, cost_usd)) => {
@@ -445,12 +459,16 @@ impl Kairos {
                     );
                 }
                 Err(e) => {
+                    if is_auth_error(&e) {
+                        return self.handle_auth_failure();
+                    }
                     log::error!("Historical download cost estimation failed: {}", e);
                     self.ui
                         .push_notification(Toast::error(format!("Estimation failed: {}", e)));
                 }
             }
         }
+        Task::none()
     }
 
     pub(crate) fn handle_historical_download_complete(
@@ -512,6 +530,9 @@ impl Kairos {
                 }
             }
             Err(e) => {
+                if is_auth_error(&e) {
+                    return self.handle_auth_failure();
+                }
                 log::error!("Historical download failed: {}", e);
                 self.ui
                     .push_notification(Toast::error(format!("Download failed: {}", e)));
@@ -522,6 +543,40 @@ impl Kairos {
             }
         }
         Task::none()
+    }
+}
+
+impl Kairos {
+    /// Handles authentication failures from Databento API calls.
+    ///
+    /// Deletes the stored API key, disconnects the adapter so it
+    /// reinitializes on the next attempt, closes download modals,
+    /// and opens the API key setup modal.
+    fn handle_auth_failure(&mut self) -> Task<Message> {
+        self.secrets
+            .delete_api_key(crate::config::secrets::ApiProvider::Databento);
+
+        self.modals.api_key_setup_modal = Some(crate::modals::download::ApiKeySetupModal::new());
+        self.modals.historical_download_modal = None;
+        self.modals.historical_download_id = None;
+
+        self.ui.push_notification(Toast::error(
+            "Databento API key is invalid. Please enter a new key.".to_string(),
+        ));
+
+        // Disconnect the stale adapter asynchronously so
+        // ensure_databento_adapter will reconnect with the new key.
+        if let Some(engine) = self.services.engine.clone() {
+            Task::perform(
+                async move {
+                    let mut eng = engine.lock().await;
+                    eng.disconnect_databento();
+                },
+                |()| Message::Tick(std::time::Instant::now()),
+            )
+        } else {
+            Task::none()
+        }
     }
 }
 
@@ -542,4 +597,10 @@ async fn ensure_databento_adapter(
             .map_err(|e| format!("Failed to initialize Databento: {}", e))?;
     }
     Ok(())
+}
+
+fn is_auth_error(error: &str) -> bool {
+    error.contains("401 Unauthorized")
+        || error.contains("Authentication failed")
+        || error.contains("403 Forbidden")
 }

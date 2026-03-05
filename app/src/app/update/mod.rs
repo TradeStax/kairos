@@ -126,7 +126,7 @@ impl Kairos {
                     return self.handle_historical_download(msg);
                 }
                 DownloadMessage::HistoricalDownloadCostEstimated { result } => {
-                    self.handle_historical_download_cost_estimated(result);
+                    return self.handle_historical_download_cost_estimated(result);
                 }
                 DownloadMessage::HistoricalDownloadComplete {
                     ticker,

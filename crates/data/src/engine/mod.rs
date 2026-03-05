@@ -101,6 +101,14 @@ impl DataEngine {
         self.databento.is_some()
     }
 
+    /// Drops the Databento adapter so the next call to `connect_databento`
+    /// (or `ensure_databento_adapter`) will reinitialize it with a fresh key.
+    #[cfg(feature = "databento")]
+    pub fn disconnect_databento(&mut self) {
+        self.databento = None;
+        log::info!("DataEngine: Databento adapter disconnected");
+    }
+
     // ── Connection lifecycle ──────────────────────────────────────────
 
     #[cfg(feature = "databento")]
