@@ -148,7 +148,8 @@ build-linux-x86_64:
   before_script:
     - *linux-deps
   script:
-    - bash scripts/build-linux.sh --arch x86_64  rules:
+    - bash scripts/build-linux.sh --arch x86_64
+  rules:
     - if: $CI_COMMIT_TAG =~ /^v/
     - when: manual
       allow_failure: true
@@ -161,7 +162,8 @@ build-linux-aarch64:
     - *linux-deps
     - apt-get install -y -qq gcc-aarch64-linux-gnu
   script:
-    - bash scripts/build-linux.sh --arch aarch64  rules:
+    - bash scripts/build-linux.sh --arch aarch64
+  rules:
     - if: $CI_COMMIT_TAG =~ /^v/
     - when: manual
       allow_failure: true
@@ -193,7 +195,8 @@ build-macos-universal:
   image: macos-15-xcode-16
   script:
     - source "$CARGO_HOME/env"
-    - bash scripts/build-macos.sh --arch universal  rules:
+    - bash scripts/build-macos.sh --arch universal
+  rules:
     - if: $CI_COMMIT_TAG =~ /^v/
     - when: manual
       allow_failure: true
