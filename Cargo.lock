@@ -2239,7 +2239,7 @@ dependencies = [
 
 [[package]]
 name = "kairos"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "base64",
  "chrono",
@@ -2274,7 +2274,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-ai"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "chrono",
  "futures",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-backtest"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "chrono",
  "kairos-data",
@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-data"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "async-trait",
  "bincode 1.3.3",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-study"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "chrono",
  "kairos-data",
