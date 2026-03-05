@@ -145,11 +145,12 @@ pub fn map_tick_replay_to_trades(responses: &[RithmicResponse]) -> Vec<Trade> {
             let price = bar.close_price?;
             let volume = bar.volume.unwrap_or(0) as f64;
 
-            // Infer aggressor side from volume split. Fallback to Sell
-            // when volumes are equal, missing, or both None.
+            // Rithmic tick bar volume fields use the same convention as the
+            // aggressor field: bid_volume = buy aggressor volume,
+            // ask_volume = sell aggressor volume. Infer dominant side.
             let side = match (bar.bid_volume, bar.ask_volume) {
-                (Some(b), Some(a)) if a > b => Side::Buy,
-                (Some(b), Some(a)) if b > a => Side::Sell,
+                (Some(b), Some(a)) if b > a => Side::Buy,
+                (Some(b), Some(a)) if a > b => Side::Sell,
                 _ => Side::Sell,
             };
 
@@ -387,7 +388,8 @@ mod tests {
     }
 
     #[test]
-    fn map_tick_replay_buy_side_inference() {
+    fn map_tick_replay_sell_side_inference() {
+        // ask_volume > bid_volume → sell aggression dominant → Sell
         let resp = RithmicResponse {
             request_id: String::new(),
             message: Box::new(RithmicMessage::ResponseTickBarReplay(
@@ -405,7 +407,7 @@ mod tests {
                     num_trades: None,
                     volume: Some(5),
                     bid_volume: Some(1),
-                    ask_volume: Some(4), // ask > bid -> Buy
+                    ask_volume: Some(4),
                     open_price: None,
                     close_price: Some(5200.0),
                     high_price: None,
@@ -424,13 +426,14 @@ mod tests {
 
         let trades = map_tick_replay_to_trades(&[resp]);
         assert_eq!(trades.len(), 1);
-        assert_eq!(trades[0].side, Side::Buy);
+        assert_eq!(trades[0].side, Side::Sell);
         assert!((trades[0].price.to_f64() - 5200.0).abs() < 0.01);
         assert!((trades[0].quantity.0 - 5.0).abs() < 0.01);
     }
 
     #[test]
-    fn map_tick_replay_sell_side_inference() {
+    fn map_tick_replay_buy_side_inference() {
+        // bid_volume > ask_volume → buy aggression dominant → Buy
         let resp = RithmicResponse {
             request_id: String::new(),
             message: Box::new(RithmicMessage::ResponseTickBarReplay(
@@ -447,7 +450,7 @@ mod tests {
                     type_specifier: None,
                     num_trades: None,
                     volume: Some(10),
-                    bid_volume: Some(7), // bid > ask -> Sell
+                    bid_volume: Some(7), // bid > ask → buy aggression dominant → Buy
                     ask_volume: Some(3),
                     open_price: None,
                     close_price: Some(5199.75),
@@ -467,7 +470,7 @@ mod tests {
 
         let trades = map_tick_replay_to_trades(&[resp]);
         assert_eq!(trades.len(), 1);
-        assert_eq!(trades[0].side, Side::Sell);
+        assert_eq!(trades[0].side, Side::Buy);
     }
 
     #[test]
