@@ -5,7 +5,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-homepage = "https://kairos.com"
+homepage = "https://karios.org"
 
 [workspace.dependencies]
 iced_futures = { version = "0.14.0" }

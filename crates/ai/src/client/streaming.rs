@@ -140,7 +140,7 @@ pub async fn stream_openrouter_agentic<Tz: TimezoneResolver>(
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", format!("Bearer {api_key}"))
             .header("Content-Type", "application/json")
-            .header("HTTP-Referer", "https://kairos.app")
+            .header("HTTP-Referer", "https://karios.org")
             .header("X-Title", "Kairos")
             .json(&body)
             .send()
