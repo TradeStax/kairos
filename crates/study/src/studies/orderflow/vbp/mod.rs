@@ -20,7 +20,9 @@ pub(crate) mod params;
 pub mod profile_core;
 
 use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{
     ProfileOutput, ProfileRenderConfig, StudyOutput, VbpGroupingMode, VbpPeriod, VbpSplitPeriod,
@@ -50,6 +52,9 @@ pub struct VbpStudy {
     /// recompute every 100 new trades to avoid per-trade O(N) work
     /// during live streaming.
     last_recompute_trade_count: usize,
+    /// Consolidated metadata: name, category, placement, capabilities.
+    /// Placement is updated dynamically based on `display_location`.
+    metadata: StudyMetadata,
 }
 
 impl VbpStudy {
@@ -68,6 +73,19 @@ impl VbpStudy {
             params,
             last_input_fingerprint: (0, 0, 0, 0, 0),
             last_recompute_trade_count: 0,
+            metadata: StudyMetadata {
+                name: "Volume by Price".into(),
+                category: StudyCategory::OrderFlow,
+                placement: StudyPlacement::Background,
+                description: "Horizontal volume distribution bars at each price level".into(),
+                config_version: 1,
+                capabilities: StudyCapabilities {
+                    incremental: true,
+                    needs_visible_range: true,
+                    needs_trades: true,
+                    ..StudyCapabilities::default()
+                },
+            },
         }
     }
 
@@ -251,26 +269,8 @@ impl Study for VbpStudy {
         "vbp"
     }
 
-    fn name(&self) -> &str {
-        "Volume by Price"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::OrderFlow
-    }
-
-    /// Returns `Background` or `SidePanel` based on the
-    /// `display_location` parameter.
-    fn placement(&self) -> StudyPlacement {
-        if self.config.get_choice("display_location", "In Chart") == "Side Panel" {
-            StudyPlacement::SidePanel
-        } else {
-            StudyPlacement::Background
-        }
-    }
-
-    fn needs_visible_range(&self) -> bool {
-        true
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -303,6 +303,15 @@ impl Study for VbpStudy {
         self.config.set(key, value);
         // Invalidate fingerprint so next compute() runs fully
         self.last_input_fingerprint = (0, 0, 0, 0, 0);
+        // Update dynamic placement based on display_location
+        if key == "display_location" {
+            let loc = self.config.get_choice("display_location", "In Chart");
+            self.metadata.placement = if loc == "Side Panel" {
+                StudyPlacement::SidePanel
+            } else {
+                StudyPlacement::Background
+            };
+        }
         Ok(())
     }
 
@@ -318,10 +327,10 @@ impl Study for VbpStudy {
         Some(LABELS)
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         if input.candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let period = Self::parse_period(self.config.get_choice("period", "Split"));
@@ -369,7 +378,7 @@ impl Study for VbpStudy {
 
         if all_candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         // Filter trades once
@@ -388,7 +397,7 @@ impl Study for VbpStudy {
 
         if fingerprint == self.last_input_fingerprint && !matches!(self.output, StudyOutput::Empty)
         {
-            return Ok(());
+            return Ok(StudyResult::unchanged());
         }
         self.last_input_fingerprint = fingerprint;
 
@@ -470,7 +479,7 @@ impl Study for VbpStudy {
 
         if profiles.is_empty() {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         self.output = StudyOutput::Profile(
@@ -490,7 +499,7 @@ impl Study for VbpStudy {
             },
         );
 
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -501,7 +510,7 @@ impl Study for VbpStudy {
         &mut self,
         _new_trades: &[data::Trade],
         input: &StudyInput,
-    ) -> Result<(), StudyError> {
+    ) -> Result<StudyResult, StudyError> {
         // Batch trade updates: only trigger a full recompute every
         // 100 new trades to avoid per-trade O(N) profile rebuilds
         // during live streaming.
@@ -509,7 +518,7 @@ impl Study for VbpStudy {
         let current_count = input.trades.map(|t| t.len()).unwrap_or(0);
         let since_last = current_count.saturating_sub(self.last_recompute_trade_count);
         if since_last < BATCH_SIZE {
-            return Ok(());
+            return Ok(StudyResult::unchanged());
         }
         self.last_recompute_trade_count = current_count;
         self.last_input_fingerprint = (0, 0, 0, 0, 0);
@@ -529,6 +538,7 @@ impl Study for VbpStudy {
             params: self.params.clone(),
             last_input_fingerprint: (0, 0, 0, 0, 0),
             last_recompute_trade_count: 0,
+            metadata: self.metadata.clone(),
         })
     }
 }

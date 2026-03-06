@@ -5,8 +5,7 @@
 //!   area, HVN/LVN detection, and anchored VWAP
 //! - [`FootprintStudy`] -- per-candle price-level trade data (buy/sell
 //!   volume grid) in Box or Profile render modes
-//! - [`BigTradesStudy`] -- highlights unusually large trades on the chart,
-//!   with optional absorption detection
+//! - [`BigTradesStudy`] -- highlights unusually large trades on the chart
 //! - [`ImbalanceStudy`] -- detects bid/ask imbalances at individual price
 //!   levels
 

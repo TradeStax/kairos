@@ -26,7 +26,9 @@ use std::any::Any;
 use data::{Price, SerializableColor, Trade};
 
 use crate::config::{LineStyleValue, ParameterDef, ParameterTab, StudyConfig};
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{PriceLevel, StudyOutput};
 
@@ -41,6 +43,8 @@ pub struct LevelAnalyzerStudy {
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
+    /// Consolidated metadata: name, category, placement, capabilities.
+    metadata: StudyMetadata,
     /// Auto-detected and manual monitored levels.
     levels: Vec<MonitoredLevel>,
     /// Next unique ID for new levels.
@@ -79,6 +83,22 @@ impl LevelAnalyzerStudy {
             config,
             output: StudyOutput::Empty,
             params,
+            metadata: StudyMetadata {
+                name: "Level Analyzer".into(),
+                category: StudyCategory::OrderFlow,
+                placement: StudyPlacement::Background,
+                description: "Auto-detects key price levels and monitors real-time interaction"
+                    .into(),
+                config_version: 1,
+                capabilities: StudyCapabilities {
+                    incremental: true,
+                    interactive: true,
+                    needs_trades: true,
+                    has_detail_modal: true,
+                    accepts_external_data: true,
+                    ..StudyCapabilities::default()
+                },
+            },
             levels: Vec::new(),
             next_id: 1,
             processed_trade_count: 0,
@@ -177,6 +197,7 @@ impl LevelAnalyzerStudy {
                     fill_below: None,
                     width,
                     start_x,
+                    end_x: None,
                     zone_half_width: zone_hw,
                 }
             })
@@ -271,16 +292,8 @@ impl Study for LevelAnalyzerStudy {
         "level_analyzer"
     }
 
-    fn name(&self) -> &str {
-        "Level Analyzer"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::OrderFlow
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Background
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -295,11 +308,11 @@ impl Study for LevelAnalyzerStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let candles = input.candles;
         if candles.is_empty() {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         // Compute tolerance
@@ -389,14 +402,14 @@ impl Study for LevelAnalyzerStudy {
         self.candle_fingerprint = (candles.len(), last_time);
 
         self.rebuild_output();
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn append_trades(
         &mut self,
         new_trades: &[Trade],
         input: &StudyInput,
-    ) -> Result<(), StudyError> {
+    ) -> Result<StudyResult, StudyError> {
         let candles = input.candles;
 
         // Check if candle data changed (new candle arrived)
@@ -410,7 +423,7 @@ impl Study for LevelAnalyzerStudy {
 
         // Only process new trades incrementally
         if new_trades.is_empty() {
-            return Ok(());
+            return Ok(StudyResult::unchanged());
         }
 
         self.compute_tolerance(candles, input.tick_size);
@@ -429,7 +442,7 @@ impl Study for LevelAnalyzerStudy {
 
         self.processed_trade_count += new_trades.len();
         self.rebuild_output();
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -456,10 +469,6 @@ impl Study for LevelAnalyzerStudy {
         self.interactive_cache
             .as_ref()
             .map(|b| b.as_ref() as &dyn Any)
-    }
-
-    fn has_detail_modal(&self) -> bool {
-        true
     }
 
     fn accept_external_data(&mut self, data: Box<dyn Any + Send>) -> Result<(), StudyError> {
@@ -506,6 +515,7 @@ impl Study for LevelAnalyzerStudy {
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
+            metadata: self.metadata.clone(),
             levels: self.levels.clone(),
             next_id: self.next_id,
             processed_trade_count: self.processed_trade_count,

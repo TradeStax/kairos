@@ -15,7 +15,9 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{PriceLevel, StudyOutput};
 use crate::studies::orderflow::vbp::profile_core;
@@ -112,6 +114,8 @@ pub struct ImbalanceStudy {
     output: StudyOutput,
     /// Schema of user-adjustable parameters for the settings UI.
     params: Vec<ParameterDef>,
+    /// Consolidated metadata: name, category, placement, capabilities.
+    metadata: StudyMetadata,
 }
 
 impl ImbalanceStudy {
@@ -197,6 +201,17 @@ impl ImbalanceStudy {
             config,
             output: StudyOutput::Empty,
             params,
+            metadata: StudyMetadata {
+                name: "Imbalance".into(),
+                category: StudyCategory::OrderFlow,
+                placement: StudyPlacement::Background,
+                description: "Price levels with significant buy/sell imbalance".into(),
+                config_version: 1,
+                capabilities: StudyCapabilities {
+                    needs_trades: true,
+                    ..StudyCapabilities::default()
+                },
+            },
         }
     }
 }
@@ -212,16 +227,8 @@ impl Study for ImbalanceStudy {
         "imbalance"
     }
 
-    fn name(&self) -> &str {
-        "Imbalance"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::OrderFlow
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Background
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -236,7 +243,7 @@ impl Study for ImbalanceStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let threshold = self.config.get_float("threshold", DEFAULT_THRESHOLD) as f32;
         let buy_color = self.config.get_color("buy_color", DEFAULT_BUY_COLOR);
         let sell_color = self.config.get_color("sell_color", DEFAULT_SELL_COLOR);
@@ -245,7 +252,7 @@ impl Study for ImbalanceStudy {
 
         if input.candles.is_empty() || input.tick_size.units() <= 0 {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let total = input.candles.len();
@@ -325,6 +332,7 @@ impl Study for ImbalanceStudy {
                     fill_below: None,
                     width: 1.0,
                     start_x: Some(key),
+                    end_x: None,
                     zone_half_width: None,
                 });
             }
@@ -340,7 +348,7 @@ impl Study for ImbalanceStudy {
         } else {
             StudyOutput::Levels(levels)
         };
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -356,6 +364,7 @@ impl Study for ImbalanceStudy {
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
+            metadata: self.metadata.clone(),
         })
     }
 }
