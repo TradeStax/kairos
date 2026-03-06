@@ -34,28 +34,29 @@ pub const BULLISH_COLOR: data::SerializableColor =
 pub const BEARISH_COLOR: data::SerializableColor =
     data::SerializableColor::from_rgb8_const(192, 80, 77);
 
+/// Default neutral color — #808080.
+pub const NEUTRAL_COLOR: data::SerializableColor =
+    data::SerializableColor::from_rgb8_const(128, 128, 128);
+
+// --- Core re-exports (used by app + backtest crates) ---
+pub use core::{
+    DiagnosticSeverity, Study, StudyCapabilities, StudyCategory, StudyDiagnostic, StudyInput,
+    StudyMetadata, StudyPlacement, StudyResult, YScaleMode,
+};
+
 // --- Config re-exports ---
 pub use config::LineStyleValue;
+pub use config::versioning::{ConfigMigration, ParameterSchema};
 pub use config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterSection, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
 
-// --- Core re-exports ---
-pub use core::{Study, StudyCategory, StudyInput, StudyPlacement};
+// --- Error re-export ---
 pub use error::StudyError;
 
-// --- Output re-exports ---
-pub use output::{
-    BackgroundColorMode, BarPoint, BarSeries, CandleRenderConfig, ExtendDirection, FootprintCandle,
-    FootprintCandlePosition, FootprintData, FootprintDataType, FootprintGroupingMode,
-    FootprintLevel, FootprintRenderMode, FootprintScaling, HistogramBar, LineSeries, MarkerData,
-    MarkerRenderConfig, MarkerShape, NodeDetectionMethod, OutsideBarStyle, PriceLevel,
-    ProfileLevel, ProfileOutput, ProfileRenderConfig, ProfileSide, StudyCandlePoint,
-    StudyCandleSeries, StudyOutput, TextFormat, TradeMarker, TradeMarkerDebug, VbpGroupingMode,
-    VbpNodeConfig, VbpPeriod, VbpPocConfig, VbpSplitPeriod, VbpType, VbpValueAreaConfig,
-    VbpVwapConfig, VolumeNode,
-};
+// --- Output re-exports (only types used via top-level paths) ---
+pub use output::{CandleRenderConfig, NodeDetectionMethod, StudyOutput};
 
 // --- Registry re-exports ---
 pub use studies::{StudyInfo, StudyRegistry};

@@ -26,6 +26,18 @@ pub enum StudyError {
     /// A runtime error during the `compute()` pass.
     #[error("compute error: {0}")]
     Compute(String),
+
+    /// A required study dependency was not found.
+    #[error("dependency missing: {dep}")]
+    DependencyMissing { dep: String },
+
+    /// Config version mismatch during deserialization.
+    #[error("config version mismatch: expected {expected}, got {actual}")]
+    VersionMismatch { expected: u16, actual: u16 },
+
+    /// Unsupported external data type.
+    #[error("unsupported external data type: {type_id}")]
+    UnsupportedExternalData { type_id: String },
 }
 
 impl data::AppError for StudyError {
@@ -47,6 +59,9 @@ impl data::AppError for StudyError {
             }
             StudyError::InsufficientData { .. } => data::ErrorSeverity::Info,
             StudyError::Compute(_) => data::ErrorSeverity::Recoverable,
+            StudyError::DependencyMissing { .. } => data::ErrorSeverity::Warning,
+            StudyError::VersionMismatch { .. } => data::ErrorSeverity::Info,
+            StudyError::UnsupportedExternalData { .. } => data::ErrorSeverity::Warning,
         }
     }
 }

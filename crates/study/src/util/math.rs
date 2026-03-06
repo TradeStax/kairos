@@ -47,6 +47,22 @@ pub fn standard_deviation_with_mean(values: &[f64], avg: f64) -> f64 {
     variance_with_mean(values, avg).sqrt()
 }
 
+/// EMA smoothing multiplier: `2 / (period + 1)`.
+///
+/// Used by EMA, MACD (which chains EMAs), and Bollinger Bands
+/// (when configured with EMA mode).
+pub fn ema_multiplier(period: usize) -> f64 {
+    2.0 / (period + 1) as f64
+}
+
+/// Wilder's smoothing multiplier: `1 / period`.
+///
+/// Used by RSI and ATR which use Wilder's exponential smoothing
+/// (equivalent to a `2×period − 1` EMA).
+pub fn wilder_multiplier(period: usize) -> f64 {
+    1.0 / period as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +126,20 @@ mod tests {
         assert_eq!(variance_with_mean(&[], 0.0), 0.0);
         assert_eq!(variance_with_mean(&[5.0], 5.0), 0.0);
         assert_eq!(standard_deviation_with_mean(&[], 0.0), 0.0);
+    }
+
+    #[test]
+    fn test_ema_multiplier() {
+        // Standard EMA: 2 / (period + 1)
+        assert!((ema_multiplier(10) - 2.0 / 11.0).abs() < 1e-10);
+        assert!((ema_multiplier(20) - 2.0 / 21.0).abs() < 1e-10);
+        assert!((ema_multiplier(1) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wilder_multiplier() {
+        // Wilder's smoothing: 1 / period
+        assert!((wilder_multiplier(14) - 1.0 / 14.0).abs() < 1e-10);
+        assert!((wilder_multiplier(1) - 1.0).abs() < 1e-10);
     }
 }

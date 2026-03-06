@@ -29,7 +29,7 @@ pub enum ParameterTab {
     Nodes,
     /// Session VWAP bands and anchoring (VWAP studies).
     Vwap,
-    /// Absorption detection parameters (Big Trades study).
+    /// Absorption detection settings (Big Trades study).
     Absorption,
 }
 
@@ -104,6 +104,10 @@ pub enum ParameterKind {
     Choice { options: &'static [&'static str] },
     /// Line rendering style (solid, dashed, dotted). Renders as a dropdown.
     LineStyle,
+    /// Selection from a dynamically-provided set of options.
+    DynamicChoice,
+    /// Multi-select from a fixed set of string options.
+    MultiChoice { options: &'static [&'static str] },
 }
 
 impl ParameterDef {
@@ -134,6 +138,14 @@ impl ParameterDef {
                 }
             }
             (ParameterKind::LineStyle, ParameterValue::LineStyle(_)) => {}
+            (ParameterKind::DynamicChoice, ParameterValue::Choice(_)) => {}
+            (ParameterKind::MultiChoice { options }, ParameterValue::MultiChoice(selected)) => {
+                for s in selected {
+                    if !options.contains(&s.as_str()) {
+                        return Err(format!("invalid selection: {}", s));
+                    }
+                }
+            }
             _ => {
                 return Err(format!(
                     "expected {} for {}",
@@ -156,6 +168,8 @@ impl ParameterKind {
             ParameterKind::Boolean => "boolean",
             ParameterKind::Choice { .. } => "choice",
             ParameterKind::LineStyle => "line style",
+            ParameterKind::DynamicChoice => "dynamic choice",
+            ParameterKind::MultiChoice { .. } => "multi choice",
         }
     }
 }

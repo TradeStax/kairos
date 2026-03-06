@@ -96,6 +96,14 @@ impl StudyConfig {
         }
     }
 
+    /// Get a multi-choice parameter, returning the default if missing or wrong type.
+    pub fn get_multi_choice(&self, key: &str, default: &[String]) -> Vec<String> {
+        match self.values.get(key) {
+            Some(super::value::ParameterValue::MultiChoice(v)) => v.clone(),
+            _ => default.to_vec(),
+        }
+    }
+
     /// Set a parameter value (no validation).
     pub fn set(&mut self, key: impl Into<String>, value: ParameterValue) {
         self.values.insert(key.into(), value);

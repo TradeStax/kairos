@@ -1,8 +1,57 @@
-//! Study classification enums: category and placement.
+//! Study metadata, classification enums, and capability flags.
 //!
+//! [`StudyMetadata`] consolidates all study metadata into a single struct.
+//! [`StudyCapabilities`] declares which optional features a study supports.
 //! [`StudyCategory`] groups studies for menu and search UI.
 //! [`StudyPlacement`] determines where a study renders relative to the
 //! price chart (overlay, separate panel, background, etc.).
+
+use serde::{Deserialize, Serialize};
+
+/// Consolidated metadata for a study instance.
+///
+/// Replaces the individual `name()`, `category()`, `placement()` methods
+/// with a single struct returned by [`Study::metadata()`](super::Study::metadata).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyMetadata {
+    /// Human-readable display name (e.g. "Simple Moving Average").
+    pub name: String,
+    /// Functional category for grouping in the catalog.
+    pub category: StudyCategory,
+    /// Where this study renders relative to the price chart.
+    pub placement: StudyPlacement,
+    /// Short description for tooltips and help text.
+    pub description: String,
+    /// Schema version for parameter persistence migration.
+    pub config_version: u16,
+    /// Optional feature flags.
+    pub capabilities: StudyCapabilities,
+}
+
+/// Declares which optional features a study supports.
+///
+/// Used by the UI layer to conditionally enable interactive features,
+/// by the chart engine for rendering optimization, and by the registry
+/// for catalog filtering.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StudyCapabilities {
+    /// Supports incremental `append_trades()` optimization.
+    pub incremental: bool,
+    /// Provides interactive data for UI modals and overlays.
+    pub interactive: bool,
+    /// Recomputes when the visible range changes (pan/zoom).
+    pub needs_visible_range: bool,
+    /// Requires raw trade data (not just candles).
+    pub needs_trades: bool,
+    /// Has a detail modal accessible from the chart overlay.
+    pub has_detail_modal: bool,
+    /// Accepts externally-provided data (e.g. manual levels).
+    pub accepts_external_data: bool,
+    /// Replaces the standard candle rendering.
+    pub candle_replace: bool,
+    /// Uses custom rendering via [`DrawContext`](super::draw_context::DrawContext).
+    pub custom_draw: bool,
+}
 
 /// Study category for grouping in menus and search.
 #[derive(

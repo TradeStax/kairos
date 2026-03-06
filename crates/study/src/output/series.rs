@@ -83,6 +83,10 @@ pub struct PriceLevel {
     /// line.
     #[serde(default)]
     pub start_x: Option<u64>,
+    /// Right edge X coordinate. When `Some`, the level ends at this
+    /// point. When `None`, extends to the right edge of the chart.
+    #[serde(default)]
+    pub end_x: Option<u64>,
     /// Half-width of the zone in price-domain units. When `Some`, the
     /// level renders as a shaded area from `price - hw` to `price + hw`
     /// instead of a single line. The center line is still drawn.

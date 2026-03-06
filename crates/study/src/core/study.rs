@@ -16,30 +16,37 @@ use std::any::Any;
 use data::Trade;
 
 use super::input::StudyInput;
-use super::metadata::{StudyCategory, StudyPlacement};
+use super::metadata::StudyMetadata;
+use super::result::StudyResult;
 use crate::config::{ParameterDef, ParameterTab, ParameterValue, StudyConfig};
 use crate::error::StudyError;
 use crate::output::{CandleRenderConfig, StudyOutput};
+
+/// Y-axis scale mode for panel studies.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum YScaleMode {
+    /// Standard linear scale.
+    #[default]
+    Linear,
+    /// Logarithmic (base 10) scale.
+    Log10,
+    /// Percentage change from first visible value.
+    Percentage,
+    /// Fixed range (ignores autoscale).
+    Fixed { min: f32, max: f32 },
+}
 
 /// Core trait for all technical studies and indicators.
 ///
 /// Implementors provide a `compute()` method that transforms [`StudyInput`]
 /// into a [`StudyOutput`], plus configuration, metadata, and lifecycle methods.
-pub trait Study: Send + Sync {
+pub trait Study: Send + Sync + 'static {
     /// Unique identifier (e.g. "sma", "rsi", "volume_profile")
     fn id(&self) -> &str;
 
-    /// Display name (e.g. "Simple Moving Average")
-    fn name(&self) -> &str;
-
-    /// Category for grouping in the UI
-    fn category(&self) -> StudyCategory;
-
-    /// Where this study renders relative to the price chart.
-    ///
-    /// Dynamic studies (e.g. VBP) may return different placements based on
-    /// their current config (e.g. `In Chart` vs `Side Panel`).
-    fn placement(&self) -> StudyPlacement;
+    /// Consolidated metadata: name, category, placement, description,
+    /// capabilities, and config version.
+    fn metadata(&self) -> &StudyMetadata;
 
     /// Parameter definitions for the settings UI
     fn parameters(&self) -> &[ParameterDef];
@@ -78,15 +85,27 @@ pub trait Study: Send + Sync {
         Ok(())
     }
 
+    /// Update multiple parameters atomically.
+    ///
+    /// Validates all parameters first, then applies all. Returns an error
+    /// if any parameter fails validation (no parameters are applied).
+    fn set_parameters(&mut self, params: &[(&str, ParameterValue)]) -> Result<(), StudyError> {
+        let defs: Vec<_> = self.parameters().to_vec();
+        crate::core::capabilities::set_parameters_default(&defs, self.config_mut(), params)
+    }
+
     /// Recompute all study values from scratch using the provided input.
     ///
     /// Called whenever the underlying data changes (new candles loaded,
     /// visible range scrolled, parameters updated). For incremental updates
     /// on streaming data prefer `append_trades`.
     ///
+    /// Returns a [`StudyResult`] indicating whether the output changed
+    /// and carrying optional diagnostic messages.
+    ///
     /// # Errors
     /// Returns [`StudyError`] if parameters are misconfigured or computation fails.
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError>;
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError>;
 
     /// Incrementally process new trades appended since last compute.
     ///
@@ -100,7 +119,7 @@ pub trait Study: Send + Sync {
         &mut self,
         _new_trades: &[Trade],
         input: &StudyInput,
-    ) -> Result<(), StudyError> {
+    ) -> Result<StudyResult, StudyError> {
         self.compute(input)
     }
 
@@ -133,28 +152,11 @@ pub trait Study: Send + Sync {
 
     /// Structured data for interactive UI features (e.g. level detail modal).
     ///
-    /// The UI layer downcasts the returned `&dyn Any` to a concrete type
-    /// (e.g. `LevelAnalyzerData`) to populate modals and overlays.
+    /// The UI layer uses the returned `&dyn Any` to downcast to a concrete
+    /// type (e.g. `LevelAnalyzerData`) to populate modals and overlays.
     /// Default: `None` (no interactive data available).
     fn interactive_data(&self) -> Option<&dyn Any> {
         None
-    }
-
-    /// Whether this study has a detail modal accessible from the overlay.
-    ///
-    /// When `true`, the chart overlay renders an icon button next to the
-    /// study label that opens the detail modal on click.
-    fn has_detail_modal(&self) -> bool {
-        false
-    }
-
-    /// Whether this study depends on the visible range and should
-    /// recompute when the user scrolls, pans, or zooms.
-    ///
-    /// Default: `false`. Override to `true` for studies like VBP that
-    /// compute over the visible window.
-    fn needs_visible_range(&self) -> bool {
-        false
     }
 
     /// Accept externally-provided data (e.g. user-defined manual levels).
@@ -166,6 +168,14 @@ pub trait Study: Send + Sync {
             key: "external_data".into(),
             reason: "not supported".into(),
         })
+    }
+
+    /// Y-axis scale mode for panel studies.
+    ///
+    /// Default: [`YScaleMode::Linear`]. Override for studies that need
+    /// logarithmic, percentage, or fixed-range scaling.
+    fn y_scale(&self) -> YScaleMode {
+        YScaleMode::Linear
     }
 
     /// Clone this study into a new heap-allocated instance.

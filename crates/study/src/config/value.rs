@@ -25,6 +25,8 @@ pub enum ParameterValue {
     Choice(String),
     /// Visual style for rendered lines.
     LineStyle(LineStyleValue),
+    /// Multiple selections from a set of options.
+    MultiChoice(Vec<String>),
 }
 
 /// Line rendering style for study overlays and panel series.

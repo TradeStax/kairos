@@ -5,5 +5,7 @@
 
 pub mod candle;
 pub mod math;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 pub use candle::{candle_key, source_value};
