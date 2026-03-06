@@ -19,7 +19,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
 use crate::util::candle_key;
@@ -37,6 +39,7 @@ const DEFAULT_OPACITY: f64 = 0.8;
 /// Renders one bar per candle whose height is the total volume
 /// (buy + sell) and whose color reflects the candle direction.
 pub struct VolumeStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -94,6 +97,14 @@ impl VolumeStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Volume".to_string(),
+                category: StudyCategory::Volume,
+                placement: StudyPlacement::Panel,
+                description: "Total volume per candle".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -112,16 +123,8 @@ impl Study for VolumeStudy {
         "volume"
     }
 
-    fn name(&self) -> &str {
-        "Volume"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Volume
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -136,7 +139,7 @@ impl Study for VolumeStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let up_color = self.config.get_color("up_color", DEFAULT_UP_COLOR);
         let down_color = self.config.get_color("down_color", DEFAULT_DOWN_COLOR);
         let opacity = self.config.get_float("opacity", DEFAULT_OPACITY) as f32;
@@ -144,7 +147,7 @@ impl Study for VolumeStudy {
         if input.candles.is_empty() {
             log::debug!("{}: no candle data", self.id());
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let total = input.candles.len();
@@ -173,7 +176,7 @@ impl Study for VolumeStudy {
             label: "Volume".to_string(),
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -186,6 +189,7 @@ impl Study for VolumeStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(Self {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),

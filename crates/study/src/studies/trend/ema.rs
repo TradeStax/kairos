@@ -34,7 +34,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::{candle_key, source_value};
@@ -117,6 +119,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// The study produces [`StudyOutput::Lines`] with a single
 /// [`LineSeries`] labeled `EMA(<period>)`.
 pub struct EmaStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -134,6 +137,14 @@ impl EmaStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Exponential Moving Average".to_string(),
+                category: StudyCategory::Trend,
+                placement: StudyPlacement::Overlay,
+                description: "Exponential moving average of price".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -157,7 +168,7 @@ pub fn compute_ema(values: &[f64], period: usize) -> Vec<f64> {
         return vec![];
     }
 
-    let multiplier = 2.0 / (period + 1) as f64;
+    let multiplier = crate::util::math::ema_multiplier(period);
     let mut result = Vec::with_capacity(values.len() - period + 1);
 
     let sma: f64 = values[..period].iter().sum::<f64>() / period as f64;
@@ -176,16 +187,8 @@ impl Study for EmaStudy {
         "ema"
     }
 
-    fn name(&self) -> &str {
-        "Exponential Moving Average"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Trend
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Overlay
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -200,7 +203,7 @@ impl Study for EmaStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let period = self.config.get_int("period", 9) as usize;
         let color = self.config.get_color(
             "color",
@@ -223,10 +226,10 @@ impl Study for EmaStudy {
                 period
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
-        let multiplier = 2.0 / (period + 1) as f64;
+        let multiplier = crate::util::math::ema_multiplier(period);
         let mut points = Vec::with_capacity(candles.len() - period + 1);
 
         // Seed EMA with SMA of first `period` candles
@@ -262,7 +265,7 @@ impl Study for EmaStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -275,6 +278,7 @@ impl Study for EmaStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(EmaStudy {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -285,30 +289,8 @@ impl Study for EmaStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
-
-    fn make_candle(time: u64, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Volume(0.0),
-            Volume(0.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
-    }
+    use crate::util::test_helpers::{make_candle, make_input};
+    use data::Candle;
 
     #[test]
     fn test_empty_candles() {

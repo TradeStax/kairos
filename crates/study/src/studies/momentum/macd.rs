@@ -18,7 +18,9 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{HistogramBar, LineSeries, StudyOutput};
 use crate::studies::trend::ema::compute_ema;
@@ -137,6 +139,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// histogram visualises MACD minus signal. Renders in a separate panel
 /// with two overlaid lines and a colored divergence histogram.
 pub struct MacdStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -153,6 +156,14 @@ impl MacdStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "MACD".to_string(),
+                category: StudyCategory::Momentum,
+                placement: StudyPlacement::Panel,
+                description: "Moving Average Convergence Divergence".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -171,16 +182,8 @@ impl Study for MacdStudy {
         "macd"
     }
 
-    fn name(&self) -> &str {
-        "MACD"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Momentum
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -195,7 +198,7 @@ impl Study for MacdStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let fast_period = self.config.get_int("fast_period", 12) as usize;
         let slow_period = self.config.get_int("slow_period", 26) as usize;
         let signal_period = self.config.get_int("signal_period", 9) as usize;
@@ -233,7 +236,7 @@ impl Study for MacdStudy {
                 max_period
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let closes: Vec<f64> = candles.iter().map(|c| c.close.to_f64()).collect();
@@ -263,7 +266,7 @@ impl Study for MacdStudy {
             .min(slow_ema.len());
         if macd_len == 0 {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let macd_values: Vec<f64> = (0..macd_len)
@@ -274,7 +277,7 @@ impl Study for MacdStudy {
         let signal_ema = compute_ema(&macd_values, signal_period);
         if signal_ema.is_empty() {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         // The signal line starts at (signal_period - 1) within macd_values
@@ -335,7 +338,7 @@ impl Study for MacdStudy {
             ]),
             StudyOutput::Histogram(histogram),
         ]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -348,6 +351,7 @@ impl Study for MacdStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(MacdStudy {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -358,30 +362,8 @@ impl Study for MacdStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
-
-    fn make_candle(time: u64, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Volume(0.0),
-            Volume(0.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
-    }
+    use crate::util::test_helpers::{make_candle, make_input};
+    use data::Candle;
 
     #[test]
     fn test_empty_candles() {

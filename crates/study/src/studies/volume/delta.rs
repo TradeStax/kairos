@@ -12,7 +12,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{BarPoint, BarSeries, StudyOutput};
 use crate::util::candle_key;
@@ -32,6 +34,7 @@ const DEFAULT_OPACITY: f64 = 0.8;
 /// sellers). Renders as colored bars in a separate panel below the
 /// price chart.
 pub struct DeltaStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -90,6 +93,14 @@ impl DeltaStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Volume Delta".to_string(),
+                category: StudyCategory::Volume,
+                placement: StudyPlacement::Panel,
+                description: "Buy minus sell volume per candle".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -108,16 +119,8 @@ impl Study for DeltaStudy {
         "delta"
     }
 
-    fn name(&self) -> &str {
-        "Volume Delta"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Volume
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -132,7 +135,7 @@ impl Study for DeltaStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let pos_color = self.config.get_color("positive_color", DEFAULT_POS_COLOR);
         let neg_color = self.config.get_color("negative_color", DEFAULT_NEG_COLOR);
         let opacity = self.config.get_float("opacity", DEFAULT_OPACITY) as f32;
@@ -140,7 +143,7 @@ impl Study for DeltaStudy {
         if input.candles.is_empty() {
             log::debug!("{}: no candle data", self.id());
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let total = input.candles.len();
@@ -169,7 +172,7 @@ impl Study for DeltaStudy {
             label: "Delta".to_string(),
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -182,6 +185,7 @@ impl Study for DeltaStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(Self {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -192,19 +196,11 @@ impl Study for DeltaStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
+    use crate::util::test_helpers::{make_candle_ohlcv, make_input};
+    use data::Candle;
 
     fn make_candle(time: u64, buy_vol: f64, sell_vol: f64) -> Candle {
-        Candle::new(
-            Timestamp::from_millis(time),
-            Price::from_f32(100.0),
-            Price::from_f32(102.0),
-            Price::from_f32(99.0),
-            Price::from_f32(101.0),
-            Volume(buy_vol),
-            Volume(sell_vol),
-        )
-        .expect("test: valid candle")
+        make_candle_ohlcv(time, 100.0, 102.0, 99.0, 101.0, buy_vol, sell_vol)
     }
 
     #[test]
@@ -216,13 +212,7 @@ mod tests {
             make_candle(3000, 200.0, 200.0), // delta = 0
         ];
 
-        let input = StudyInput {
-            candles: &candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        };
+        let input = make_input(&candles);
 
         study.compute(&input).unwrap();
 
@@ -250,27 +240,9 @@ mod tests {
     fn test_delta_empty() {
         let mut study = DeltaStudy::new();
         let candles: Vec<Candle> = vec![];
-
-        let input = StudyInput {
-            candles: &candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        };
-
+        let input = make_input(&candles);
         study.compute(&input).unwrap();
         assert!(matches!(study.output(), StudyOutput::Empty));
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
     }
 
     #[test]

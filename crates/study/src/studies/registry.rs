@@ -1,264 +1,40 @@
 //! Built-in study registration.
 //!
 //! Registers all 18 built-in studies into the [`StudyRegistry`] at
-//! construction time. Each entry pairs a closure factory with
-//! [`StudyInfo`] metadata used by the study picker UI.
-//!
-//! Studies are grouped by category:
-//!
-//! | Category    | Study               | Placement      |
-//! |-------------|----------------------|----------------|
-//! | Volume      | Volume               | Panel          |
-//! | Volume      | Volume Delta         | Panel          |
-//! | Volume      | CVD                  | Panel          |
-//! | Volume      | OBV                  | Panel          |
-//! | Order Flow  | Imbalance            | Background     |
-//! | Order Flow  | Big Trades           | Overlay        |
-//! | Order Flow  | Footprint            | CandleReplace  |
-//! | Order Flow  | Volume by Price      | Background     |
-//! | Order Flow  | Speed of Tape        | Panel          |
-//! | Trend       | SMA                  | Overlay        |
-//! | Trend       | EMA                  | Overlay        |
-//! | Trend       | VWAP                 | Overlay        |
-//! | Volatility  | ATR                  | Panel          |
-//! | Volatility  | Bollinger Bands      | Overlay        |
-//! | Momentum    | RSI                  | Panel          |
-//! | Momentum    | MACD                 | Panel          |
-//! | Momentum    | Stochastic           | Panel          |
-//! | Order Flow  | Speed of Tape        | Panel          |
-//! | Order Flow  | Level Analyzer       | Background     |
+//! construction time. Each entry derives its [`StudyInfo`] automatically
+//! from the study's own [`StudyMetadata`].
 
-use super::{StudyInfo, StudyRegistry};
-use crate::core::{StudyCategory, StudyPlacement};
+use super::StudyRegistry;
 
 /// Register all built-in studies into the given registry.
 ///
 /// Called once by [`StudyRegistry::new()`] during construction.
-/// Each call to `registry.register()` stores both a closure factory
-/// (for on-demand instantiation) and a [`StudyInfo`] record (for
-/// catalog display).
 pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
     // ── Volume ───────────────────────────────────────────
-    registry.register(
-        "volume",
-        StudyInfo {
-            id: "volume".to_string(),
-            name: "Volume".to_string(),
-            category: StudyCategory::Volume,
-            placement: StudyPlacement::Panel,
-            description: "Total volume per candle".to_string(),
-        },
-        || Box::new(crate::studies::volume::VolumeStudy::new()),
-    );
+    registry.register_study(|| Box::new(super::volume::VolumeStudy::new()));
+    registry.register_study(|| Box::new(super::volume::DeltaStudy::new()));
+    registry.register_study(|| Box::new(super::volume::CvdStudy::new()));
+    registry.register_study(|| Box::new(super::volume::ObvStudy::new()));
 
-    registry.register(
-        "delta",
-        StudyInfo {
-            id: "delta".to_string(),
-            name: "Volume Delta".to_string(),
-            category: StudyCategory::Volume,
-            placement: StudyPlacement::Panel,
-            description: "Buy minus sell volume per candle".to_string(),
-        },
-        || Box::new(crate::studies::volume::DeltaStudy::new()),
-    );
+    // ── Trend ────────────────────────────────────────────
+    registry.register_study(|| Box::new(super::trend::SmaStudy::new()));
+    registry.register_study(|| Box::new(super::trend::EmaStudy::new()));
+    registry.register_study(|| Box::new(super::trend::VwapStudy::new()));
 
-    // ── Order Flow ────────────────────────────────────
-    registry.register(
-        "imbalance",
-        StudyInfo {
-            id: "imbalance".to_string(),
-            name: "Imbalance".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::Background,
-            description: "Price levels with significant buy/sell imbalance".to_string(),
-        },
-        || Box::new(crate::studies::orderflow::ImbalanceStudy::new()),
-    );
+    // ── Momentum ─────────────────────────────────────────
+    registry.register_study(|| Box::new(super::momentum::RsiStudy::new()));
+    registry.register_study(|| Box::new(super::momentum::MacdStudy::new()));
+    registry.register_study(|| Box::new(super::momentum::StochasticStudy::new()));
 
-    registry.register(
-        "big_trades",
-        StudyInfo {
-            id: "big_trades".to_string(),
-            name: "Big Trades".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::Overlay,
-            description: "Aggregated institutional-scale trade bubbles".to_string(),
-        },
-        || Box::new(crate::studies::orderflow::BigTradesStudy::new()),
-    );
+    // ── Volatility ───────────────────────────────────────
+    registry.register_study(|| Box::new(super::volatility::AtrStudy::new()));
+    registry.register_study(|| Box::new(super::volatility::BollingerStudy::new()));
 
-    registry.register(
-        "footprint",
-        StudyInfo {
-            id: "footprint".to_string(),
-            name: "Footprint".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::CandleReplace,
-            description: "Per-candle trade volume at each price level".to_string(),
-        },
-        || Box::new(crate::studies::orderflow::FootprintStudy::new()),
-    );
-
-    registry.register(
-        "vbp",
-        StudyInfo {
-            id: "vbp".to_string(),
-            name: "Volume by Price".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::Background,
-            description: "Horizontal volume distribution bars at each price level".to_string(),
-        },
-        || Box::new(crate::studies::orderflow::VbpStudy::new()),
-    );
-
-    // ── Trend ─────────────────────────────────────────
-    registry.register(
-        "sma",
-        StudyInfo {
-            id: "sma".to_string(),
-            name: "Simple Moving Average".to_string(),
-            category: StudyCategory::Trend,
-            placement: StudyPlacement::Overlay,
-            description: "Simple moving average of price".to_string(),
-        },
-        || Box::new(crate::studies::trend::sma::SmaStudy::new()),
-    );
-
-    registry.register(
-        "ema",
-        StudyInfo {
-            id: "ema".to_string(),
-            name: "Exponential Moving Average".to_string(),
-            category: StudyCategory::Trend,
-            placement: StudyPlacement::Overlay,
-            description: "Exponential moving average of price".to_string(),
-        },
-        || Box::new(crate::studies::trend::ema::EmaStudy::new()),
-    );
-
-    registry.register(
-        "vwap",
-        StudyInfo {
-            id: "vwap".to_string(),
-            name: "Volume Weighted Average Price".to_string(),
-            category: StudyCategory::Trend,
-            placement: StudyPlacement::Overlay,
-            description: "Volume weighted average price with optional bands".to_string(),
-        },
-        || Box::new(crate::studies::trend::vwap::VwapStudy::new()),
-    );
-
-    // ── Volume (continued) ─────────────────────────────
-    registry.register(
-        "cvd",
-        StudyInfo {
-            id: "cvd".to_string(),
-            name: "Cumulative Volume Delta".to_string(),
-            category: StudyCategory::Volume,
-            placement: StudyPlacement::Panel,
-            description: "Cumulative sum of buy minus sell volume".to_string(),
-        },
-        || Box::new(crate::studies::volume::CvdStudy::new()),
-    );
-
-    registry.register(
-        "obv",
-        StudyInfo {
-            id: "obv".to_string(),
-            name: "On Balance Volume".to_string(),
-            category: StudyCategory::Volume,
-            placement: StudyPlacement::Panel,
-            description: "Cumulative volume based on price direction".to_string(),
-        },
-        || Box::new(crate::studies::volume::ObvStudy::new()),
-    );
-
-    // ── Volatility ────────────────────────────────────
-    registry.register(
-        "atr",
-        StudyInfo {
-            id: "atr".to_string(),
-            name: "Average True Range".to_string(),
-            category: StudyCategory::Volatility,
-            placement: StudyPlacement::Panel,
-            description: "Average true range using Wilder's smoothing".to_string(),
-        },
-        || Box::new(crate::studies::volatility::atr::AtrStudy::new()),
-    );
-
-    registry.register(
-        "bollinger",
-        StudyInfo {
-            id: "bollinger".to_string(),
-            name: "Bollinger Bands".to_string(),
-            category: StudyCategory::Volatility,
-            placement: StudyPlacement::Overlay,
-            description: "SMA with standard deviation bands".to_string(),
-        },
-        || Box::new(crate::studies::volatility::bollinger::BollingerStudy::new()),
-    );
-
-    // ── Momentum ──────────────────────────────────────
-    registry.register(
-        "rsi",
-        StudyInfo {
-            id: "rsi".to_string(),
-            name: "Relative Strength Index".to_string(),
-            category: StudyCategory::Momentum,
-            placement: StudyPlacement::Panel,
-            description: "Momentum oscillator measuring overbought/oversold conditions".to_string(),
-        },
-        || Box::new(crate::studies::momentum::rsi::RsiStudy::new()),
-    );
-
-    registry.register(
-        "macd",
-        StudyInfo {
-            id: "macd".to_string(),
-            name: "MACD".to_string(),
-            category: StudyCategory::Momentum,
-            placement: StudyPlacement::Panel,
-            description: "Moving Average Convergence Divergence".to_string(),
-        },
-        || Box::new(crate::studies::momentum::macd::MacdStudy::new()),
-    );
-
-    registry.register(
-        "stochastic",
-        StudyInfo {
-            id: "stochastic".to_string(),
-            name: "Stochastic Oscillator".to_string(),
-            category: StudyCategory::Momentum,
-            placement: StudyPlacement::Panel,
-            description: "Stochastic oscillator with %K and %D lines".to_string(),
-        },
-        || Box::new(crate::studies::momentum::stochastic::StochasticStudy::new()),
-    );
-
-    registry.register(
-        "speed_of_tape",
-        StudyInfo {
-            id: "speed_of_tape".to_string(),
-            name: "Speed of Tape".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::Panel,
-            description: "Trade activity per time bucket as OHLC mini-candlesticks".to_string(),
-        },
-        || Box::new(crate::studies::orderflow::SpeedOfTapeStudy::new()),
-    );
-
-    // ── Level Analyzer ──────────────────────────────────
-    registry.register(
-        "level_analyzer",
-        StudyInfo {
-            id: "level_analyzer".to_string(),
-            name: "Level Analyzer".to_string(),
-            category: StudyCategory::OrderFlow,
-            placement: StudyPlacement::Background,
-            description: "Auto-detects key price levels and monitors real-time interaction"
-                .to_string(),
-        },
-        || Box::new(crate::studies::orderflow::LevelAnalyzerStudy::new()),
-    );
+    // ── Order Flow ───────────────────────────────────────
+    registry.register_study(|| Box::new(super::orderflow::ImbalanceStudy::new()));
+    registry.register_study(|| Box::new(super::orderflow::BigTradesStudy::new()));
+    registry.register_study(|| Box::new(super::orderflow::FootprintStudy::new()));
+    registry.register_study(|| Box::new(super::orderflow::VbpStudy::new()));
+    registry.register_study(|| Box::new(super::orderflow::SpeedOfTapeStudy::new()));
+    registry.register_study(|| Box::new(super::orderflow::LevelAnalyzerStudy::new()));
 }

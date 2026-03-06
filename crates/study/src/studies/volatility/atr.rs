@@ -42,7 +42,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::candle_key;
@@ -110,6 +112,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// width. The study produces [`StudyOutput::Lines`] with a single
 /// [`LineSeries`] labeled `ATR(<period>)`.
 pub struct AtrStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -127,6 +130,14 @@ impl AtrStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Average True Range".to_string(),
+                category: StudyCategory::Volatility,
+                placement: StudyPlacement::Panel,
+                description: "Average true range using Wilder's smoothing".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -145,16 +156,8 @@ impl Study for AtrStudy {
         "atr"
     }
 
-    fn name(&self) -> &str {
-        "Average True Range"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Volatility
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -169,7 +172,7 @@ impl Study for AtrStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let period = self.config.get_int("period", 14) as usize;
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
@@ -183,7 +186,7 @@ impl Study for AtrStudy {
                 period + 1
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         // Calculate True Range for each candle (starting from index 1)
@@ -201,7 +204,7 @@ impl Study for AtrStudy {
 
         if tr_values.len() < period {
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let mut points = Vec::with_capacity(tr_values.len() - period + 1);
@@ -243,7 +246,7 @@ impl Study for AtrStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -256,6 +259,7 @@ impl Study for AtrStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(Self {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -266,29 +270,11 @@ impl Study for AtrStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
+    use crate::util::test_helpers::{make_candle_ohlcv, make_input};
+    use data::Candle;
 
     fn make_candle(time: u64, open: f32, high: f32, low: f32, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(open),
-            Price::from_f32(high),
-            Price::from_f32(low),
-            Price::from_f32(close),
-            Volume(100.0),
-            Volume(100.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
+        make_candle_ohlcv(time, open, high, low, close, 100.0, 100.0)
     }
 
     #[test]

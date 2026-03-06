@@ -18,7 +18,9 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, PriceLevel, StudyOutput};
 use crate::util::candle_key;
@@ -98,6 +100,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// result to a 0--100 scale. Renders as a single line in a separate
 /// panel with configurable overbought and oversold reference levels.
 pub struct RsiStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -114,6 +117,15 @@ impl RsiStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Relative Strength Index".to_string(),
+                category: StudyCategory::Momentum,
+                placement: StudyPlacement::Panel,
+                description: "Momentum oscillator measuring overbought/oversold conditions"
+                    .to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -132,16 +144,8 @@ impl Study for RsiStudy {
         "rsi"
     }
 
-    fn name(&self) -> &str {
-        "Relative Strength Index"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Momentum
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -156,7 +160,7 @@ impl Study for RsiStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let period = self.config.get_int("period", 14) as usize;
         let ob = self.config.get_float("overbought", 70.0);
         let os = self.config.get_float("oversold", 30.0);
@@ -180,7 +184,7 @@ impl Study for RsiStudy {
                 period + 1
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let closes: Vec<f64> = candles.iter().map(|c| c.close.to_f64()).collect();
@@ -253,6 +257,7 @@ impl Study for RsiStudy {
                 fill_below: None,
                 width: 1.0,
                 start_x: None,
+                end_x: None,
                 zone_half_width: None,
             },
             PriceLevel {
@@ -266,6 +271,7 @@ impl Study for RsiStudy {
                 fill_below: None,
                 width: 1.0,
                 start_x: None,
+                end_x: None,
                 zone_half_width: None,
             },
         ];
@@ -280,7 +286,7 @@ impl Study for RsiStudy {
             }]),
             StudyOutput::Levels(levels),
         ]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -293,6 +299,7 @@ impl Study for RsiStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(RsiStudy {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -303,30 +310,8 @@ impl Study for RsiStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
-
-    fn make_candle(time: u64, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Volume(0.0),
-            Volume(0.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
-    }
+    use crate::util::test_helpers::{make_candle, make_input};
+    use data::Candle;
 
     /// Extract the RSI line series from the Composite output.
     fn extract_lines(output: &StudyOutput) -> &[LineSeries] {

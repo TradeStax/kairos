@@ -10,7 +10,9 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::candle_key;
@@ -33,6 +35,7 @@ const DEFAULT_COLOR: SerializableColor = SerializableColor {
 ///
 /// Renders as a single cumulative line in a separate panel.
 pub struct ObvStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -78,6 +81,14 @@ impl ObvStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "On Balance Volume".to_string(),
+                category: StudyCategory::Volume,
+                placement: StudyPlacement::Panel,
+                description: "Cumulative volume based on price direction".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -96,16 +107,8 @@ impl Study for ObvStudy {
         "obv"
     }
 
-    fn name(&self) -> &str {
-        "On Balance Volume"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Volume
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Panel
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -120,7 +123,7 @@ impl Study for ObvStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
 
@@ -128,7 +131,7 @@ impl Study for ObvStudy {
         if candles.is_empty() {
             log::debug!("{}: no candle data", self.id());
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let mut obv: f64 = 0.0;
@@ -161,7 +164,7 @@ impl Study for ObvStudy {
             style: LineStyleValue::Solid,
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -174,6 +177,7 @@ impl Study for ObvStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(Self {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -184,29 +188,19 @@ impl Study for ObvStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
+    use crate::util::test_helpers::{make_candle_ohlcv, make_input};
+    use data::Candle;
 
     fn make_candle(time: u64, close: f32, buy_vol: f64, sell_vol: f64) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close + 1.0),
-            Price::from_f32(close - 1.0),
-            Price::from_f32(close),
-            Volume(buy_vol),
-            Volume(sell_vol),
+        make_candle_ohlcv(
+            time,
+            close,
+            close + 1.0,
+            close - 1.0,
+            close,
+            buy_vol,
+            sell_vol,
         )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
     }
 
     #[test]
@@ -297,16 +291,7 @@ mod tests {
         let candles = vec![
             make_candle(1000, 100.0, 50.0, 50.0),
             // Close up but zero volume -> OBV should still add 0
-            Candle::new(
-                Timestamp(2000),
-                Price::from_f32(105.0),
-                Price::from_f32(106.0),
-                Price::from_f32(104.0),
-                Price::from_f32(105.0),
-                Volume(0.0),
-                Volume(0.0),
-            )
-            .expect("valid candle"),
+            make_candle_ohlcv(2000, 105.0, 106.0, 104.0, 105.0, 0.0, 0.0),
         ];
         let input = make_input(&candles);
         study.compute(&input).unwrap();

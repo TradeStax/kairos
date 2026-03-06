@@ -41,7 +41,9 @@ use crate::config::{
     DisplayFormat, LineStyleValue, ParameterDef, ParameterKind, ParameterTab, ParameterValue,
     StudyConfig, Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::math;
@@ -158,6 +160,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// multiplier, upper/middle/lower colors, and fill opacity. The study
 /// produces [`StudyOutput::Band`].
 pub struct BollingerStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -176,6 +179,14 @@ impl BollingerStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Bollinger Bands".to_string(),
+                category: StudyCategory::Volatility,
+                placement: StudyPlacement::Overlay,
+                description: "SMA with standard deviation bands".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -194,16 +205,8 @@ impl Study for BollingerStudy {
         "bollinger"
     }
 
-    fn name(&self) -> &str {
-        "Bollinger Bands"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Volatility
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Overlay
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -218,7 +221,7 @@ impl Study for BollingerStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let period = self.config.get_int("period", 20) as usize;
         let std_mult = self.config.get_float("std_dev", 2.0);
         let upper_color = self.config.get_color(
@@ -259,7 +262,7 @@ impl Study for BollingerStudy {
                 period
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let count = candles.len() - period + 1;
@@ -310,7 +313,7 @@ impl Study for BollingerStudy {
             },
             fill_opacity,
         };
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -323,6 +326,7 @@ impl Study for BollingerStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(BollingerStudy {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -333,30 +337,7 @@ impl Study for BollingerStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
-
-    fn make_candle(time: u64, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Volume(0.0),
-            Volume(0.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
-    }
+    use crate::util::test_helpers::{make_candle, make_input};
 
     #[test]
     fn test_empty_candles() {

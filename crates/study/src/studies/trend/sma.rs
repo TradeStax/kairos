@@ -34,7 +34,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::{candle_key, source_value};
@@ -116,6 +118,7 @@ fn make_params() -> Vec<ParameterDef> {
 /// The study produces [`StudyOutput::Lines`] with a single
 /// [`LineSeries`] labeled `SMA(<period>)`.
 pub struct SmaStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -133,6 +136,14 @@ impl SmaStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Simple Moving Average".to_string(),
+                category: StudyCategory::Trend,
+                placement: StudyPlacement::Overlay,
+                description: "Simple moving average of price".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -169,16 +180,8 @@ impl Study for SmaStudy {
         "sma"
     }
 
-    fn name(&self) -> &str {
-        "Simple Moving Average"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Trend
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Overlay
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -193,7 +196,7 @@ impl Study for SmaStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let period = self.config.get_int("period", 20) as usize;
         let color = self.config.get_color(
             "color",
@@ -216,7 +219,7 @@ impl Study for SmaStudy {
                 period
             );
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let total = candles.len();
@@ -249,7 +252,7 @@ impl Study for SmaStudy {
             style: crate::config::LineStyleValue::Solid,
             points,
         }]);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -262,6 +265,7 @@ impl Study for SmaStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(SmaStudy {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
@@ -272,30 +276,8 @@ impl Study for SmaStudy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data::{Candle, ChartBasis, Price, Timeframe, Timestamp, Volume};
-
-    fn make_candle(time: u64, close: f32) -> Candle {
-        Candle::new(
-            Timestamp(time),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Price::from_f32(close),
-            Volume(0.0),
-            Volume(0.0),
-        )
-        .expect("test: valid candle")
-    }
-
-    fn make_input(candles: &[Candle]) -> StudyInput<'_> {
-        StudyInput {
-            candles,
-            trades: None,
-            basis: ChartBasis::Time(Timeframe::M1),
-            tick_size: Price::from_f32(0.25),
-            visible_range: None,
-        }
-    }
+    use crate::util::test_helpers::{make_candle, make_input};
+    use data::Candle;
 
     #[test]
     fn test_empty_candles() {

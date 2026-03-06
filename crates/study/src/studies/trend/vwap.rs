@@ -35,7 +35,9 @@ use crate::config::{
     DisplayFormat, ParameterDef, ParameterKind, ParameterTab, ParameterValue, StudyConfig,
     Visibility,
 };
-use crate::core::{Study, StudyCategory, StudyInput, StudyPlacement};
+use crate::core::{
+    Study, StudyCapabilities, StudyCategory, StudyInput, StudyMetadata, StudyPlacement, StudyResult,
+};
 use crate::error::StudyError;
 use crate::output::{LineSeries, StudyOutput};
 use crate::util::candle_key;
@@ -64,6 +66,7 @@ const BAND_COLOR: SerializableColor = SerializableColor {
 /// Configurable parameters: line color, line width, band visibility,
 /// and band multiplier (number of standard deviations).
 pub struct VwapStudy {
+    metadata: StudyMetadata,
     config: StudyConfig,
     output: StudyOutput,
     params: Vec<ParameterDef>,
@@ -139,6 +142,14 @@ impl VwapStudy {
         }
 
         Self {
+            metadata: StudyMetadata {
+                name: "Volume Weighted Average Price".to_string(),
+                category: StudyCategory::Trend,
+                placement: StudyPlacement::Overlay,
+                description: "Volume weighted average price with optional bands".to_string(),
+                config_version: 1,
+                capabilities: StudyCapabilities::default(),
+            },
             config,
             output: StudyOutput::Empty,
             params,
@@ -157,16 +168,8 @@ impl Study for VwapStudy {
         "vwap"
     }
 
-    fn name(&self) -> &str {
-        "Volume Weighted Average Price"
-    }
-
-    fn category(&self) -> StudyCategory {
-        StudyCategory::Trend
-    }
-
-    fn placement(&self) -> StudyPlacement {
-        StudyPlacement::Overlay
+    fn metadata(&self) -> &StudyMetadata {
+        &self.metadata
     }
 
     fn parameters(&self) -> &[ParameterDef] {
@@ -181,7 +184,7 @@ impl Study for VwapStudy {
         &mut self.config
     }
 
-    fn compute(&mut self, input: &StudyInput) -> Result<(), StudyError> {
+    fn compute(&mut self, input: &StudyInput) -> Result<StudyResult, StudyError> {
         let color = self.config.get_color("color", DEFAULT_COLOR);
         let width = self.config.get_float("width", 1.5) as f32;
         let show_bands = self.config.get_bool("show_bands", false);
@@ -191,7 +194,7 @@ impl Study for VwapStudy {
         if candles.is_empty() {
             log::debug!("{}: no candle data", self.id());
             self.output = StudyOutput::Empty;
-            return Ok(());
+            return Ok(StudyResult::ok());
         }
 
         let mut cum_tp_vol: f64 = 0.0;
@@ -264,7 +267,7 @@ impl Study for VwapStudy {
         }
 
         self.output = StudyOutput::Lines(lines);
-        Ok(())
+        Ok(StudyResult::ok())
     }
 
     fn output(&self) -> &StudyOutput {
@@ -277,6 +280,7 @@ impl Study for VwapStudy {
 
     fn clone_study(&self) -> Box<dyn Study> {
         Box::new(Self {
+            metadata: self.metadata.clone(),
             config: self.config.clone(),
             output: self.output.clone(),
             params: self.params.clone(),
