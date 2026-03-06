@@ -392,7 +392,6 @@ mod tests {
     #[test]
     fn test_create_order_is_active() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&market_buy_order(), ts(1000));
 
         let order = book.get(id).unwrap();
@@ -412,7 +411,6 @@ mod tests {
     #[test]
     fn test_fill_order_fully() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&market_buy_order(), ts(1000));
 
         let order = book.get_mut(id).unwrap();
@@ -427,7 +425,6 @@ mod tests {
         let mut new = market_buy_order();
         new.quantity = 5.0;
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&new, ts(1000));
 
         let order = book.get_mut(id).unwrap();
@@ -444,7 +441,6 @@ mod tests {
     #[test]
     fn test_cancel_order() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&limit_buy_order(5000.0), ts(1000));
 
         book.cancel(id, ts(1001));
@@ -456,7 +452,6 @@ mod tests {
     #[test]
     fn test_cancel_already_terminal_is_noop() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&market_buy_order(), ts(1000));
 
         // Fill it fully
@@ -472,7 +467,6 @@ mod tests {
     #[test]
     fn test_cancel_all() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let _id1 = book.create_order(&market_buy_order(), ts(1000));
         let _id2 = book.create_order(&limit_buy_order(4950.0), ts(1001));
         let _id3 = book.create_order(&limit_buy_order(4900.0), ts(1002));
@@ -485,7 +479,6 @@ mod tests {
     #[test]
     fn test_cancel_all_filtered_by_instrument() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let _es_id = book.create_order(&market_buy_order(), ts(1000));
 
         let nq = FuturesTicker::new("NQ.c.0", kairos_data::FuturesVenue::CMEGlobex);
@@ -512,7 +505,6 @@ mod tests {
     #[test]
     fn test_modify_limit_price() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&limit_buy_order(5000.0), ts(1000));
 
         let success = book.modify(id, Some(Price::from_f64(4990.0)), None, ts(1001));
@@ -530,7 +522,6 @@ mod tests {
     #[test]
     fn test_modify_quantity() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&market_buy_order(), ts(1000));
 
         let success = book.modify(id, None, Some(3.0), ts(1001));
@@ -541,7 +532,6 @@ mod tests {
     #[test]
     fn test_modify_terminal_returns_false() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let id = book.create_order(&market_buy_order(), ts(1000));
         book.cancel(id, ts(1001));
 
@@ -561,7 +551,6 @@ mod tests {
     #[test]
     fn test_expire_day_orders() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let day_id = book.create_order(&day_order(), ts(1000));
         let gtc_id = book.create_order(&limit_buy_order(4990.0), ts(1001));
 
@@ -577,7 +566,6 @@ mod tests {
     #[test]
     fn test_bracket_order_creation() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let bracket = BracketOrder {
             entry: NewOrder {
                 instrument: es_ticker(),
@@ -612,7 +600,6 @@ mod tests {
     #[test]
     fn test_activate_bracket_children() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let bracket = BracketOrder {
             entry: NewOrder {
                 instrument: es_ticker(),
@@ -639,7 +626,6 @@ mod tests {
     #[test]
     fn test_bracket_oco_cancel() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let bracket = BracketOrder {
             entry: NewOrder {
                 instrument: es_ticker(),
@@ -670,7 +656,6 @@ mod tests {
     #[test]
     fn test_bracket_without_take_profit() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let bracket = BracketOrder {
             entry: NewOrder {
                 instrument: es_ticker(),
@@ -695,7 +680,6 @@ mod tests {
     #[test]
     fn test_bracket_stop_loss_lookup() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         let bracket = BracketOrder {
             entry: NewOrder {
                 instrument: es_ticker(),
@@ -721,7 +705,6 @@ mod tests {
     #[test]
     fn test_reset_clears_all() {
         let mut book = OrderBook::new();
-        OrderId::reset();
         book.create_order(&market_buy_order(), ts(1000));
         book.create_order(&market_buy_order(), ts(1001));
 

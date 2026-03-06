@@ -70,8 +70,20 @@ impl StudyBank {
                 tick_size,
                 visible_range: None,
             };
-            if study.compute(&input).is_ok() {
-                self.outputs.insert(key.clone(), study.output().clone());
+            match study.compute(&input) {
+                Ok(result) => {
+                    for diag in &result.diagnostics {
+                        if diag.severity == kairos_study::DiagnosticSeverity::Warning {
+                            log::warn!("Study '{}' (key '{}'): {}", study.id(), key, diag.message);
+                        }
+                    }
+                    if result.output_changed {
+                        self.outputs.insert(key.clone(), study.output().clone());
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Study '{}' compute error: {}", key, e);
+                }
             }
         }
     }
