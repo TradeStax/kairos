@@ -94,33 +94,56 @@ impl SecretsManager {
             provider.keyring_user()
         );
 
-        // Try keyring first — only fall back to file when keyring is unavailable
-        match self.save_to_keyring(provider, key) {
+        // Try keyring first, then verify by reading back.
+        // On some platforms (notably Windows), keyring set_password can
+        // report success while the credential is not actually persisted.
+        let keyring_ok = match self.save_to_keyring(provider, key) {
             Ok(()) => {
-                log::info!("Stored {} API key in OS keyring", provider.display_name());
+                // Verify the write by reading back immediately
+                match self.get_from_keyring(provider) {
+                    Some(stored) if stored == key => {
+                        log::info!(
+                            "Stored {} API key in OS keyring (verified)",
+                            provider.display_name()
+                        );
+                        true
+                    }
+                    _ => {
+                        log::warn!(
+                            "Keyring write for {} appeared to succeed but \
+                             verification read failed — falling back to file",
+                            provider.display_name()
+                        );
+                        false
+                    }
+                }
             }
             Err(keyring_err) => {
                 log::warn!(
-                    "Keyring unavailable for {}: {}. Falling back to file storage.",
+                    "Keyring unavailable for {}: {}. Falling back to file \
+                     storage.",
                     provider.display_name(),
                     keyring_err
                 );
-                // Only write to file when keyring fails.
-                // NOTE: File storage uses base64 encoding only — not encrypted.
-                // Long-term this should use platform encryption (DPAPI on
-                // Windows, Keychain on macOS, libsecret on Linux).
-                self.save_to_file(provider, key).map_err(|_file_err| {
-                    log::error!(
-                        "Both keyring and file storage failed for {}",
-                        provider.display_name()
-                    );
-                    keyring_err.clone()
-                })?;
-                log::info!(
-                    "Stored {} API key in file storage (keyring unavailable)",
+                false
+            }
+        };
+
+        if !keyring_ok {
+            // NOTE: File storage uses base64 encoding only — not encrypted.
+            // Long-term this should use platform encryption (DPAPI on
+            // Windows, Keychain on macOS, libsecret on Linux).
+            self.save_to_file(provider, key).inspect_err(|_| {
+                log::error!(
+                    "Both keyring and file storage failed for {}",
                     provider.display_name()
                 );
-            }
+            })?;
+            log::info!(
+                "Stored {} API key in file storage (keyring \
+                 unavailable)",
+                provider.display_name()
+            );
         }
 
         Ok(())
@@ -183,36 +206,36 @@ impl SecretsManager {
             ));
         }
 
-        let keyring_result = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id)
+        let keyring_ok = keyring::Entry::new(Self::FEED_KEYRING_SERVICE, feed_id)
             .map_err(|e| SecretsError::KeyringAccess(e.to_string()))
             .and_then(|entry| {
                 entry
                     .set_password(password)
                     .map_err(|e| SecretsError::StoreFailed(e.to_string()))
+            })
+            .is_ok_and(|()| {
+                // Verify the write succeeded by reading back
+                self.get_feed_password(feed_id).as_deref() == Some(password)
             });
 
-        match keyring_result {
-            Ok(()) => {
-                log::info!("Stored password for feed {} in OS keyring", feed_id);
-            }
-            Err(keyring_err) => {
-                // Only fall back to file when keyring is unavailable
-                Self::feed_key_file_path(feed_id)
-                    .ok_or_else(|| SecretsError::StoreFailed("No data path".to_string()))
-                    .and_then(|path| {
-                        if let Some(parent) = path.parent() {
-                            std::fs::create_dir_all(parent)
-                                .map_err(|e| SecretsError::StoreFailed(e.to_string()))?;
-                        }
-                        std::fs::write(&path, base64_encode(password))
-                            .map_err(|e| SecretsError::StoreFailed(e.to_string()))
-                    })
-                    .map_err(|_| keyring_err)?;
-                log::info!(
-                    "Stored password for feed {} in file storage (keyring unavailable)",
-                    feed_id
-                );
-            }
+        if keyring_ok {
+            log::info!("Stored password for feed {} in OS keyring", feed_id);
+        } else {
+            log::warn!(
+                "Keyring unavailable for feed {} — falling back to file",
+                feed_id
+            );
+            Self::feed_key_file_path(feed_id)
+                .ok_or_else(|| SecretsError::StoreFailed("No data path".to_string()))
+                .and_then(|path| {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)
+                            .map_err(|e| SecretsError::StoreFailed(e.to_string()))?;
+                    }
+                    std::fs::write(&path, base64_encode(password))
+                        .map_err(|e| SecretsError::StoreFailed(e.to_string()))
+                })?;
+            log::info!("Stored password for feed {} in file storage", feed_id);
         }
         Ok(())
     }
