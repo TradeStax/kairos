@@ -23,13 +23,13 @@ pub fn map_last_trade(msg: &RithmicMessage) -> Option<Trade> {
             let price = lt.trade_price?;
             let size = lt.trade_size? as f64;
 
-            // Rithmic aggressor field (MNM_TRANSACTION_TYPE): indicates the
-            // passive/resting order's side, NOT the aggressor's side.
-            //   1 (Buy)  = passive bid filled → seller aggressed → Sell
-            //   2 (Sell) = passive ask filled → buyer aggressed → Buy
+            // Rithmic aggressor field (MNM_TRANSACTION_TYPE) indicates the
+            // aggressor's side:
+            //   1 (Buy)  = buyer aggressed (lifted ask) → Buy
+            //   2 (Sell) = seller aggressed (hit bid) → Sell
             let side = match lt.aggressor {
-                Some(1) => Side::Sell,
-                Some(2) => Side::Buy,
+                Some(1) => Side::Buy,
+                Some(2) => Side::Sell,
                 other => {
                     log::debug!(
                         "Unknown Rithmic aggressor value: {:?}, defaulting to Sell",
@@ -220,8 +220,8 @@ mod tests {
     }
 
     #[test]
-    fn map_last_trade_aggressor_1_is_sell() {
-        // aggressor=1 = passive bid filled → seller aggressed → Sell
+    fn map_last_trade_aggressor_1_is_buy() {
+        // aggressor=1 = buyer aggressed (lifted ask) → Buy
         let msg = make_last_trade(
             Some(1700000000),
             Some(500000),
@@ -230,7 +230,7 @@ mod tests {
             Some(1),
         );
         let trade = map_last_trade(&msg).unwrap();
-        assert_eq!(trade.side, Side::Sell);
+        assert_eq!(trade.side, Side::Buy);
         assert!((trade.price.to_f64() - 5200.25).abs() < 0.01);
         assert!((trade.quantity.0 - 3.0).abs() < 0.01);
         // Time: 1700000000 * 1000 + (500000 + 500) / 1000 = 1700000000500
@@ -238,11 +238,11 @@ mod tests {
     }
 
     #[test]
-    fn map_last_trade_aggressor_2_is_buy() {
-        // aggressor=2 = passive ask filled → buyer aggressed → Buy
+    fn map_last_trade_aggressor_2_is_sell() {
+        // aggressor=2 = seller aggressed (hit bid) → Sell
         let msg = make_last_trade(Some(1700000000), Some(0), Some(5200.0), Some(10), Some(2));
         let trade = map_last_trade(&msg).unwrap();
-        assert_eq!(trade.side, Side::Buy);
+        assert_eq!(trade.side, Side::Sell);
     }
 
     #[test]
