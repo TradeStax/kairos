@@ -66,7 +66,7 @@ impl canvas::Program<Message> for ProfileChart {
             // ── Overlay studies ───────────────────────────────────
             for s in &self.studies {
                 let output = s.output();
-                let placement = s.placement();
+                let placement = s.metadata().placement;
                 if !matches!(output, study::StudyOutput::Empty)
                     && matches!(
                         placement,

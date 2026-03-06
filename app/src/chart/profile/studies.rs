@@ -5,10 +5,10 @@ impl ProfileChart {
     // ── Study management ──────────────────────────────────────────────
 
     pub fn add_study(&mut self, study: Box<dyn study::Study>) {
-        let is_panel = study.placement() == study::StudyPlacement::Panel;
+        let is_panel = study.metadata().placement == study::StudyPlacement::Panel;
 
         // Profile charts don't support CandleReplace
-        if study.placement() == study::StudyPlacement::CandleReplace {
+        if study.metadata().placement == study::StudyPlacement::CandleReplace {
             return;
         }
 
@@ -64,6 +64,8 @@ impl ProfileChart {
             &self.ticker_info,
             self.last_visible_range,
         );
-        sh::recompute_all(&mut self.studies, &input);
+        let _result = sh::recompute_all(&mut self.studies, &input);
+        // ProfileChart does not surface diagnostics (no pending_diagnostics field);
+        // warnings are logged in recompute_all already.
     }
 }

@@ -98,7 +98,7 @@ impl canvas::Program<Message> for KlineChart {
             // fall back to normal candle rendering instead.
             let candle_replace_fallback = self.has_candle_replace()
                 && self.studies.iter().any(|s| {
-                    s.placement() == study::StudyPlacement::CandleReplace
+                    s.metadata().placement == study::StudyPlacement::CandleReplace
                         && match s.output() {
                             study::StudyOutput::Footprint(d) => {
                                 visible_candle_count > d.max_bars_to_show
@@ -165,7 +165,7 @@ impl canvas::Program<Message> for KlineChart {
             // Render overlay, background, and CandleReplace studies
             for study in &self.studies {
                 let output = study.output();
-                let placement = study.placement();
+                let placement = study.metadata().placement;
                 // Skip CandleReplace when in fallback mode
                 let skip =
                     candle_replace_fallback && placement == study::StudyPlacement::CandleReplace;
@@ -756,7 +756,35 @@ fn draw_output_entries(
             );
         }
         study::StudyOutput::Composite(sub_outputs) => {
+            // Prefer scalar sub-outputs for the legend; skip
+            // non-scalar ones (Markers, Footprint, Profile) that would
+            // just repeat the study name with no value.
+            let has_scalar = sub_outputs.iter().any(|s| {
+                matches!(
+                    s,
+                    study::StudyOutput::Lines(_)
+                        | study::StudyOutput::Band { .. }
+                        | study::StudyOutput::Bars(_)
+                        | study::StudyOutput::Histogram(_)
+                        | study::StudyOutput::Levels(_)
+                        | study::StudyOutput::StudyCandles(_)
+                        | study::StudyOutput::Composite(_)
+                )
+            });
             for sub in sub_outputs {
+                // When the composite contains at least one scalar
+                // output, skip the non-scalar entries to avoid
+                // duplicate name-only legend lines.
+                if has_scalar
+                    && matches!(
+                        sub,
+                        study::StudyOutput::Markers(_)
+                            | study::StudyOutput::Footprint(_)
+                            | study::StudyOutput::Profile(_, _)
+                    )
+                {
+                    continue;
+                }
                 draw_output_entries(
                     sub,
                     name,
@@ -817,7 +845,8 @@ fn draw_output_entries(
         // Non-scalar outputs: show study name only
         study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
-        | study::StudyOutput::Markers(_) => {
+        | study::StudyOutput::Markers(_)
+        | study::StudyOutput::Custom(_) => {
             emit_study_line(
                 frame,
                 name,
@@ -841,12 +870,38 @@ pub(super) fn study_line_count(output: &study::StudyOutput) -> usize {
         study::StudyOutput::Band { .. } => 1,
         study::StudyOutput::Bars(series) => series.len(),
         study::StudyOutput::Histogram(_) => 1,
-        study::StudyOutput::Composite(subs) => subs.iter().map(study_line_count).sum(),
+        study::StudyOutput::Composite(subs) => {
+            let has_scalar = subs.iter().any(|s| {
+                matches!(
+                    s,
+                    study::StudyOutput::Lines(_)
+                        | study::StudyOutput::Band { .. }
+                        | study::StudyOutput::Bars(_)
+                        | study::StudyOutput::Histogram(_)
+                        | study::StudyOutput::Levels(_)
+                        | study::StudyOutput::StudyCandles(_)
+                        | study::StudyOutput::Composite(_)
+                )
+            });
+            subs.iter()
+                .filter(|s| {
+                    !has_scalar
+                        || !matches!(
+                            s,
+                            study::StudyOutput::Markers(_)
+                                | study::StudyOutput::Footprint(_)
+                                | study::StudyOutput::Profile(_, _)
+                        )
+                })
+                .map(study_line_count)
+                .sum()
+        }
         study::StudyOutput::StudyCandles(series) => series.len().max(1),
         study::StudyOutput::Levels(_)
         | study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
-        | study::StudyOutput::Markers(_) => 1,
+        | study::StudyOutput::Markers(_)
+        | study::StudyOutput::Custom(_) => 1,
         study::StudyOutput::Empty => 0,
     }
 }
@@ -915,7 +970,7 @@ fn draw_study_overlay(
 
         draw_output_entries(
             output,
-            study.name(),
+            study.metadata().name.as_str(),
             at_interval,
             frame,
             base_color,
@@ -945,7 +1000,7 @@ fn draw_study_overlay(
         }
 
         // Draw detail icon for studies with a detail modal
-        if study.has_detail_modal() {
+        if study.metadata().capabilities.has_detail_modal {
             let detail_btn = detail_button_rects
                 .borrow()
                 .iter()

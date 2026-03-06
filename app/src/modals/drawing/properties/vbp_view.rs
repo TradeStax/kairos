@@ -281,6 +281,10 @@ impl DrawingPropertiesModal {
                 .width(Length::Fill)
                 .into()
             }
+            ParameterKind::DynamicChoice | ParameterKind::MultiChoice { .. } => {
+                // Not used in VBP settings currently
+                space::horizontal().into()
+            }
         }
     }
 }

@@ -174,10 +174,10 @@ pub trait Chart: canvas::Program<Message> {
     fn panel_studies(&self) -> Vec<PanelStudyInfo<'_>> {
         self.studies()
             .iter()
-            .filter(|s| s.placement() == study::StudyPlacement::Panel)
+            .filter(|s| s.metadata().placement == study::StudyPlacement::Panel)
             .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
             .map(|s| PanelStudyInfo {
-                name: s.name(),
+                name: s.metadata().name.as_str(),
                 output: s.output(),
             })
             .collect()
@@ -205,7 +205,7 @@ pub trait Chart: canvas::Program<Message> {
     fn side_panel_studies(&self) -> Vec<SidePanelStudyInfo<'_>> {
         self.studies()
             .iter()
-            .filter(|s| s.placement() == study::StudyPlacement::SidePanel)
+            .filter(|s| s.metadata().placement == study::StudyPlacement::SidePanel)
             .filter(|s| !matches!(s.output(), study::StudyOutput::Empty))
             .map(|s| SidePanelStudyInfo { output: s.output() })
             .collect()

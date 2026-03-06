@@ -162,7 +162,7 @@ fn extract_studies(content: &pane::Content) -> ExtractedStudyData {
         let output = s.output();
         let mut snap = StudyOutputSnapshot {
             study_id: s.id().to_string(),
-            study_name: s.name().to_string(),
+            study_name: s.metadata().name.clone(),
             line_values: vec![],
             bar_values: vec![],
             levels: vec![],
@@ -364,6 +364,35 @@ fn extract_from_output(
                     footprint_candles,
                     profile_snapshots,
                 );
+            }
+        }
+        study::StudyOutput::Custom(custom) => {
+            let json = custom.to_json();
+            // Extract value range if available for level context
+            if let Some((range_min, range_max)) = custom.value_range() {
+                snap.levels
+                    .push((format!("{}_min", custom.output_type()), range_min as f64));
+                snap.levels
+                    .push((format!("{}_max", custom.output_type()), range_max as f64));
+            }
+            // Extract numeric values from the JSON for richer AI context
+            if let Some(obj) = json.as_object() {
+                for (k, v) in obj {
+                    if let Some(n) = v.as_f64() {
+                        snap.levels.push((k.clone(), n));
+                    } else if let Some(arr) = v.as_array() {
+                        let n = arr.len();
+                        let start = n.saturating_sub(MAX_STUDY_POINTS);
+                        let points: Vec<(u64, f32)> = arr[start..]
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, val)| val.as_f64().map(|f| (i as u64, f as f32)))
+                            .collect();
+                        if !points.is_empty() {
+                            snap.bar_values.push((k.clone(), points));
+                        }
+                    }
+                }
             }
         }
         study::StudyOutput::Empty => {}

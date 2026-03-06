@@ -45,7 +45,7 @@ impl IndicatorManagerModal {
             return center(EmptyStateBuilder::new("Study not found").icon(Icon::Close)).into();
         };
 
-        let placement = study.placement();
+        let placement = study.metadata().placement;
         let params = study.parameters();
         let config = study.config();
 
@@ -53,7 +53,7 @@ impl IndicatorManagerModal {
 
         // Header
         let mut header = row![
-            text(study.name()).size(tokens::text::TITLE),
+            text(study.metadata().name.as_str()).size(tokens::text::TITLE),
             space::horizontal(),
         ]
         .align_y(Alignment::Center)
@@ -397,6 +397,10 @@ impl IndicatorManagerModal {
                 .align_y(Alignment::Center)
                 .width(Length::Fill)
                 .into()
+            }
+            study::ParameterKind::DynamicChoice | study::ParameterKind::MultiChoice { .. } => {
+                // DynamicChoice and MultiChoice are not yet used in study settings
+                space::horizontal().into()
             }
         }
     }

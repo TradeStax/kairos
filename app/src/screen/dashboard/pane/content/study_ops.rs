@@ -73,6 +73,7 @@ impl Content {
                             study_id: s.id().to_string(),
                             enabled: $study_ids.contains(&s.id().to_string()),
                             parameters,
+                            config_version: s.metadata().config_version,
                         }
                     })
                     .collect()

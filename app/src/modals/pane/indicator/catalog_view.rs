@@ -6,6 +6,7 @@ use crate::components::display::empty_state::EmptyStateBuilder;
 use crate::components::input::search_field::SearchFieldBuilder;
 use crate::components::layout::button_group::ButtonGroupBuilder;
 use crate::components::overlay::modal_header::ModalHeaderBuilder;
+use crate::components::primitives::badge::{self, BadgeKind};
 use crate::components::primitives::icons::Icon;
 use crate::style::{self, tokens};
 
@@ -194,6 +195,19 @@ impl IndicatorManagerModal {
         let cat_badge = category_badge(category);
 
         let name_text = text(name).size(tokens::text::BODY);
+
+        // Capability badges
+        let mut capability_badges: Vec<Element<_>> = Vec::new();
+        if info.capabilities.incremental {
+            capability_badges.push(badge::badge("INC", BadgeKind::Info));
+        }
+        if info.capabilities.needs_trades {
+            capability_badges.push(badge::badge("TRADES", BadgeKind::Warning));
+        }
+        if info.capabilities.interactive {
+            capability_badges.push(badge::badge("INT", BadgeKind::Success));
+        }
+
         let toggle = toggler(is_active)
             .size(tokens::layout::TOGGLER_SIZE)
             .on_toggle({
@@ -201,10 +215,17 @@ impl IndicatorManagerModal {
                 move |_| Message::ToggleStudy(sid.clone())
             });
 
-        let content_row = row![name_text, space::horizontal(), cat_badge, toggle,]
+        let mut content_row = row![name_text,]
             .spacing(tokens::spacing::SM)
             .align_y(Alignment::Center)
             .width(Length::Fill);
+        for b in capability_badges {
+            content_row = content_row.push(b);
+        }
+        let content_row = content_row
+            .push(space::horizontal())
+            .push(cat_badge)
+            .push(toggle);
 
         button(content_row)
             .on_press(Message::SelectIndicator(SelectedIndicator::Study(study_id)))

@@ -21,6 +21,16 @@ fn restore_studies(
     if !settings_studies.is_empty() {
         for cfg in settings_studies {
             if let Some(mut s) = registry.create(&cfg.study_id) {
+                // Check config version for future migration plumbing
+                let current_version = s.metadata().config_version;
+                if cfg.config_version != 0 && cfg.config_version != current_version {
+                    log::info!(
+                        "Study '{}' config version mismatch: saved={}, current={}",
+                        cfg.study_id,
+                        cfg.config_version,
+                        current_version,
+                    );
+                }
                 for (key, json_val) in &cfg.parameters {
                     if let Ok(pv) =
                         serde_json::from_value::<study::ParameterValue>(json_val.clone())

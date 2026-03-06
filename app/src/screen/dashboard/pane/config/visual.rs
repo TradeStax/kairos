@@ -15,6 +15,10 @@ pub struct StudyInstanceConfig {
     pub study_id: String,
     pub enabled: bool,
     pub parameters: std::collections::HashMap<String, serde_json::Value>,
+    /// Schema version when this config was saved. Compared against the study's
+    /// current `metadata().config_version` on restore to detect migrations.
+    #[serde(default)]
+    pub config_version: u16,
 }
 
 /// Lenient deserializer for `Option<VisualConfig>` that silently maps

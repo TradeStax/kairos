@@ -94,6 +94,35 @@ pub(crate) fn compute_dynamic_quantum(
     (base_ticks * factor).max(1) * tick_units
 }
 
+#[allow(dead_code)] // Ready for use when studies declare non-Linear Y scales
+/// Apply a Y-scale transformation to a value.
+///
+/// For `Linear` and `Percentage` modes this is an identity; for `Log10`
+/// the value is log-transformed; for `Fixed` the value passes through
+/// unchanged (the caller clamps via [`scaled_value_range`]).
+pub fn apply_y_scale(value: f32, mode: study::YScaleMode) -> f32 {
+    match mode {
+        study::YScaleMode::Linear | study::YScaleMode::Percentage => value,
+        study::YScaleMode::Log10 => value.max(f32::EPSILON).log10(),
+        study::YScaleMode::Fixed { .. } => value,
+    }
+}
+
+#[allow(dead_code)] // Ready for use when studies declare non-Linear Y scales
+/// Compute the effective min/max after applying a Y-scale mode.
+///
+/// `Fixed` overrides the range entirely; other modes transform the
+/// given min/max through [`apply_y_scale`].
+pub fn scaled_value_range(min: f32, max: f32, mode: study::YScaleMode) -> (f32, f32) {
+    match mode {
+        study::YScaleMode::Fixed {
+            min: fmin,
+            max: fmax,
+        } => (fmin, fmax),
+        _ => (apply_y_scale(min, mode), apply_y_scale(max, mode)),
+    }
+}
+
 /// Convert a `SerializableColor` to an iced `Color`, applying
 /// an opacity multiplier to the alpha channel.
 pub(crate) fn to_iced_color(sc: data::SerializableColor, opacity: f32) -> Color {

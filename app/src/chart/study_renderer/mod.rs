@@ -4,6 +4,7 @@
 //! into iced canvas draw calls.
 
 pub(crate) mod coord;
+pub(crate) mod draw_context;
 pub(crate) mod footprint;
 pub mod panel;
 mod primitives;
@@ -174,6 +175,10 @@ pub fn render_study_output(
             if let Some(pal) = palette {
                 footprint::render_footprint(frame, data, state, bounds, pal);
             }
+        }
+        StudyOutput::Custom(_) => {
+            // Custom outputs are rendered by their own registered renderer
+            // (future: dispatch via CustomRendererRegistry)
         }
         StudyOutput::Empty => {}
     }

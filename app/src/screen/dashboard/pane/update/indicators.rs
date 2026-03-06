@@ -1,4 +1,5 @@
 use super::super::{Action, Content, State};
+use crate::components::display::toast::Toast;
 use crate::modals::{self, pane::Modal};
 
 impl State {
@@ -96,6 +97,7 @@ impl State {
                 match action {
                     Action::ToggleStudy(study_id) => {
                         self.content.toggle_study(&study_id);
+                        self.drain_study_diagnostics();
                     }
                     Action::ReorderIndicators(_event) => {
                         #[cfg(feature = "heatmap")]
@@ -108,6 +110,7 @@ impl State {
                     } => {
                         self.content
                             .update_study_parameter(&study_id, &key, value.clone());
+                        self.drain_study_diagnostics();
                         // Reload chart data when days_to_load changes
                         if study_id == "big_trades"
                             && key == "days_to_load"
@@ -128,14 +131,33 @@ impl State {
         None
     }
 
-    /// Open the level detail modal for a study at the given index.
-    ///
-    /// Reads `interactive_data()` from the study, downcasts to
-    /// `LevelAnalyzerData`, and creates a `LevelDetailModal`.
-    pub(in super::super) fn open_level_detail_modal(&mut self, study_index: usize) {
-        use crate::modals::pane::level_detail::LevelDetailModal;
+    /// Drain any pending study diagnostics and push Warning-level items as toast
+    /// notifications. Called after study recomputation to surface warnings to the user.
+    pub(in super::super) fn drain_study_diagnostics(&mut self) {
+        let diagnostics = match &mut self.content {
+            Content::Candlestick { chart, .. } => {
+                if let Some(c) = (**chart).as_mut() {
+                    std::mem::take(&mut c.pending_diagnostics)
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
 
-        let data = match &self.content {
+        for diag in diagnostics {
+            if diag.severity == study::DiagnosticSeverity::Warning {
+                self.notifications.push(Toast::warn(diag.message));
+            }
+        }
+    }
+
+    /// Open the detail modal for a study at the given index.
+    ///
+    /// Reads `interactive_data()` from the study and tries downcasting to
+    /// supported data types (LevelAnalyzerData).
+    pub(in super::super) fn open_level_detail_modal(&mut self, study_index: usize) {
+        let interactive = match &self.content {
             Content::Candlestick { chart, .. } => {
                 let c = match (**chart).as_ref() {
                     Some(c) => c,
@@ -145,14 +167,17 @@ impl State {
                     Some(s) => s,
                     None => return,
                 };
-                study.interactive_data().and_then(|any| {
-                    any.downcast_ref::<study::orderflow::level_analyzer::types::LevelAnalyzerData>()
-                })
+                study.interactive_data()
             }
             _ => None,
         };
 
-        if let Some(data) = data {
+        let Some(any) = interactive else { return };
+
+        if let Some(data) =
+            any.downcast_ref::<study::orderflow::level_analyzer::types::LevelAnalyzerData>()
+        {
+            use crate::modals::pane::level_detail::LevelDetailModal;
             let modal = LevelDetailModal::new(study_index, data);
             self.modal = Some(Modal::LevelDetail(modal));
         }

@@ -155,6 +155,8 @@ pub struct KlineChart {
     pub(crate) study_overlay_rects: RefCell<Vec<(usize, iced::Rectangle)>>,
     /// Hit-test rectangles for study detail icon buttons (populated during draw)
     pub(crate) study_detail_button_rects: RefCell<Vec<(usize, iced::Rectangle)>>,
+    /// Diagnostics from the most recent study recompute (drained by the pane layer).
+    pub(crate) pending_diagnostics: Vec<study::StudyDiagnostic>,
 }
 
 impl KlineChart {
@@ -228,6 +230,7 @@ impl KlineChart {
             last_frame_time_ms: Cell::new(0.0),
             study_overlay_rects: RefCell::new(Vec::new()),
             study_detail_button_rects: RefCell::new(Vec::new()),
+            pending_diagnostics: Vec::new(),
         }
     }
 
@@ -323,14 +326,14 @@ impl KlineChart {
     pub fn has_candle_replace(&self) -> bool {
         self.studies
             .iter()
-            .any(|s| s.placement() == study::StudyPlacement::CandleReplace)
+            .any(|s| s.metadata().placement == study::StudyPlacement::CandleReplace)
     }
 
     /// Get the CandleRenderConfig from the active CandleReplace study.
     pub fn candle_replace_config(&self) -> Option<CandleRenderConfig> {
         self.studies
             .iter()
-            .find(|s| s.placement() == study::StudyPlacement::CandleReplace)
+            .find(|s| s.metadata().placement == study::StudyPlacement::CandleReplace)
             .and_then(|s| s.candle_render_config())
     }
 
@@ -476,7 +479,10 @@ impl KlineChart {
                 if new_range != self.last_visible_range {
                     self.last_visible_range = new_range;
                     // Only mark dirty if studies depend on visible_range
-                    let has_range_dependent = self.studies.iter().any(|s| s.needs_visible_range());
+                    let has_range_dependent = self
+                        .studies
+                        .iter()
+                        .any(|s| s.metadata().capabilities.needs_visible_range);
                     if has_range_dependent {
                         self.studies_dirty = Some(StudiesDirtyReason::FullRecompute);
                     }
@@ -539,7 +545,7 @@ impl KlineChart {
                 },
             ));
 
-            if study.has_detail_modal() {
+            if study.metadata().capabilities.has_detail_modal {
                 let btn_x = x + hit_width + detail_icon_pad;
                 let btn_y = y_before + (line_height - detail_icon_size) / 2.0;
                 detail_rects.push((

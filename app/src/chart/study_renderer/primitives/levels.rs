@@ -36,7 +36,15 @@ pub fn render_levels(frame: &mut Frame, levels: &[PriceLevel], state: &ViewState
             continue;
         }
 
-        let right = bounds.width * 2.0;
+        let right = match level.end_x {
+            Some(x) => state.interval_to_x(x),
+            None => bounds.width * 2.0,
+        };
+
+        // Cull: bounded zone ends before the visible area.
+        if right < 0.0 {
+            continue;
+        }
 
         let color: Color = crate::style::theme::rgba_to_iced_color(level.color);
         let color = color.scale_alpha(level.opacity);

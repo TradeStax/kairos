@@ -5,12 +5,12 @@ impl KlineChart {
     // ── Study management ──────────────────────────────────────────────
 
     pub fn add_study(&mut self, study: Box<dyn study::Study>) {
-        let is_panel = study.placement() == study::StudyPlacement::Panel;
+        let is_panel = study.metadata().placement == study::StudyPlacement::Panel;
 
         // Enforce: only one CandleReplace study at a time
-        if study.placement() == study::StudyPlacement::CandleReplace {
+        if study.metadata().placement == study::StudyPlacement::CandleReplace {
             self.studies
-                .retain(|s| s.placement() != study::StudyPlacement::CandleReplace);
+                .retain(|s| s.metadata().placement != study::StudyPlacement::CandleReplace);
         }
         self.studies.push(study);
 
@@ -75,7 +75,11 @@ impl KlineChart {
         );
         match reason {
             StudiesDirtyReason::FullRecompute => {
-                sh::recompute_all(&mut self.studies, &input);
+                let result = sh::recompute_all(&mut self.studies, &input);
+                // Collect diagnostics for the pane layer to surface as toasts
+                for (_study_id, diag) in result.diagnostics {
+                    self.pending_diagnostics.push(diag);
+                }
             }
             StudiesDirtyReason::NewTradesAppended => {
                 let trades = &self.chart_data.trades;
