@@ -5,11 +5,13 @@
 
 use super::super::Drawing;
 use crate::chart::ViewState;
-use crate::chart::study_renderer::vbp as vbp_renderer;
+use crate::chart::study_renderer::chart_views::{OverlayChartView, theme_from_palette};
+use crate::chart::study_renderer::iced_canvas::IcedCanvas;
 use iced::widget::canvas::{Frame, Path, Stroke};
 use iced::{Color, Point, Size};
 use study::Study as _;
 use study::output::StudyOutput;
+use study::output::render::vbp;
 
 /// Render a VBP drawing in chart coordinates (frame has transforms applied).
 ///
@@ -31,9 +33,12 @@ pub fn draw_in_chart_coords(
     if let Some(ref study) = drawing.vbp_study
         && let StudyOutput::Profile(ref profiles, ref config) = *study.output()
     {
+        let theme = theme_from_palette(&iced::Theme::Dark.extended_palette());
+        let view = OverlayChartView::new(state, bounds, theme);
+        let mut canvas = IcedCanvas::new(frame);
         for output in profiles {
-            let (ax, br) = vbp_renderer::profile_x_range(output, state, bounds);
-            vbp_renderer::render_vbp(frame, output, config, state, bounds, ax, br);
+            let (ax, br) = vbp::profile_x_range(output, &view);
+            vbp::render_vbp(&mut canvas, output, config, &view, ax, br);
         }
 
         // Draw selection highlight

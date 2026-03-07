@@ -55,13 +55,21 @@ impl canvas::Program<Message> for ProfileChart {
             frame.translate(chart.translation);
 
             // Render profiles using time-based positioning
-            crate::chart::study_renderer::vbp::render_vbp_multi(
-                frame,
-                profiles,
-                render_config,
-                chart,
-                bounds_size,
-            );
+            {
+                use crate::chart::study_renderer::chart_views::{
+                    OverlayChartView, theme_from_palette,
+                };
+                use crate::chart::study_renderer::iced_canvas::IcedCanvas;
+                let theme = theme_from_palette(palette);
+                let view = OverlayChartView::new(chart, bounds_size, theme);
+                let mut canvas = IcedCanvas::new(frame);
+                study::output::render::vbp::render_vbp_multi(
+                    &mut canvas,
+                    profiles,
+                    render_config,
+                    &view,
+                );
+            }
 
             // ── Overlay studies ───────────────────────────────────
             for s in &self.studies {
