@@ -98,6 +98,31 @@ fn default_level_width() -> f32 {
     1.0
 }
 
+/// A bounded rectangular zone (e.g. absorption zones from Big Trades).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneRect {
+    /// Left X coordinate (timestamp_ms or candle index).
+    pub start_x: u64,
+    /// Right X coordinate (timestamp_ms or candle index).
+    pub end_x: u64,
+    /// Center price of the zone in f64 domain.
+    pub center_price: f64,
+    /// Half-height of the zone in price-domain units.
+    pub half_height: f64,
+    /// Zone color.
+    pub color: SerializableColor,
+    /// Fill opacity in `[0.0, 1.0]`.
+    pub fill_opacity: f32,
+    /// Border opacity in `[0.0, 1.0]`.
+    pub border_opacity: f32,
+    /// Whether to show the label text.
+    pub show_label: bool,
+    /// Label text drawn at the top-left of the zone.
+    pub label: String,
+    /// Label text opacity in `[0.0, 1.0]`.
+    pub label_opacity: f32,
+}
+
 /// A single OHLC candle point for study output (e.g. Speed of Tape).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct StudyCandlePoint {
