@@ -159,6 +159,15 @@ See [CLAUDE.md](CLAUDE.md) for detailed architecture, conventions, and module-le
 
 ---
 
+## Acknowledgments
+
+Built with significant portions of UI layer and architecture code from [FlowSurface](https://github.com/flowsurface-rs/flowsurface), a crypto-based charting tool. This project extends into futures market support.
+
+FlowSurface itself was inspired by:
+- [Kraken Desktop](https://www.kraken.com/desktop) (formerly [Cryptowatch](https://blog.kraken.com/product/cryptowatch-to-sunset-kraken-pro-to-integrate-cryptowatch-features)) — the original inspiration that sparked the project
+- [Halloy](https://github.com/squidowl/halloy) — foundational code design and project architecture reference
+- [iced](https://github.com/iced-rs/iced) — the GUI library that makes all of this possible
+
 ## License
 
 GPL-3.0-or-later
