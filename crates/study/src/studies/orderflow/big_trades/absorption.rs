@@ -146,7 +146,6 @@ impl ImpactEstimator {
         self.volume_sum_sq = self.history.iter().map(|r| r.volume * r.volume).sum();
         self.volume_count = self.history.len();
     }
-
 }
 
 /// Pending absorption waiting for price rejection confirmation.
@@ -219,7 +218,6 @@ impl AbsorptionDetector {
         self.cached_levels_zone_count = 0;
     }
 
-
     /// Whether there are pending absorptions that need checking.
     #[inline]
     pub fn has_pending(&self) -> bool {
@@ -291,12 +289,7 @@ impl AbsorptionDetector {
     ///
     /// `current_x` is the X coordinate (timestamp or candle index)
     /// used as `end_x` when confirming a zone.
-    pub fn check_pending(
-        &mut self,
-        trade_price_units: i64,
-        trade_time: u64,
-        current_x: u64,
-    ) {
+    pub fn check_pending(&mut self, trade_price_units: i64, trade_time: u64, current_x: u64) {
         let tick_f = self.tick_size_units as f64;
         let mut i = 0;
         while i < self.pending.len() {
@@ -389,8 +382,7 @@ impl AbsorptionDetector {
             };
 
             let center_f64 = Price::from_units(zone.center_price_units).to_f64();
-            let half_width_f64 =
-                Price::from_units(zone.zone_half_width_units).to_f64() / 2.0;
+            let half_width_f64 = Price::from_units(zone.zone_half_width_units).to_f64() / 2.0;
 
             self.cached_levels.push(PriceLevel {
                 price: center_f64,
@@ -405,6 +397,7 @@ impl AbsorptionDetector {
                 start_x: Some(zone.start_x),
                 end_x: Some(zone.end_x),
                 zone_half_width: Some(half_width_f64),
+                tooltip_data: None,
             });
         }
 

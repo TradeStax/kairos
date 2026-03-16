@@ -24,6 +24,54 @@ pub mod prelude;
 pub mod studies;
 pub mod util;
 
+/// Macro that implements the boilerplate `Study` trait methods shared by all
+/// studies that follow the standard struct layout (`metadata`, `config`,
+/// `output`, `params` fields).
+///
+/// Expands to implementations of `id`, `metadata`, `parameters`, `config`,
+/// `config_mut`, `output`, `reset`, and `clone_study`.
+#[macro_export]
+macro_rules! impl_study_base {
+    ($id:expr) => {
+        fn id(&self) -> &str {
+            $id
+        }
+
+        fn metadata(&self) -> &$crate::core::StudyMetadata {
+            &self.metadata
+        }
+
+        fn parameters(&self) -> &[$crate::config::ParameterDef] {
+            &self.params
+        }
+
+        fn config(&self) -> &$crate::config::StudyConfig {
+            &self.config
+        }
+
+        fn config_mut(&mut self) -> &mut $crate::config::StudyConfig {
+            &mut self.config
+        }
+
+        fn output(&self) -> &$crate::output::StudyOutput {
+            &self.output
+        }
+
+        fn reset(&mut self) {
+            self.output = $crate::output::StudyOutput::Empty;
+        }
+
+        fn clone_study(&self) -> Box<dyn $crate::core::Study> {
+            Box::new(Self {
+                metadata: self.metadata.clone(),
+                config: self.config.clone(),
+                output: self.output.clone(),
+                params: self.params.clone(),
+            })
+        }
+    };
+}
+
 pub use studies::orderflow;
 
 /// Default bullish color (buy/ask) — #51CDA0.

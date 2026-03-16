@@ -63,6 +63,78 @@ pub fn wilder_multiplier(period: usize) -> f64 {
     1.0 / period as f64
 }
 
+/// Trimmed mean — drops the top and bottom `trim_fraction` of values
+/// before computing the mean. More robust to outliers than a plain mean.
+///
+/// `trim_fraction` is in `[0.0, 0.5)`. A value of 0.1 drops the
+/// lowest 10% and highest 10% of sorted values.
+pub fn trimmed_mean(values: &[f64], trim_fraction: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let n = sorted.len();
+    let trim = (n as f64 * trim_fraction).floor() as usize;
+    let trimmed = &sorted[trim..n - trim];
+    if trimmed.is_empty() {
+        mean(values)
+    } else {
+        mean(trimmed)
+    }
+}
+
+/// Sample standard deviation (divides by N-1, Bessel's correction).
+///
+/// Unlike [`standard_deviation`] which uses population variance (N),
+/// this function uses N-1 for an unbiased estimator of the population
+/// standard deviation from a sample.
+pub fn sample_standard_deviation(values: &[f64]) -> f64 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+    let avg = mean(values);
+    let sum_sq: f64 = values.iter().map(|v| (v - avg).powi(2)).sum();
+    (sum_sq / (values.len() - 1) as f64).sqrt()
+}
+
+/// Percentile of a **pre-sorted** slice using linear interpolation.
+///
+/// `p` is in `[0.0, 1.0]` — e.g. 0.5 for the median. The input
+/// slice **must** already be sorted in ascending order.
+pub fn percentile(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+    let p = p.clamp(0.0, 1.0);
+    let idx = p * (sorted.len() - 1) as f64;
+    let lo = idx.floor() as usize;
+    let hi = idx.ceil() as usize;
+    if lo == hi {
+        sorted[lo]
+    } else {
+        let frac = idx - lo as f64;
+        sorted[lo] * (1.0 - frac) + sorted[hi] * frac
+    }
+}
+
+/// Percentile rank of `value` within a **pre-sorted** slice.
+///
+/// Returns the fraction of values less than or equal to `value`,
+/// in `(0.0, 1.0]`. A single-element slice always returns 1.0.
+///
+/// The input slice **must** be sorted ascending.
+pub fn percentile_rank(sorted: &[f64], value: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let count_le = sorted.partition_point(|&v| v <= value);
+    count_le as f64 / sorted.len() as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

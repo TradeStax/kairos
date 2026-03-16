@@ -5,6 +5,7 @@
 
 pub mod candle;
 pub mod math;
+pub mod session;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 

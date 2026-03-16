@@ -12,6 +12,7 @@ pub mod custom;
 pub mod footprint;
 mod markers;
 pub mod profile;
+pub mod render;
 mod series;
 
 pub use footprint::{
@@ -27,6 +28,7 @@ pub use profile::{
 };
 pub use series::{
     BarPoint, BarSeries, HistogramBar, LineSeries, PriceLevel, StudyCandlePoint, StudyCandleSeries,
+    ZoneRect,
 };
 
 /// Top-level enum of all study output variants.
@@ -60,6 +62,9 @@ pub enum StudyOutput {
 
     /// Horizontal price levels (e.g. Fibonacci, Support/Resistance).
     Levels(Vec<PriceLevel>),
+
+    /// Bounded rectangular zones (e.g. absorption zones).
+    Zones(Vec<ZoneRect>),
 
     /// Volume profile with rendering configuration.
     Profile(Vec<ProfileOutput>, ProfileRenderConfig),
@@ -103,6 +108,7 @@ impl Clone for StudyOutput {
             StudyOutput::Bars(v) => StudyOutput::Bars(v.clone()),
             StudyOutput::Histogram(v) => StudyOutput::Histogram(v.clone()),
             StudyOutput::Levels(v) => StudyOutput::Levels(v.clone()),
+            StudyOutput::Zones(v) => StudyOutput::Zones(v.clone()),
             StudyOutput::Profile(v, c) => StudyOutput::Profile(v.clone(), c.clone()),
             StudyOutput::Footprint(v) => StudyOutput::Footprint(v.clone()),
             StudyOutput::Markers(v) => StudyOutput::Markers(v.clone()),
@@ -115,6 +121,18 @@ impl Clone for StudyOutput {
 }
 
 impl StudyOutput {
+    /// Render this output onto a platform-agnostic canvas.
+    pub fn render(
+        &self,
+        canvas: &mut dyn render::Canvas,
+        view: &dyn render::ChartView,
+        placement: crate::StudyPlacement,
+        basis: Option<&data::ChartBasis>,
+        show_text: bool,
+    ) {
+        render::render_output(self, canvas, view, placement, basis, show_text);
+    }
+
     /// Returns the discriminant name as a static string.
     pub fn discriminant_name(&self) -> &'static str {
         match self {
@@ -123,6 +141,7 @@ impl StudyOutput {
             StudyOutput::Bars(_) => "Bars",
             StudyOutput::Histogram(_) => "Histogram",
             StudyOutput::Levels(_) => "Levels",
+            StudyOutput::Zones(_) => "Zones",
             StudyOutput::Profile(..) => "Profile",
             StudyOutput::Footprint(_) => "Footprint",
             StudyOutput::Markers(_) => "Markers",

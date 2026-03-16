@@ -80,6 +80,15 @@ impl Rgba {
         }
     }
 
+    /// Return a copy with alpha multiplied by `factor`.
+    #[must_use]
+    pub fn scale_alpha(self, factor: f32) -> Self {
+        Self {
+            a: (self.a * factor).clamp(0.0, 1.0),
+            ..self
+        }
+    }
+
     /// Convert to an 8-bit `[R, G, B, A]` array
     #[must_use]
     pub fn into_rgba8(self) -> [u8; 4] {

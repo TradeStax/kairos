@@ -13,6 +13,7 @@ pub mod big_trades;
 pub mod footprint;
 pub mod imbalance;
 pub mod level_analyzer;
+pub mod shared;
 pub mod speed_of_tape;
 pub mod vbp;
 

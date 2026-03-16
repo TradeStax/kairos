@@ -292,9 +292,7 @@ impl BigTradesStudy {
             let is_buy = trade.side.is_buy();
 
             let candle_open = if is_time_based && num_candles > 0 {
-                while candle_idx + 1 < num_candles
-                    && candles[candle_idx + 1].time.0 <= time
-                {
+                while candle_idx + 1 < num_candles && candles[candle_idx + 1].time.0 <= time {
                     candle_idx += 1;
                 }
                 candles[candle_idx].time.0
@@ -317,11 +315,7 @@ impl BigTradesStudy {
                     block.max_price_units = block.max_price_units.max(price_units);
                 } else {
                     // Flush block to absorption only (no markers)
-                    detector.check_pending(
-                        block.vwap_units(),
-                        block.last_time,
-                        block.mid_time(),
-                    );
+                    detector.check_pending(block.vwap_units(), block.last_time, block.mid_time());
                     detector.on_block_flushed(block, abs_params, block.mid_time());
                     *block = TradeBlock::new(is_buy, price_units, qty, time, candle_open);
                 }
@@ -489,11 +483,7 @@ impl Study for BigTradesStudy {
         // Classify the parameter change to determine the minimum
         // recompute level needed. Uses max() so a higher-priority
         // level isn't downgraded by a subsequent lower-priority change.
-        const MARKER_KEYS: &[&str] = &[
-            "filter_min",
-            "filter_max",
-            "aggregation_window_ms",
-        ];
+        const MARKER_KEYS: &[&str] = &["filter_min", "filter_max", "aggregation_window_ms"];
         const ABSORPTION_KEYS: &[&str] = &[
             "absorption_enabled",
             "absorption_lambda_window",
@@ -530,8 +520,8 @@ impl Study for BigTradesStudy {
         self.last_tick_size_units = input.tick_size.units();
 
         let recompute = self.recompute_level;
-        let already_processed = self.processed_trade_count > 0
-            && trades.len() == self.processed_trade_count;
+        let already_processed =
+            self.processed_trade_count > 0 && trades.len() == self.processed_trade_count;
 
         // Fast path: style-only change with same trades — just rebuild output.
         if recompute == RecomputeLevel::None && already_processed {
@@ -612,8 +602,7 @@ impl Study for BigTradesStudy {
 
         // Reuse candle boundaries if candle count unchanged
         if input.candles.len() != self.cached_boundaries_candle_count {
-            self.cached_candle_boundaries =
-                build_candle_boundaries(input.candles, &input.basis);
+            self.cached_candle_boundaries = build_candle_boundaries(input.candles, &input.basis);
             self.cached_boundaries_candle_count = input.candles.len();
         }
 
@@ -764,7 +753,8 @@ impl Study for BigTradesStudy {
                 self.cached_render_config = self.build_marker_render_config();
             }
 
-            let absorption_levels = Self::collect_absorption_levels(&mut self.absorption, &abs_params);
+            let absorption_levels =
+                Self::collect_absorption_levels(&mut self.absorption, &abs_params);
 
             self.output = Self::rebuild_output(
                 &self.accumulated_markers,

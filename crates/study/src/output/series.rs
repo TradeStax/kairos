@@ -92,10 +92,119 @@ pub struct PriceLevel {
     /// instead of a single line. The center line is still drawn.
     #[serde(default)]
     pub zone_half_width: Option<f64>,
+    /// Optional tooltip text shown on hover.
+    #[serde(default)]
+    pub tooltip_data: Option<String>,
 }
 
 fn default_level_width() -> f32 {
     1.0
+}
+
+impl PriceLevel {
+    /// Create a horizontal price level with sensible defaults.
+    pub fn horizontal(price: f64, label: impl Into<String>, color: SerializableColor) -> Self {
+        Self {
+            price,
+            label: label.into(),
+            color,
+            style: LineStyleValue::Solid,
+            opacity: 1.0,
+            show_label: true,
+            fill_above: None,
+            fill_below: None,
+            width: 1.0,
+            start_x: None,
+            end_x: None,
+            zone_half_width: None,
+            tooltip_data: None,
+        }
+    }
+
+    /// Set the line style.
+    pub fn with_style(mut self, style: LineStyleValue) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Set the line opacity.
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
+    /// Set the line width.
+    pub fn with_width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Set the start X coordinate (ray anchor).
+    pub fn with_start_x(mut self, x: u64) -> Self {
+        self.start_x = Some(x);
+        self
+    }
+
+    /// Set the end X coordinate.
+    pub fn with_end_x(mut self, x: u64) -> Self {
+        self.end_x = Some(x);
+        self
+    }
+
+    /// Set the zone half-width for rendering as a shaded zone.
+    pub fn with_zone_half_width(mut self, hw: f64) -> Self {
+        self.zone_half_width = Some(hw);
+        self
+    }
+
+    /// Set fill color and opacity above this level.
+    pub fn with_fill_above(mut self, color: SerializableColor, opacity: f32) -> Self {
+        self.fill_above = Some((color, opacity));
+        self
+    }
+
+    /// Set fill color and opacity below this level.
+    pub fn with_fill_below(mut self, color: SerializableColor, opacity: f32) -> Self {
+        self.fill_below = Some((color, opacity));
+        self
+    }
+
+    /// Hide the label.
+    pub fn without_label(mut self) -> Self {
+        self.show_label = false;
+        self
+    }
+
+    /// Set tooltip text shown on hover.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip_data = Some(text.into());
+        self
+    }
+}
+
+/// A bounded rectangular zone (e.g. absorption zones from Big Trades).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneRect {
+    /// Left X coordinate (timestamp_ms or candle index).
+    pub start_x: u64,
+    /// Right X coordinate (timestamp_ms or candle index).
+    pub end_x: u64,
+    /// Center price of the zone in f64 domain.
+    pub center_price: f64,
+    /// Half-height of the zone in price-domain units.
+    pub half_height: f64,
+    /// Zone color.
+    pub color: SerializableColor,
+    /// Fill opacity in `[0.0, 1.0]`.
+    pub fill_opacity: f32,
+    /// Border opacity in `[0.0, 1.0]`.
+    pub border_opacity: f32,
+    /// Whether to show the label text.
+    pub show_label: bool,
+    /// Label text drawn at the top-left of the zone.
+    pub label: String,
+    /// Label text opacity in `[0.0, 1.0]`.
+    pub label_opacity: f32,
 }
 
 /// A single OHLC candle point for study output (e.g. Speed of Tape).
