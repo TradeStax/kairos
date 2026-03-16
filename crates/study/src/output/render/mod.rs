@@ -87,12 +87,7 @@ pub fn render_output(
             }
         }
         StudyOutput::Markers(data) => {
-            primitives::markers::render_markers(
-                canvas,
-                &data.markers,
-                view,
-                &data.render_config,
-            );
+            primitives::markers::render_markers(canvas, &data.markers, view, &data.render_config);
         }
         StudyOutput::StudyCandles(candles) => {
             primitives::study_candle::render_study_candles(canvas, candles, view);

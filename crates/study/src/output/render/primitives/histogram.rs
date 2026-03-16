@@ -9,11 +9,7 @@ use super::super::types::LineStyle;
 use crate::output::HistogramBar;
 
 /// Render histogram bars.
-pub fn render_histogram(
-    canvas: &mut dyn Canvas,
-    bars: &[HistogramBar],
-    view: &dyn ChartView,
-) {
+pub fn render_histogram(canvas: &mut dyn Canvas, bars: &[HistogramBar], view: &dyn ChartView) {
     if bars.is_empty() {
         return;
     }

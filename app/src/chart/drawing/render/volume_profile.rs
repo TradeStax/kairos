@@ -33,7 +33,7 @@ pub fn draw_in_chart_coords(
     if let Some(ref study) = drawing.vbp_study
         && let StudyOutput::Profile(ref profiles, ref config) = *study.output()
     {
-        let theme = theme_from_palette(&iced::Theme::Dark.extended_palette());
+        let theme = theme_from_palette(iced::Theme::Dark.extended_palette());
         let view = OverlayChartView::new(state, bounds, theme);
         let mut canvas = IcedCanvas::new(frame);
         for output in profiles {

@@ -15,9 +15,9 @@ use chart_views::{OverlayChartView, theme_from_palette};
 use iced::Size;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::Frame;
-use iced_canvas::IcedCanvas;
 #[cfg(feature = "heatmap")]
 use iced::{Color, Point};
+use iced_canvas::IcedCanvas;
 use study::{StudyOutput, StudyPlacement};
 
 /// Specification for a stacked buy/sell volume bar used by the heatmap chart.
@@ -110,9 +110,7 @@ pub fn render_study_output(
     placement: StudyPlacement,
     palette: Option<&Extended>,
 ) {
-    let theme = palette
-        .map(|p| theme_from_palette(p))
-        .unwrap_or_default();
+    let theme = palette.map(theme_from_palette).unwrap_or_default();
     let view = OverlayChartView::new(state, bounds, theme);
     let mut canvas = IcedCanvas::new(frame);
     output.render(&mut canvas, &view, placement, Some(&state.basis), true);

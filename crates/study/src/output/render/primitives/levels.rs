@@ -4,18 +4,12 @@
 
 use super::super::canvas::Canvas;
 use super::super::chart_view::ChartView;
-use super::super::constants::{
-    LABEL_SPACING, TINY_TEXT, ZONE_STRIP_ALPHAS, ZONE_STRIP_WIDTHS,
-};
+use super::super::constants::{LABEL_SPACING, TINY_TEXT, ZONE_STRIP_ALPHAS, ZONE_STRIP_WIDTHS};
 use super::super::types::{FontHint, LineStyle};
 use crate::output::PriceLevel;
 
 /// Render horizontal price levels.
-pub fn render_levels(
-    canvas: &mut dyn Canvas,
-    levels: &[PriceLevel],
-    view: &dyn ChartView,
-) {
+pub fn render_levels(canvas: &mut dyn Canvas, levels: &[PriceLevel], view: &dyn ChartView) {
     let region = view.visible_region();
     let vis_left = region.x;
     let vis_right = region.x + region.width;
@@ -72,12 +66,10 @@ pub fn render_levels(
         }
 
         // Zone rendering
-        let is_bounded_zone =
-            level.zone_half_width.is_some() && level.end_x.is_some();
+        let is_bounded_zone = level.zone_half_width.is_some() && level.end_x.is_some();
 
         if let Some(zone_hw) = level.zone_half_width {
-            let y_above =
-                view.value_to_y((level.price + zone_hw) as f32);
+            let y_above = view.value_to_y((level.price + zone_hw) as f32);
             let full_half = (y - y_above).abs().max(2.0);
 
             if is_bounded_zone {
@@ -102,8 +94,7 @@ pub fn render_levels(
                 // Feathered strips for level_analyzer rays
                 for i in 0..ZONE_STRIP_WIDTHS.len() {
                     let strip_half = full_half * ZONE_STRIP_WIDTHS[i];
-                    let strip_color =
-                        color.scale_alpha(ZONE_STRIP_ALPHAS[i]);
+                    let strip_color = color.scale_alpha(ZONE_STRIP_ALPHAS[i]);
                     canvas.fill_rect(
                         left,
                         y - strip_half,
@@ -117,8 +108,7 @@ pub fn render_levels(
 
         // Center line: skip for bounded zones (border is enough)
         if !is_bounded_zone {
-            let (line_width, line_color) = if level.zone_half_width.is_some()
-            {
+            let (line_width, line_color) = if level.zone_half_width.is_some() {
                 (0.5_f32, color.scale_alpha(0.35))
             } else {
                 (level.width, color)
@@ -132,8 +122,7 @@ pub fn render_levels(
             let label_x = left.max(vis_left) + 3.0;
             let (label_y, label_color) = if is_bounded_zone {
                 let zone_hw = level.zone_half_width.unwrap();
-                let y_above =
-                    view.value_to_y((level.price + zone_hw) as f32);
+                let y_above = view.value_to_y((level.price + zone_hw) as f32);
                 let top = y - (y - y_above).abs().max(2.0);
                 (top + 1.0, raw_color.scale_alpha(0.8))
             } else {

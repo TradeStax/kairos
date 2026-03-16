@@ -395,6 +395,7 @@ fn extract_from_output(
                 }
             }
         }
+        study::StudyOutput::Zones(_) => {}
         study::StudyOutput::Empty => {}
     }
 }

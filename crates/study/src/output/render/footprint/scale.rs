@@ -101,9 +101,7 @@ pub(super) fn effective_cluster_qty(
             .iter()
             .map(|l| l.delta_qty().abs())
             .fold(0.0_f32, f32::max),
-        FootprintDataType::Volume => {
-            levels.iter().map(|l| l.total_qty()).fold(0.0_f32, f32::max)
-        }
+        FootprintDataType::Volume => levels.iter().map(|l| l.total_qty()).fold(0.0_f32, f32::max),
     };
 
     let safe = |v: f32| if v <= f32::EPSILON { 1.0 } else { v };

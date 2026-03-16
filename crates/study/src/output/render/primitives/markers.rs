@@ -15,9 +15,8 @@ use std::collections::HashMap;
 use super::super::canvas::Canvas;
 use super::super::chart_view::ChartView;
 use super::super::constants::{
-    DENSITY_BUCKET_PX, MAX_RADIUS_CELLS_X, MAX_RADIUS_CELLS_Y,
-    MAX_RADIUS_SCREEN_PX, MIN_RADIUS_SCREEN_PX, MIN_TEXT_SCREEN_PX,
-    REFERENCE_CELL_HEIGHT, REFERENCE_CELL_WIDTH,
+    DENSITY_BUCKET_PX, MAX_RADIUS_CELLS_X, MAX_RADIUS_CELLS_Y, MAX_RADIUS_SCREEN_PX,
+    MIN_RADIUS_SCREEN_PX, MIN_TEXT_SCREEN_PX, REFERENCE_CELL_HEIGHT, REFERENCE_CELL_WIDTH,
 };
 use super::super::types::{FontHint, LineStyle};
 use crate::output::{MarkerRenderConfig, MarkerShape, TradeMarker};
@@ -55,8 +54,7 @@ pub fn render_markers(
     let zoom_factor = (x_zoom * y_zoom).sqrt();
 
     // Biaxial clamping bounds
-    let max_chart_radius = (MAX_RADIUS_CELLS_X * cell_width)
-        .min(MAX_RADIUS_CELLS_Y * cell_height);
+    let max_chart_radius = (MAX_RADIUS_CELLS_X * cell_width).min(MAX_RADIUS_CELLS_Y * cell_height);
     let min_chart_radius = MIN_RADIUS_SCREEN_PX / scaling;
     let max_screen_radius = MAX_RADIUS_SCREEN_PX / scaling;
 
@@ -96,8 +94,7 @@ pub fn render_markers(
         // Area-proportional sizing: sqrt gives perceptually linear
         // area growth (standard bubble chart approach)
         let t_linear = if scale_range > 0.0 {
-            ((marker.contracts - config.scale_min) / scale_range)
-                .clamp(0.0, 1.0) as f32
+            ((marker.contracts - config.scale_min) / scale_range).clamp(0.0, 1.0) as f32
         } else {
             0.5
         };
@@ -113,8 +110,7 @@ pub fn render_markers(
             .min(max_screen_radius);
 
         // Per-marker opacity with density attenuation
-        let base_opacity =
-            lerp(config.min_opacity, config.max_opacity, t_linear);
+        let base_opacity = lerp(config.min_opacity, config.max_opacity, t_linear);
 
         let bx = (vm.screen_x / DENSITY_BUCKET_PX) as i32;
         let by = (vm.screen_y / DENSITY_BUCKET_PX) as i32;
@@ -139,8 +135,7 @@ pub fn render_markers(
                     canvas.stroke_circle(x, y, radius, color, w);
                 } else {
                     canvas.fill_circle(x, y, radius, color);
-                    let border_color =
-                        color.with_alpha((color.a + 0.2).min(1.0));
+                    let border_color = color.with_alpha((color.a + 0.2).min(1.0));
                     let w = 1.0 / scaling;
                     canvas.stroke_circle(x, y, radius, border_color, w);
                 }
@@ -151,62 +146,50 @@ pub fn render_markers(
                 let top_left_y = y - radius;
                 if config.hollow {
                     let w = 2.0 / scaling;
-                    canvas.stroke_rect(
-                        top_left_x, top_left_y, side, side, color, w,
-                    );
+                    canvas.stroke_rect(top_left_x, top_left_y, side, side, color, w);
                 } else {
-                    canvas.fill_rect(
-                        top_left_x, top_left_y, side, side, color,
-                    );
-                    let border_color =
-                        color.with_alpha((color.a + 0.2).min(1.0));
+                    canvas.fill_rect(top_left_x, top_left_y, side, side, color);
+                    let border_color = color.with_alpha((color.a + 0.2).min(1.0));
                     let w = 1.0 / scaling;
-                    canvas.stroke_rect(
-                        top_left_x, top_left_y, side, side, border_color, w,
-                    );
+                    canvas.stroke_rect(top_left_x, top_left_y, side, side, border_color, w);
                 }
             }
             MarkerShape::Cross => {
                 let arm = radius * 0.7;
                 let w = (1.5 / scaling).max(0.5);
-                canvas.stroke_line(
-                    x - arm, y, x + arm, y, color, w, LineStyle::Solid,
-                );
-                canvas.stroke_line(
-                    x, y - arm, x, y + arm, color, w, LineStyle::Solid,
-                );
+                canvas.stroke_line(x - arm, y, x + arm, y, color, w, LineStyle::Solid);
+                canvas.stroke_line(x, y - arm, x, y + arm, color, w, LineStyle::Solid);
             }
             MarkerShape::TextOnly => {}
         }
 
         // Text label
-        if config.show_text {
-            if let Some(ref label) = marker.label {
-                let char_count = label.len().max(1) as f32;
-                let max_font_for_width =
-                    (radius * 2.0 * 0.85) / (char_count * 0.6);
-                let max_font_for_height = radius * 1.3;
-                let font_size = max_font_for_width
-                    .min(max_font_for_height)
-                    .min(config.text_size / scaling);
+        if config.show_text
+            && let Some(ref label) = marker.label
+        {
+            let char_count = label.len().max(1) as f32;
+            let max_font_for_width = (radius * 2.0 * 0.85) / (char_count * 0.6);
+            let max_font_for_height = radius * 1.3;
+            let font_size = max_font_for_width
+                .min(max_font_for_height)
+                .min(config.text_size / scaling);
 
-                let effective_px = font_size * scaling;
-                if effective_px >= MIN_TEXT_SCREEN_PX {
-                    let text_color = config.text_color;
+            let effective_px = font_size * scaling;
+            if effective_px >= MIN_TEXT_SCREEN_PX {
+                let text_color = config.text_color;
 
-                    let text_width = char_count * font_size * 0.6;
-                    let text_x = x - text_width / 2.0;
-                    let text_y = y - font_size / 2.0;
+                let text_width = char_count * font_size * 0.6;
+                let text_x = x - text_width / 2.0;
+                let text_y = y - font_size / 2.0;
 
-                    canvas.fill_text(
-                        text_x,
-                        text_y,
-                        label,
-                        font_size,
-                        text_color,
-                        FontHint::Monospace,
-                    );
-                }
+                canvas.fill_text(
+                    text_x,
+                    text_y,
+                    label,
+                    font_size,
+                    text_color,
+                    FontHint::Monospace,
+                );
             }
         }
 
@@ -215,12 +198,9 @@ pub fn render_markers(
             let debug_font_size = 9.0 / scaling;
             let debug_y = y + radius + debug_font_size * 0.5;
 
-            let window_ms =
-                debug.last_fill_time.saturating_sub(debug.first_fill_time);
-            let debug_text =
-                format!("{} fills | {}ms", debug.fill_count, window_ms);
-            let debug_width =
-                debug_text.len() as f32 * debug_font_size * 0.6;
+            let window_ms = debug.last_fill_time.saturating_sub(debug.first_fill_time);
+            let debug_text = format!("{} fills | {}ms", debug.fill_count, window_ms);
+            let debug_width = debug_text.len() as f32 * debug_font_size * 0.6;
             let debug_x = x - debug_width / 2.0;
 
             let debug_color = Rgba::new(0.7, 0.7, 0.7, 0.8);
@@ -255,11 +235,7 @@ pub fn render_markers(
 }
 
 /// Sum marker counts in the 3x3 neighborhood around (bx, by).
-fn neighborhood_count(
-    density: &HashMap<(i32, i32), u32>,
-    bx: i32,
-    by: i32,
-) -> u32 {
+fn neighborhood_count(density: &HashMap<(i32, i32), u32>, bx: i32, by: i32) -> u32 {
     let mut count = 0u32;
     for dx in -1..=1 {
         for dy in -1..=1 {

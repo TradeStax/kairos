@@ -211,7 +211,9 @@ impl ChartView for PanelChartView<'_> {
     }
 
     fn visible_intervals(&self) -> (u64, u64) {
-        let r = self.state.visible_region(Size::new(self.canvas_width, self.panel_height));
+        let r = self
+            .state
+            .visible_region(Size::new(self.canvas_width, self.panel_height));
         self.state.interval_range(&r)
     }
 

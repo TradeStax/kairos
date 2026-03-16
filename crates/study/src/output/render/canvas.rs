@@ -28,13 +28,7 @@ pub trait Canvas {
     );
 
     /// Stroke a connected polyline through the given points.
-    fn stroke_polyline(
-        &mut self,
-        points: &[(f32, f32)],
-        color: Rgba,
-        width: f32,
-        style: LineStyle,
-    );
+    fn stroke_polyline(&mut self, points: &[(f32, f32)], color: Rgba, width: f32, style: LineStyle);
 
     /// Fill a rectangle.
     fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba);
@@ -52,15 +46,7 @@ pub trait Canvas {
     fn stroke_circle(&mut self, cx: f32, cy: f32, radius: f32, color: Rgba, width: f32);
 
     /// Draw filled text.
-    fn fill_text(
-        &mut self,
-        x: f32,
-        y: f32,
-        text: &str,
-        size: f32,
-        color: Rgba,
-        font: FontHint,
-    );
+    fn fill_text(&mut self, x: f32, y: f32, text: &str, size: f32, color: Rgba, font: FontHint);
 
     /// Draw filled text with explicit horizontal and vertical alignment.
     fn fill_text_aligned(

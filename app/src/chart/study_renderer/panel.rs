@@ -183,9 +183,7 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                 }
 
                 // Render study output via platform-agnostic renderer
-                if let Some((min, max)) =
-                    study::output::render::panel_value_range(panel.output)
-                {
+                if let Some((min, max)) = study::output::render::panel_value_range(panel.output) {
                     let view = PanelChartView::new(
                         self.state,
                         chart_width,
@@ -193,7 +191,7 @@ impl<'a> canvas::Program<Message> for StudyPanelCanvas<'a> {
                         panel_h,
                         min,
                         max,
-                        theme_colors.clone(),
+                        theme_colors,
                     );
                     let mut canvas = IcedCanvas::new(frame);
                     panel.output.render(

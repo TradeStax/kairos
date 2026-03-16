@@ -58,15 +58,7 @@ impl Canvas for IcedCanvas<'_> {
             .fill_rectangle(Point::new(x, y), Size::new(w, h), to_color(color));
     }
 
-    fn stroke_rect(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        color: data::Rgba,
-        width: f32,
-    ) {
+    fn stroke_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: data::Rgba, width: f32) {
         let path = Path::new(|builder| {
             builder.move_to(Point::new(x, y));
             builder.line_to(Point::new(x + w, y));
@@ -102,14 +94,7 @@ impl Canvas for IcedCanvas<'_> {
         self.frame.fill(&path, to_color(color));
     }
 
-    fn stroke_circle(
-        &mut self,
-        cx: f32,
-        cy: f32,
-        radius: f32,
-        color: data::Rgba,
-        width: f32,
-    ) {
+    fn stroke_circle(&mut self, cx: f32, cy: f32, radius: f32, color: data::Rgba, width: f32) {
         let path = Path::circle(Point::new(cx, cy), radius);
         self.frame.stroke(
             &path,
@@ -172,7 +157,7 @@ impl Canvas for IcedCanvas<'_> {
                 FontHint::Default => Font::default(),
             },
             align_x: h_align.into(),
-            align_y: v_align.into(),
+            align_y: v_align,
             ..Text::default()
         });
     }

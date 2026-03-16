@@ -7,11 +7,7 @@ use super::super::chart_view::ChartView;
 use crate::output::BarSeries;
 
 /// Render one or more bar series.
-pub fn render_bars(
-    canvas: &mut dyn Canvas,
-    bars: &[BarSeries],
-    view: &dyn ChartView,
-) {
+pub fn render_bars(canvas: &mut dyn Canvas, bars: &[BarSeries], view: &dyn ChartView) {
     if bars.is_empty() {
         return;
     }

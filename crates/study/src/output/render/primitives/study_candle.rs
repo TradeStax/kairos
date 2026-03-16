@@ -45,13 +45,7 @@ pub fn render_study_candles(
             let body_h = (y_open - y_close).abs().max(1.0);
 
             if bar_width > 0.0 {
-                canvas.fill_rect(
-                    sx - half_w,
-                    body_top,
-                    bar_width,
-                    body_h,
-                    pt.body_color,
-                );
+                canvas.fill_rect(sx - half_w, body_top, bar_width, body_h, pt.body_color);
             }
         }
     }

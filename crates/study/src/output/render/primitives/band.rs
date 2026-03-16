@@ -38,11 +38,7 @@ pub fn render_band(
     render_band_line(canvas, lower, view);
 }
 
-fn render_band_line(
-    canvas: &mut dyn Canvas,
-    series: &LineSeries,
-    view: &dyn ChartView,
-) {
+fn render_band_line(canvas: &mut dyn Canvas, series: &LineSeries, view: &dyn ChartView) {
     if series.points.len() < 2 {
         return;
     }
@@ -53,9 +49,7 @@ fn render_band_line(
     let points: Vec<(f32, f32)> = series
         .points
         .iter()
-        .map(|&(x_val, y_val)| {
-            (view.interval_to_x(x_val), view.value_to_y(y_val))
-        })
+        .map(|&(x_val, y_val)| (view.interval_to_x(x_val), view.value_to_y(y_val)))
         .collect();
 
     canvas.stroke_polyline(&points, series.color, width, style);
@@ -75,12 +69,7 @@ fn render_band_fill(
     let mut polygon: Vec<(f32, f32)> = upper
         .points
         .iter()
-        .map(|&(x_val, y_val)| {
-            (
-                view.interval_to_x(x_val),
-                view.value_to_y(y_val) - offset,
-            )
-        })
+        .map(|&(x_val, y_val)| (view.interval_to_x(x_val), view.value_to_y(y_val) - offset))
         .collect();
 
     // Lower points right-to-left (offset downward = add to Y)
@@ -88,12 +77,7 @@ fn render_band_fill(
         .points
         .iter()
         .rev()
-        .map(|&(x_val, y_val)| {
-            (
-                view.interval_to_x(x_val),
-                view.value_to_y(y_val) + offset,
-            )
-        })
+        .map(|&(x_val, y_val)| (view.interval_to_x(x_val), view.value_to_y(y_val) + offset))
         .collect();
 
     polygon.extend(lower_reversed);

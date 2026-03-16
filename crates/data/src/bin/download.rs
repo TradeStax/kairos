@@ -178,7 +178,6 @@ fn parse_args() -> CliArgs {
 
 #[tokio::main]
 async fn main() {
-
     let args = parse_args();
     let total_days = (args.end - args.start).num_days() + 1;
 
@@ -202,10 +201,7 @@ async fn main() {
         eprint!("Proceed? [y/N] ");
         let mut input = String::new();
         if std::io::stdin().read_line(&mut input).is_err()
-            || !matches!(
-                input.trim().to_lowercase().as_str(),
-                "y" | "yes"
-            )
+            || !matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
         {
             println!("Aborted.");
             std::process::exit(0);
@@ -221,15 +217,9 @@ async fn main() {
 
     // Check which days are already cached
     let cache_schema = match args.schema {
-        databento::dbn::Schema::Trades => {
-            kairos_data::cache::store::CacheSchema::Trades
-        }
-        databento::dbn::Schema::Mbp10 => {
-            kairos_data::cache::store::CacheSchema::Depth
-        }
-        databento::dbn::Schema::Ohlcv1M => {
-            kairos_data::cache::store::CacheSchema::Ohlcv
-        }
+        databento::dbn::Schema::Trades => kairos_data::cache::store::CacheSchema::Trades,
+        databento::dbn::Schema::Mbp10 => kairos_data::cache::store::CacheSchema::Depth,
+        databento::dbn::Schema::Ohlcv1M => kairos_data::cache::store::CacheSchema::Ohlcv,
         _ => kairos_data::cache::store::CacheSchema::Trades,
     };
 
@@ -256,28 +246,19 @@ async fn main() {
 
     // Create adapter
     let config = DatabentoConfig::with_api_key(args.api_key);
-    let mut adapter =
-        match DatabentoAdapter::new(config, cache).await {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!(
-                    "Error: failed to create Databento adapter: {}",
-                    e
-                );
-                std::process::exit(1);
-            }
-        };
+    let mut adapter = match DatabentoAdapter::new(config, cache).await {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Error: failed to create Databento adapter: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Download the full range (adapter skips already-cached days)
     println!("Downloading...");
 
     match adapter
-        .fetch_and_cache_range(
-            &args.symbol,
-            args.schema,
-            args.start,
-            args.end,
-        )
+        .fetch_and_cache_range(&args.symbol, args.schema, args.start, args.end)
         .await
     {
         Ok(saved) => {

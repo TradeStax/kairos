@@ -97,13 +97,7 @@ pub(super) fn draw_bid_ask(
             canvas.fill_rect(anchor_x, top, sell_len, bar_height, sell_color);
         }
         if buy_len > 0.0 {
-            canvas.fill_rect(
-                anchor_x + sell_len,
-                top,
-                buy_len,
-                bar_height,
-                buy_color,
-            );
+            canvas.fill_rect(anchor_x + sell_len, top, buy_len, bar_height, buy_color);
         }
     }
 }
@@ -195,13 +189,7 @@ pub(super) fn draw_delta_and_total(
             );
         }
         if buy_len > 0.0 {
-            canvas.fill_rect(
-                anchor_x - buy_len,
-                top,
-                buy_len,
-                bar_height,
-                buy_color,
-            );
+            canvas.fill_rect(anchor_x - buy_len, top, buy_len, bar_height, buy_color);
         }
     }
 }

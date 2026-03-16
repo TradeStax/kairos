@@ -9,11 +9,7 @@ use super::super::types::FontHint;
 use crate::output::ZoneRect;
 
 /// Render bounded rectangular zones.
-pub fn render_zones(
-    canvas: &mut dyn Canvas,
-    zones: &[ZoneRect],
-    view: &dyn ChartView,
-) {
+pub fn render_zones(canvas: &mut dyn Canvas, zones: &[ZoneRect], view: &dyn ChartView) {
     let region = view.visible_region();
     let vis_left = region.x;
     let vis_right = region.x + region.width;
@@ -35,16 +31,12 @@ pub fn render_zones(
             continue;
         }
 
-        let center_y =
-            view.value_to_y(zone.center_price as f32);
-        let edge_y = view
-            .value_to_y((zone.center_price + zone.half_height) as f32);
+        let center_y = view.value_to_y(zone.center_price as f32);
+        let edge_y = view.value_to_y((zone.center_price + zone.half_height) as f32);
         let half_px = (center_y - edge_y).abs().max(2.0);
 
         // Cull: zone is entirely above or below visible area
-        if center_y + half_px < -20.0
-            || center_y - half_px > bounds_height + 20.0
-        {
+        if center_y + half_px < -20.0 || center_y - half_px > bounds_height + 20.0 {
             continue;
         }
 

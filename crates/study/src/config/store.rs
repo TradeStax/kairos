@@ -37,6 +37,16 @@ impl StudyConfig {
         }
     }
 
+    /// Create a config pre-populated with default values from parameter
+    /// definitions.
+    pub fn from_params(id: impl Into<String>, params: &[ParameterDef]) -> Self {
+        let mut config = Self::new(id);
+        for param in params {
+            config.set(param.key.clone(), param.default.clone());
+        }
+        config
+    }
+
     /// Get a parameter value by key.
     pub fn get(&self, key: &str) -> Option<&ParameterValue> {
         self.values.get(key)

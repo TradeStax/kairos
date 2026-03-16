@@ -1,9 +1,7 @@
 //! VBP annotation rendering: VA fills/lines, POC, zones, developing
 //! lines, VWAP, bounding rect, and price labels.
 
-use super::{
-    draw_horizontal_line, draw_label, draw_polyline, extend_x_range, to_color,
-};
+use super::{draw_horizontal_line, draw_label, draw_polyline, extend_x_range, to_color};
 use crate::output::render::canvas::Canvas;
 use crate::output::render::chart_view::ChartView;
 use crate::output::render::constants::VBP_BOUNDING_RECT_COLOR;
@@ -37,8 +35,7 @@ pub(super) fn draw_va_fill(
     let y_top = y_vah.min(y_val);
     let y_height = (y_vah - y_val).abs().max(1.0);
 
-    let (x_left, x_right) =
-        extend_x_range(anchor_x, box_right, &config.va_config.va_extend, view);
+    let (x_left, x_right) = extend_x_range(anchor_x, box_right, &config.va_config.va_extend, view);
 
     let fill_color = to_color(
         config.va_config.va_fill_color,
@@ -112,13 +109,7 @@ pub(super) fn draw_zone_fills(
         let y_hi = view.price_units_to_y(hi);
         let y_top = y_hi.min(y_lo);
         let y_height = (y_hi - y_lo).abs().max(1.0);
-        canvas.fill_rect(
-            anchor_x,
-            y_top,
-            box_right - anchor_x,
-            y_height,
-            fill_color,
-        );
+        canvas.fill_rect(anchor_x, y_top, box_right - anchor_x, y_height, fill_color);
     }
 }
 
@@ -142,9 +133,7 @@ pub(super) fn draw_developing_line(
 
     let screen_points: Vec<(f32, f32)> = points
         .iter()
-        .map(|&(ts, price_units)| {
-            (view.interval_to_x(ts), view.price_units_to_y(price_units))
-        })
+        .map(|&(ts, price_units)| (view.interval_to_x(ts), view.price_units_to_y(price_units)))
         .collect();
 
     canvas.stroke_polyline(&screen_points, color, width, style);
@@ -194,17 +183,13 @@ pub(super) fn draw_developing_poc(
     }
 
     let color = to_color(config.poc_config.developing_poc_color, 1.0);
-    let width = coord::effective_line_width(
-        config.poc_config.developing_poc_line_width,
-        view.scaling(),
-    );
+    let width =
+        coord::effective_line_width(config.poc_config.developing_poc_line_width, view.scaling());
     let style = LineStyle::from(&config.poc_config.developing_poc_line_style);
 
     let screen_points: Vec<(f32, f32)> = points
         .iter()
-        .map(|&(ts, price_units)| {
-            (view.interval_to_x(ts), view.price_units_to_y(price_units))
-        })
+        .map(|&(ts, price_units)| (view.interval_to_x(ts), view.price_units_to_y(price_units)))
         .collect();
 
     canvas.stroke_polyline(&screen_points, color, width, style);
@@ -226,8 +211,7 @@ pub(super) fn draw_vwap(
         && !output.vwap_lower_points.is_empty()
     {
         let band_color = to_color(cfg.band_color, 1.0);
-        let band_width =
-            coord::effective_line_width(cfg.band_line_width, view.scaling());
+        let band_width = coord::effective_line_width(cfg.band_line_width, view.scaling());
         let band_style = LineStyle::from(&cfg.band_line_style);
 
         draw_polyline(
@@ -250,8 +234,7 @@ pub(super) fn draw_vwap(
 
     // VWAP line
     let vwap_color = to_color(cfg.vwap_color, 1.0);
-    let vwap_width =
-        coord::effective_line_width(cfg.vwap_line_width, view.scaling());
+    let vwap_width = coord::effective_line_width(cfg.vwap_line_width, view.scaling());
     let vwap_style = LineStyle::from(&cfg.vwap_line_style);
 
     draw_polyline(
@@ -279,14 +262,7 @@ pub(super) fn draw_bounding_rect(
     let height = (y_bottom - y_top).abs();
 
     if height > 0.0 && width > 0.0 {
-        canvas.stroke_rect(
-            left,
-            top,
-            width,
-            height,
-            VBP_BOUNDING_RECT_COLOR,
-            1.0,
-        );
+        canvas.stroke_rect(left, top, width, height, VBP_BOUNDING_RECT_COLOR, 1.0);
     }
 }
 
@@ -313,7 +289,13 @@ pub(super) fn draw_price_labels(
     {
         let y = view.price_units_to_y(level.price_units);
         let color = to_color(config.poc_config.poc_color, 1.0);
-        draw_label(canvas, &format!("POC {:.2}", level.price), label_x, y, color);
+        draw_label(
+            canvas,
+            &format!("POC {:.2}", level.price),
+            label_x,
+            y,
+            color,
+        );
     }
 
     // VA labels
@@ -384,12 +366,6 @@ pub(super) fn draw_price_labels(
     {
         let y = view.value_to_y(last.1);
         let color = to_color(config.vwap_config.vwap_color, 1.0);
-        draw_label(
-            canvas,
-            &format!("VWAP {:.2}", last.1),
-            label_x,
-            y,
-            color,
-        );
+        draw_label(canvas, &format!("VWAP {:.2}", last.1), label_x, y, color);
     }
 }

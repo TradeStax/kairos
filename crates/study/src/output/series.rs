@@ -98,6 +98,80 @@ fn default_level_width() -> f32 {
     1.0
 }
 
+impl PriceLevel {
+    /// Create a horizontal price level with sensible defaults.
+    pub fn horizontal(price: f64, label: impl Into<String>, color: SerializableColor) -> Self {
+        Self {
+            price,
+            label: label.into(),
+            color,
+            style: LineStyleValue::Solid,
+            opacity: 1.0,
+            show_label: true,
+            fill_above: None,
+            fill_below: None,
+            width: 1.0,
+            start_x: None,
+            end_x: None,
+            zone_half_width: None,
+        }
+    }
+
+    /// Set the line style.
+    pub fn with_style(mut self, style: LineStyleValue) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Set the line opacity.
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
+    /// Set the line width.
+    pub fn with_width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Set the start X coordinate (ray anchor).
+    pub fn with_start_x(mut self, x: u64) -> Self {
+        self.start_x = Some(x);
+        self
+    }
+
+    /// Set the end X coordinate.
+    pub fn with_end_x(mut self, x: u64) -> Self {
+        self.end_x = Some(x);
+        self
+    }
+
+    /// Set the zone half-width for rendering as a shaded zone.
+    pub fn with_zone_half_width(mut self, hw: f64) -> Self {
+        self.zone_half_width = Some(hw);
+        self
+    }
+
+    /// Set fill color and opacity above this level.
+    pub fn with_fill_above(mut self, color: SerializableColor, opacity: f32) -> Self {
+        self.fill_above = Some((color, opacity));
+        self
+    }
+
+    /// Set fill color and opacity below this level.
+    pub fn with_fill_below(mut self, color: SerializableColor, opacity: f32) -> Self {
+        self.fill_below = Some((color, opacity));
+        self
+    }
+
+    /// Hide the label.
+    pub fn without_label(mut self) -> Self {
+        self.show_label = false;
+        self
+    }
+}
+
 /// A bounded rectangular zone (e.g. absorption zones from Big Trades).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoneRect {

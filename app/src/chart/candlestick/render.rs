@@ -846,6 +846,7 @@ fn draw_output_entries(
         study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
         | study::StudyOutput::Markers(_)
+        | study::StudyOutput::Zones(_)
         | study::StudyOutput::Custom(_) => {
             emit_study_line(
                 frame,
@@ -901,6 +902,7 @@ pub(super) fn study_line_count(output: &study::StudyOutput) -> usize {
         | study::StudyOutput::Profile(_, _)
         | study::StudyOutput::Footprint(_)
         | study::StudyOutput::Markers(_)
+        | study::StudyOutput::Zones(_)
         | study::StudyOutput::Custom(_) => 1,
         study::StudyOutput::Empty => 0,
     }

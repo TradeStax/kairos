@@ -198,9 +198,12 @@ pub fn render_footprint(
 
     // Compute dynamic quantum for automatic grouping mode
     let dynamic_quantum = match data.grouping_mode {
-        FootprintGroupingMode::Automatic { factor } => {
-            Some(compute_dynamic_quantum(cell_height, scaling, factor, tick_units))
-        }
+        FootprintGroupingMode::Automatic { factor } => Some(compute_dynamic_quantum(
+            cell_height,
+            scaling,
+            factor,
+            tick_units,
+        )),
         FootprintGroupingMode::Manual => None,
     };
 
@@ -224,8 +227,7 @@ pub fn render_footprint(
             data.font_size
         };
 
-        let show_text =
-            show_text && row_height_screen > 8.0 && cell_width_unscaled > min_text_w;
+        let show_text = show_text && row_height_screen > 8.0 && cell_width_unscaled > min_text_w;
 
         let cluster_style = ClusterStyle {
             theme,
@@ -264,8 +266,7 @@ pub fn render_footprint(
                 let eff_max =
                     effective_cluster_qty(data.scaling, max_cluster_qty, levels, data.data_type);
 
-                let (row_height, cluster_style) =
-                    compute_render_params(levels, eff_quantum);
+                let (row_height, cluster_style) = compute_render_params(levels, eff_quantum);
 
                 let layout = ClusterLayout {
                     x_position,
@@ -318,8 +319,7 @@ pub fn render_footprint(
                 let eff_max =
                     effective_cluster_qty(data.scaling, max_cluster_qty, levels, data.data_type);
 
-                let (row_height, cluster_style) =
-                    compute_render_params(levels, eff_quantum);
+                let (row_height, cluster_style) = compute_render_params(levels, eff_quantum);
 
                 let layout = ClusterLayout {
                     x_position,

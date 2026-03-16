@@ -85,11 +85,14 @@ fn draw_side_panel_content(
 
     for info in studies {
         if let StudyOutput::Profile(profiles, config) = info.output {
-            let view = SidePanelChartView::new(state, bounds, theme_colors.clone());
+            let view = SidePanelChartView::new(state, bounds, theme_colors);
             let mut canvas = IcedCanvas::new(frame);
             for profile in profiles {
                 study::output::render::vbp::side_panel::render_side_panel_bars(
-                    &mut canvas, profile, config, &view,
+                    &mut canvas,
+                    profile,
+                    config,
+                    &view,
                 );
             }
         }

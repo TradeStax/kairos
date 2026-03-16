@@ -70,9 +70,7 @@ pub fn render_side_panel_bars(
             let y_prev = view.price_units_to_y(resolved.levels[idx_prev].price_units);
             let y_next = view.price_units_to_y(resolved.levels[idx_next].price_units);
             if idx_prev != idx_next {
-                ((y_prev - y_next).abs()
-                    / (idx_next - idx_prev) as f32)
-                    .max(1.0)
+                ((y_prev - y_next).abs() / (idx_next - idx_prev) as f32).max(1.0)
             } else {
                 1.0
             }
@@ -105,10 +103,7 @@ pub fn render_side_panel_bars(
     {
         let y = view.price_units_to_y(level.price_units);
         let color = to_color(config.poc_config.poc_color, 1.0);
-        let width = coord::effective_line_width(
-            config.poc_config.poc_line_width,
-            view.scaling(),
-        );
+        let width = coord::effective_line_width(config.poc_config.poc_line_width, view.scaling());
         canvas.stroke_line(0.0, y, bounds_width, y, color, width, LineStyle::Solid);
     }
 
@@ -131,17 +126,8 @@ pub fn render_side_panel_bars(
             if let Some(level) = resolved.levels.get(idx) {
                 let y = view.price_units_to_y(level.price_units);
                 let color = to_color(color_field, 1.0);
-                let width =
-                    coord::effective_line_width(width_field, view.scaling());
-                canvas.stroke_line(
-                    0.0,
-                    y,
-                    bounds_width,
-                    y,
-                    color,
-                    width,
-                    LineStyle::Solid,
-                );
+                let width = coord::effective_line_width(width_field, view.scaling());
+                canvas.stroke_line(0.0, y, bounds_width, y, color, width, LineStyle::Solid);
             }
         }
     }
@@ -168,9 +154,7 @@ fn bar_color(
         VbpType::Volume | VbpType::DeltaAndTotalVolume => {
             to_color(config.volume_color, config.opacity * va_factor)
         }
-        VbpType::BidAskVolume => {
-            to_color(config.bid_color, config.opacity * va_factor)
-        }
+        VbpType::BidAskVolume => to_color(config.bid_color, config.opacity * va_factor),
         VbpType::Delta | VbpType::DeltaPercentage => {
             let delta = level.buy_volume - level.sell_volume;
             if delta >= 0.0 {

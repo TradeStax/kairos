@@ -9,11 +9,7 @@ use super::super::types::LineStyle;
 use crate::output::LineSeries;
 
 /// Render one or more line series.
-pub fn render_lines(
-    canvas: &mut dyn Canvas,
-    lines: &[LineSeries],
-    view: &dyn ChartView,
-) {
+pub fn render_lines(canvas: &mut dyn Canvas, lines: &[LineSeries], view: &dyn ChartView) {
     for series in lines {
         if series.points.len() < 2 {
             continue;
@@ -25,9 +21,7 @@ pub fn render_lines(
         let points: Vec<(f32, f32)> = series
             .points
             .iter()
-            .map(|&(x_val, y_val)| {
-                (view.interval_to_x(x_val), view.value_to_y(y_val))
-            })
+            .map(|&(x_val, y_val)| (view.interval_to_x(x_val), view.value_to_y(y_val)))
             .collect();
 
         canvas.stroke_polyline(&points, series.color, width, style);

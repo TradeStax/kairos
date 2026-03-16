@@ -28,16 +28,15 @@ use crate::output::render::constants::{VBP_LABEL_FONT_SIZE, VBP_MIN_ROW_PX};
 use crate::output::render::coord;
 use crate::output::render::types::{FontHint, LineStyle};
 use crate::output::{
-    ExtendDirection, ProfileLevel, ProfileOutput, ProfileRenderConfig,
-    VbpGroupingMode, VbpResolvedCache, VbpType,
+    ExtendDirection, ProfileLevel, ProfileOutput, ProfileRenderConfig, VbpGroupingMode,
+    VbpResolvedCache, VbpType,
 };
 use crate::studies::orderflow::vbp::profile_core;
 use data::{Price, Rgba};
 
 use annotation::{
-    draw_bounding_rect, draw_developing_line, draw_developing_poc,
-    draw_poc_enhanced, draw_price_labels, draw_va_fill, draw_va_lines,
-    draw_vwap, draw_zone_fills,
+    draw_bounding_rect, draw_developing_line, draw_developing_poc, draw_poc_enhanced,
+    draw_price_labels, draw_va_fill, draw_va_lines, draw_vwap, draw_zone_fills,
 };
 use bar::{draw_bid_ask, draw_delta, draw_delta_and_total, draw_delta_pct, draw_volume};
 
@@ -103,7 +102,11 @@ pub(crate) fn ensure_resolved_cache(
                 factor,
                 tick_units,
             );
-            if dq > output.quantum { dq } else { output.quantum }
+            if dq > output.quantum {
+                dq
+            } else {
+                output.quantum
+            }
         }
         VbpGroupingMode::Manual => output.quantum,
     };
@@ -437,16 +440,12 @@ pub fn render_vbp(
     }
 
     // -- Pass 6: Developing POC --
-    if config.poc_config.show_developing_poc
-        && !output.developing_poc_points.is_empty()
-    {
+    if config.poc_config.show_developing_poc && !output.developing_poc_points.is_empty() {
         draw_developing_poc(canvas, output, config, view);
     }
 
     // -- Pass 6b: Developing Peak --
-    if config.node_config.show_developing_peak
-        && !output.developing_peak_points.is_empty()
-    {
+    if config.node_config.show_developing_peak && !output.developing_peak_points.is_empty() {
         draw_developing_line(
             canvas,
             &output.developing_peak_points,
@@ -458,9 +457,7 @@ pub fn render_vbp(
     }
 
     // -- Pass 6c: Developing Valley --
-    if config.node_config.show_developing_valley
-        && !output.developing_valley_points.is_empty()
-    {
+    if config.node_config.show_developing_valley && !output.developing_valley_points.is_empty() {
         draw_developing_line(
             canvas,
             &output.developing_valley_points,
@@ -558,13 +555,7 @@ fn draw_bar_left(
 }
 
 /// Draw a text label at a given position.
-fn draw_label(
-    canvas: &mut dyn Canvas,
-    text_content: &str,
-    x: f32,
-    y: f32,
-    color: Rgba,
-) {
+fn draw_label(canvas: &mut dyn Canvas, text_content: &str, x: f32, y: f32, color: Rgba) {
     canvas.fill_text(
         x,
         y - VBP_LABEL_FONT_SIZE / 2.0,
@@ -597,11 +588,7 @@ fn draw_polyline(
 }
 
 /// Get the Y coordinate of the top of the profile.
-fn price_to_y_top(
-    levels: &[ProfileLevel],
-    view: &dyn ChartView,
-    bar_height: f32,
-) -> f32 {
+fn price_to_y_top(levels: &[ProfileLevel], view: &dyn ChartView, bar_height: f32) -> f32 {
     let Some(last) = levels.last() else {
         return 0.0;
     };
@@ -609,11 +596,7 @@ fn price_to_y_top(
 }
 
 /// Get the Y coordinate of the bottom of the profile.
-fn price_to_y_bottom(
-    levels: &[ProfileLevel],
-    view: &dyn ChartView,
-    bar_height: f32,
-) -> f32 {
+fn price_to_y_bottom(levels: &[ProfileLevel], view: &dyn ChartView, bar_height: f32) -> f32 {
     let Some(first) = levels.first() else {
         return 0.0;
     };

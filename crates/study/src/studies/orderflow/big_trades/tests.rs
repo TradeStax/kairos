@@ -915,9 +915,7 @@ fn test_empty_compute_returns_unchanged() {
 fn test_estimator_no_float_drift() {
     // Feed 10K+ blocks through the detector and verify it doesn't
     // produce bogus absorption detections from drifted volume stats.
-    use super::params::{
-        DEFAULT_ABSORPTION_BUY_COLOR, DEFAULT_ABSORPTION_SELL_COLOR,
-    };
+    use super::params::{DEFAULT_ABSORPTION_BUY_COLOR, DEFAULT_ABSORPTION_SELL_COLOR};
     let params = super::params::AbsorptionParams {
         enabled: true,
         lambda_window: 100,
@@ -1038,13 +1036,17 @@ fn test_absorption_toggle_uses_fast_path() {
     // Markers should be identical (absorption doesn't affect them)
     let markers_after = match study.output() {
         StudyOutput::Markers(md) => md.markers.len(),
-        StudyOutput::Composite(parts) => {
-            parts.iter().find_map(|p| match p {
+        StudyOutput::Composite(parts) => parts
+            .iter()
+            .find_map(|p| match p {
                 StudyOutput::Markers(md) => Some(md.markers.len()),
                 _ => None,
-            }).unwrap_or(0)
-        }
-        other => panic!("Expected Markers or Composite, got {:?}", other.discriminant_name()),
+            })
+            .unwrap_or(0),
+        other => panic!(
+            "Expected Markers or Composite, got {:?}",
+            other.discriminant_name()
+        ),
     };
     assert_eq!(
         markers_before, markers_after,

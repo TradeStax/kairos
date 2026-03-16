@@ -97,22 +97,8 @@ pub(super) fn draw_box_mode(
                 }
 
                 if let Some(gc) = grid_color {
-                    canvas.stroke_rect(
-                        box_left,
-                        bar_y,
-                        box_width / 2.0,
-                        row_height,
-                        gc,
-                        1.0,
-                    );
-                    canvas.stroke_rect(
-                        box_center,
-                        bar_y,
-                        box_width / 2.0,
-                        row_height,
-                        gc,
-                        1.0,
-                    );
+                    canvas.stroke_rect(box_left, bar_y, box_width / 2.0, row_height, gc, 1.0);
+                    canvas.stroke_rect(box_center, bar_y, box_width / 2.0, row_height, gc, 1.0);
                 }
 
                 if should_label(level.price) {
@@ -208,9 +194,7 @@ pub(super) fn draw_box_mode(
                     canvas.stroke_rect(box_left, bar_y, box_width, row_height, gc, 1.0);
                 }
 
-                if should_label(level.price)
-                    && (delta.abs() > f32::EPSILON || show_zero)
-                {
+                if should_label(level.price) && (delta.abs() > f32::EPSILON || show_zero) {
                     draw_cluster_text(
                         canvas,
                         &format_value(delta, text_format),

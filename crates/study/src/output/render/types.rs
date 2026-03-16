@@ -12,20 +12,15 @@ pub enum FontHint {
 }
 
 /// Rendering-level line dash specification.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum LineStyle {
     /// Continuous line.
+    #[default]
     Solid,
     /// Dashed segments: `[6.0, 4.0]`.
     Dashed,
     /// Dotted segments: `[2.0, 3.0]`.
     Dotted,
-}
-
-impl Default for LineStyle {
-    fn default() -> Self {
-        Self::Solid
-    }
 }
 
 impl From<&LineStyleValue> for LineStyle {
