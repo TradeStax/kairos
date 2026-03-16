@@ -774,8 +774,15 @@ fn draw_output_entries(
                 buf.clear();
                 let _ = write!(buf, "{} levels", total);
                 emit_study_line(
-                    frame, name, buf, base_color, base_color, x, y,
-                    line_height, alpha,
+                    frame,
+                    name,
+                    buf,
+                    base_color,
+                    base_color,
+                    x,
+                    y,
+                    line_height,
+                    alpha,
                 );
                 return;
             }
