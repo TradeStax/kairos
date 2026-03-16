@@ -1068,7 +1068,7 @@ fn test_absorption_toggle_roundtrip() {
 
     // Compute with absorption off
     study.compute(&study_input(&candles, &trades)).unwrap();
-    let output_off = study.output().clone();
+    let _output_off = study.output().clone();
 
     // Toggle absorption on
     study
