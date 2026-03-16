@@ -257,7 +257,7 @@ impl DatabentoAdapter {
     ///
     /// Returns the number of days successfully cached. Individual day
     /// failures are logged but do not abort the overall operation.
-    pub(super) async fn fetch_and_cache_range(
+    pub async fn fetch_and_cache_range(
         &mut self,
         symbol: &str,
         schema: Schema,

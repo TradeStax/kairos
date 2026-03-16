@@ -10,6 +10,7 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 
 use kairos_data::adapter::databento::{DatabentoConfig, fetcher::DatabentoAdapter};
+use kairos_data::cache::CacheProvider;
 use kairos_data::cache::store::CacheStore;
 
 fn print_usage() {
@@ -226,7 +227,15 @@ async fn main() {
     let mut already_cached = 0u64;
     let mut current = args.start;
     while current <= args.end {
-        if cache.has_day(&args.symbol, cache_schema, current).await {
+        if cache
+            .has_day(
+                CacheProvider::Databento,
+                &args.symbol,
+                cache_schema,
+                current,
+            )
+            .await
+        {
             already_cached += 1;
         }
         current += chrono::Duration::days(1);
@@ -246,7 +255,7 @@ async fn main() {
 
     // Create adapter
     let config = DatabentoConfig::with_api_key(args.api_key);
-    let mut adapter = match DatabentoAdapter::new(config, cache).await {
+    let mut adapter = match DatabentoAdapter::new(config).await {
         Ok(a) => a,
         Err(e) => {
             eprintln!("Error: failed to create Databento adapter: {}", e);
