@@ -30,6 +30,9 @@ pub(super) fn register_built_ins(registry: &mut StudyRegistry) {
     registry.register_study(|| Box::new(super::volatility::AtrStudy::new()));
     registry.register_study(|| Box::new(super::volatility::BollingerStudy::new()));
 
+    // ── Statistical ─────────────────────────────────────
+    registry.register_study(|| Box::new(super::statistical::IvbStudy::new()));
+
     // ── Order Flow ───────────────────────────────────────
     registry.register_study(|| Box::new(super::orderflow::ImbalanceStudy::new()));
     registry.register_study(|| Box::new(super::orderflow::BigTradesStudy::new()));

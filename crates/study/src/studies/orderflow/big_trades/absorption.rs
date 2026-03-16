@@ -397,6 +397,7 @@ impl AbsorptionDetector {
                 start_x: Some(zone.start_x),
                 end_x: Some(zone.end_x),
                 zone_half_width: Some(half_width_f64),
+                tooltip_data: None,
             });
         }
 

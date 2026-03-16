@@ -199,6 +199,7 @@ impl LevelAnalyzerStudy {
                     start_x,
                     end_x: None,
                     zone_half_width: zone_hw,
+                    tooltip_data: None,
                 }
             })
             .collect();

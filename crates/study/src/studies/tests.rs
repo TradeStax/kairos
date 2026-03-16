@@ -84,6 +84,7 @@ fn test_registry_contains_known_ids() {
         "vbp",
         "speed_of_tape",
         "level_analyzer",
+        "ivb",
     ];
     for id in &expected {
         assert!(registry.contains(id), "registry missing '{}'", id);
@@ -118,7 +119,7 @@ fn test_registry_create_returns_fresh_instances() {
 #[test]
 fn test_registry_list_count() {
     let registry = StudyRegistry::new();
-    assert_eq!(registry.list().len(), 18);
+    assert_eq!(registry.list().len(), 19);
 }
 
 #[test]
@@ -136,7 +137,7 @@ fn test_registry_list_sorted_alphabetically() {
 fn test_registry_list_by_category_volume() {
     let registry = StudyRegistry::new();
     let volume = registry.list_by_category(StudyCategory::Volume);
-    assert_eq!(volume.len(), 4);
+    assert_eq!(volume.len(), 5);
     let ids: Vec<&str> = volume.iter().map(|i| i.id.as_str()).collect();
     assert!(ids.contains(&"volume"));
     assert!(ids.contains(&"delta"));

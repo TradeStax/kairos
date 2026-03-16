@@ -2369,12 +2369,14 @@ dependencies = [
 name = "kairos-study"
 version = "0.9.9"
 dependencies = [
+ "bincode 1.3.3",
  "chrono",
  "kairos-data",
  "log",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "zstd",
 ]
 
 [[package]]

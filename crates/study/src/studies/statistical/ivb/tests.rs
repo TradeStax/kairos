@@ -539,6 +539,8 @@ fn test_session_database_merge() {
     let db = study.export_session_database("ES");
     let result = study.accept_external_data(Box::new(db));
     assert!(result.is_ok());
+    // Recompute to trigger merge of external records
+    let _ = study.compute(&input);
     assert_eq!(study.session_records.len(), initial_count);
 
     // Merge with a new record
@@ -553,6 +555,8 @@ fn test_session_database_merge() {
     };
     let result2 = study.accept_external_data(Box::new(db2));
     assert!(result2.is_ok());
+    // Recompute to trigger merge of external records
+    let _ = study.compute(&input);
     assert_eq!(study.session_records.len(), initial_count + 1);
 }
 

@@ -92,6 +92,9 @@ pub struct PriceLevel {
     /// instead of a single line. The center line is still drawn.
     #[serde(default)]
     pub zone_half_width: Option<f64>,
+    /// Optional tooltip text shown on hover.
+    #[serde(default)]
+    pub tooltip_data: Option<String>,
 }
 
 fn default_level_width() -> f32 {
@@ -114,6 +117,7 @@ impl PriceLevel {
             start_x: None,
             end_x: None,
             zone_half_width: None,
+            tooltip_data: None,
         }
     }
 
@@ -168,6 +172,12 @@ impl PriceLevel {
     /// Hide the label.
     pub fn without_label(mut self) -> Self {
         self.show_label = false;
+        self
+    }
+
+    /// Set tooltip text shown on hover.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip_data = Some(text.into());
         self
     }
 }
