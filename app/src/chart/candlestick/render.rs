@@ -756,6 +756,30 @@ fn draw_output_entries(
             );
         }
         study::StudyOutput::Composite(sub_outputs) => {
+            // If all sub-outputs are Levels, merge into a single
+            // summary line instead of repeating the study name for
+            // each session.
+            let all_levels = !sub_outputs.is_empty()
+                && sub_outputs
+                    .iter()
+                    .all(|s| matches!(s, study::StudyOutput::Levels(_)));
+            if all_levels {
+                let total: usize = sub_outputs
+                    .iter()
+                    .map(|s| match s {
+                        study::StudyOutput::Levels(l) => l.len(),
+                        _ => 0,
+                    })
+                    .sum();
+                buf.clear();
+                let _ = write!(buf, "{} levels", total);
+                emit_study_line(
+                    frame, name, buf, base_color, base_color, x, y,
+                    line_height, alpha,
+                );
+                return;
+            }
+
             // Prefer scalar sub-outputs for the legend; skip
             // non-scalar ones (Markers, Footprint, Profile) that would
             // just repeat the study name with no value.
@@ -872,6 +896,15 @@ pub(super) fn study_line_count(output: &study::StudyOutput) -> usize {
         study::StudyOutput::Bars(series) => series.len(),
         study::StudyOutput::Histogram(_) => 1,
         study::StudyOutput::Composite(subs) => {
+            // All-levels composites collapse to a single summary line
+            let all_levels = !subs.is_empty()
+                && subs
+                    .iter()
+                    .all(|s| matches!(s, study::StudyOutput::Levels(_)));
+            if all_levels {
+                return 1;
+            }
+
             let has_scalar = subs.iter().any(|s| {
                 matches!(
                     s,
