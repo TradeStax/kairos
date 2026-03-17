@@ -1,14 +1,14 @@
 [package]
 name = "kairos-backtest"
 description = "Event-driven backtesting engine for Kairos trading strategies"
-version = "0.9.9"
+version = "1.0.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
 homepage.workspace = true
 
 [dependencies]
-kairos-data = { version = "0.9.0", path = "../data" }
-kairos-study = { version = "0.9.0", path = "../study" }
+kairos-data = { version = "1.0.0", path = "../data" }
+kairos-study = { version = "1.0.0", path = "../study" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true

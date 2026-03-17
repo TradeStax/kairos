@@ -29,10 +29,10 @@ Rithmic credentials are managed via `keyring` (OS credential store), configured 
 
 ## Architecture
 
-Four workspace crates + one app (Rust edition 2024, all v0.9.0):
+Four workspace crates + one app (Rust edition 2024, all v1.0.0):
 
 ```
-app/src/                     # Application layer — kairos v0.9.0 (Iced GUI)
+app/src/                     # Application layer — kairos v1.0.0 (Iced GUI)
 ├── main.rs                  # Entry point, daemon setup
 ├── app/                     # Kairos struct, Elm architecture orchestration
 │   ├── mod.rs               # Kairos struct, new(), re-exports
@@ -132,14 +132,14 @@ app/src/                     # Application layer — kairos v0.9.0 (Iced GUI)
 ├── services/                # ReplayEngine, ReplayEvent, TradeProvider
 └── window.rs                # Multi-window management, WindowSpec, popout support
 
-crates/ai/                   # AI layer — kairos-ai v0.9.0 (GUI-independent AI logic)
+crates/ai/                   # AI layer — kairos-ai v1.0.0 (GUI-independent AI logic)
 ├── client/                  # streaming.rs (OpenRouter agentic), config.rs (models)
 ├── domain/                  # messages.rs, snapshot.rs, conversation.rs
 ├── tools/                   # 14 tools: market_data, trades, studies, analysis, drawing
 ├── event.rs                 # AiStreamEvent, DrawingAction, DrawingSpec
 └── prompt.rs                # build_system_prompt(), TimezoneResolver trait
 
-crates/data/                 # Data layer — kairos-data v0.9.0 (domain types + adapters)
+crates/data/                 # Data layer — kairos-data v1.0.0 (domain types + adapters)
 ├── domain/                  # Pure value objects and entities — no I/O
 │   ├── core/                # Price (i64, 10^-8), PriceStep, PriceExt, FeedId, Timestamp, Volume, Side, SerializableColor
 │   ├── instrument/          # FuturesTicker, FuturesTickerInfo, ContractSpec, Timeframe
@@ -159,7 +159,7 @@ crates/data/                 # Data layer — kairos-data v0.9.0 (domain types +
 ├── error.rs                 # Error enum (Fetch, Config, Cache, Symbol, Connection, Validation, NoData, Aggregation, Io) with AppError trait
 └── util/                    # Formatting, time, math, serde, logging helpers
 
-crates/study/                # Study layer — kairos-study v0.9.0 (technical analysis library, pure computation)
+crates/study/                # Study layer — kairos-study v1.0.0 (technical analysis library, pure computation)
 ├── core/                    # Study trait (14 methods, Send+Sync), StudyInput, StudyCategory, StudyPlacement
 ├── config/                  # ParameterDef, ParameterKind, ParameterValue, StudyConfig, DisplayFormat, Visibility
 ├── output/                  # StudyOutput: Lines, Band, Bars, Histogram, Levels, Profile, Footprint, Markers, Composite, Empty
@@ -177,7 +177,7 @@ crates/study/                # Study layer — kairos-study v0.9.0 (technical an
 ├── error.rs                 # StudyError with AppError impl
 └── util/                    # candle helpers (source_value, candle_key), math (mean, variance, std_dev)
 
-crates/backtest/             # Backtest layer — kairos-backtest v0.9.0 (event-driven strategy simulation)
+crates/backtest/             # Backtest layer — kairos-backtest v1.0.0 (event-driven strategy simulation)
 ├── config/                  # BacktestConfig, InstrumentSpec, RiskConfig, MarginConfig, SlippageModel
 ├── engine/                  # Engine kernel (simulation loop), BacktestRunner, StrategyContext, EngineClock, SessionClock
 ├── feed/                    # TradeProvider trait, DataFeed (multi-stream merge), CandleAggregator, MultiTimeframeAggregator

@@ -1,13 +1,13 @@
 [package]
 name = "kairos-study"
 description = "Technical studies and indicators for Kairos charts"
-version = "0.9.9"
+version = "1.0.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
 homepage.workspace = true
 
 [dependencies]
-data = { version = "0.9.0", path = "../data", package = "kairos-data" }
+data = { version = "1.0.0", path = "../data", package = "kairos-data" }
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true

@@ -1,13 +1,13 @@
 [package]
 name = "kairos-ai"
 description = "AI assistant engine for Kairos — domain types, streaming client, tool system, and prompt construction"
-version = "0.9.9"
+version = "1.0.0"
 license = "GPL-3.0-or-later"
 edition.workspace = true
 homepage.workspace = true
 
 [dependencies]
-data = { version = "0.9.0", path = "../data", package = "kairos-data", default-features = false, features = [] }
+data = { version = "1.0.0", path = "../data", package = "kairos-data", default-features = false, features = [] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
