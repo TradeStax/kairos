@@ -28,54 +28,63 @@
 - **AI assistant** *(preview)* — Conversational AI pane with 25+ tools for market data, studies, drawings, and analysis
 - **Backtesting** *(preview)* — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="800" />
-</p>
-<div align="center"><sup>Candlestick chart with technical studies and volume panel</sup></div>
+  <br>
+  <sup>Candlestick chart with technical studies and volume panel</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/footprint.png" alt="Footprint chart" width="800" />
-</p>
-<div align="center"><sup>Footprint — per-price-level order flow within each candle</sup></div>
+  <br>
+  <sup>Footprint — per-price-level order flow within each candle</sup>
+</div>
 
 <details>
 <summary><b>More screenshots</b> — charts, studies, drawing tools, layouts</summary>
 <br>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/comparison-chart.png" alt="Comparison chart" width="800" />
-</p>
-<div align="center"><sup>Comparison chart — multi-series overlay for spread and relative analysis</sup></div>
+  <br>
+  <sup>Comparison chart — multi-series overlay for spread and relative analysis</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/profile-chart.png" alt="Volume profile chart" width="800" />
-</p>
-<div align="center"><sup>Volume profile chart with POC, value area, and peak/valley detection</sup></div>
+  <br>
+  <sup>Volume profile chart with POC, value area, and peak/valley detection</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/ivb.png" alt="IVB — Opening Range study" width="800" />
-</p>
-<div align="center"><sup>IVB — statistical opening range projections with conditional filtering</sup></div>
+  <br>
+  <sup>IVB — statistical opening range projections with conditional filtering</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/volume_by_price.png" alt="Volume by Price" width="800" />
-</p>
-<div align="center"><sup>Volume by Price — horizontal volume distribution with POC and value area</sup></div>
+  <br>
+  <sup>Volume by Price — horizontal volume distribution with POC and value area</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/big_trades.png" alt="Big Trades" width="800" />
-</p>
-<div align="center"><sup>Big Trades — aggregated trades illustrating interpreted institutional activity</sup></div>
+  <br>
+  <sup>Big Trades — aggregated trades illustrating interpreted institutional activity</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/drawing-tools.png" alt="Drawing tools" width="800" />
-</p>
-<div align="center"><sup>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</sup></div>
+  <br>
+  <sup>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</sup>
+</div>
 
-<p align="center">
+<div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/layouts.png" alt="Multi-window layouts" width="800" />
-</p>
-<div align="center"><sup>Multi-window layouts with popout panes and link groups</sup></div>
+  <br>
+  <sup>Multi-window layouts with popout panes and link groups</sup>
+</div>
 
 </details>
 
