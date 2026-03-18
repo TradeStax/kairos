@@ -28,6 +28,62 @@
 - **AI assistant** *(preview)* — Conversational AI pane with 25+ tools for market data, studies, drawings, and analysis
 - **Backtesting** *(preview)* — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
 
+<p align="center">
+  <img src="docs/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="900" />
+</p>
+<p align="center"><em>Candlestick chart with technical studies and volume panel</em></p>
+
+<p align="center">
+  <img src="docs/studies/footprint.png" alt="Footprint chart" width="900" />
+</p>
+<p align="center"><em>Footprint — per-price-level order flow within each candle</em></p>
+
+<p align="center">
+  <img src="docs/charts/comparison-chart.png" alt="Comparison chart" width="900" />
+</p>
+<p align="center"><em>Comparison chart — multi-series overlay for spread and relative analysis</em></p>
+
+<p align="center">
+  <img src="docs/charts/profile-chart.png" alt="Volume profile chart" width="900" />
+</p>
+<p align="center"><em>Volume profile chart with POC, value area, and peak/valley detection</em></p>
+
+### Studies
+
+18 built-in technical studies across trend, momentum, volatility, volume, and order flow categories.
+
+<p align="center">
+  <img src="docs/studies/ivb.png" alt="IVB — Opening Range study" width="900" />
+</p>
+<p align="center"><em>IVB — statistical opening range projections with conditional filtering</em></p>
+
+<p align="center">
+  <img src="docs/studies/volume_by_price.png" alt="Volume by Price" width="900" />
+</p>
+<p align="center"><em>Volume by Price — horizontal volume distribution with POC and value area</em></p>
+
+<p align="center">
+  <img src="docs/studies/delta.png" alt="Volume Delta" width="900" />
+</p>
+<p align="center"><em>Volume Delta — net buying vs. selling pressure per candle</em></p>
+
+<p align="center">
+  <img src="docs/studies/bollinger_bands.png" alt="Bollinger Bands" width="900" />
+</p>
+<p align="center"><em>Bollinger Bands — volatility envelope around a moving average</em></p>
+
+### Drawing Tools & Layouts
+
+<p align="center">
+  <img src="docs/drawing-tools.png" alt="Drawing tools" width="900" />
+</p>
+<p align="center"><em>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</em></p>
+
+<p align="center">
+  <img src="docs/layouts.png" alt="Multi-window layouts" width="900" />
+</p>
+<p align="center"><em>Multi-window layouts with popout panes and link groups</em></p>
+
 ---
 
 ## Downloads
@@ -66,10 +122,6 @@ cargo fmt --check                    # Format check
 
 ## Data Providers
 
-<p align="center">
-  <img src=".gitlab/connections_management.png" alt="Manage Connections — Databento and Rithmic feed configuration" width="900" />
-</p>
-
 ### Databento — Historical Data
 
 [Databento](https://databento.com) provides historical trade and MBO data for CME Globex futures.
@@ -100,26 +152,6 @@ Custom strategies implement the `Strategy` trait with access to candles, studies
 
 ### Results & Analytics
 
-<p align="center">
-  <img src=".gitlab/backtest_overview.png" alt="Backtest Overview — equity curve, drawdown, monthly returns, P&L distribution" width="900" />
-</p>
-<p align="center"><em>Overview — equity curve, drawdown, monthly returns grid, and P&L distribution</em></p>
-
-<p align="center">
-  <img src=".gitlab/backtest_analytics.png" alt="Backtest Analytics — Monte Carlo, risk metrics, MAE vs MFE, performance by hour" width="900" />
-</p>
-<p align="center"><em>Analytics — 3D Monte Carlo surface, risk & expectancy metrics, MAE vs MFE scatter, performance by hour</em></p>
-
-<p align="center">
-  <img src=".gitlab/backtest_analytics_propfirm.png" alt="Backtest Analytics — prop firm evaluation, Monte Carlo paths" width="900" />
-</p>
-<p align="center"><em>Prop firm evaluation detail with Monte Carlo simulation paths</em></p>
-
-<p align="center">
-  <img src=".gitlab/backtest_trades_detail.png" alt="Backtest Trade Detail — individual trade on chart with entry/exit markers" width="900" />
-</p>
-<p align="center"><em>Trade detail — individual trade on chart with entry/exit markers, opening range highlight, and stats</em></p>
-
 ---
 
 ## AI Assistant
@@ -134,6 +166,10 @@ Conversational AI pane with streaming responses and 25+ built-in tools:
 
 The assistant receives a snapshot of the active chart's data and studies, enabling contextual analysis without leaving the platform.
 
+<p align="center">
+  <img src="docs/ai-assistant.png" alt="AI Assistant pane" width="900" />
+</p>
+
 ---
 
 ## Replay
@@ -141,7 +177,7 @@ The assistant receives a snapshot of the active chart's data and studies, enabli
 Replay historical trading sessions with full chart reconstruction — play/pause, adjustable speed, and seek to any point. All studies and drawings update in real-time.
 
 <p align="center">
-  <img src=".gitlab/chart_replay.gif" alt="Chart replay with play/pause, speed control, and seek bar" width="900" />
+  <img src="docs/replay.gif" alt="Chart replay with play/pause, speed control, and seek bar" width="900" />
 </p>
 
 ---
