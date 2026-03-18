@@ -9,7 +9,7 @@
 </div>
 
 <p align="center">
-  <img src=".gitlab/screenshot.gif" alt="Kairos screenshot" width="900" />
+  <img src=".gitlab/screenshot.gif" alt="Kairos screenshot" width="800" />
 </p>
 
 ---
@@ -29,55 +29,55 @@
 - **Backtesting** *(preview)* — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="800" />
 </p>
-<p align="center"><em>Candlestick chart with technical studies and volume panel</em></p>
+<p align="center"><sub>Candlestick chart with technical studies and volume panel</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/footprint.png" alt="Footprint chart" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/footprint.png" alt="Footprint chart" width="800" />
 </p>
-<p align="center"><em>Footprint — per-price-level order flow within each candle</em></p>
+<p align="center"><sub>Footprint — per-price-level order flow within each candle</sub></p>
+
+<details>
+<summary><b>More screenshots</b> — charts, studies, drawing tools, layouts</summary>
+<br>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/comparison-chart.png" alt="Comparison chart" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/comparison-chart.png" alt="Comparison chart" width="800" />
 </p>
-<p align="center"><em>Comparison chart — multi-series overlay for spread and relative analysis</em></p>
+<p align="center"><sub>Comparison chart — multi-series overlay for spread and relative analysis</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/profile-chart.png" alt="Volume profile chart" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/profile-chart.png" alt="Volume profile chart" width="800" />
 </p>
-<p align="center"><em>Volume profile chart with POC, value area, and peak/valley detection</em></p>
-
-### Studies
-
-18 built-in technical studies across trend, momentum, volatility, volume, and order flow categories.
+<p align="center"><sub>Volume profile chart with POC, value area, and peak/valley detection</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/ivb.png" alt="IVB — Opening Range study" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/ivb.png" alt="IVB — Opening Range study" width="800" />
 </p>
-<p align="center"><em>IVB — statistical opening range projections with conditional filtering</em></p>
+<p align="center"><sub>IVB — statistical opening range projections with conditional filtering</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/volume_by_price.png" alt="Volume by Price" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/volume_by_price.png" alt="Volume by Price" width="800" />
 </p>
-<p align="center"><em>Volume by Price — horizontal volume distribution with POC and value area</em></p>
+<p align="center"><sub>Volume by Price — horizontal volume distribution with POC and value area</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/big_trades.png" alt="Big Trades" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/big_trades.png" alt="Big Trades" width="800" />
 </p>
-<p align="center"><em>Big Trades — aggregated trades illustrating interpreted instiutional activity</em></p>
-
-### Drawing Tools & Layouts
+<p align="center"><sub>Big Trades — aggregated trades illustrating interpreted institutional activity</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/drawing-tools.png" alt="Drawing tools" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/drawing-tools.png" alt="Drawing tools" width="800" />
 </p>
-<p align="center"><em>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</em></p>
+<p align="center"><sub>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</sub></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/layouts.png" alt="Multi-window layouts" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/layouts.png" alt="Multi-window layouts" width="800" />
 </p>
-<p align="center"><em>Multi-window layouts with popout panes and link groups</em></p>
+<p align="center"><sub>Multi-window layouts with popout panes and link groups</sub></p>
+
+</details>
 
 ---
 
@@ -145,8 +145,6 @@ Event-driven backtesting engine with tick-level simulation, 30+ performance metr
 
 Custom strategies implement the `Strategy` trait with access to candles, studies, and a full order management API.
 
-### Results & Analytics
-
 ---
 
 ## AI Assistant
@@ -162,7 +160,7 @@ Conversational AI pane with streaming responses and 25+ built-in tools:
 The assistant receives a snapshot of the active chart's data and studies, enabling contextual analysis without leaving the platform.
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/ai-assistant.png" alt="AI Assistant pane" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/ai-assistant.png" alt="AI Assistant pane" width="800" />
 </p>
 
 ---
@@ -172,7 +170,7 @@ The assistant receives a snapshot of the active chart's data and studies, enabli
 Replay historical trading sessions with full chart reconstruction — play/pause, adjustable speed, and seek to any point. All studies and drawings update in real-time.
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/replay.gif" alt="Chart replay with play/pause, speed control, and seek bar" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/replay.gif" alt="Chart replay with play/pause, speed control, and seek bar" width="800" />
 </p>
 
 ---
