@@ -31,12 +31,12 @@
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="800" />
 </p>
-<p align="center"><sub>Candlestick chart with technical studies and volume panel</sub></p>
+<div align="center"><sup>Candlestick chart with technical studies and volume panel</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/footprint.png" alt="Footprint chart" width="800" />
 </p>
-<p align="center"><sub>Footprint — per-price-level order flow within each candle</sub></p>
+<div align="center"><sup>Footprint — per-price-level order flow within each candle</sup></div>
 
 <details>
 <summary><b>More screenshots</b> — charts, studies, drawing tools, layouts</summary>
@@ -45,37 +45,37 @@
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/comparison-chart.png" alt="Comparison chart" width="800" />
 </p>
-<p align="center"><sub>Comparison chart — multi-series overlay for spread and relative analysis</sub></p>
+<div align="center"><sup>Comparison chart — multi-series overlay for spread and relative analysis</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/profile-chart.png" alt="Volume profile chart" width="800" />
 </p>
-<p align="center"><sub>Volume profile chart with POC, value area, and peak/valley detection</sub></p>
+<div align="center"><sup>Volume profile chart with POC, value area, and peak/valley detection</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/ivb.png" alt="IVB — Opening Range study" width="800" />
 </p>
-<p align="center"><sub>IVB — statistical opening range projections with conditional filtering</sub></p>
+<div align="center"><sup>IVB — statistical opening range projections with conditional filtering</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/volume_by_price.png" alt="Volume by Price" width="800" />
 </p>
-<p align="center"><sub>Volume by Price — horizontal volume distribution with POC and value area</sub></p>
+<div align="center"><sup>Volume by Price — horizontal volume distribution with POC and value area</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/big_trades.png" alt="Big Trades" width="800" />
 </p>
-<p align="center"><sub>Big Trades — aggregated trades illustrating interpreted institutional activity</sub></p>
+<div align="center"><sup>Big Trades — aggregated trades illustrating interpreted institutional activity</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/drawing-tools.png" alt="Drawing tools" width="800" />
 </p>
-<p align="center"><sub>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</sub></p>
+<div align="center"><sup>19 drawing tools — lines, Fibonacci, channels, shapes, annotations, and position calculators</sup></div>
 
 <p align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/layouts.png" alt="Multi-window layouts" width="800" />
 </p>
-<p align="center"><sub>Multi-window layouts with popout panes and link groups</sub></p>
+<div align="center"><sup>Multi-window layouts with popout panes and link groups</sup></div>
 
 </details>
 
