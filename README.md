@@ -63,14 +63,9 @@
 <p align="center"><em>Volume by Price — horizontal volume distribution with POC and value area</em></p>
 
 <p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/delta.png" alt="Volume Delta" width="900" />
+  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/big_trades.png" alt="Big Trades" width="900" />
 </p>
-<p align="center"><em>Volume Delta — net buying vs. selling pressure per candle</em></p>
-
-<p align="center">
-  <img src="https://gitlab.com/kreotic/kairos/-/wikis/studies/bollinger_bands.png" alt="Bollinger Bands" width="900" />
-</p>
-<p align="center"><em>Bollinger Bands — volatility envelope around a moving average</em></p>
+<p align="center"><em>Big Trades — aggregated trades illustrating interpreted instiutional activity</em></p>
 
 ### Drawing Tools & Layouts
 
