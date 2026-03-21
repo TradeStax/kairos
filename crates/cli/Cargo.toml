@@ -1,0 +1,30 @@
+[package]
+name = "kairos-cli"
+description = "Headless CLI for Kairos — data downloads, backtesting, and analysis"
+version = "1.0.0"
+license = "GPL-3.0-or-later"
+edition.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "kairos"
+path = "src/main.rs"
+
+[dependencies]
+kairos-data = { version = "1.0.0", path = "../data", features = ["databento"] }
+kairos-study = { version = "1.0.0", path = "../study" }
+kairos-backtest = { version = "1.0.0", path = "../backtest" }
+
+tokio = { workspace = true, features = ["fs"] }
+chrono = { workspace = true }
+clap = { version = "4.5", features = ["derive", "cargo"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs-next = "2.0"
+databento = "0.22"
+futures = "0.3"
+async-trait = "0.1"
+
+[features]
+default = []

@@ -1,0 +1,385 @@
+//! Backtest command
+
+use anyhow::{Context, Result};
+use clap::Args;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use databento::dbn::decode::AsyncDbnDecoder;
+use databento::dbn::TradeMsg;
+
+use kairos_data::{DateRange, FuturesTicker, FuturesVenue, Price, Quantity, Side, Timestamp, Trade};
+use kairos_backtest::config::backtest::BacktestConfig;
+use kairos_backtest::BacktestRunner;
+use kairos_backtest::strategy::registry::StrategyRegistry;
+use kairos_backtest::TradeProvider;
+
+#[derive(Args)]
+pub struct BacktestArgs {
+    #[arg(short, long)]
+    pub symbol: String,
+
+    #[arg(long)]
+    pub start: String,
+
+    #[arg(long)]
+    pub end: String,
+
+    #[arg(long, default_value = "orb")]
+    pub strategy: String,
+
+    #[arg(long, default_value = "1min")]
+    pub timeframe: String,
+
+    #[arg(long, default_value = "100000")]
+    pub capital: f64,
+
+    #[arg(long, short)]
+    pub verbose: bool,
+
+    #[arg(long, default_value = "text")]
+    pub format: String,
+
+    #[arg(long, required = true)]
+    pub data_dir: PathBuf,
+}
+
+fn parse_timeframe(s: &str) -> kairos_data::Timeframe {
+    match s.to_lowercase().as_str() {
+        "1min" | "1m" => kairos_data::Timeframe::M1,
+        "5min" | "5m" => kairos_data::Timeframe::M5,
+        "15min" | "15m" => kairos_data::Timeframe::M15,
+        "1hour" | "1h" => kairos_data::Timeframe::H1,
+        "1day" | "1d" => kairos_data::Timeframe::D1,
+        _ => kairos_data::Timeframe::M1,
+    }
+}
+
+/// Convert Databento price (10^-9 precision) to Price (10^-8 precision)
+fn convert_price(dbn_price: i64) -> Price {
+    Price::from_units((dbn_price + dbn_price.signum() * 5) / 10)
+}
+
+/// Valid price ranges for futures (in dollars)
+/// Prices outside these ranges indicate bad data or different instruments
+fn is_valid_price(price: f64, symbol: &str) -> bool {
+    let min_price = match symbol {
+        "NQ" => 5000.0,
+        "ES" => 2000.0,
+        "YM" => 15000.0,
+        "RTY" => 800.0,
+        "GC" => 1000.0,
+        "CL" => 30.0,
+        _ => 100.0,
+    };
+    
+    let max_price = match symbol {
+        "NQ" => 30000.0,
+        "ES" => 10000.0,
+        "YM" => 50000.0,
+        "RTY" => 3000.0,
+        "GC" => 3000.0,
+        "CL" => 200.0,
+        _ => 1_000_000.0,
+    };
+    
+    price >= min_price && price <= max_price
+}
+
+/// Get the instrument IDs for main NQ contracts (not spreads)
+/// Calendar spreads have prices that are differences, not absolute prices
+fn get_nq_instrument_ids() -> Vec<u32> {
+    vec![
+        20631,  // NQH3 (NQ March 2023)
+        3522,   // NQM3 (NQ June 2023)
+        2130,   // NQU3 (NQ September 2023)
+        750,    // NQH4 (NQ March 2024)
+        260937, // NQZ3 (NQ December 2023)
+        106364, // NQZ4 (NQ December 2024)
+    ]
+}
+
+pub async fn run(args: BacktestArgs) -> Result<()> {
+    let start_date = chrono::NaiveDate::parse_from_str(&args.start, "%Y-%m-%d")
+        .with_context(|| format!("Invalid start date: {}", args.start))?;
+    let end_date = chrono::NaiveDate::parse_from_str(&args.end, "%Y-%m-%d")
+        .with_context(|| format!("Invalid end date: {}", args.end))?;
+
+    let timeframe = parse_timeframe(&args.timeframe);
+    let symbol_upper = args.symbol.to_uppercase();
+    
+    let ticker = match symbol_upper.as_str() {
+        "NQ" => FuturesTicker::new("NQ.c.0", FuturesVenue::CMEGlobex),
+        "ES" => FuturesTicker::new("ES.c.0", FuturesVenue::CMEGlobex),
+        sym => FuturesTicker::new(&format!("{}.c.0", sym), FuturesVenue::CMEGlobex),
+    };
+
+    let registry = StrategyRegistry::with_built_ins();
+
+    if !registry.contains(&args.strategy) {
+        anyhow::bail!("Unknown strategy: {}", args.strategy);
+    }
+
+    let date_range = DateRange::new(start_date, end_date)
+        .context("Invalid date range")?;
+
+    let mut config = BacktestConfig::default_es(&args.strategy);
+    config.ticker = ticker;
+    config.date_range = date_range.clone();
+    config.timeframe = timeframe;
+    config.initial_capital_usd = args.capital;
+
+    let strategy = registry.create(&args.strategy)
+        .with_context(|| format!("Failed to create strategy: {}", args.strategy))?;
+
+    println!("Kairos Backtest");
+    println!("Symbol: {} | Period: {} to {} | Strategy: {}", 
+             args.symbol, start_date, end_date, args.strategy);
+    println!("Initial Capital: ${:.2}", args.capital);
+
+    // Create provider
+    let provider = Arc::new(DbnFileProvider::new(args.data_dir.clone(), symbol_upper.clone()));
+    
+    println!("Loading trades...");
+    let trades = provider.get_trades(&ticker, &config.date_range).await
+        .map_err(|e| anyhow::anyhow!("Failed to load trades: {}", e))?;
+    
+    println!("Loaded {} trades", trades.len());
+
+    if trades.is_empty() {
+        println!("No trades found.");
+        return Ok(());
+    }
+
+    // Analyze price data
+    if !trades.is_empty() {
+        let min_price = trades.iter().map(|t| t.price.units()).min().unwrap();
+        let max_price = trades.iter().map(|t| t.price.units()).max().unwrap();
+        let avg_price = trades.iter().map(|t| t.price.units() as f64).sum::<f64>() / trades.len() as f64;
+        println!("Price range: ${:.2} to ${:.2} (avg: ${:.2})", 
+                 min_price as f64 / 100_000_000.0,
+                 max_price as f64 / 100_000_000.0,
+                 avg_price / 100_000_000.0);
+    }
+
+    println!("Running backtest...");
+    let runner = BacktestRunner::new(provider);
+    let result = runner.run(config, strategy).await
+        .map_err(|e| anyhow::anyhow!("Backtest failed: {}", e))?;
+
+    println!("\nResults");
+    println!("=======");
+    println!("Final Equity: ${:.2}", result.metrics.final_equity_usd);
+    println!("Return: {:.2}%", result.metrics.total_return_pct);
+    println!("Max Drawdown: {:.2}% (${:.2})", 
+             result.metrics.max_drawdown_pct, result.metrics.max_drawdown_usd);
+    println!("Trades: {}", result.metrics.total_trades);
+    println!("Win Rate: {:.1}%", result.metrics.win_rate * 100.0);
+    println!("Profit Factor: {:.2}", result.metrics.profit_factor);
+    println!("Sharpe: {:.2}", result.metrics.sharpe_ratio);
+    println!("Sortino: {:.2}", result.metrics.sortino_ratio);
+
+    if args.verbose {
+        println!("\nEquity Curve Points: {}", result.equity_curve.points.len());
+        if !result.equity_curve.points.is_empty() {
+            let min_eq = result.equity_curve.points.iter()
+                .map(|p| p.total_equity_usd).fold(f64::INFINITY, f64::min);
+            let max_eq = result.equity_curve.points.iter()
+                .map(|p| p.total_equity_usd).fold(f64::NEG_INFINITY, f64::max);
+            let initial = result.equity_curve.initial_equity_usd;
+            println!("Initial equity: ${:.2}", initial);
+            println!("Equity range: ${:.2} to ${:.2}", min_eq, max_eq);
+        }
+        
+        println!("\nFirst 10 trades:");
+        for (i, trade) in result.trades.iter().enumerate().take(10) {
+            let entry_dollars = trade.entry_price.to_f64();
+            let exit_dollars = trade.exit_price.to_f64();
+            println!("  Trade {}: {:?} {} @ entry ${:.2} exit ${:.2} P&L: ${:.2} | {:?}", 
+                     i + 1, trade.side, trade.quantity, 
+                     entry_dollars, exit_dollars, trade.pnl_net_usd, trade.exit_reason);
+        }
+    }
+
+    if !result.warnings.is_empty() {
+        println!("\nWarnings:");
+        for warning in &result.warnings {
+            println!("  - {}", warning);
+        }
+    }
+
+    Ok(())
+}
+
+pub struct DbnFileProvider {
+    data_dir: PathBuf,
+    symbol: String,
+}
+
+impl DbnFileProvider {
+    pub fn new(data_dir: PathBuf, symbol: String) -> Self {
+        Self { data_dir, symbol }
+    }
+
+    fn find_files(&self, range: &DateRange) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&self.data_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.contains(".dbn") && (name.ends_with(".zst") || name.ends_with(".dbn")) {
+                        if let Some(dates) = extract_dates(name) {
+                            if dates.0 <= range.end && dates.1 >= range.start {
+                                files.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+}
+
+fn extract_dates(filename: &str) -> Option<(chrono::NaiveDate, chrono::NaiveDate)> {
+    let stripped = filename.strip_prefix("glbx-mdp3-")?.split_once(".trades").map(|(d, _)| d)?;
+    let parts: Vec<&str> = stripped.split('-').collect();
+    if parts.len() >= 2 {
+        let start = chrono::NaiveDate::parse_from_str(parts[0], "%Y%m%d").ok()?;
+        let end = chrono::NaiveDate::parse_from_str(parts[1], "%Y%m%d").ok()?;
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+impl TradeProvider for DbnFileProvider {
+    fn get_trades(
+        &self,
+        _ticker: &FuturesTicker,
+        date_range: &DateRange,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Trade>, String>> + Send + '_>> {
+        let data_dir = self.data_dir.clone();
+        let symbol = self.symbol.clone();
+        let range = date_range.clone();
+        Box::pin(async move {
+            let files = Self::find_files_internal(&data_dir, &range);
+            if files.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut all_trades = Vec::new();
+            let mut filtered_count = 0;
+            
+            // Get valid instrument IDs for main NQ contracts (not spreads)
+            let valid_instrument_ids: Vec<u32> = if symbol == "NQ" {
+                get_nq_instrument_ids()
+            } else {
+                Vec::new() // For other symbols, we'll use price filtering
+            };
+            
+            for file in files {
+                match load_trades_from_file(&file, &range, &symbol, &valid_instrument_ids).await {
+                    Ok(trades) => {
+                        for trade in trades {
+                            let price_dollars = trade.price.to_f64();
+                            if is_valid_price(price_dollars, &symbol) {
+                                all_trades.push(trade);
+                            } else {
+                                filtered_count += 1;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to load {}: {}", file.display(), e);
+                    }
+                }
+            }
+
+            if filtered_count > 0 {
+                eprintln!("Filtered {} trades (calendar spreads or invalid prices)", filtered_count);
+            }
+
+            all_trades.sort_by_key(|t| t.time);
+            Ok(all_trades)
+        })
+    }
+}
+
+impl DbnFileProvider {
+    fn find_files_internal(data_dir: &PathBuf, range: &DateRange) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(data_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.contains(".dbn") && (name.ends_with(".zst") || name.ends_with(".dbn")) {
+                        if let Some(dates) = extract_dates(name) {
+                            if dates.0 <= range.end && dates.1 >= range.start {
+                                files.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+}
+
+async fn load_trades_from_file(
+    path: &PathBuf, 
+    range: &DateRange, 
+    symbol: &str,
+    valid_instrument_ids: &[u32],
+) -> anyhow::Result<Vec<Trade>> {
+    let mut decoder = AsyncDbnDecoder::from_zstd_file(path).await
+        .with_context(|| format!("Failed to open DBN file: {}", path.display()))?;
+
+    let mut trades = Vec::new();
+    
+    let start_dt = chrono::NaiveDateTime::new(range.start, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    let end_dt = chrono::NaiveDateTime::new(range.end, chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap());
+    let start_ts = start_dt.and_utc().timestamp_nanos_opt().unwrap() as u64;
+    let end_ts = end_dt.and_utc().timestamp_nanos_opt().unwrap() as u64;
+
+    while let Some(msg) = decoder.decode_record::<TradeMsg>().await? {
+        let ts_recv = match msg.ts_recv() {
+            Some(t) => t.unix_timestamp_nanos() as u64,
+            None => continue,
+        };
+        
+        if ts_recv < start_ts {
+            continue;
+        }
+        if ts_recv > end_ts {
+            break;
+        }
+
+        let ts_ms = ts_recv / 1_000_000;
+        
+        // Filter by instrument ID if we have valid IDs
+        // This filters out calendar spreads which have different instrument IDs
+        if !valid_instrument_ids.is_empty() {
+            let instrument_id = msg.hd.instrument_id;
+            if !valid_instrument_ids.contains(&instrument_id) {
+                continue;
+            }
+        }
+
+        let trade = Trade {
+            time: Timestamp(ts_ms),
+            price: convert_price(msg.price),
+            quantity: Quantity(msg.size as f64),
+            side: match msg.side() {
+                Ok(databento::dbn::Side::Ask) => Side::Sell,
+                _ => Side::Buy,
+            },
+        };
+        trades.push(trade);
+    }
+
+    Ok(trades)
+}

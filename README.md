@@ -1,3 +1,5 @@
+# Kairos
+
 <div align="center">
 
   <img src=".gitlab/kairos.svg" alt="Kairos" width="400" />
@@ -19,7 +21,7 @@
 - **Candlestick & footprint charts** — OHLC with order-flow footprint overlay, 18 built-in technical studies, and a configurable side panel for volume profile
 - **Depth heatmap** *(preview)* — Real-time order book depth visualization with trade markers and volume profile
 - **Comparison charts** — Multi-series overlay for spread, ratio, or relative performance analysis
-- **Volume profile charts** — Session and composite volume-at-price with POC, value area, and peak/valley detection
+- **Volume profile charts** — Session and composite volume-at-price with POC, value area, and peak/vality detection
 - **Depth ladder** *(preview)* — Live depth-of-market ladder with chase tracking, trade aggregation, and grouped price levels
 - **19 drawing tools** — Lines, Fibonacci, channels, shapes, annotations, position calculators, and AI context selection
 - **Real-time and historical data** — CME Globex via Databento (historical) and Rithmic (live streaming)
@@ -27,6 +29,7 @@
 - **Replay** — Replay historical sessions with play/pause, speed control, and seek
 - **AI assistant** *(preview)* — Conversational AI pane with 25+ tools for market data, studies, drawings, and analysis
 - **Backtesting** *(preview)* — Event-driven strategy simulation with walk-forward optimization, Monte Carlo analysis, and 30+ performance metrics
+- **Headless CLI** — Run backtests from the command line on local Databento DBN files
 
 <div align="center">
   <img src="https://gitlab.com/kreotic/kairos/-/wikis/charts/candlestick-chart.png" alt="Candlestick chart with studies" width="800" />
@@ -124,17 +127,70 @@ cargo fmt --check                    # Format check
 
 ---
 
+## Headless CLI
+
+Kairos includes a headless CLI for running backtests from the command line on local Databento DBN files without the GUI.
+
+```bash
+# Build the CLI
+cargo build --package kairos-cli
+
+# Run a backtest
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --start 2023-01-01 \
+  --end 2023-12-31 \
+  --strategy orb \
+  --data-dir /path/to/dbn/files
+
+# List available strategies
+./target/debug/kairos list-strategies
+
+# List supported symbols
+./target/debug/kairos list-symbols
+
+# Debug data file structure
+./target/debug/kairos debug-data --path /path/to/file.dbn.zst
+```
+
+See [AGENTS.md](AGENTS.md) for detailed information about:
+- Setting up local Databento data files
+- Filtering calendar spreads from trade data
+- CLI command reference
+
+---
+
 ## Data Providers
 
 ### Databento — Historical Data
 
 [Databento](https://databento.com) provides historical trade and MBO data for CME Globex futures.
 
+#### GUI Download
 1. Sign up at databento.com and get an API key
 2. Set the `DATABENTO_API_KEY` environment variable, or enter it in the app (Settings > API Keys)
 3. Use the download manager to fetch historical data by symbol and date range
 
+#### Local DBN Files
+The headless CLI can process local Databento DBN files directly:
+
+```bash
+# DBN files should be named with the Databento naming convention:
+# glbx-mdp3-YYYYMMDD-YYYYMMDD.schema.dbn.zst
+# Example: glbx-mdp3-20230101-20230131.trades.dbn.zst
+
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --data-dir /path/to/dbn/files
+```
+
 Data is cached locally as bincode + zstd compressed files, organized by provider/symbol/schema/date.
+
+### Handling Calendar Spreads
+
+Databento DBN files for futures may contain **calendar spread** trades in addition to outright futures contracts. Calendar spreads have significantly different price scales (e.g., $100-$200) compared to outright futures (e.g., $11,000-$17,000 for NQ).
+
+Kairos automatically filters out calendar spreads by instrument ID, ensuring only outright futures trades are used for backtesting.
 
 ### Rithmic — Real-Time Data
 
@@ -152,7 +208,49 @@ The app connects to Rithmic's ticker, market data, and PnL plants for real-time 
 
 Event-driven backtesting engine with tick-level simulation, 30+ performance metrics, walk-forward optimization, and Monte Carlo analysis.
 
-Custom strategies implement the `Strategy` trait with access to candles, studies, and a full order management API.
+### Built-in Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `orb` | Opening Range Breakout — trades breakouts above/below the first N minutes |
+| `vwap_reversion` | VWAP Reversion — fades price deviations from VWAP at std-dev bands |
+| `momentum_breakout` | Momentum Breakout — Donchian channel breakout with ATR-scaled brackets |
+
+### CLI Usage
+
+```bash
+# Basic backtest
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --start 2023-01-01 \
+  --end 2023-12-31 \
+  --strategy orb \
+  --capital 100000
+
+# With verbose output
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --start 2023-01-01 \
+  --end 2023-01-31 \
+  --strategy orb \
+  --data-dir /path/to/dbn/files \
+  --verbose
+
+# Different timeframes
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --start 2023-01-01 \
+  --end 2023-12-31 \
+  --strategy orb \
+  --timeframe 5min
+```
+
+### Performance Metrics
+
+- **Return**: Total, annualized, gross/net
+- **Risk**: Max drawdown, Sharpe, Sortino, Calmar ratios
+- **Trade Stats**: Win rate, profit factor, expectancy, avg win/loss
+- **MAE/MFE**: Maximum adverse/favorable excursion per trade
 
 ---
 
@@ -189,6 +287,7 @@ Replay historical trading sessions with full chart reconstruction — play/pause
 | Crate | Lines | Description |
 |-------|-------|-------------|
 | `app/` | ~45K | Iced GUI application — chart rendering, pane system, modals, state management, AI assistant |
+| `crates/cli/` | ~1K | Headless CLI — backtest command, data analysis, strategy listing |
 | `crates/data/` | ~15K | Domain types, data adapters (Databento, Rithmic), DataEngine facade, per-day file caching |
 | `crates/study/` | ~8K | Technical analysis library — 18 studies with pure computation, no I/O dependencies |
 | `crates/backtest/` | ~6K | Event-driven backtesting engine — strategies, fill simulation, optimization, performance analysis |

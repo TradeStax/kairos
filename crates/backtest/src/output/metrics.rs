@@ -488,7 +488,9 @@ fn compute_max_drawdown(curve: &EquityCurve, initial_capital: f64) -> (f64, f64)
     }
 
     let max_dd_pct = if max_dd_peak > 0.0 {
-        max_dd_usd / max_dd_peak * 100.0
+        // Cap at 100% to avoid impossible values when equity goes negative
+        let pct = max_dd_usd / max_dd_peak * 100.0;
+        pct.min(100.0)
     } else {
         0.0
     };

@@ -565,6 +565,15 @@ impl Engine {
         run_id: Uuid,
         sender: Option<&'static tokio::sync::mpsc::UnboundedSender<BacktestProgressEvent>>,
     ) {
+        // Always sample equity periodically regardless of session state
+        // This ensures equity is tracked even outside RTH
+        self.tick_count += 1;
+        if self.tick_count >= EQUITY_SAMPLE_INTERVAL {
+            self.tick_count = 0;
+            self.sample_equity(trade, run_id, sender);
+        }
+
+        // Only process strategy callbacks during RTH and outside warmup
         if self.session_clock.session_state != SessionState::Open || self.is_warmup {
             return;
         }
@@ -576,13 +585,6 @@ impl Engine {
             strategy.on_tick(&ctx)
         };
         self.process_order_requests(requests, trade, run_id, sender, &*strategy);
-
-        // Periodic equity sampling
-        self.tick_count += 1;
-        if self.tick_count >= EQUITY_SAMPLE_INTERVAL {
-            self.tick_count = 0;
-            self.sample_equity(trade, run_id, sender);
-        }
     }
 
     /// Records an equity curve point and emits an equity update
