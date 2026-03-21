@@ -14,6 +14,7 @@ path = "src/main.rs"
 kairos-data = { version = "1.0.0", path = "../data", features = ["databento"] }
 kairos-study = { version = "1.0.0", path = "../study" }
 kairos-backtest = { version = "1.0.0", path = "../backtest" }
+kairos-ml = { version = "0.1.0", path = "../kairos-ml" }
 
 tokio = { workspace = true, features = ["fs"] }
 chrono = { workspace = true }

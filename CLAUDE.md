@@ -12,6 +12,7 @@ cargo test                           # All tests
 cargo test --package kairos-data
 cargo test --package kairos-study
 cargo test --package kairos-backtest
+cargo test --package kairos-ml       # Requires libtorch
 cargo clippy --features heatmap -- -D warnings  # Lint (match CI)
 cargo fmt --check                    # Format check
 ```
@@ -189,7 +190,13 @@ crates/backtest/             # Backtest layer — kairos-backtest v1.0.0 (event-
 ├── output/                  # BacktestResult, PerformanceMetrics, TradeRecord, TradeSnapshot, ExitReason, BacktestProgressEvent
 ├── analysis/                # t-test, bootstrap CI, Monte Carlo simulation
 └── optimization/            # WalkForwardOptimizer, ParameterGrid, ObjectiveFunction
-```
+
+crates/kairos-ml/            # ML layer — kairos-ml v1.0.0 (PyTorch-based ML strategy support)
+├── model/                  # Model trait, ModelOutput, TradingSignal, TchModel (tch crate), ModelRegistry
+├── features/               # FeatureConfig, FeatureDefinition, NormalizationMethod, FeatureExtractor
+├── strategy/                # MlStrategy (implements Strategy trait), MlStrategyConfig
+├── training/               # TrainingConfig, Dataset, LabelConfig, DataGenerator, TrainingLoop, Callbacks
+└── examples/               # train_simple_model, ml_strategy_backtest
 
 ## Kairos Struct
 
@@ -252,7 +259,7 @@ pub struct Kairos {
 
 GitLab CI (`.gitlab-ci.yml`) — push/MR/tag pipelines:
 - **check**: `fmt`, `clippy --features heatmap -- -D warnings`, `audit`
-- **test**: `test --features heatmap`, `test --doc --features heatmap`
+- **test**: `test --features heatmap`, `test --doc --features heatmap`, `test -p kairos-ml` (requires libtorch)
 - **build**: Linux (x86_64, aarch64), Windows (x86_64, aarch64), macOS (universal) — tag-triggered or manual
 - **release**: Package checksums + GitLab release with download links
 

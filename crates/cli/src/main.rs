@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod backtest;
 mod download;
+mod ml;
 
 #[derive(Parser)]
 #[command(name = "kairos")]
@@ -19,6 +20,8 @@ enum Commands {
     ListStrategies,
     ListSymbols,
     DebugData(DebugDataArgs),
+    /// ML model management and training commands
+    Ml(ml::MlArgs),
 }
 
 #[derive(clap::Args)]
@@ -37,6 +40,7 @@ async fn main() -> Result<()> {
         Commands::ListStrategies => list_strategies(),
         Commands::ListSymbols => list_symbols(),
         Commands::DebugData(args) => debug_data(&args.path).await?,
+        Commands::Ml(args) => ml::run(args).await?,
     }
 
     Ok(())

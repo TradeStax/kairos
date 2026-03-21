@@ -1,0 +1,46 @@
+[package]
+name = "kairos-ml"
+version = "0.1.0"
+edition.workspace = true
+homepage.workspace = true
+description = "ML strategy module for Kairos with PyTorch integration"
+license = "MIT"
+
+[features]
+default = ["tch"]
+tch = ["dep:tch"]
+# ort = ["dep:ort"]  # ONNX support (optional, requires ort dependency)
+
+[dependencies]
+# ML Framework - PyTorch bindings
+tch = { version = "0.23", optional = true }
+
+# ONNX Runtime (optional)
+# ort = { version = "2.0.0-rc.12", optional = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+log = { workspace = true }
+tracing = { workspace = true }
+
+# Kairos internal crates
+kairos-backtest = { path = "../backtest" }
+kairos-data = { path = "../data" }
+kairos-study = { path = "../study" }
+
+# Semantic versioning
+semver = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+
+[build-dependencies]
+cmake = "0.1"

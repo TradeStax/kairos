@@ -121,6 +121,7 @@ cargo test                           # All tests
 cargo test --package kairos-data     # Data layer
 cargo test --package kairos-study    # Study library
 cargo test --package kairos-backtest # Backtest engine
+cargo test --package kairos-ml       # ML module (requires libtorch)
 cargo clippy                         # Lint
 cargo fmt --check                    # Format check
 ```
@@ -215,6 +216,28 @@ Event-driven backtesting engine with tick-level simulation, 30+ performance metr
 | `orb` | Opening Range Breakout — trades breakouts above/below the first N minutes |
 | `vwap_reversion` | VWAP Reversion — fades price deviations from VWAP at std-dev bands |
 | `momentum_breakout` | Momentum Breakout — Donchian channel breakout with ATR-scaled brackets |
+| ML strategies | Load trained PyTorch models for ML-based signal generation |
+
+### ML Strategy Support
+
+The `kairos-ml` crate provides PyTorch-based ML model support for trading strategies:
+
+```bash
+# Train a new ML model
+./target/debug/kairos ml train \
+  --config training_config.json \
+  --data-dir /path/to/training/data
+
+# List available models
+./target/debug/kairos ml list-models
+
+# Validate a model
+./target/debug/kairos ml validate-model \
+  --model trained_model.pt \
+  --data sample_data.dbn
+```
+
+See [`crates/kairos-ml/README.md`](crates/kairos-ml/README.md) for detailed ML strategy documentation.
 
 ### CLI Usage
 
@@ -291,6 +314,7 @@ Replay historical trading sessions with full chart reconstruction — play/pause
 | `crates/data/` | ~15K | Domain types, data adapters (Databento, Rithmic), DataEngine facade, per-day file caching |
 | `crates/study/` | ~8K | Technical analysis library — 18 studies with pure computation, no I/O dependencies |
 | `crates/backtest/` | ~6K | Event-driven backtesting engine — strategies, fill simulation, optimization, performance analysis |
+| `crates/kairos-ml/` | ~15K | PyTorch-based ML strategy module — model loading, feature extraction, training pipeline, ML strategy wrapper |
 
 See [CLAUDE.md](CLAUDE.md) for detailed architecture, conventions, and module-level documentation.
 

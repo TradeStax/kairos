@@ -1,0 +1,26 @@
+{
+  "lookback_periods": 50,
+  "normalization": "zscore",
+  "features": [
+    {
+      "study_key": "sma_20",
+      "output_field": "line",
+      "transform": null
+    },
+    {
+      "study_key": "sma_50",
+      "output_field": "line",
+      "transform": null
+    },
+    {
+      "study_key": "rsi_14",
+      "output_field": "line",
+      "transform": null
+    },
+    {
+      "study_key": "vwap",
+      "output_field": "line",
+      "transform": null
+    }
+  ]
+}
