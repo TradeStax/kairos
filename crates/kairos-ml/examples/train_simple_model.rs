@@ -14,7 +14,6 @@
 //! The example will train a model and save it to `trained_model.pt`.
 //! Training progress and metrics will be printed to the console.
 
-use kairos_ml::model::tch_impl::TchModel;
 use kairos_ml::training::training_loop::train;
 use kairos_ml::training::{Dataset, LabelConfig, OptimizerType, TrainingConfig};
 use std::path::Path;
@@ -105,6 +104,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         label_config,
         validation_split: 0.2,
         early_stopping_patience: 10,
+        lstm_config: kairos_ml::training::config::LstmConfig::default(),
+        gpu_device: None,
     };
 
     println!("Training Configuration:");
@@ -132,8 +133,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Hidden size: 64");
     println!("  Output size: 3 (long, neutral, short)");
 
-    let model = TchModel::new(input_size as i64, 64, 3, "simple_model");
-
     println!();
     println!("Starting training...");
     println!("-------------------------------------------------");
@@ -144,18 +143,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------------------");
     println!();
     println!("Training Complete!");
-    println!("  Epochs trained:     {}", result.epochs_trained);
-    println!("  Final train loss:   {:.4}", result.final_train_loss);
-    if let Some(vl) = result.final_val_loss {
+    println!("  Epochs trained:     {}", result.result.epochs_trained);
+    println!("  Final train loss:   {:.4}", result.result.final_train_loss);
+    if let Some(vl) = result.result.final_val_loss {
         println!("  Final val loss:     {:.4}", vl);
     }
-    println!("  Early stopped:      {}", result.early_stopped);
+    println!("  Early stopped:      {}", result.result.early_stopped);
     println!();
 
     // Save the trained model
     let output_path = Path::new("trained_model.pt");
     println!("Saving model to {}...", output_path.display());
-    model.save(output_path)?;
+    result.var_store.save(output_path)?;
     println!("Model saved successfully!");
     println!();
 

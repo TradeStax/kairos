@@ -1,0 +1,27 @@
+{
+  "id": "nq_lstm_strategy",
+  "name": "NQ LSTM Strategy",
+  "description": "LSTM neural network trained on NQ futures with 12 technical indicators",
+  "signal_threshold_long": 0.6,
+  "signal_threshold_short": 0.6,
+  "min_confidence": 0.5,
+  "use_confidence_for_sizing": false,
+  "feature_config": {
+    "features": [
+      {"study_key": "sma_20", "output_field": "line"},
+      {"study_key": "sma_50", "output_field": "line"},
+      {"study_key": "ema_12", "output_field": "line"},
+      {"study_key": "ema_26", "output_field": "line"},
+      {"study_key": "rsi", "output_field": "line"},
+      {"study_key": "atr", "output_field": "line"},
+      {"study_key": "macd", "output_field": "line"},
+      {"study_key": "macd_signal", "output_field": "line"},
+      {"study_key": "macd_hist", "output_field": "line"},
+      {"study_key": "bb_upper", "output_field": "band.upper"},
+      {"study_key": "bb_lower", "output_field": "band.lower"},
+      {"study_key": "vwap", "output_field": "line"}
+    ],
+    "lookback_periods": 20,
+    "normalization": "none"
+  }
+}

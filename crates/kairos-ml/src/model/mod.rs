@@ -33,7 +33,7 @@ pub trait Model: std::any::Any {
 
 // Tensor type - re-exported when tch feature is enabled, stubbed otherwise
 #[cfg(feature = "tch")]
-use tch::Tensor;
+pub use tch::Tensor;
 
 #[cfg(not(feature = "tch"))]
 #[derive(Debug, Clone, Copy)]

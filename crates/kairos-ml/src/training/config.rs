@@ -98,17 +98,20 @@ pub enum TrainingConfigError {
 
 /// Model architecture type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum ModelType {
     /// Simple Multi-Layer Perceptron
     #[default]
+    #[serde(rename = "mlp")]
     Mlp,
     /// LSTM-based model
+    #[serde(rename = "lstm")]
     LSTM,
     /// Bidirectional LSTM
+    #[serde(rename = "bilstm")]
     BiLSTM,
     /// 1D Convolutional model
+    #[serde(rename = "conv1d")]
     Conv1D,
 }
 

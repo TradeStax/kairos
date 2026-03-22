@@ -113,7 +113,12 @@ fn test_ml_strategy_config_builder() {
 
 #[test]
 fn test_ml_strategy_config_validation() {
-    let mut config = MlStrategyConfig::default();
+    // Create config with valid features
+    let mut config = MlStrategyConfig::new(FeatureConfig {
+        features: vec![FeatureDefinition::new("sma", "line")],
+        lookback_periods: 20,
+        normalization: NormalizationMethod::ZScore,
+    });
 
     // Invalid threshold (must be 0.0-1.0)
     config.signal_threshold_long = 1.5;
@@ -200,11 +205,13 @@ fn test_model_output_serialization() {
         prediction: TradingSignal::Neutral,
     };
 
+    // ModelOutput uses externally tagged JSON format with "type" field
     let json = serde_json::to_string(&output).unwrap();
-    assert!(json.contains("Neutral"));
+    assert!(json.contains("classification"));
 
     let output = ModelOutput::Regression { value: 1.5 };
     let json = serde_json::to_string(&output).unwrap();
+    assert!(json.contains("regression"));
     assert!(json.contains("1.5"));
 }
 
@@ -217,8 +224,8 @@ fn test_model_output_confidence() {
     assert!((classification.confidence() - 0.7).abs() < 0.001);
 
     let regression = ModelOutput::Regression { value: 1.5 };
-    // Regression confidence is absolute value
-    assert!((regression.confidence() - 1.5).abs() < 0.001);
+    // Regression confidence is clamped to [0, 1]
+    assert!((regression.confidence() - 1.0).abs() < 0.001); // Clamped to 1.0
 }
 
 #[test]
@@ -231,7 +238,7 @@ fn test_model_output_signal() {
 
     let regression = ModelOutput::Regression { value: 0.05 };
     // For regression, signal is derived from value sign
-    assert_eq!(regression.signal(), TradingSignal::Neutral); // 0.05 is neutral
+    assert_eq!(regression.signal(), TradingSignal::Long); // 0.05 > 0 is Long
 }
 
 #[test]

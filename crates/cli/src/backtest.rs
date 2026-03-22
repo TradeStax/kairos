@@ -42,6 +42,14 @@ pub struct BacktestArgs {
 
     #[arg(long, required = true)]
     pub data_dir: PathBuf,
+
+    /// Path to trained ML model (required for ml strategy)
+    #[arg(long)]
+    pub model_path: Option<PathBuf>,
+
+    /// Path to ML strategy config JSON (optional, uses defaults if not provided)
+    #[arg(long)]
+    pub strategy_config: Option<PathBuf>,
 }
 
 fn parse_timeframe(s: &str) -> kairos_data::Timeframe {
@@ -131,23 +139,29 @@ pub async fn run(args: BacktestArgs) -> Result<()> {
         sym => FuturesTicker::new(&format!("{}.c.0", sym), FuturesVenue::CMEGlobex),
     };
 
-    let registry = StrategyRegistry::with_built_ins();
-
-    if !registry.contains(&args.strategy) {
-        anyhow::bail!("Unknown strategy: {}", args.strategy);
-    }
-
     let date_range = DateRange::new(start_date, end_date)
         .context("Invalid date range")?;
+
+    // Handle ML strategy differently
+    let strategy: Box<dyn kairos_backtest::Strategy> = if args.strategy == "ml" {
+        create_ml_strategy(&args, &ticker).await?
+    } else {
+        let registry = StrategyRegistry::with_built_ins();
+
+        if !registry.contains(&args.strategy) {
+            anyhow::bail!("Unknown strategy: {}. Use 'orb', 'vwap_reversion', 'momentum_breakout', or 'ml'", args.strategy);
+        }
+
+        registry.create(&args.strategy)
+            .with_context(|| format!("Failed to create strategy: {}", args.strategy))?
+    };
 
     let mut config = BacktestConfig::default_es(&args.strategy);
     config.ticker = ticker;
     config.date_range = date_range.clone();
     config.timeframe = timeframe;
     config.initial_capital_usd = args.capital;
-
-    let strategy = registry.create(&args.strategy)
-        .with_context(|| format!("Failed to create strategy: {}", args.strategy))?;
+    config.warm_up_periods = if args.strategy == "ml" { 50 } else { 50 };
 
     println!("Kairos Backtest");
     println!("Symbol: {} | Period: {} to {} | Strategy: {}", 
@@ -396,4 +410,133 @@ async fn load_trades_from_file(
     }
 
     Ok(trades)
+}
+
+// ============================================================================
+// ML Strategy Support
+// ============================================================================
+
+use kairos_ml::features::{FeatureConfig, FeatureDefinition, NormalizationMethod};
+use kairos_ml::model::{Model as MlModel, tch_impl::TchModel};
+use kairos_ml::strategy::{MlStrategy, MlStrategyConfig};
+use kairos_backtest::Strategy;
+
+/// Thread-safe model wrapper that uses Mutex for interior mutability
+struct ThreadSafeModel(Arc<std::sync::Mutex<Box<dyn MlModel>>>);
+
+unsafe impl Send for ThreadSafeModel {}
+unsafe impl Sync for ThreadSafeModel {}
+
+impl MlModel for ThreadSafeModel {
+    fn predict(&self, input: &kairos_ml::model::Tensor) -> Result<kairos_ml::model::ModelOutput, kairos_ml::model::ModelError> {
+        self.0.lock().unwrap().predict(input)
+    }
+    fn input_shape(&self) -> Vec<i64> {
+        self.0.lock().unwrap().input_shape()
+    }
+    fn output_shape(&self) -> Vec<i64> {
+        self.0.lock().unwrap().output_shape()
+    }
+    fn name(&self) -> &str {
+        // Return static string to avoid lifetime issues
+        "ml_model"
+    }
+}
+
+/// Create an ML strategy for backtesting
+async fn create_ml_strategy(args: &BacktestArgs, _ticker: &FuturesTicker) -> Result<Box<dyn kairos_backtest::Strategy>> {
+    // Get model path
+    let model_path = args.model_path.as_ref()
+        .with_context(|| "--model-path is required for ml strategy")?;
+
+    if !model_path.exists() {
+        anyhow::bail!("Model file not found: {}", model_path.display());
+    }
+
+    println!("ML Strategy Configuration");
+    println!("========================");
+    println!("Model: {}", model_path.display());
+
+    // Create feature configuration matching training
+    let feature_config = create_default_feature_config();
+    
+    println!("Features: {} indicators", feature_config.features.len());
+    println!("  - SMA (20, 50)");
+    println!("  - EMA (12, 26)");
+    println!("  - RSI (14)");
+    println!("  - ATR (14)");
+    println!("  - MACD (12, 26, 9)");
+    println!("  - Bollinger Bands (20, 2)");
+    println!("  - VWAP");
+    println!("Lookback: {} bars", feature_config.lookback_periods);
+    println!();
+
+    // Load strategy config from file if provided
+    let strategy_config = if let Some(config_path) = &args.strategy_config {
+        let content = std::fs::read_to_string(config_path)?;
+        serde_json::from_str::<MlStrategyConfig>(&content)?
+            .with_feature_config(feature_config.clone())
+    } else {
+        MlStrategyConfig::new(feature_config.clone())
+    };
+
+    // Create ML strategy
+    let mut strategy = MlStrategy::new(strategy_config);
+
+    // Load the trained model
+    println!("Loading trained model...");
+    match TchModel::load(model_path) {
+        Ok(model) => {
+            println!("Model loaded successfully");
+            println!("  Name: {}", model.name());
+            let wrapped = ThreadSafeModel(Arc::new(std::sync::Mutex::new(Box::new(model))));
+            strategy.set_model(Arc::new(wrapped) as Arc<dyn MlModel + Send + Sync>);
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to load model weights: {}", e);
+            eprintln!("Creating default model (training required for good results)");
+            let default_model = TchModel::new(240, 64, 3, "default_model");
+            let wrapped = ThreadSafeModel(Arc::new(std::sync::Mutex::new(Box::new(default_model))));
+            strategy.set_model(Arc::new(wrapped) as Arc<dyn MlModel + Send + Sync>);
+        }
+    }
+
+    println!("\nML Strategy initialized successfully!");
+    println!("Required studies:");
+
+    let required_studies = strategy.required_studies();
+    for study in &required_studies {
+        println!("  - {} (study: {})", study.key, study.study_id);
+    }
+
+    Ok(Box::new(strategy))
+}
+
+/// Create default feature configuration matching the training setup
+fn create_default_feature_config() -> FeatureConfig {
+    FeatureConfig {
+        features: vec![
+            // SMA features (normalized as % from close)
+            FeatureDefinition::new("sma_20", "line"),
+            FeatureDefinition::new("sma_50", "line"),
+            // EMA features
+            FeatureDefinition::new("ema_12", "line"),
+            FeatureDefinition::new("ema_26", "line"),
+            // Momentum
+            FeatureDefinition::new("rsi", "line"),
+            // Volatility
+            FeatureDefinition::new("atr", "line"),
+            // MACD
+            FeatureDefinition::new("macd", "line"),
+            FeatureDefinition::new("macd_signal", "line"),
+            FeatureDefinition::new("macd_hist", "line"),
+            // Bollinger Bands
+            FeatureDefinition::new("bb_upper", "band.upper"),
+            FeatureDefinition::new("bb_lower", "band.lower"),
+            // Volume
+            FeatureDefinition::new("vwap", "line"),
+        ],
+        lookback_periods: 20,
+        normalization: NormalizationMethod::None,
+    }
 }

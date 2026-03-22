@@ -57,6 +57,14 @@ fn list_strategies() {
         println!("   {}", info.description);
         println!();
     }
+    
+    // Print ML strategy info
+    println!("ml: LSTM Neural Network Strategy");
+    println!("   Machine learning-based strategy using trained PyTorch models.");
+    println!("   Requires: --model-path <path-to-trained-model.pt>");
+    println!("   Features: 12 technical indicators (SMA, EMA, RSI, ATR, MACD, BB, VWAP)");
+    println!("   Usage: kairos backtest --strategy ml --model-path models/model.pt [options]");
+    println!();
 }
 
 fn list_symbols() {

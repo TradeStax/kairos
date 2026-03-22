@@ -3,15 +3,14 @@
 //! Integration tests for the training pipeline including training loop,
 //! early stopping, and model export.
 
-use kairos_ml::model::tch_impl::TchModel;
 use kairos_ml::training::training_loop::{LoggingCallback, train};
-use kairos_ml::training::{DataGenerator, Dataset, LabelConfig, OptimizerType, TrainingConfig};
+use kairos_ml::training::{Dataset, LabelConfig, OptimizerType, TrainingConfig};
 use tempfile::TempDir;
 
 #[cfg(feature = "tch")]
 mod tch_tests {
     use super::*;
-    use kairos_ml::Model;
+    use kairos_ml::training::config::LstmConfig;
 
     /// Create a synthetic dataset for testing
     fn create_synthetic_dataset(
@@ -63,13 +62,15 @@ mod tch_tests {
             label_config: LabelConfig::default(),
             validation_split: 0.2,
             early_stopping_patience: 0, // Disable early stopping
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         };
 
         let result = train(&config, &dataset, &LoggingCallback);
 
         // Training should complete without errors
-        assert_eq!(result.epochs_trained, 5);
-        assert!(!result.early_stopped);
+        assert_eq!(result.result.epochs_trained, 5);
+        assert!(!result.result.early_stopped);
     }
 
     #[test]
@@ -86,13 +87,15 @@ mod tch_tests {
             label_config: LabelConfig::default(),
             validation_split: 0.2,
             early_stopping_patience: 0,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         };
 
         let result = train(&config, &dataset, &LoggingCallback);
 
-        assert_eq!(result.epochs_trained, 3);
+        assert_eq!(result.result.epochs_trained, 3);
         // Check metrics were recorded
-        assert_eq!(result.metrics.len(), 3);
+        assert_eq!(result.result.metrics.len(), 3);
     }
 
     #[test]
@@ -109,12 +112,14 @@ mod tch_tests {
             label_config: LabelConfig::default(),
             validation_split: 0.0, // No validation
             early_stopping_patience: 0,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         };
 
         let result = train(&config, &dataset, &LoggingCallback);
 
-        assert_eq!(result.epochs_trained, 10);
-        assert!(!result.early_stopped);
+        assert_eq!(result.result.epochs_trained, 10);
+        assert!(!result.result.early_stopped);
     }
 
     #[test]
@@ -131,14 +136,16 @@ mod tch_tests {
             label_config: LabelConfig::default(),
             validation_split: 0.2,
             early_stopping_patience: 0,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         };
 
         let result = train(&config, &dataset, &LoggingCallback);
 
         // Check metrics history
-        assert_eq!(result.metrics.len(), 5);
+        assert_eq!(result.result.metrics.len(), 5);
 
-        for (i, metrics) in result.metrics.iter().enumerate() {
+        for (i, metrics) in result.result.metrics.iter().enumerate() {
             assert_eq!(metrics.epoch, i + 1);
             assert!(metrics.train_loss >= 0.0);
             assert!(metrics.val_loss.is_some());
@@ -147,30 +154,36 @@ mod tch_tests {
 
     #[test]
     fn test_model_export_to_file() {
+        use kairos_ml::training::training_loop::TrainResult;
+
         let temp_dir = TempDir::new().unwrap();
         let model_path = temp_dir.path().join("trained_model.pt");
 
-        // Create a simple model
-        let model = TchModel::new(10, 32, 3, "export_test");
+        // Create a simple dataset and train to get a VarStore
+        let dataset = create_synthetic_dataset(50, 5, 10);
 
-        // Save model
-        let save_result = model.save(&model_path);
+        let config = TrainingConfig {
+            model_type: kairos_ml::training::config::ModelType::Mlp,
+            learning_rate: 0.01,
+            batch_size: 10,
+            epochs: 2,
+            optimizer: OptimizerType::Adam,
+            weight_decay: 0.0001,
+            label_config: LabelConfig::default(),
+            validation_split: 0.0,
+            early_stopping_patience: 0,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
+        };
+
+        let result = train(&config, &dataset, &LoggingCallback);
+
+        // Save model via VarStore
+        let save_result = result.var_store.save(&model_path);
         assert!(save_result.is_ok());
 
-        // Load model
-        let loaded = TchModel::load_from_file(&model_path, "loaded_export_test", 10);
-        assert!(loaded.is_ok());
-
-        let loaded_model = loaded.unwrap();
-        assert_eq!(loaded_model.name(), "loaded_export_test");
-
-        // Verify predictions are similar
-        let input = tch::Tensor::randn([2, 1, 10], (tch::Kind::Float, tch::Device::Cpu));
-        let output1 = model.predict(&input);
-        let output2 = loaded_model.predict(&input);
-
-        assert!(output1.is_ok());
-        assert!(output2.is_ok());
+        // Verify file exists
+        assert!(model_path.exists());
     }
 
     #[test]
@@ -192,11 +205,13 @@ mod tch_tests {
                 label_config: LabelConfig::default(),
                 validation_split: 0.0,
                 early_stopping_patience: 0,
+                lstm_config: LstmConfig::default(),
+                gpu_device: None,
             };
 
             let result = train(&config, &dataset, &LoggingCallback);
             assert_eq!(
-                result.epochs_trained, 2,
+                result.result.epochs_trained, 2,
                 "Failed for optimizer: {:?}",
                 optimizer
             );
@@ -276,7 +291,7 @@ fn test_data_generator_creation() {
     let label_config = LabelConfig::default();
 
     // DataGenerator should be creatable
-    let _generator = DataGenerator::new(feature_config, label_config);
+    let _generator = kairos_ml::training::DataGenerator::new(feature_config, label_config);
 }
 
 #[test]

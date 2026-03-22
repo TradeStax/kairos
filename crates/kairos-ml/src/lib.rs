@@ -91,9 +91,8 @@ mod example_tests {
     #[test]
     #[ignore = "example only - verify examples compile with: cargo check --examples"]
     fn test_train_example_api_usage() {
-        use kairos_ml::model::tch_impl::TchModel;
-        use kairos_ml::training::training_loop::train;
-        use kairos_ml::training::{Dataset, LabelConfig, OptimizerType, TrainingConfig};
+        use crate::training::{Dataset, LabelConfig, OptimizerType, TrainingConfig};
+        use crate::training::config::{LstmConfig, ModelType};
 
         // Verify the types and functions used in the example exist
         let label_config = LabelConfig {
@@ -104,7 +103,7 @@ mod example_tests {
         };
 
         let config = TrainingConfig {
-            model_type: kairos_ml::training::config::ModelType::Mlp,
+            model_type: ModelType::Mlp,
             learning_rate: 0.001,
             batch_size: 32,
             epochs: 50,
@@ -113,24 +112,26 @@ mod example_tests {
             label_config,
             validation_split: 0.2,
             early_stopping_patience: 10,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         };
 
         // Verify TrainingConfig implements required traits
         fn _assert_default<T: Default>() {}
         _assert_default::<TrainingConfig>();
-
-        // Verify TchModel can be created with expected parameters
-        let model = TchModel::new(60, 64, 3, "simple_model");
-        assert_eq!(model.name(), "simple_model");
+        
+        // Verify config was created correctly
+        assert_eq!(config.epochs, 50);
+        assert_eq!(config.model_type, ModelType::Mlp);
     }
 
     /// Test that the backtest example API usage is valid.
     #[test]
     #[ignore = "example only - verify examples compile with: cargo check --examples"]
     fn test_backtest_example_api_usage() {
-        use kairos_ml::features::{FeatureConfig, FeatureDefinition, NormalizationMethod};
-        use kairos_ml::model::{ModelOutput, TradingSignal};
-        use kairos_ml::strategy::{MlStrategy, MlStrategyConfig};
+        use crate::features::{FeatureConfig, FeatureDefinition, NormalizationMethod};
+        use crate::model::TradingSignal;
+        use crate::strategy::MlStrategyConfig;
 
         // Verify FeatureConfig can be created
         let feature_config = FeatureConfig {
@@ -139,11 +140,13 @@ mod example_tests {
                     study_key: "sma_20".to_string(),
                     output_field: "line".to_string(),
                     transform: None,
+                    name: None,
                 },
                 FeatureDefinition {
                     study_key: "rsi_14".to_string(),
                     output_field: "line".to_string(),
                     transform: None,
+                    name: None,
                 },
             ],
             lookback_periods: 20,
@@ -151,11 +154,15 @@ mod example_tests {
         };
 
         // Verify MlStrategyConfig can be created
-        let strategy_config = MlStrategyConfig {
-            model_path: "trained_model.pt".to_string(),
+        let _strategy_config = MlStrategyConfig {
+            id: Some("test".to_string()),
+            name: Some("Test".to_string()),
+            description: None,
+            model_path: None,
             feature_config,
             signal_threshold_long: 0.6,
             signal_threshold_short: 0.6,
+            min_confidence: 0.5,
             use_confidence_for_sizing: true,
         };
 

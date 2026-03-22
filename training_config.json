@@ -1,5 +1,5 @@
 {
-  "model_type": "l_s_t_m",
+  "model_type": "lstm",
   "learning_rate": 0.001,
   "batch_size": 32,
   "epochs": 100,

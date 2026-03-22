@@ -82,6 +82,12 @@ impl MlStrategyConfig {
         self
     }
 
+    /// Set the feature configuration
+    pub fn with_feature_config(mut self, feature_config: FeatureConfig) -> Self {
+        self.feature_config = feature_config;
+        self
+    }
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), MlStrategyConfigError> {
         // Validate feature config
@@ -197,7 +203,12 @@ mod tests {
 
     #[test]
     fn test_config_validation_rejects_invalid_threshold() {
-        let mut config = MlStrategyConfig::default();
+        // Create config with valid features
+        let mut config = MlStrategyConfig::new(FeatureConfig {
+            features: vec![FeatureDefinition::new("sma", "line")],
+            lookback_periods: 20,
+            normalization: NormalizationMethod::ZScore,
+        });
 
         // Invalid threshold (> 1.0)
         config.signal_threshold_long = 1.5;

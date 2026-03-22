@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use databento::dbn::decode::AsyncDbnDecoder;
 use databento::dbn::TradeMsg;
 use kairos_data::{DateRange, Price, Quantity, Side, Timestamp, Trade};
-use kairos_ml::training::training_loop::train as run_training;
+use kairos_ml::training::training_loop::{train as run_training, TrainResult};
 use kairos_ml::Model;
 use std::path::PathBuf;
 
@@ -364,12 +364,12 @@ async fn train(args: TrainArgs) -> Result<()> {
     };
 
     // Run training
-    let result = run_training(&config, &dataset, &progress_callback);
+    let train_result = run_training(&config, &dataset, &progress_callback);
 
-    *epochs_trained.lock().unwrap() = result.epochs_trained;
-    *final_loss.lock().unwrap() = result.final_train_loss;
-    *final_val_loss.lock().unwrap() = result.final_val_loss;
-    *early_stopped.lock().unwrap() = result.early_stopped;
+    *epochs_trained.lock().unwrap() = train_result.result.epochs_trained;
+    *final_loss.lock().unwrap() = train_result.result.final_train_loss;
+    *final_val_loss.lock().unwrap() = train_result.result.final_val_loss;
+    *early_stopped.lock().unwrap() = train_result.result.early_stopped;
 
     if !args.verbose {
         println!(); // Newline after progress
@@ -377,27 +377,18 @@ async fn train(args: TrainArgs) -> Result<()> {
 
     println!();
     println!("Training complete!");
-    println!("  Epochs trained:  {}", result.epochs_trained);
-    println!("  Final train loss: {:.4}", result.final_train_loss);
-    if let Some(vl) = result.final_val_loss {
+    println!("  Epochs trained:  {}", train_result.result.epochs_trained);
+    println!("  Final train loss: {:.4}", train_result.result.final_train_loss);
+    if let Some(vl) = train_result.result.final_val_loss {
         println!("  Final val loss:   {:.4}", vl);
     }
-    println!("  Early stopped:   {}", result.early_stopped);
+    println!("  Early stopped:   {}", train_result.result.early_stopped);
     println!();
 
-    // Create and save model
-    println!("Saving model to {}...", args.output.display());
-
-    let num_features = dataset.num_features();
-    let lookback = dataset.lookback();
-    let model = TchModel::new(
-        (lookback * num_features) as i64,
-        64, // Hidden size
-        3,  // 3 classes
-        "trained_model",
-    );
-
-    model.save(&args.output)?;
+    // Save the trained model
+    println!("Saving trained model to {}...", args.output.display());
+    train_result.var_store.save(&args.output)
+        .map_err(|e| anyhow::anyhow!("Failed to save model: {}", e))?;
     println!("Model saved successfully!");
 
     // Print summary
@@ -405,11 +396,13 @@ async fn train(args: TrainArgs) -> Result<()> {
     println!("Training Summary");
     println!("================");
     println!("Model saved to: {}", args.output.display());
+    let num_feats = dataset.num_features();
+    let lookb = dataset.lookback();
     println!(
         "Input shape:    [batch, {}] (lookback={}, features={})",
-        lookback * num_features,
-        lookback,
-        num_features
+        lookb * num_feats,
+        lookb,
+        num_feats
     );
     println!("Output shape:   [batch, 3] (long, neutral, short)");
 

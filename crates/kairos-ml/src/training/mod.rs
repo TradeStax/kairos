@@ -9,7 +9,7 @@ pub mod training_loop;
 
 pub use config::{LabelConfig, TrainingConfig};
 pub use data_generator::{Candle, DataGenerator, DataGeneratorError, StudyOutput};
-pub use dataset::Dataset;
+pub use dataset::{Batch, BatchIterator, Dataset};
 
 use serde::{Deserialize, Serialize};
 
