@@ -12,7 +12,7 @@ pub use output::{ModelOutput, TradingSignal};
 pub use registry::ModelRegistry;
 
 /// Model trait for abstracting over different model implementations
-pub trait Model {
+pub trait Model: std::any::Any {
     /// Run inference on input tensor
     fn predict(&self, input: &Tensor) -> Result<ModelOutput, ModelError>;
 
@@ -24,6 +24,11 @@ pub trait Model {
 
     /// Get model name/identifier
     fn name(&self) -> &str;
+    
+    /// Get as Any for downcasting
+    fn as_any(&self) -> &dyn std::any::Any where Self: Sized {
+        self
+    }
 }
 
 // Tensor type - re-exported when tch feature is enabled, stubbed otherwise

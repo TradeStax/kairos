@@ -26,6 +26,12 @@ pub struct TrainingConfig {
     pub validation_split: f64,
     /// Early stopping patience (0 to disable)
     pub early_stopping_patience: usize,
+    /// LSTM-specific configuration (used when model_type is LSTM or BiLSTM)
+    #[serde(default)]
+    pub lstm_config: LstmConfig,
+    /// GPU device ID (None for CPU, Some(id) for CUDA device)
+    #[serde(default)]
+    pub gpu_device: Option<i64>,
 }
 
 impl TrainingConfig {
@@ -60,7 +66,7 @@ impl TrainingConfig {
 impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
-            model_type: ModelType::Mlp,
+            model_type: ModelType::LSTM,
             learning_rate: 0.001,
             batch_size: 32,
             epochs: 100,
@@ -69,6 +75,8 @@ impl Default for TrainingConfig {
             label_config: LabelConfig::default(),
             validation_split: 0.2,
             early_stopping_patience: 10,
+            lstm_config: LstmConfig::default(),
+            gpu_device: None,
         }
     }
 }
@@ -98,8 +106,34 @@ pub enum ModelType {
     Mlp,
     /// LSTM-based model
     LSTM,
+    /// Bidirectional LSTM
+    BiLSTM,
     /// 1D Convolutional model
     Conv1D,
+}
+
+/// LSTM-specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LstmConfig {
+    /// Hidden layer size
+    pub hidden_size: usize,
+    /// Number of LSTM layers
+    pub num_layers: usize,
+    /// Dropout probability
+    pub dropout: f64,
+    /// Use bidirectional LSTM
+    pub bidirectional: bool,
+}
+
+impl Default for LstmConfig {
+    fn default() -> Self {
+        Self {
+            hidden_size: 64,
+            num_layers: 2,
+            dropout: 0.2,
+            bidirectional: false,
+        }
+    }
 }
 
 /// Label generation configuration

@@ -1,0 +1,23 @@
+{
+  "model_type": "l_s_t_m",
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 100,
+  "optimizer": "Adam",
+  "weight_decay": 0.0001,
+  "label_config": {
+    "horizon": 5,
+    "long_threshold": 0.005,
+    "short_threshold": 0.005,
+    "warmup_bars": 20
+  },
+  "validation_split": 0.2,
+  "early_stopping_patience": 10,
+  "lstm_config": {
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "bidirectional": false
+  },
+  "gpu_device": 0
+}

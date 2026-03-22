@@ -14,7 +14,7 @@ path = "src/main.rs"
 kairos-data = { version = "1.0.0", path = "../data", features = ["databento"] }
 kairos-study = { version = "1.0.0", path = "../study" }
 kairos-backtest = { version = "1.0.0", path = "../backtest" }
-kairos-ml = { version = "0.1.0", path = "../kairos-ml" }
+kairos-ml = { version = "0.1.0", path = "../kairos-ml", features = ["tch"] }
 
 tokio = { workspace = true, features = ["fs"] }
 chrono = { workspace = true }
@@ -26,6 +26,9 @@ dirs-next = "2.0"
 databento = "0.22"
 futures = "0.3"
 async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tch = { version = "0.23", optional = true }
 
 [features]
-default = []
+default = ["tch"]

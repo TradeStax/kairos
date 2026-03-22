@@ -90,6 +90,23 @@ fn is_valid_price(price: f64, symbol: &str) -> bool {
 /// Calendar spreads have prices that are differences, not absolute prices
 fn get_nq_instrument_ids() -> Vec<u32> {
     vec![
+        // 2021 contracts
+        29652,  // NQH1 (NQ March 2021)
+        32274,  // NQM1 (NQ June 2021)
+        29558,  // NQN1 (NQ July 2021)
+        29804,  // NQU1 (NQ September 2021)
+        29882,  // NQV1 (NQ October 2021)
+        29653,  // NQZ1 (NQ December 2021)
+        29754,  // NQF2 (NQ January 2022)
+        29757,  // NQG2 (NQ February 2022)
+        29763,  // NQH2 (NQ March 2022)
+        // 2022 contracts
+        33011,  // NQM2 (NQ June 2022)
+        33014,  // NQN2 (NQ July 2022)
+        33018,  // NQU2 (NQ September 2022)
+        33021,  // NQV2 (NQ October 2022)
+        33024,  // NQZ2 (NQ December 2022)
+        // 2023 contracts
         20631,  // NQH3 (NQ March 2023)
         3522,   // NQM3 (NQ June 2023)
         2130,   // NQU3 (NQ September 2023)
@@ -273,11 +290,8 @@ impl TradeProvider for DbnFileProvider {
             let mut filtered_count = 0;
             
             // Get valid instrument IDs for main NQ contracts (not spreads)
-            let valid_instrument_ids: Vec<u32> = if symbol == "NQ" {
-                get_nq_instrument_ids()
-            } else {
-                Vec::new() // For other symbols, we'll use price filtering
-            };
+            // For now, we'll just use price filtering instead of instrument IDs
+            let valid_instrument_ids: Vec<u32> = Vec::new();
             
             for file in files {
                 match load_trades_from_file(&file, &range, &symbol, &valid_instrument_ids).await {

@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use kairos_ml::Model;
 use std::path::PathBuf;
 
 /// ML subcommand arguments
@@ -194,40 +195,38 @@ async fn train(args: TrainArgs) -> Result<()> {
     let lookback = feature_config.lookback_periods;
     let num_features = feature_config.features.len().max(3); // At least 3 features
 
-    let mut features_data = Vec::new();
-    let mut labels_data = Vec::new();
+    let mut features_data: Vec<Vec<Vec<f64>>> = Vec::new();
+    let mut labels_data: Vec<usize> = Vec::new();
+    let mut timestamps: Vec<i64> = Vec::new();
 
     for i in 0..num_samples {
         // Generate synthetic features with some pattern
         let t = i as f64;
-        let mut sample_features = Vec::new();
+        let mut lookback_features: Vec<Vec<f64>> = Vec::new();
 
-        for f in 0..num_features {
-            // Create some correlated features with noise
-            let base = (t * 0.01 + f as f64 * 0.5).sin() * 0.5;
-            let noise = (t * 0.1 * (f + 1) as f64).sin() * 0.2;
-            sample_features.push((base + noise) as f32);
+        for step in 0..lookback {
+            let mut step_features = Vec::new();
+            for f in 0..num_features {
+                // Create some correlated features with noise
+                let base = ((t + step as f64) * 0.01 + f as f64 * 0.5).sin() * 0.5;
+                let noise = ((t + step as f64) * 0.1 * (f + 1) as f64).sin() * 0.2;
+                step_features.push(base + noise);
+            }
+            lookback_features.push(step_features);
         }
-
-        // Flatten features for MLP input
-        features_data.extend(sample_features);
+        features_data.push(lookback_features);
 
         // Generate labels based on simple rule (for demonstration)
-        let signal = if i % 3 == 0 {
-            0
-        } else if i % 3 == 1 {
-            1
-        } else {
-            2
-        };
+        let signal = if i % 3 == 0 { 0 } else if i % 3 == 1 { 1 } else { 2 };
         labels_data.push(signal);
+        timestamps.push(i as i64);
     }
 
     // Create dataset
-    let dataset = Dataset::new(features_data, labels_data, lookback, num_features);
+    let dataset = Dataset::new(features_data, labels_data, timestamps);
 
     println!("Dataset created:");
-    println!("  Total samples: {}", dataset.num_samples());
+    println!("  Total samples: {}", dataset.len());
     println!("  Lookback:      {}", dataset.lookback());
     println!("  Features:      {}", dataset.num_features());
     println!();
@@ -242,6 +241,7 @@ async fn train(args: TrainArgs) -> Result<()> {
     let final_loss = Arc::new(Mutex::new(0.0f64));
     let final_val_loss = Arc::new(Mutex::new(Option::<f64>::None));
     let early_stopped = Arc::new(Mutex::new(false));
+    let max_epochs = config.epochs;
 
     struct ProgressCallback {
         epochs_trained: Arc<Mutex<usize>>,
@@ -249,6 +249,7 @@ async fn train(args: TrainArgs) -> Result<()> {
         final_val_loss: Arc<Mutex<Option<f64>>>,
         early_stopped: Arc<Mutex<bool>>,
         verbose: bool,
+        max_epochs: usize,
     }
 
     impl kairos_ml::training::training_loop::TrainingCallback for ProgressCallback {
@@ -268,7 +269,7 @@ async fn train(args: TrainArgs) -> Result<()> {
             } else {
                 print!(
                     "\rEpoch {:3}/{:3} - train_loss: {:.4}",
-                    metrics.epoch, config.epochs, metrics.train_loss
+                    metrics.epoch, self.max_epochs, metrics.train_loss
                 );
                 use std::io::Write;
                 std::io::stdout().flush().ok();
@@ -284,6 +285,7 @@ async fn train(args: TrainArgs) -> Result<()> {
         final_val_loss: final_val_loss.clone(),
         early_stopped: early_stopped.clone(),
         verbose: args.verbose,
+        max_epochs,
     };
 
     // Run training
@@ -393,7 +395,7 @@ async fn validate_model(args: ValidateModelArgs) -> Result<()> {
 
     // Try to load model
     println!("Loading model...");
-    let model = match TchModel::load_from_file(&args.model, "validation_model") {
+    let model = match TchModel::load(&args.model) {
         Ok(m) => m,
         Err(e) => {
             // Try to create a model and load weights
