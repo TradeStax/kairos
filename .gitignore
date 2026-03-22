@@ -20,3 +20,6 @@ models/
 *.pt
 training_config_updated.json
 training_dataset.json
+
+# ML Progress files
+!LSTM_TRAINING.md
