@@ -1,6 +1,6 @@
 # Kairos Agent Documentation
 
-This document provides detailed information for AI agents working with Kairos, particularly about the headless CLI, data handling, and backtesting functionality.
+This document provides detailed information for AI agents working with Kairos, particularly about the headless CLI, data handling, ML training, and backtesting functionality.
 
 ## Table of Contents
 
@@ -8,8 +8,9 @@ This document provides detailed information for AI agents working with Kairos, p
 2. [Databento DBN File Handling](#databento-dbn-file-handling)
 3. [Calendar Spread Filtering](#calendar-spread-filtering)
 4. [Backtest Configuration](#backtest-configuration)
-5. [Building and Testing](#building-and-testing)
-6. [Architecture Overview](#architecture-overview)
+5. [ML Strategy (LSTM)](#ml-strategy-lstm)
+6. [Building and Testing](#building-and-testing)
+7. [Architecture Overview](#architecture-overview)
 
 ---
 
@@ -20,7 +21,7 @@ The Kairos CLI provides headless backtesting functionality without requiring the
 ### Building
 
 ```bash
-cargo build --package kairos-cli
+cargo build --package kairos-cli --features kairos-cli/tch
 ```
 
 The binary is located at `./target/debug/kairos`.
@@ -50,12 +51,65 @@ Run a backtest on local DBN files:
 | `--symbol` | Yes | - | Futures symbol (NQ, ES, YM, RTY, etc.) |
 | `--start` | Yes | - | Start date (YYYY-MM-DD) |
 | `--end` | Yes | - | End date (YYYY-MM-DD) |
-| `--strategy` | No | `orb` | Strategy ID |
+| `--strategy` | No | `orb` | Strategy ID (orb, vwap_reversion, momentum_breakout, ml) |
+| `--model-path` | No | - | Path to ML model (.safetensors file) |
+| `--strategy-config` | No | - | Path to strategy config JSON |
 | `--timeframe` | No | `1min` | Candle timeframe (1m, 5m, 15m, 1h, 1d) |
 | `--capital` | No | `100000` | Initial capital in USD |
 | `--data-dir` | Yes | - | Directory containing DBN files |
 | `--verbose` | No | false | Show detailed trade output |
 | `--format` | No | `text` | Output format (text, json) |
+
+#### `ml train`
+
+Train an ML model on market data:
+
+```bash
+./target/debug/kairos ml train \
+  --config training_config.json \
+  --data-dir /data/jbutler/algo-data/nq \
+  --output models/nq_lstm_model.safetensors \
+  --epochs 50 \
+  --start 2021-01-01 \
+  --end 2021-03-31 \
+  --timeframe 5min \
+  --verbose
+```
+
+**Arguments:**
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--config` | Yes | - | Training configuration JSON |
+| `--data-dir` | Yes | - | Directory containing DBN files |
+| `--output` | Yes | - | Output path for model |
+| `--symbol` | No | NQ | Symbol to train on |
+| `--start` | Yes | - | Start date (YYYY-MM-DD) |
+| `--end` | Yes | - | End date (YYYY-MM-DD) |
+| `--timeframe` | No | `1min` | Candle timeframe (1s, 5s, 10s, 30s, 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d) |
+| `--epochs` | No | 50 | Number of epochs |
+| `--learning-rate` | No | 0.001 | Learning rate |
+| `--batch-size` | No | 256 | Batch size |
+| `-v, --verbose` | No | - | Verbose output |
+
+**Timeframe Support:**
+
+| Timeframe | Aliases | Description |
+|-----------|---------|-------------|
+| `1s` | `1sec` | 1 second bars |
+| `5s` | `5sec` | 5 second bars |
+| `10s` | `10sec` | 10 second bars |
+| `30s` | `30sec` | 30 second bars |
+| `1min` | `1m` | 1 minute bars (default) |
+| `3min` | `3m` | 3 minute bars |
+| `5min` | `5m` | 5 minute bars |
+| `15min` | `15m` | 15 minute bars |
+| `30min` | `30m` | 30 minute bars |
+| `1hour` | `1h` | 1 hour bars |
+| `4hour` | `4h` | 4 hour bars |
+| `1day` | `1d` | Daily bars |
+
+**Important:** When training on a specific timeframe, use the **same timeframe** during backtesting to ensure feature alignment.
 
 #### `list-strategies`
 
@@ -77,6 +131,10 @@ vwap_reversion: VWAP Reversion
 
 momentum_breakout: Momentum Breakout
    Donchian channel breakout with ATR-scaled bracket orders.
+
+ml: LSTM Neural Network Strategy
+   ML-based strategy using trained PyTorch models.
+   Features: 12 technical indicators (SMA, EMA, RSI, ATR, MACD, BB, VWAP)
 ```
 
 #### `list-symbols`
@@ -231,21 +289,139 @@ match product {
 - **Multiplier**: Dollar value per point (e.g., $20/tick for NQ)
 - **Margins**: Initial and maintenance margin requirements
 
-### Strategy Parameters
+---
 
-Strategies can be configured with parameters:
+## ML Strategy (LSTM)
 
-```rust
-// ORB strategy parameters
-ParameterDef {
-    key: "or_minutes".into(),      // Opening range duration
-    default: ParameterValue::Integer(30),
-}
-ParameterDef {
-    key: "tp_multiple".into(),      // Take-profit distance
-    default: ParameterValue::Float(1.5),
+The ML strategy uses a trained LSTM neural network to generate trading signals based on 12 technical indicators.
+
+### GPU Environment Setup
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LD_LIBRARY_PATH="/home/administrator/.local/lib/python3.12/site-packages/torch/lib:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+```
+
+### Training Configuration (`training_config.json`)
+
+```json
+{
+  "model_type": "lstm",
+  "learning_rate": 0.001,
+  "batch_size": 256,
+  "epochs": 50,
+  "optimizer": "Adam",
+  "weight_decay": 0.0001,
+  "validation_split": 0.2,
+  "early_stopping_patience": 10,
+  "label_config": {
+    "horizon": 5,
+    "long_threshold": 0.005,
+    "short_threshold": 0.005,
+    "warmup_bars": 20
+  },
+  "lstm_config": {
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "bidirectional": false
+  },
+  "gpu_device": 0
 }
 ```
+
+### ML Strategy Configuration (`ml_strategy_config.json`)
+
+```json
+{
+  "id": "nq_lstm_strategy",
+  "name": "NQ LSTM Strategy",
+  "signal_threshold_long": 0.45,
+  "signal_threshold_short": 0.45,
+  "min_confidence": 0.40,
+  "sl_tp": {
+    "stop_loss_ticks": 20,
+    "take_profit_ticks": 30,
+    "use_atr_based": false
+  },
+  "feature_config": {
+    "features": [
+      {"study_key": "sma_20", "output_field": "line"},
+      {"study_key": "sma_50", "output_field": "line"},
+      {"study_key": "ema_12", "output_field": "line"},
+      {"study_key": "ema_26", "output_field": "line"},
+      {"study_key": "rsi", "output_field": "value"},
+      {"study_key": "atr", "output_field": "value"},
+      {"study_key": "macd", "output_field": "lines.0"},
+      {"study_key": "macd_signal", "output_field": "lines.1"},
+      {"study_key": "macd_hist", "output_field": "histogram"},
+      {"study_key": "bollinger_upper", "output_field": "band.upper"},
+      {"study_key": "bollinger_lower", "output_field": "band.lower"},
+      {"study_key": "vwap", "output_field": "value"}
+    ],
+    "lookback_periods": 20
+  }
+}
+```
+
+### Input Features (12 Technical Indicators)
+
+| Feature | Study ID | Period |
+|---------|----------|--------|
+| sma_20 | sma | 20 |
+| sma_50 | sma | 50 |
+| ema_12 | ema | 12 |
+| ema_26 | ema | 26 |
+| rsi | rsi | 14 |
+| atr | atr | 14 |
+| macd | macd | 12,26,9 |
+| macd_signal | macd | 12,26,9 |
+| macd_hist | macd | 12,26,9 |
+| bollinger_upper | bollinger | 20,2 |
+| bollinger_lower | bollinger | 20,2 |
+| vwap | vwap | - |
+
+**Total: 12 features × 20 lookback = 240 input dimensions**
+
+> **⚠️ Timeframe Alignment:** When training a model on a specific timeframe (e.g., `--timeframe 5min`), you must use the **same timeframe** during backtesting. The technical indicators and model inputs are computed per-bar, so mismatched timeframes will produce incorrect signals.
+
+### LSTM Architecture
+
+```
+Input Layer:  [batch, lookback=20, features=12]
+    ↓
+LSTM Layer:  64 hidden units, 2 layers
+    ↓
+Dense Layer:  hidden → 3 (long/neutral/short)
+    ↓
+Output:      Class probabilities [P(long), P(neutral), P(short)]
+```
+
+### Running ML Backtest
+
+```bash
+./target/debug/kairos backtest \
+  --symbol NQ \
+  --start 2021-03-15 \
+  --end 2021-03-20 \
+  --strategy ml \
+  --model-path models/nq_lstm_v2.safetensors \
+  --strategy-config ml_strategy_config.json \
+  --timeframe 5min \
+  --data-dir /data/jbutler/algo-data/nq \
+  --capital 100000 \
+  --verbose
+```
+
+### Bracket Orders (Stop-Loss/Take-Profit)
+
+The ML strategy supports bracket orders with SL/TP:
+
+| Parameter | Description |
+|-----------|-------------|
+| `stop_loss_ticks` | Stop-loss distance in ticks |
+| `take_profit_ticks` | Take-profit distance in ticks |
+| `use_atr_based` | Use ATR multipliers instead of fixed ticks |
 
 ---
 
@@ -254,14 +430,14 @@ ParameterDef {
 ### Build Commands
 
 ```bash
-# Full build
-cargo build --release
+# Full build with ML support
+cargo build --package kairos-cli --features kairos-cli/tch
 
-# CLI only
-cargo build --package kairos-cli
+# Release build
+cargo build --release --package kairos-cli --features kairos-cli/tch
 
 # With gcc wrapper (sandbox environments)
-PATH="/tmp/cargo-bin:$PATH" CARGO_HOME="$PWD/.cargo" cargo build --package kairos-cli
+PATH="/tmp/cargo-bin:$PATH" CARGO_HOME="$PWD/.cargo" cargo build --package kairos-cli --features kairos-cli/tch
 ```
 
 ### Test Commands
@@ -274,6 +450,7 @@ cargo test
 cargo test --package kairos-data
 cargo test --package kairos-study
 cargo test --package kairos-backtest
+cargo test --package kairos-ml
 
 # Lint (with all features)
 cargo clippy --features heatmap -- -D warnings
@@ -294,7 +471,7 @@ chmod +x /tmp/cargo-bin/cc
 
 Then build with:
 ```bash
-PATH="/tmp/cargo-bin:$PATH" cargo build --package kairos-cli
+PATH="/tmp/cargo-bin:$PATH" cargo build --package kairos-cli --features kairos-cli/tch
 ```
 
 ---
@@ -307,16 +484,22 @@ PATH="/tmp/cargo-bin:$PATH" cargo build --package kairos-cli
 kairos/
 ├── app/                    # Iced GUI application
 ├── crates/
-│   ├── cli/               # Headless CLI (NEW)
+│   ├── cli/               # Headless CLI
 │   │   └── src/
 │   │       ├── main.rs    # CLI entry point
 │   │       ├── backtest.rs # Backtest command + DBN file provider
-│   │       └── download.rs # Download command
+│   │       └── ml.rs      # ML training command
 │   ├── data/              # Data layer
 │   │   └── src/adapter/databento/
 │   │       ├── decoder.rs  # DBN decoding
 │   │       └── mapper.rs   # Type conversion
-│   ├── study/             # Technical analysis
+│   ├── study/             # Technical analysis (SMA, EMA, RSI, etc.)
+│   ├── kairos-ml/         # ML training and inference
+│   │   └── src/
+│   │       ├── model/     # LSTM model implementation
+│   │       ├── training/  # Training loop
+│   │       ├── features/  # Feature extraction
+│   │       └── strategy/  # ML strategy wrapper
 │   └── backtest/           # Backtesting engine
 │       └── src/
 │           ├── engine/    # Simulation kernel
@@ -339,18 +522,7 @@ pub trait TradeProvider: Send + Sync {
 }
 ```
 
-The CLI implements `DbnFileProvider` for local DBN files:
-
-```rust
-impl TradeProvider for DbnFileProvider {
-    fn get_trades(&self, ticker: &FuturesTicker, range: &DateRange) -> ... {
-        // 1. Find matching DBN files
-        // 2. Filter by instrument ID (exclude spreads)
-        // 3. Convert prices from 10^-9 to 10^-8 precision
-        // 4. Return sorted trades
-    }
-}
-```
+The CLI implements `DbnFileProvider` for local DBN files.
 
 ### Key Data Types
 
@@ -380,6 +552,14 @@ This usually indicates bad price data. Check:
 1. Are calendar spreads being filtered correctly?
 2. Are prices within expected ranges for the symbol?
 3. Run with `--verbose` to see equity curve range
+
+### "Cannot find libtorch"
+
+Ensure environment variables are set:
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LD_LIBRARY_PATH="/home/administrator/.local/lib/python3.12/site-packages/torch/lib:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+```
 
 ### Build errors with `edition2024`
 

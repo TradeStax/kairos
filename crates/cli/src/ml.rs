@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use databento::dbn::decode::AsyncDbnDecoder;
 use databento::dbn::TradeMsg;
-use kairos_data::{DateRange, Price, Quantity, Side, Timestamp, Trade};
+use kairos_data::{DateRange, Price, Quantity, Side, Timestamp, Trade, Timeframe};
 use kairos_ml::training::training_loop::{train as run_training, TrainResult};
 use kairos_ml::Model;
 use std::path::PathBuf;
@@ -73,6 +73,10 @@ pub struct TrainArgs {
     #[arg(long)]
     pub batch_size: Option<usize>,
 
+    /// Candle timeframe for aggregation (default: 1min)
+    #[arg(long, value_name = "TIMEFRAME", default_value = "1min")]
+    pub timeframe: String,
+
     /// Verbose output
     #[arg(long, short)]
     pub verbose: bool,
@@ -114,7 +118,6 @@ pub async fn run(args: MlArgs) -> Result<()> {
 /// Train a new ML model
 async fn train(args: TrainArgs) -> Result<()> {
     use kairos_ml::features::FeatureConfig;
-    use kairos_ml::model::tch_impl::TchModel;
     use kairos_ml::training::training_loop::{LoggingCallback, train};
     use kairos_ml::training::{DataGenerator, Dataset, TrainingConfig};
     use std::fs;
@@ -246,9 +249,11 @@ async fn train(args: TrainArgs) -> Result<()> {
     
     println!("Loaded {} trades", trades.len());
     
-    // Aggregate trades into candles (1-minute)
-    println!("Aggregating into 1-minute candles...");
-    let cli_candles = aggregate_trades_to_candles(&trades, 60_000); // 60 seconds in ms
+    // Parse timeframe and aggregate trades into candles
+    let timeframe = parse_timeframe(&args.timeframe);
+    let timeframe_ms = timeframe.to_milliseconds();
+    println!("Aggregating into {} candles...", args.timeframe);
+    let cli_candles = aggregate_trades_to_candles(&trades, timeframe_ms);
     
     if cli_candles.is_empty() {
         anyhow::bail!("Failed to create candles from trades");
@@ -385,11 +390,41 @@ async fn train(args: TrainArgs) -> Result<()> {
     println!("  Early stopped:   {}", train_result.result.early_stopped);
     println!();
 
-    // Save the trained model
+    // Save the trained model with metadata
     println!("Saving trained model to {}...", args.output.display());
-    train_result.var_store.save(&args.output)
-        .map_err(|e| anyhow::anyhow!("Failed to save model: {}", e))?;
+    
+    // Get trained variables
+    let trained_vars = train_result.var_store.variables();
+    
+    // Prepare metadata
+    let num_feats = dataset.num_features();
+    let lookb = dataset.lookback();
+    let mut metadata = train_result.metadata.clone();
+    metadata.num_features = num_feats as i64;
+    metadata.lookback = lookb as i64;
+    metadata.name = format!("nq_lstm_model");
+    
+    // Save as safetensors with metadata
+    let weights_path = args.output.with_extension("safetensors");
+    let json_path = args.output.with_extension("json");
+    
+    // Use Tensor::write_safetensors for better compatibility
+    let named_tensors: Vec<(&str, &tch::Tensor)> = trained_vars
+        .iter()
+        .map(|(k, v)| (k.as_str(), v))
+        .collect();
+    
+    tch::Tensor::write_safetensors(named_tensors.as_slice(), &weights_path)
+        .map_err(|e| anyhow::anyhow!("Failed to save model weights: {}", e))?;
+    
+    // Save metadata
+    let json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| anyhow::anyhow!("Failed to serialize metadata: {}", e))?;
+    std::fs::write(&json_path, &json)?;
+    
     println!("Model saved successfully!");
+    println!("  Weights: {}", weights_path.display());
+    println!("  Metadata: {}", json_path.display());
 
     // Print summary
     println!();
@@ -666,6 +701,28 @@ fn is_valid_price(price: f64, symbol: &str) -> bool {
         "YM" => (15000.0..=50000.0).contains(&price),
         "RTY" => (800.0..=3000.0).contains(&price),
         _ => price > 0.0 && price < 1_000_000.0,
+    }
+}
+
+/// Parse timeframe string to Timeframe enum
+fn parse_timeframe(s: &str) -> Timeframe {
+    match s.to_lowercase().as_str() {
+        "1s" | "1sec" => Timeframe::M1s,
+        "5s" | "5sec" => Timeframe::M5s,
+        "10s" | "10sec" => Timeframe::M10s,
+        "30s" | "30sec" => Timeframe::M30s,
+        "1min" | "1m" => Timeframe::M1,
+        "3min" | "3m" => Timeframe::M3,
+        "5min" | "5m" => Timeframe::M5,
+        "15min" | "15m" => Timeframe::M15,
+        "30min" | "30m" => Timeframe::M30,
+        "1hour" | "1h" => Timeframe::H1,
+        "4hour" | "4h" => Timeframe::H4,
+        "1day" | "1d" => Timeframe::D1,
+        _ => {
+            eprintln!("Warning: Unknown timeframe '{}', defaulting to 1min", s);
+            Timeframe::M1
+        }
     }
 }
 

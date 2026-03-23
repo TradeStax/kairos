@@ -14,7 +14,7 @@ use kairos_backtest::order::request::OrderRequest;
 use kairos_backtest::order::types::{OrderSide, OrderType};
 use kairos_backtest::strategy::metadata::StrategyMetadata;
 use kairos_backtest::strategy::{OrderEvent, Strategy as BacktestStrategy, StrategyContext};
-use kairos_data::{Candle, FuturesTicker, FuturesVenue, Timeframe};
+use kairos_data::{Candle, FuturesTicker, FuturesVenue, Price, Timeframe};
 use kairos_study::{ParameterDef, StudyConfig};
 use std::sync::Arc;
 
@@ -154,16 +154,37 @@ impl BacktestStrategy for MlStrategy {
     }
 
     fn required_studies(&self) -> Vec<kairos_backtest::strategy::StudyRequest> {
-        self.config
-            .feature_config
-            .required_studies()
-            .iter()
-            .map(|key| kairos_backtest::strategy::StudyRequest {
+        use kairos_study::ParameterValue;
+        
+        // Map to track unique study instances with their parameters
+        let mut study_requests: std::collections::HashMap<String, kairos_backtest::strategy::StudyRequest> = std::collections::HashMap::new();
+
+        for key in self.config.feature_config.required_studies() {
+            // Extract base study ID and parameter from key (e.g., "sma_20" -> "sma", period=20)
+            let parts: Vec<&str> = key.split('_').collect();
+            let study_id = parts.first().unwrap_or(&key);
+            
+            // Try to extract period from key (e.g., "sma_20" -> 20, "ema_12" -> 12)
+            let params = if parts.len() >= 2 {
+                if let Ok(period) = parts[1].parse::<i64>() {
+                    vec![("period".to_string(), ParameterValue::Integer(period))]
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            };
+
+            // Use key as unique identifier to allow same study with different params
+            let request = kairos_backtest::strategy::StudyRequest {
                 key: key.to_string(),
-                study_id: key.to_string(), // Assume study ID matches key for now
-                params: vec![],
-            })
-            .collect()
+                study_id: study_id.to_string(),
+                params,
+            };
+            study_requests.insert(key.to_string(), request);
+        }
+
+        study_requests.into_values().collect()
     }
 
     fn on_init(&mut self, _ctx: &StrategyContext) {
@@ -187,9 +208,9 @@ impl BacktestStrategy for MlStrategy {
 
     fn on_candle(
         &mut self,
-        _instrument: FuturesTicker,
+        instrument: FuturesTicker,
         _timeframe: Timeframe,
-        _candle: &Candle,
+        candle: &Candle,
         ctx: &StrategyContext,
     ) -> Vec<OrderRequest> {
         self.bars_processed += 1;
@@ -198,23 +219,17 @@ impl BacktestStrategy for MlStrategy {
         let mut features: Vec<Vec<f64>> = Vec::new();
 
         for feature_def in &self.config.feature_config.features {
-            if let Some(study_output) = ctx.studies.get(&feature_def.study_key) {
-                // Extract values from study output
-                if let Some(values) =
-                    self.extract_study_values(study_output, &feature_def.output_field)
-                {
-                    // Apply transform if specified
-                    let values = if let Some(transform) = feature_def.transform {
-                        transform.apply(&values)
-                    } else {
-                        values
-                    };
+            let study_key = &feature_def.study_key;
+            let output_field = &feature_def.output_field;
+            
+            if let Some(study_output) = ctx.studies.get(study_key) {
+                if let Some(values) = self.extract_study_values(study_output, output_field) {
                     features.push(values);
                 }
             }
         }
 
-        // If we don't have enough features yet, return neutral
+        // If we don't have all features, return neutral
         if features.len() != self.config.feature_config.features.len() {
             return vec![];
         }
@@ -222,16 +237,17 @@ impl BacktestStrategy for MlStrategy {
         // Check warmup period
         let lookback = self.config.feature_config.lookback_periods;
         if features.iter().any(|f| f.len() < lookback) {
+            log::debug!("[ML] Bar {}: feature length {} < lookback {}", 
+                self.bars_processed, 
+                features.iter().map(|f| f.len()).min().unwrap_or(0),
+                lookback);
             return vec![];
         }
 
         // Mark warmup complete after first full extraction
         if !self.warmup_complete && self.bars_processed >= lookback {
             self.warmup_complete = true;
-            log::info!(
-                "ML Strategy warmup complete after {} bars",
-                self.bars_processed
-            );
+            log::info!("ML Strategy warmup complete at bar {}", self.bars_processed);
         }
 
         // If model not loaded, return neutral
@@ -243,6 +259,9 @@ impl BacktestStrategy for MlStrategy {
         // Store latest features for inspection
         self.latest_features = Some(features.clone());
 
+        // Check if we already have a position
+        let has_position = ctx.primary_position().is_some_and(|p| p.quantity.abs() > 0.001);
+
         // Run inference
         match self.run_inference(&features, model) {
             Ok(output) => {
@@ -250,7 +269,7 @@ impl BacktestStrategy for MlStrategy {
                 self.current_confidence = output.confidence();
 
                 // Generate order request based on signal
-                self.generate_order_request(output)
+                self.generate_order_request(output, instrument, has_position, candle)
             }
             Err(e) => {
                 log::warn!("ML inference error: {}", e);
@@ -264,9 +283,16 @@ impl BacktestStrategy for MlStrategy {
         vec![]
     }
 
-    fn on_session_close(&mut self, _ctx: &StrategyContext) -> Vec<OrderRequest> {
+    fn on_session_close(&mut self, ctx: &StrategyContext) -> Vec<OrderRequest> {
         // Flatten positions at session close
-        vec![]
+        if ctx.has_position(&ctx.primary_instrument) {
+            vec![OrderRequest::Flatten {
+                instrument: ctx.primary_instrument,
+                reason: kairos_backtest::output::trade_record::ExitReason::SessionClose,
+            }]
+        } else {
+            vec![]
+        }
     }
 
     fn on_order_event(&mut self, _event: OrderEvent, _ctx: &StrategyContext) -> Vec<OrderRequest> {
@@ -358,6 +384,22 @@ impl MlStrategy {
                 }
                 None
             }
+            // Handle Composite outputs (e.g., MACD: Lines + Histogram)
+            kairos_study::StudyOutput::Composite(outputs) => {
+                // Try to match by field path
+                for output in outputs {
+                    if let Some(values) = self.extract_study_values(output, field_path) {
+                        return Some(values);
+                    }
+                }
+                // Try numeric index like "0", "1", "2"
+                if let Ok(idx) = field_path.parse::<usize>() {
+                    if let Some(output) = outputs.get(idx) {
+                        return self.extract_study_values(output, "value");
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -404,7 +446,7 @@ impl MlStrategy {
     }
 
     /// Generate order request from model output
-    fn generate_order_request(&self, output: ModelOutput) -> Vec<OrderRequest> {
+    fn generate_order_request(&self, output: ModelOutput, instrument: FuturesTicker, has_position: bool, candle: &Candle) -> Vec<OrderRequest> {
         // Only generate orders when warmup is complete
         if !self.warmup_complete {
             return vec![];
@@ -415,10 +457,6 @@ impl MlStrategy {
         if output.confidence() < min_confidence {
             return vec![];
         }
-
-        // Create instrument for orders - use primary_instrument from context in real usage
-        // For now, use a placeholder that will be overridden
-        let instrument = FuturesTicker::new("NQ", FuturesVenue::CMEGlobex);
 
         match output {
             ModelOutput::Classification {
@@ -431,66 +469,204 @@ impl MlStrategy {
                     self.config.signal_threshold_short,
                 );
 
+                // Only trade when flat
+                if has_position {
+                    return vec![];
+                }
+
                 match signal {
-                    TradingSignal::Long => {
-                        vec![OrderRequest::Submit(
-                            kairos_backtest::order::request::NewOrder {
-                                instrument,
-                                side: OrderSide::Buy,
-                                order_type: OrderType::Market,
-                                quantity: 1.0,
-                                time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
-                                label: Some("ml_long".to_string()),
-                                reduce_only: false,
-                            },
-                        )]
-                    }
-                    TradingSignal::Short => {
-                        vec![OrderRequest::Submit(
-                            kairos_backtest::order::request::NewOrder {
-                                instrument,
-                                side: OrderSide::Sell,
-                                order_type: OrderType::Market,
-                                quantity: 1.0,
-                                time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
-                                label: Some("ml_short".to_string()),
-                                reduce_only: false,
-                            },
-                        )]
-                    }
+                    TradingSignal::Long => self.create_long_order(instrument, candle),
+                    TradingSignal::Short => self.create_short_order(instrument, candle),
                     TradingSignal::Neutral => vec![],
                 }
             }
             ModelOutput::Regression { value } => {
                 if value > self.config.signal_threshold_long {
-                    vec![OrderRequest::Submit(
-                        kairos_backtest::order::request::NewOrder {
-                            instrument,
-                            side: OrderSide::Buy,
-                            order_type: OrderType::Market,
-                            quantity: 1.0,
-                            time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
-                            label: Some("ml_long".to_string()),
-                            reduce_only: false,
-                        },
-                    )]
+                    self.create_long_order(instrument, candle)
                 } else if value < -self.config.signal_threshold_short {
-                    vec![OrderRequest::Submit(
-                        kairos_backtest::order::request::NewOrder {
-                            instrument,
-                            side: OrderSide::Sell,
-                            order_type: OrderType::Market,
-                            quantity: 1.0,
-                            time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
-                            label: Some("ml_short".to_string()),
-                            reduce_only: false,
-                        },
-                    )]
+                    self.create_short_order(instrument, candle)
                 } else {
                     vec![]
                 }
             }
         }
+    }
+
+    /// Create a long order (bracket or simple)
+    fn create_long_order(&self, instrument: FuturesTicker, candle: &Candle) -> Vec<OrderRequest> {
+        let sl_tp = match &self.config.sl_tp {
+            Some(s) => s,
+            None => {
+                // No SL/TP configured, use simple market order
+                return vec![OrderRequest::Submit(
+                    kairos_backtest::order::request::NewOrder {
+                        instrument,
+                        side: OrderSide::Buy,
+                        order_type: OrderType::Market,
+                        quantity: 1.0,
+                        time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                        label: Some("ml_long".to_string()),
+                        reduce_only: false,
+                    },
+                )];
+            }
+        };
+
+        // Calculate SL/TP prices using InstrumentSpec
+        let spec = kairos_backtest::config::instrument::InstrumentSpec::from_ticker(instrument);
+        let tick_size = spec.tick_size;
+        let entry_price = candle.close;
+
+        let (stop_loss, take_profit) = if sl_tp.use_atr_based {
+            // Get ATR from studies
+            let atr_value = self.get_latest_atr_value();
+            if atr_value.is_none() {
+                // Fall back to fixed ticks if ATR not available
+                let sl = entry_price - (tick_size * sl_tp.stop_loss_ticks as f64);
+                let tp = entry_price + (tick_size * sl_tp.take_profit_ticks as f64);
+                (Some(sl), Some(tp))
+            } else {
+                let atr = Price::from_units(atr_value.unwrap());
+                let sl_price = entry_price - (atr * sl_tp.stop_loss_atr_multiplier);
+                let tp_price = entry_price + (atr * sl_tp.take_profit_atr_multiplier);
+                (Some(sl_price), Some(tp_price))
+            }
+        } else {
+            // Fixed tick-based SL/TP
+            let sl_ticks_val = if sl_tp.stop_loss_ticks > 0 { 
+                Some(entry_price - (tick_size * sl_tp.stop_loss_ticks as f64))
+            } else { None };
+            let tp_ticks_val = if sl_tp.take_profit_ticks > 0 {
+                Some(entry_price + (tick_size * sl_tp.take_profit_ticks as f64))
+            } else { None };
+            (sl_ticks_val, tp_ticks_val)
+        };
+
+        // If no SL/TP configured, use simple order
+        if stop_loss.is_none() && take_profit.is_none() {
+            return vec![OrderRequest::Submit(
+                kairos_backtest::order::request::NewOrder {
+                    instrument,
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Market,
+                    quantity: 1.0,
+                    time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                    label: Some("ml_long".to_string()),
+                    reduce_only: false,
+                },
+            )];
+        }
+
+        // Create bracket order
+        vec![OrderRequest::SubmitBracket(
+            kairos_backtest::order::request::BracketOrder {
+                entry: kairos_backtest::order::request::NewOrder {
+                    instrument,
+                    side: OrderSide::Buy,
+                    order_type: OrderType::Market,
+                    quantity: 1.0,
+                    time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                    label: Some("ml_long".to_string()),
+                    reduce_only: false,
+                },
+                stop_loss: stop_loss.unwrap_or_else(|| entry_price - (tick_size * 40.0)), // fallback SL: 40 ticks
+                take_profit,
+            },
+        )]
+    }
+
+    /// Create a short order (bracket or simple)
+    fn create_short_order(&self, instrument: FuturesTicker, candle: &Candle) -> Vec<OrderRequest> {
+        let sl_tp = match &self.config.sl_tp {
+            Some(s) => s,
+            None => {
+                // No SL/TP configured, use simple market order
+                return vec![OrderRequest::Submit(
+                    kairos_backtest::order::request::NewOrder {
+                        instrument,
+                        side: OrderSide::Sell,
+                        order_type: OrderType::Market,
+                        quantity: 1.0,
+                        time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                        label: Some("ml_short".to_string()),
+                        reduce_only: false,
+                    },
+                )];
+            }
+        };
+
+        // Calculate SL/TP prices using InstrumentSpec
+        let spec = kairos_backtest::config::instrument::InstrumentSpec::from_ticker(instrument);
+        let tick_size = spec.tick_size;
+        let entry_price = candle.close;
+
+        let (stop_loss, take_profit) = if sl_tp.use_atr_based {
+            // Get ATR from studies
+            let atr_value = self.get_latest_atr_value();
+            if atr_value.is_none() {
+                // Fall back to fixed ticks if ATR not available
+                let sl = entry_price + (tick_size * sl_tp.stop_loss_ticks as f64);
+                let tp = entry_price - (tick_size * sl_tp.take_profit_ticks as f64);
+                (Some(sl), Some(tp))
+            } else {
+                let atr = Price::from_units(atr_value.unwrap());
+                let sl_price = entry_price + (atr * sl_tp.stop_loss_atr_multiplier);
+                let tp_price = entry_price - (atr * sl_tp.take_profit_atr_multiplier);
+                (Some(sl_price), Some(tp_price))
+            }
+        } else {
+            // Fixed tick-based SL/TP (reversed for short)
+            let sl_ticks_val = if sl_tp.stop_loss_ticks > 0 {
+                Some(entry_price + (tick_size * sl_tp.stop_loss_ticks as f64))
+            } else { None };
+            let tp_ticks_val = if sl_tp.take_profit_ticks > 0 {
+                Some(entry_price - (tick_size * sl_tp.take_profit_ticks as f64))
+            } else { None };
+            (sl_ticks_val, tp_ticks_val)
+        };
+
+        // If no SL/TP configured, use simple order
+        if stop_loss.is_none() && take_profit.is_none() {
+            return vec![OrderRequest::Submit(
+                kairos_backtest::order::request::NewOrder {
+                    instrument,
+                    side: OrderSide::Sell,
+                    order_type: OrderType::Market,
+                    quantity: 1.0,
+                    time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                    label: Some("ml_short".to_string()),
+                    reduce_only: false,
+                },
+            )];
+        }
+
+        // Create bracket order
+        vec![OrderRequest::SubmitBracket(
+            kairos_backtest::order::request::BracketOrder {
+                entry: kairos_backtest::order::request::NewOrder {
+                    instrument,
+                    side: OrderSide::Sell,
+                    order_type: OrderType::Market,
+                    quantity: 1.0,
+                    time_in_force: kairos_backtest::order::types::TimeInForce::GTC,
+                    label: Some("ml_short".to_string()),
+                    reduce_only: false,
+                },
+                stop_loss: stop_loss.unwrap_or_else(|| entry_price + (tick_size * 40.0)), // fallback SL: 40 ticks
+                take_profit,
+            },
+        )]
+    }
+
+    /// Get the latest ATR value from the feature extractor
+    fn get_latest_atr_value(&self) -> Option<i64> {
+        // Extract the last ATR value from the latest features
+        self.latest_features.as_ref()
+            .and_then(|features| {
+                // ATR is typically the 6th feature (index 5) in our 12-feature config
+                features.get(5).and_then(|atr_values| atr_values.last().copied())
+            })
+            .map(|v| v as i64)
     }
 }
 

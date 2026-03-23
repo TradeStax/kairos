@@ -1,18 +1,6 @@
 {
   "id": "nq_lstm_strategy",
   "name": "NQ LSTM Strategy",
-  "description": "LSTM neural network trained on NQ futures with 12 technical indicators",
-  "signal_threshold_long": 0.45,
-  "signal_threshold_short": 0.45,
-  "min_confidence": 0.40,
-  "use_confidence_for_sizing": false,
-  "sl_tp": {
-    "stop_loss_ticks": 15,
-    "take_profit_ticks": 25,
-    "use_atr_based": false,
-    "stop_loss_atr_multiplier": 2.0,
-    "take_profit_atr_multiplier": 2.0
-  },
   "feature_config": {
     "features": [
       {"study_key": "sma_20", "output_field": "line"},
@@ -30,5 +18,13 @@
     ],
     "lookback_periods": 20,
     "normalization": "none"
+  },
+  "signal_threshold_long": 0.55,
+  "signal_threshold_short": 0.55,
+  "min_confidence": 0.50,
+  "sl_tp": {
+    "stop_loss_ticks": 50,
+    "take_profit_ticks": 75,
+    "use_atr_based": false
   }
 }

@@ -23,3 +23,7 @@ training_dataset.json
 
 # ML Progress files
 !LSTM_TRAINING.md
+
+reports/
+
+**/__pycache__

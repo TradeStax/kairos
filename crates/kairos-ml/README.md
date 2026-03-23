@@ -19,7 +19,7 @@ ML strategy module for Kairos with PyTorch integration for building and deployin
 
 ## Features
 
-- **Model Loading**: Load models from ONNX or PyTorch state dict format
+- **Model Loading**: Load models from safetensors format with architecture metadata
 - **Feature Extraction**: Convert any combination of studies to model input tensors
 - **Inference Engine**: Batch prediction with signal output and confidence scores
 - **Training Pipeline**: Train models using built-in indicators as features
@@ -75,12 +75,12 @@ cargo run --example train_simple_model --release
 This will:
 - Generate synthetic training data
 - Train a simple MLP classifier
-- Save the model to `trained_model.pt`
+- Save the model to `trained_model.safetensors`
 
 ### 2. Validate the Model
 
 ```bash
-kairos ml validate-model --model trained_model.pt --data sample.dbn
+kairos ml validate-model --model trained_model.safetensors --data sample.dbn
 ```
 
 ### 3. Run a Backtest
@@ -92,7 +92,7 @@ kairos backtest \
   --end 2023-12-31 \
   --strategy ml_strategy \
   --data-dir /path/to/dbn/files \
-  --model trained_model.pt
+  --model trained_model.safetensors
 ```
 
 ---
@@ -131,7 +131,7 @@ Set up signal thresholds and model path:
 use kairos_ml::{MlStrategy, MlStrategyConfig};
 
 let ml_config = MlStrategyConfig::new(feature_config)
-    .model_path("trained_model.pt")
+    .model_path("trained_model.safetensors")
     .signal_threshold_long(0.6)    // 60% probability for long
     .signal_threshold_short(0.6)  // 60% probability for short
     .min_confidence(0.5);          // 50% confidence minimum
@@ -254,7 +254,7 @@ kairos-ml/
 │       ├── mod.rs         # MlStrategy implementation
 │       └── config.rs      # MlStrategyConfig
 ├── examples/               # Usage examples
-│   ├── train_simple_model.rs
+│   ├── train_simple_model
 │   └── ml_strategy_backtest.rs
 ├── benches/                # Performance benchmarks
 └── tests/                 # Integration tests
@@ -291,7 +291,7 @@ kairos-ml/
 kairos ml train \
   --config training_config.json \
   --data-dir /path/to/dbn/files \
-  --output trained_model.pt \
+  --output trained_model.safetensors \
   --epochs 100 \
   --learning-rate 0.001
 ```
@@ -306,7 +306,7 @@ kairos ml list-models
 
 ```bash
 kairos ml validate-model \
-  --model trained_model.pt \
+  --model trained_model.safetensors \
   --data sample.dbn \
   --num-samples 1000 \
   --verbose
@@ -329,6 +329,23 @@ kairos ml validate-model \
 ```bash
 cargo bench -p kairos-ml
 ```
+
+### Model Persistence
+
+Models are saved using the **safetensors** format:
+
+```
+models/
+├── nq_lstm_model.safetensors  # Model weights
+└── nq_lstm_model.json         # Architecture metadata
+```
+
+The metadata JSON contains:
+- `model_type`: "lstm" or "mlp"
+- `num_features`: Number of input features
+- `lookback`: Sequence length
+- `hidden_size`: Hidden layer size
+- `num_classes`: Output classes (3 for long/neutral/short)
 
 ---
 

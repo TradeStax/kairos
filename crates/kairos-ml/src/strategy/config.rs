@@ -6,6 +6,76 @@ use crate::features::FeatureConfig;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Stop-loss and take-profit configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopLossTakeProfitConfig {
+    /// Stop-loss distance in ticks (0 = disabled)
+    #[serde(default)]
+    pub stop_loss_ticks: i32,
+    /// Take-profit distance in ticks (0 = disabled)
+    #[serde(default)]
+    pub take_profit_ticks: i32,
+    /// Use ATR-based SL/TP instead of fixed ticks
+    #[serde(default)]
+    pub use_atr_based: bool,
+    /// ATR multiplier for stop-loss (only used when use_atr_based = true)
+    #[serde(default = "default_atr_multiplier")]
+    pub stop_loss_atr_multiplier: f64,
+    /// ATR multiplier for take-profit (only used when use_atr_based = true)
+    #[serde(default = "default_atr_multiplier")]
+    pub take_profit_atr_multiplier: f64,
+}
+
+fn default_atr_multiplier() -> f64 {
+    2.0
+}
+
+impl Default for StopLossTakeProfitConfig {
+    fn default() -> Self {
+        Self {
+            stop_loss_ticks: 0,
+            take_profit_ticks: 0,
+            use_atr_based: false,
+            stop_loss_atr_multiplier: 2.0,
+            take_profit_atr_multiplier: 2.0,
+        }
+    }
+}
+
+impl StopLossTakeProfitConfig {
+    /// Create a new SL/TP config with fixed ticks
+    pub fn fixed_ticks(sl_ticks: i32, tp_ticks: i32) -> Self {
+        Self {
+            stop_loss_ticks: sl_ticks,
+            take_profit_ticks: tp_ticks,
+            use_atr_based: false,
+            stop_loss_atr_multiplier: 2.0,
+            take_profit_atr_multiplier: 2.0,
+        }
+    }
+
+    /// Create a new SL/TP config with ATR-based distances
+    pub fn atr_based(sl_multiplier: f64, tp_multiplier: f64) -> Self {
+        Self {
+            stop_loss_ticks: 0,
+            take_profit_ticks: 0,
+            use_atr_based: true,
+            stop_loss_atr_multiplier: sl_multiplier,
+            take_profit_atr_multiplier: tp_multiplier,
+        }
+    }
+
+    /// Check if stop-loss is enabled
+    pub fn has_stop_loss(&self) -> bool {
+        self.stop_loss_ticks > 0 || self.use_atr_based
+    }
+
+    /// Check if take-profit is enabled
+    pub fn has_take_profit(&self) -> bool {
+        self.take_profit_ticks > 0 || self.use_atr_based
+    }
+}
+
 /// Configuration for the ML strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlStrategyConfig {
@@ -31,6 +101,9 @@ pub struct MlStrategyConfig {
     /// Use model confidence for position sizing
     #[serde(default)]
     pub use_confidence_for_sizing: bool,
+    /// Stop-loss and take-profit configuration
+    #[serde(default)]
+    pub sl_tp: Option<StopLossTakeProfitConfig>,
 }
 
 fn default_signal_threshold() -> f64 {
@@ -54,7 +127,14 @@ impl MlStrategyConfig {
             signal_threshold_short: 0.6,
             min_confidence: 0.5,
             use_confidence_for_sizing: false,
+            sl_tp: None,
         }
+    }
+
+    /// Set stop-loss and take-profit config
+    pub fn with_sl_tp(mut self, sl_tp: StopLossTakeProfitConfig) -> Self {
+        self.sl_tp = Some(sl_tp);
+        self
     }
 
     /// Set the model path
@@ -136,6 +216,7 @@ impl Default for MlStrategyConfig {
             signal_threshold_short: 0.6,
             min_confidence: 0.5,
             use_confidence_for_sizing: false,
+            sl_tp: None,
         }
     }
 }

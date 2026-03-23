@@ -11,6 +11,7 @@ use databento::dbn::TradeMsg;
 use kairos_data::{DateRange, FuturesTicker, FuturesVenue, Price, Quantity, Side, Timestamp, Trade};
 use kairos_backtest::config::backtest::BacktestConfig;
 use kairos_backtest::BacktestRunner;
+use kairos_backtest::output::export::BacktestExport;
 use kairos_backtest::strategy::registry::StrategyRegistry;
 use kairos_backtest::TradeProvider;
 
@@ -39,6 +40,9 @@ pub struct BacktestArgs {
 
     #[arg(long, default_value = "text")]
     pub format: String,
+
+    #[arg(long)]
+    pub export: Option<PathBuf>,
 
     #[arg(long, required = true)]
     pub data_dir: PathBuf,
@@ -161,7 +165,7 @@ pub async fn run(args: BacktestArgs) -> Result<()> {
     config.date_range = date_range.clone();
     config.timeframe = timeframe;
     config.initial_capital_usd = args.capital;
-    config.warm_up_periods = if args.strategy == "ml" { 50 } else { 50 };
+    config.warm_up_periods = if args.strategy == "ml" { 100 } else { 50 };
 
     println!("Kairos Backtest");
     println!("Symbol: {} | Period: {} to {} | Strategy: {}", 
@@ -198,19 +202,47 @@ pub async fn run(args: BacktestArgs) -> Result<()> {
     let result = runner.run(config, strategy).await
         .map_err(|e| anyhow::anyhow!("Backtest failed: {}", e))?;
 
-    println!("\nResults");
-    println!("=======");
-    println!("Final Equity: ${:.2}", result.metrics.final_equity_usd);
-    println!("Return: {:.2}%", result.metrics.total_return_pct);
-    println!("Max Drawdown: {:.2}% (${:.2})", 
-             result.metrics.max_drawdown_pct, result.metrics.max_drawdown_usd);
-    println!("Trades: {}", result.metrics.total_trades);
-    println!("Win Rate: {:.1}%", result.metrics.win_rate * 100.0);
-    println!("Profit Factor: {:.2}", result.metrics.profit_factor);
-    println!("Sharpe: {:.2}", result.metrics.sharpe_ratio);
-    println!("Sortino: {:.2}", result.metrics.sortino_ratio);
+    // Create the export for JSON output and file export
+    let export = BacktestExport::from_result(&result);
 
-    if args.verbose {
+    // Handle JSON format or export
+    if args.format == "json" || args.export.is_some() {
+        let json = serde_json::to_string_pretty(&export)?;
+        
+        if args.format == "json" {
+            println!("{}", json);
+        }
+        
+        if let Some(export_path) = &args.export {
+            std::fs::write(export_path, &json)?;
+            println!("\nExport saved to: {}", export_path.display());
+        }
+    }
+
+    // Text output (default)
+    if args.format != "json" {
+        println!("\nResults");
+        println!("=======");
+        println!("Final Equity: ${:.2}", result.metrics.final_equity_usd);
+        println!("Return: {:.2}%", result.metrics.total_return_pct);
+        println!("Max Drawdown: {:.2}% (${:.2})", 
+                 result.metrics.max_drawdown_pct, result.metrics.max_drawdown_usd);
+        println!("Trades: {}", result.metrics.total_trades);
+        println!("Win Rate: {:.1}%", result.metrics.win_rate * 100.0);
+        println!("Profit Factor: {:.2}", result.metrics.profit_factor);
+        println!("Sharpe: {:.2}", result.metrics.sharpe_ratio);
+        println!("Sortino: {:.2}", result.metrics.sortino_ratio);
+        
+        if !result.warnings.is_empty() {
+            println!("\nWarnings:");
+            for warning in &result.warnings {
+                println!("  - {}", warning);
+            }
+        }
+    }
+
+    // Verbose output (only in text mode)
+    if args.verbose && args.format != "json" {
         println!("\nEquity Curve Points: {}", result.equity_curve.points.len());
         if !result.equity_curve.points.is_empty() {
             let min_eq = result.equity_curve.points.iter()
@@ -229,13 +261,6 @@ pub async fn run(args: BacktestArgs) -> Result<()> {
             println!("  Trade {}: {:?} {} @ entry ${:.2} exit ${:.2} P&L: ${:.2} | {:?}", 
                      i + 1, trade.side, trade.quantity, 
                      entry_dollars, exit_dollars, trade.pnl_net_usd, trade.exit_reason);
-        }
-    }
-
-    if !result.warnings.is_empty() {
-        println!("\nWarnings:");
-        for warning in &result.warnings {
-            println!("  - {}", warning);
         }
     }
 
@@ -523,18 +548,21 @@ fn create_default_feature_config() -> FeatureConfig {
             FeatureDefinition::new("ema_12", "line"),
             FeatureDefinition::new("ema_26", "line"),
             // Momentum
-            FeatureDefinition::new("rsi", "line"),
+            FeatureDefinition::new("rsi", "value"),
             // Volatility
-            FeatureDefinition::new("atr", "line"),
-            // MACD
-            FeatureDefinition::new("macd", "line"),
-            FeatureDefinition::new("macd_signal", "line"),
-            FeatureDefinition::new("macd_hist", "line"),
-            // Bollinger Bands
-            FeatureDefinition::new("bb_upper", "band.upper"),
-            FeatureDefinition::new("bb_lower", "band.lower"),
+            FeatureDefinition::new("atr", "value"),
+            // MACD - composite output with Lines + Histogram
+            // For MACD, "line" returns the first line (MACD main)
+            // For MACD Signal, we use numeric index "lines.1" (second line is Signal)
+            // For MACD Histogram, we use "histogram"
+            FeatureDefinition::new("macd", "lines.0"),
+            FeatureDefinition::new("macd_signal", "lines.1"),
+            FeatureDefinition::new("macd_hist", "histogram"),
+            // Bollinger Bands (study ID is "bollinger", not "bb")
+            FeatureDefinition::new("bollinger_upper", "band.upper"),
+            FeatureDefinition::new("bollinger_lower", "band.lower"),
             // Volume
-            FeatureDefinition::new("vwap", "line"),
+            FeatureDefinition::new("vwap", "value"),
         ],
         lookback_periods: 20,
         normalization: NormalizationMethod::None,

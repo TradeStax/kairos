@@ -6,6 +6,7 @@
 use super::config::{ModelType, TrainingConfig};
 use super::dataset::{BatchIterator, Dataset};
 use super::{TrainingMetrics, TrainingResult};
+use crate::model::tch_impl::ModelMetadata;
 
 /// Training progress callback
 pub trait TrainingCallback: Send + Sync {
@@ -31,6 +32,8 @@ pub struct TrainResult {
     pub result: TrainingResult,
     /// The trained VarStore (contains model weights)
     pub var_store: tch::nn::VarStore,
+    /// Model metadata for loading later
+    pub metadata: ModelMetadata,
 }
 
 /// Run training loop and return trained model
@@ -39,26 +42,32 @@ pub fn train<C: TrainingCallback>(
     dataset: &Dataset,
     callback: &C,
 ) -> TrainResult {
+    use tch::Device;
     let num_features = dataset.num_features();
     let lookback = dataset.lookback();
     let num_classes = 3;
     let batch_size = config.batch_size;
 
-    // Determine device
-    let device_str = if let Some(gpu_id) = config.gpu_device {
-        if tch::Cuda::is_available() {
-            format!("GPU {}", gpu_id)
-        } else {
-            "CPU (GPU unavailable)".to_string()
-        }
+    // Determine device - force GPU if available
+    let device = if let Some(gpu_id) = config.gpu_device {
+        println!("Using GPU {}", gpu_id);
+        Device::Cuda(gpu_id as usize)
     } else if tch::Cuda::is_available() {
-        "GPU 0 (auto)".to_string()
+        println!("Auto-detected GPU, using GPU 0");
+        Device::Cuda(0)
     } else {
-        "CPU".to_string()
+        println!("Using CPU");
+        Device::Cpu
     };
-    println!("Device: {}", device_str);
+    println!("Device: {:?}", device);
 
     let is_lstm = matches!(config.model_type, ModelType::LSTM | ModelType::BiLSTM);
+    let model_type_str = match config.model_type {
+        ModelType::LSTM => "lstm",
+        ModelType::BiLSTM => "lstm", // BiLSTM saves as lstm with bidirectional flag
+        ModelType::Mlp => "mlp",
+        ModelType::Conv1D => "conv1d",
+    };
     println!(
         "Training: features={}, lookback={}, classes={}, architecture={:?}",
         num_features, lookback, num_classes, config.model_type
@@ -73,23 +82,24 @@ pub fn train<C: TrainingCallback>(
 
     // Training with MLP model
     if !is_lstm {
-        return train_mlp(config, dataset, &train_data, &val_data, num_features, lookback, callback);
+        return train_mlp(config, &train_data, &val_data, num_features, lookback, model_type_str, callback);
     }
     
     // Training with LSTM model
-    train_lstm(config, dataset, &train_data, &val_data, num_features, lookback, callback)
+    train_lstm(config, &train_data, &val_data, num_features, lookback, model_type_str, callback)
 }
 
 fn train_mlp<C: TrainingCallback>(
     config: &TrainingConfig,
-    _dataset: &Dataset,
     train_data: &Dataset,
     val_data: &Dataset,
     num_features: usize,
     lookback: usize,
+    model_type_str: &str,
     callback: &C,
 ) -> TrainResult {
-    use tch::{Kind, Device, Tensor};
+    use tch::Device;
+    use tch::{Kind, Tensor};
     use tch::nn::OptimizerConfig;
 
     let input_size = (lookback * num_features) as i64;
@@ -178,12 +188,24 @@ fn train_mlp<C: TrainingCallback>(
                     patience_counter += 1;
                     if patience_counter >= config.early_stopping_patience {
                         println!("Early stopping at epoch {}", epoch);
+                        let metadata = ModelMetadata {
+                            model_type: model_type_str.to_string(),
+                            num_features: num_features as i64,
+                            lookback: lookback as i64,
+                            hidden_size: 64, // MLP hidden size
+                            num_classes: 3,
+                            num_layers: 1,
+                            dropout: 0.0,
+                            bidirectional: false,
+                            name: "mlp_model".to_string(),
+                        };
                         return TrainResult {
                             result: TrainingResult {
                                 final_train_loss: train_loss, final_val_loss: val_loss,
                                 epochs_trained: epoch, early_stopped: true, metrics: metrics_history,
                             },
                             var_store: vs,
+                            metadata,
                         };
                     }
                 }
@@ -191,6 +213,17 @@ fn train_mlp<C: TrainingCallback>(
         }
     }
 
+    let metadata = ModelMetadata {
+        model_type: model_type_str.to_string(),
+        num_features: num_features as i64,
+        lookback: lookback as i64,
+        hidden_size: 64, // MLP hidden size
+        num_classes: 3,
+        num_layers: 1,
+        dropout: 0.0,
+        bidirectional: false,
+        name: "mlp_model".to_string(),
+    };
     TrainResult {
         result: TrainingResult {
             final_train_loss: metrics_history.last().map(|m| m.train_loss).unwrap_or(0.0),
@@ -198,19 +231,21 @@ fn train_mlp<C: TrainingCallback>(
             epochs_trained: config.epochs, early_stopped: false, metrics: metrics_history,
         },
         var_store: vs,
+        metadata,
     }
 }
 
 fn train_lstm<C: TrainingCallback>(
     config: &TrainingConfig,
-    _dataset: &Dataset,
     train_data: &Dataset,
     val_data: &Dataset,
     num_features: usize,
     lookback: usize,
+    model_type_str: &str,
     callback: &C,
 ) -> TrainResult {
-    use tch::{Kind, Device, Tensor};
+    use tch::Device;
+    use tch::{Kind, Tensor};
     use tch::nn::{RNN, OptimizerConfig};
 
     let num_features_i64 = num_features as i64;
@@ -221,7 +256,21 @@ fn train_lstm<C: TrainingCallback>(
     let num_classes = 3;
     let batch_size = config.batch_size;
 
-    let vs = tch::nn::VarStore::new(Device::Cpu);
+    // Use GPU if available
+    let device = if let Some(gpu_id) = config.gpu_device {
+        if tch::Cuda::is_available() {
+            Device::Cuda(gpu_id as usize)
+        } else {
+            Device::Cpu
+        }
+    } else if tch::Cuda::is_available() {
+        println!("Using GPU 0 for training");
+        Device::Cuda(0)
+    } else {
+        Device::Cpu
+    };
+    
+    let vs = tch::nn::VarStore::new(device);
     let root = vs.root();
     let lstm_cfg = tch::nn::RNNConfig { dropout, num_layers: config.lstm_config.num_layers as i64, bidirectional, ..Default::default() };
     let lstm = tch::nn::lstm(&root / "lstm", num_features_i64, hidden_size, lstm_cfg);
@@ -244,8 +293,8 @@ fn train_lstm<C: TrainingCallback>(
 
         for batch in BatchIterator::new(train_data, batch_size) {
             let features_f32: Vec<f32> = batch.features.iter().map(|&x| x as f32).collect();
-            let input = Tensor::from_slice(&features_f32).reshape([batch.num_samples as i64, lookback_i64, num_features_i64]);
-            let target = Tensor::from_slice(&batch.labels.iter().map(|&l| l as i64).collect::<Vec<_>>());
+            let input = Tensor::from_slice(&features_f32).reshape([batch.num_samples as i64, lookback_i64, num_features_i64]).to(device);
+            let target = Tensor::from_slice(&batch.labels.iter().map(|&l| l as i64).collect::<Vec<_>>()).to(device);
             let (output, _) = lstm.seq(&input);
             let seq_len = output.size()[1];
             let last = output.narrow(1, seq_len - 1, 1).squeeze();
@@ -272,8 +321,8 @@ fn train_lstm<C: TrainingCallback>(
 
             for batch in BatchIterator::new(val_data, batch_size) {
                 let features_f32: Vec<f32> = batch.features.iter().map(|&x| x as f32).collect();
-                let input = Tensor::from_slice(&features_f32).reshape([batch.num_samples as i64, lookback_i64, num_features_i64]);
-                let target = Tensor::from_slice(&batch.labels.iter().map(|&l| l as i64).collect::<Vec<_>>());
+                let input = Tensor::from_slice(&features_f32).reshape([batch.num_samples as i64, lookback_i64, num_features_i64]).to(device);
+                let target = Tensor::from_slice(&batch.labels.iter().map(|&l| l as i64).collect::<Vec<_>>()).to(device);
                 let (output, _) = lstm.seq(&input);
                 let seq_len = output.size()[1];
                 let last = output.narrow(1, seq_len - 1, 1).squeeze();
@@ -309,12 +358,24 @@ fn train_lstm<C: TrainingCallback>(
                     patience_counter += 1;
                     if patience_counter >= config.early_stopping_patience {
                         println!("Early stopping at epoch {}", epoch);
+                        let metadata = ModelMetadata {
+                            model_type: model_type_str.to_string(),
+                            num_features: num_features_i64,
+                            lookback: lookback_i64,
+                            hidden_size,
+                            num_classes: 3,
+                            num_layers: config.lstm_config.num_layers as i64,
+                            dropout,
+                            bidirectional,
+                            name: "lstm_model".to_string(),
+                        };
                         return TrainResult {
                             result: TrainingResult {
                                 final_train_loss: train_loss, final_val_loss: val_loss,
                                 epochs_trained: epoch, early_stopped: true, metrics: metrics_history,
                             },
                             var_store: vs,
+                            metadata,
                         };
                     }
                 }
@@ -322,6 +383,17 @@ fn train_lstm<C: TrainingCallback>(
         }
     }
 
+    let metadata = ModelMetadata {
+        model_type: model_type_str.to_string(),
+        num_features: num_features_i64,
+        lookback: lookback_i64,
+        hidden_size,
+        num_classes: 3,
+        num_layers: config.lstm_config.num_layers as i64,
+        dropout,
+        bidirectional,
+        name: "lstm_model".to_string(),
+    };
     TrainResult {
         result: TrainingResult {
             final_train_loss: metrics_history.last().map(|m| m.train_loss).unwrap_or(0.0),
@@ -329,6 +401,7 @@ fn train_lstm<C: TrainingCallback>(
             epochs_trained: config.epochs, early_stopped: false, metrics: metrics_history,
         },
         var_store: vs,
+        metadata,
     }
 }
 
